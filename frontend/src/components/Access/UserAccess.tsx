@@ -1,3 +1,5 @@
+import {FunctionalGroupPills} from '@/components/Shared/FunctionalGroupPills'
+import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import { BulkAssignDialog } from './BulkAssignDialog'
 import {SAPUserLink} from '@/components/Shared/SAPUserLink'
 import {ExportCSVButton} from '@/components/Shared/ExportCSVButton'
@@ -56,29 +58,6 @@ const USER_SORTS = [
   { value: 'last_name', label: 'Last name' }, { value: 'email', label: 'Email' }, { value: 'account_status', label: 'Account status' },
   { value: 'relevant_roles', label: 'Relevant role count' }, { value: 'job_title', label: 'Job title' }, { value: 'department', label: 'Department' },
 ]
-/** Optional columns of the user table. Username, statuses and the role count always stay visible. */
-const OPTIONAL_COLUMNS = [['name', 'Full name'], ['title', 'Job title'], ['department', 'Department'], ['fg', 'Functional Group'], ['group', 'SAP user group'], ['email', 'Email']] as const
-type ColumnKey = typeof OPTIONAL_COLUMNS[number][0]
-const COLUMNS_KEY = 'sap-lens.user-access.columns'
-function storedColumns(): Set<ColumnKey> {
-  const all = new Set<ColumnKey>(OPTIONAL_COLUMNS.map(([key]) => key))
-  try {
-    const saved: unknown = JSON.parse(window.localStorage.getItem(COLUMNS_KEY) || 'null')
-    if (Array.isArray(saved)) return new Set([...all].filter(key => !saved.includes(key)))   // stored as the hidden keys, so a new column starts visible
-  } catch { /* unavailable or malformed storage: every column is shown */ }
-  return all
-}
-const GROUP_CHIPS = 2
-/** Memberships as compact chips keyed by the stable group id; the rest is one "+N" control that names them and opens the user. */
-function GroupChips({ groups, username, onOpen }: { groups: { id: string; name: string; status: string }[]; username: string; onOpen: () => void }) {
-  const shown = groups.slice(0, GROUP_CHIPS), rest = groups.slice(GROUP_CHIPS), label = (group: { name: string; status: string }) => group.name + (group.status === 'archived' ? ' (archived)' : '')
-  return (
-    <span className="fg-chips" role="list" aria-label={`Functional Groups of ${username}`}>
-      {shown.map(group => <span role="listitem" key={group.id} className="fg-chip" title={label(group)}>{label(group)}</span>)}
-      {rest.length > 0 && <span role="listitem"><button type="button" className="fg-chip fg-chip-more" title={rest.map(label).join(', ')} aria-label={`${rest.length} more Functional ${rest.length === 1 ? 'Group' : 'Groups'} of ${username}: ${rest.map(label).join(', ')}`} onClick={onOpen}>+{rest.length}</button></span>}
-    </span>
-  )
-}
 /** A Directory value, or why there is none: the cell never shows a guessed value. */
 function DirectoryValue({ value, status }: { value?: string; status?: string }) {
   if (value) return <span className="ud-ellipsis" title={value}>{value}</span>
@@ -113,7 +92,6 @@ export function UserAccess({
   const openUser = (username: string) => { listScroll.current = window.scrollY; originUser.current = username; changeView({ user: username, userTrail: [] }) };
   const [search, setSearch] = useState(""),
     [sort, setSort] = useState("username"),
-    [columns, setColumns] = useState<Set<ColumnKey>>(storedColumns),
     [descending, setDescending] = useState(false);
   const organizationLabel = useOrganizationLabel()
   const [groups, setGroups] = useState<string[]>([]),
@@ -231,6 +209,30 @@ export function UserAccess({
             <SavedFilters showClear={false} view="users" state={{usernames,assignmentBand,search,groups,sort,descending,roles,tcodes:directoryTransaction.codes,transactionMode,excludeTcodes:excludeTransaction.codes,excludeMode,missingRoles,missingMode,expired}} apply={s=>{if(typeof s.usernames==='string'){setUsernames(s.usernames.slice(0,12000));setUsernameDraft(s.usernames.slice(0,12000))};setMissingRoles(Array.isArray(s.missingRoles)?s.missingRoles.filter((name:unknown):name is string=>typeof name==='string').slice(0,20):[]);setMissingMode(s.missingMode==='all'?'all':'any');setAssignmentBand(typeof s.assignmentBand==='string'?s.assignmentBand:'');if(typeof s.search==='string')setSearch(s.search);if(Array.isArray(s.groups))setGroups(s.groups.filter((v:unknown):v is string=>typeof v==='string').slice(0,50));else if(typeof s.group==='string'&&s.group)setGroups([s.group]);if(typeof s.sort==='string'&&['username','group','first_name','last_name','email','account_status','relevant_roles'].includes(s.sort))setSort(s.sort);if(typeof s.descending==='boolean')setDescending(s.descending);if(Array.isArray(s.roles))setRoles(s.roles.filter((v:unknown):v is string=>typeof v==='string').slice(0,50));else if(typeof s.role==='string'&&s.role)setRoles([s.role]);if(Array.isArray(s.tcodes)){directoryTransaction.setInput('');directoryTransaction.setChips(s.tcodes)};if(s.transactionMode==='and'||s.transactionMode==='or')setTransactionMode(s.transactionMode);if(Array.isArray(s.excludeTcodes)){excludeTransaction.setInput('');excludeTransaction.setChips(s.excludeTcodes)}else excludeTransaction.clear();setExcludeMode(s.excludeMode==='all'?'all':'any');if(typeof s.expired==='boolean')setExpired(s.expired)}} clear={clearAll}/>
           </FilterSection>
           <FilterSection title="Users">
+        <Filter label="Search users">
+          <input
+            className={inputClass}
+            value={search}
+            maxLength={256}
+            onChange={(e) => setSearch(e.target.value)}
+            onPaste={(e) => {
+              // Only a deliberate paste of a list converts: typing never does, and one ordinary term (name, e-mail, "two words") stays a text search.
+              const text = e.clipboardData.getData('text')
+              if (looksLikeUsernameList(text)) { e.preventDefault(); setUsernameDraft(text); setUsernames(text); setPicked(new Set()) }
+            }}
+            placeholder="Username, name, email or group"
+          />
+        </Filter>
+        <Filter label="Exact usernames">
+          <textarea className={inputClass} rows={3} value={usernameDraft} maxLength={16000} aria-label="Exact usernames" aria-describedby="exact-usernames-help"
+            onChange={(e) => setUsernameDraft(e.target.value)} placeholder="Paste usernames from Excel or a list" />
+          <p id="exact-usernames-help" className="ui-description">One per line, or separated by commas, semicolons or tabs. Exact, case-insensitive match; up to 500 names.</p>
+          <div className="ui-toolbar">
+            <Button variant="primary" disabled={usernameDraft === usernames} onClick={() => setUsernames(usernameDraft)}><FileCheck2 size={16} aria-hidden="true"/>{usernames ? 'Replace list' : 'Apply list'}</Button>
+            {(usernames || usernameDraft) && <Button variant="outline" onClick={() => { setUsernames(''); setUsernameDraft('') }}><X size={16} aria-hidden="true"/>Clear list</Button>}
+          </div>
+        </Filter>
+
         <Filter label="SAP User Group">
           <MultiSelectFilter label="SAP User Group" values={groups} options={result.data?.groups || []} onChange={setGroups} placeholder="All groups · type to search"/>
         </Filter>
@@ -268,29 +270,6 @@ export function UserAccess({
           </FilterSection>
         </div>}>
       <div className="grid min-w-0 gap-4">
-        <Filter label="Search users">
-          <input
-            className={inputClass}
-            value={search}
-            maxLength={256}
-            onChange={(e) => setSearch(e.target.value)}
-            onPaste={(e) => {
-              // Only a deliberate paste of a list converts: typing never does, and one ordinary term (name, e-mail, "two words") stays a text search.
-              const text = e.clipboardData.getData('text')
-              if (looksLikeUsernameList(text)) { e.preventDefault(); setUsernameDraft(text); setUsernames(text); setPicked(new Set()) }
-            }}
-            placeholder="Username, name, email or group"
-          />
-        </Filter>
-        <Filter label="Exact usernames">
-          <textarea className={inputClass} rows={3} value={usernameDraft} maxLength={16000} aria-label="Exact usernames" aria-describedby="exact-usernames-help"
-            onChange={(e) => setUsernameDraft(e.target.value)} placeholder="Paste usernames from Excel or a list" />
-          <p id="exact-usernames-help" className="ui-description">One per line, or separated by commas, semicolons or tabs. Exact, case-insensitive match; up to 500 names.</p>
-          <div className="ui-toolbar">
-            <Button variant="primary" disabled={usernameDraft === usernames} onClick={() => setUsernames(usernameDraft)}>{usernames ? 'Replace list' : 'Apply list'}</Button>
-            {(usernames || usernameDraft) && <Button variant="outline" onClick={() => { setUsernames(''); setUsernameDraft('') }}>Clear list</Button>}
-          </div>
-        </Filter>
       {(assignmentBand || roles.length > 0 || groups.length > 0 || functionalGroups.length > 0 || managers.length > 0 || search || usernames || expired) && <div className="active-filter-row" aria-label="Active user filters">
         {assignmentBand&&<FilterChip removeLabel="Remove assignment count filter" onRemove={()=>setAssignmentBand('')}>{assignmentBand} currently valid roles</FilterChip>}
         {expired && <FilterChip removeLabel="Remove expired assignment filter" onRemove={()=>setExpired(false)}>Include Expired Assignments</FilterChip>}
@@ -333,22 +312,19 @@ export function UserAccess({
           {assignOpen&&<BulkAssignDialog usernames={[...picked].sort()} onClose={()=>setAssignOpen(false)} onChanged={()=>undefined}/>}
           {selectionNote&&<p role="status" className="ui-description">{selectionNote}</p>}
           <details className="ui-evidence-disclosure"><summary>Export scope</summary><div><p className="ui-description">Exports all {result.data.export_assignments?.toLocaleString()??'available'} imported assignments for matching users, including other roles{expired?' and expired assignments':'; expired assignments are excluded while Show expired assignments is off'}. MATCHED_FILTER identifies assignment-level matches. Export covers all matching users and does not depend on the selection. Role-derived transactions are evidence, not proof of effective SAP authorization.</p></div></details>
-          <details className="ui-evidence-disclosure"><summary>Columns</summary><div className="flex flex-wrap gap-x-4 gap-y-2" role="group" aria-label="Visible columns">
-            {OPTIONAL_COLUMNS.map(([key,label])=><label key={key} className="inline-flex items-center gap-2"><input type="checkbox" checked={columns.has(key)} onChange={()=>setColumns(previous=>{const next=new Set(previous);if(next.has(key))next.delete(key);else next.add(key)
-              try{window.localStorage.setItem(COLUMNS_KEY,JSON.stringify(OPTIONAL_COLUMNS.map(([name])=>name).filter(name=>!next.has(name))))}catch{/* the choice then lasts for this visit only */}
-              return next})}/>{label}</label>)}</div></details>
+
           <div className="access-table user-directory-table" tabIndex={0} role="region" aria-label="User directory table">
-            <table>
+            <ConfigurableTable aria-label="User directory">
               <thead>
                 <tr>
                   <th className="col-select ud-sticky-1"><input type="checkbox" aria-label="Select all users on this page" checked={pageAll} ref={el=>{if(el)el.indeterminate=pageSome&&!pageAll}} onChange={()=>setPicked(prev=>{const n=new Set(prev);if(pageAll)pageNames.forEach(u=>n.delete(u));else pageNames.forEach(u=>n.add(u));return n})}/></th>
                   <th className="ud-sticky-2">Username</th>
-                  {columns.has('name')&&<th>Full name</th>}
-                  {columns.has('title')&&<th>Job title</th>}
-                  {columns.has('department')&&<th>Department</th>}
-                  {columns.has('fg')&&<th>Functional Group</th>}
-                  {columns.has('group')&&<th>SAP user group</th>}
-                  {columns.has('email')&&<th>Email</th>}
+                  {<th>Full name</th>}
+                  {<th>Job title</th>}
+                  {<th>Department</th>}
+                  {<th>Functional Group</th>}
+                  {<th>SAP user group</th>}
+                  {<th>Email</th>}
                   <th>SAP account status</th>
                   <th>Lock status</th>
                   <th>Relevant roles</th>
@@ -364,12 +340,12 @@ export function UserAccess({
                     <td className="ud-sticky-2">
                       <SAPUserLink username={user.username} copyLabel="username" onOpen={()=>openUser(user.username)} openLabel={user.username}/>
                     </td>
-                    {columns.has('name')&&<td className="ud-cell" data-col="name"><span className="ud-ellipsis" title={full||undefined}>{full||"—"}</span></td>}
-                    {columns.has('title')&&<td className="ud-cell" data-col="title"><DirectoryValue value={user.job_title} status={user.directory_status}/></td>}
-                    {columns.has('department')&&<td className="ud-cell" data-col="department"><DirectoryValue value={user.department} status={user.directory_status}/></td>}
-                    {columns.has('fg')&&<td className="ud-cell" data-col="fg">{user.functional_groups?.length ? <GroupChips groups={user.functional_groups} username={user.username} onOpen={()=>openUser(user.username)}/> : <span className="text-muted">Unassigned</span>}{user.classification_status === "Needs review" && <> <ClassificationPill status="Needs review"/></>}</td>}
-                    {columns.has('group')&&<td className="ud-cell" data-col="group"><span className="ud-ellipsis" title={group}>{group}</span></td>}
-                    {columns.has('email')&&<td className="ud-cell" data-col="email"><span className="ud-ellipsis" title={user.email||undefined}>{user.email || "—"}</span></td>}
+                    {<td className="ud-cell" data-col="name"><span className="ud-ellipsis" title={full||undefined}>{full||"—"}</span></td>}
+                    {<td className="ud-cell" data-col="title"><DirectoryValue value={user.job_title} status={user.directory_status}/></td>}
+                    {<td className="ud-cell" data-col="department"><DirectoryValue value={user.department} status={user.directory_status}/></td>}
+                    {<td className="ud-cell" data-col="fg">{user.functional_groups?.length ? <FunctionalGroupPills groups={user.functional_groups} username={user.username}/> : <span className="text-muted">Unassigned</span>}{user.classification_status === "Needs review" && <> <ClassificationPill status="Needs review"/></>}</td>}
+                    {<td className="ud-cell" data-col="group"><span className="ud-ellipsis" title={group}>{group}</span></td>}
+                    {<td className="ud-cell" data-col="email"><span className="ud-ellipsis" title={user.email||undefined}>{user.email || "—"}</span></td>}
                     <td aria-label="Account validity">
                       <AccountStatus value={user.account_status}/>
                     </td><td aria-label="Account lock"><LockStatus value={user.lock_status}/>
@@ -378,7 +354,7 @@ export function UserAccess({
                   </tr>)
                 })}
               </tbody>
-            </table>
+            </ConfigurableTable>
           </div>
           {result.data.total === 0 && result.data.loaded && (
             <p>No users match these filters.</p>
@@ -470,9 +446,9 @@ function UserDetails({
           <UserProfile user={user}/>
           {user.account_total > 1 && <details className="settings-advanced"><summary>User validity and account evidence · {user.account_total} source records</summary>
             <p className="text-sm text-[var(--muted)]">Distinct source records are retained below; a summary does not override conflicting validity or lock evidence.</p>
-            <div className="access-table"><table><thead><tr><th>User group</th><th>User validity</th><th>Account status</th><th>Lock status</th><th>User type</th></tr></thead><tbody>
+            <div className="access-table"><ConfigurableTable aria-label="Account source observations"><thead><tr><th>User group</th><th>User validity</th><th>Account status</th><th>Lock status</th><th>User type</th></tr></thead><tbody>
               {user.accounts.map((a, i) => <tr key={i}><td>{a.user_group || 'Unknown'}</td><td>{dates(a.valid_from, a.valid_to)}</td><td><AccountStatus value={a.status}/></td><td><LockStatus value={a.locked == null ? 'Unknown' : a.locked ? 'Locked' : 'Unlocked'}/></td><td>{a.user_type || 'Unknown'}</td></tr>)}
-            </tbody></table></div>
+            </tbody></ConfigurableTable></div>
             <Pagination offset={accountOffset} total={user.account_total} onChange={setAccountOffset} label="Account evidence pages"/>
           </details>}
           {user.names_total > 100 && (
@@ -537,7 +513,7 @@ function UserDetails({
           <div className="assignment-results-summary"><strong>{user.total.toLocaleString()} matching assignments</strong><span className="ui-description">Validity evaluated on {formatDate(user.as_of)}.</span></div>
           {transactionCodes.length > 0 && (!user.mapping_available || Boolean(user.unmapped_assignments)) && <details className="compact-evidence-warning"><summary>Catalogue coverage may be incomplete</summary><p>{user.mapping_available ? `${user.unmapped_assignments} assignment records have unresolved or unavailable catalogue mappings.` : 'No role catalogue is loaded.'} Transaction coverage is role-derived evidence, not effective SAP authorization.</p></details>}
           <div className="access-table user-assignment-table" role="region" aria-label="User role assignments" tabIndex={0}>
-            <table>
+            <ConfigurableTable aria-label="User assignments">
               <thead>
                 <tr>
                   <th>Exact assigned role</th>
@@ -560,7 +536,7 @@ function UserDetails({
                   />
                 ))}
               </tbody>
-            </table>
+            </ConfigurableTable>
           </div>
           {!user.items.length && (
             <p>

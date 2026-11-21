@@ -1,3 +1,4 @@
+import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import { useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Grid3x3, X } from 'lucide-react'
@@ -97,7 +98,7 @@ export function SodGroupHeatmap() {
           : !rows.length ? <EmptyState>No potential conflicts in the selected evidence. Results describe imported evidence only.</EmptyState>
           : <>
             <div className="overflow-x-auto sod-heatmap-scroll" tabIndex={0} role="region" aria-label="SAP User Group heatmap table">
-              <table className="sod-heatmap">
+              <ConfigurableTable className="sod-heatmap">
                 <caption className="sr-only">Distinct users per SAP User Group and {risk ? 'risk' : 'activity'}. A user in several groups counts in each group. Select a group, a {risk ? 'risk' : 'activity'} or a cell to filter.</caption>
                 <thead><tr><th scope="col">SAP User Group</th><th scope="col">Users</th>{columns.map((column) => {
                   const id = idOf(column), selected = items.includes(id)
@@ -124,7 +125,7 @@ export function SodGroupHeatmap() {
                   })}
                 </tbody>
                 <tfoot><tr><th scope="row">Distinct users</th><td>{data.totals.users.toLocaleString()}</td>{columns.map((column) => <td key={idOf(column)}>{column.users.toLocaleString()}</td>)}</tr></tfoot>
-              </table>
+              </ConfigurableTable>
             </div>
             <p className="ui-description">
               A user in several SAP User Groups counts in each group, so group counts can add up to more than the distinct total.

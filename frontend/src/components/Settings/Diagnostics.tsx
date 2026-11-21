@@ -125,16 +125,16 @@ export function Diagnostics({
   return (
     <div className="space-y-5">
       <section className="settings-card space-y-4">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="settings-subheading">
             <Activity size={18} aria-hidden="true" /> Application status
           </h2>
           <span className="text-xs">{query.data?.deployment_mode||'desktop'} · {query.data?.platform||'Checking platform'}</span>
           <Button
             onClick={() => void query.refetch()}
-            className="settings-secondary-button"
+            className="settings-secondary-button shrink-0 whitespace-nowrap"
           >
-            Check again
+            <RotateCcw size={16} aria-hidden="true"/>Check again
           </Button>
         </div>
         <div className="diagnostic-health-grid"><StatusCard label="Source health" value={query.isError?'Unavailable':!query.data?'Checking…':query.data.sources.some(source=>source.enabled!==false&&source.error)?'Warnings':query.data.sources.some(source=>source.enabled!==false&&source.loaded)?'Ready':'Not configured'} tone={query.isError?'error':query.data?.sources.some(source=>source.enabled!==false&&source.error)?'warning':query.data?.sources.some(source=>source.enabled!==false&&source.loaded)?'success':'neutral'}/><StatusCard label="Local service" value={query.isError?'Unavailable':query.data?.backend_status?availabilityLabel(query.data.backend_status):'Checking…'} tone={query.isError?'error':query.data?.backend_status==='loading'?'info':query.data?'success':'neutral'}/><StatusCard label="Last successful refresh" value={formatTimestamp(query.data?.last_successful_refresh,'No successful refresh yet')}/><StatusCard label="Application storage" value={query.data?.storage_available?'Available':'Not created'} tone={query.data?.storage_available?'success':'neutral'}/></div>

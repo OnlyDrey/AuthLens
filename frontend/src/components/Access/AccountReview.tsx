@@ -1,3 +1,5 @@
+import {FunctionalGroupPills} from '@/components/Shared/FunctionalGroupPills'
+import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {useReviewerName} from '@/hooks/useReviewerIdentity'
 import { Dialog } from '@/components/Shared/Dialog'
 import { type ReviewEvidence } from '@/components/Shared/ReviewFindings'
@@ -392,7 +394,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
           </p>
           {!queue.data ? <p role="status">Loading position changes…</p> : (
             <div className="access-table" role="region" aria-label="Position change review queue" tabIndex={0}>
-              <table>
+              <ConfigurableTable aria-label="Position changes">
                 <thead>
                   <tr>
                     <th>SAP username</th><th>Employee</th><th>Previous position</th><th>Current position</th><th>Priority</th><th><span className="sr-only">Review action</span></th>
@@ -413,7 +415,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
                     )
                   })}
                 </tbody>
-              </table>
+              </ConfigurableTable>
             </div>
           )}
           {queue.data && queue.data.total > queue.data.items.length && <p className="ui-description">Showing {queue.data.items.length} of {queue.data.total}. Use the Review finding filter to see all.</p>}
@@ -487,7 +489,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
             role="region"
             aria-label="Account review results"
           >
-            <table>
+            <ConfigurableTable aria-label="Account Review results">
               <thead>
                 <tr>
                   {[
@@ -495,6 +497,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
                     'Name',
                     'SAP User Group',
                     'Functional Group',
+                    'Manager',
                     'SAP validity',
                     'SAP lock status',
                     'AD account status',
@@ -524,10 +527,11 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
                     <td>{row.name || 'Unknown'}</td>
                     <td>{row.groups.join(', ') || 'Unknown'}</td>
                     <td>
-                      {row.functional_groups?.length ? row.functional_groups.map(group => group.name).join('; ') : row.functional_group ? row.functional_group.name : <span className="text-muted">Unassigned</span>}
+                      <FunctionalGroupPills groups={row.functional_groups?.length?row.functional_groups:row.functional_group?[row.functional_group]:[]} username={row.username}/>
                       {row.classification.status === 'Needs review' && <> <ClassificationPill status="Needs review" /></>}
-                      {row.manager?.name && <small className="block">Manager: {row.manager.name}</small>}
+
                     </td>
+                    <td>{row.manager?.name || <span className="text-muted">Not recorded</span>}</td>
                     <td>
                       <AccountStatus value={row.sap_validity} />
                       {row.evidence&&row.evidence.account_total>row.evidence.accounts.length&&<small>More source intervals in User Details</small>}
@@ -578,7 +582,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ConfigurableTable>
           </div>
           {!data.items.length && <p>No accounts match these review filters.</p>}
           <Pagination
@@ -611,11 +615,11 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
             manager={editing.manager_change ? { previous: editing.manager_change.previous_manager, current: editing.manager_change.current_manager } : null}
             detectedAt={editing.position_change?.detected_at ?? editing.manager_change?.detected_at} />}
           {editing.position_change&&<section aria-label="Position change that triggered this review" className="review-dialog-section review-dialog-trigger"><h3>Organizational position changes</h3>
-            <table className="review-change-table"><thead><tr><th scope="col"><span className="sr-only">Field</span></th><th scope="col">Previous (last known)</th><th scope="col">Current</th></tr></thead><tbody>
+            <ConfigurableTable aria-label="Position change comparison" className="review-change-table"><thead><tr><th scope="col"><span className="sr-only">Field</span></th><th scope="col">Previous (last known)</th><th scope="col">Current</th></tr></thead><tbody>
               <tr><th scope="row">Department</th><td>{editing.position_change.previous_department||'—'}</td><td data-changed={editing.position_change.fields.includes('department')||undefined}>{editing.position_change.current_department||'—'}</td></tr>
               <tr><th scope="row">Job title</th><td>{editing.position_change.previous_title||'—'}</td><td data-changed={editing.position_change.fields.includes('title')||undefined}>{editing.position_change.current_title||'—'}</td></tr>
               <tr><th scope="row">Employee Directory snapshot</th><td>{editing.position_change.previous_imported_at?`Imported ${formatTimestamp(editing.position_change.previous_imported_at)}`:'Import time not recorded'}</td><td>First detected {formatTimestamp(editing.position_change.detected_at)}</td></tr>
-            </tbody></table>
+            </tbody></ConfigurableTable>
             <p className="ui-description">The organizational change itself happened at an unknown time between the two imports. A position change prompts a review; it is not evidence that access is inappropriate.</p></section>}
           {actionError&&feedback&&<p role="alert">{feedback}</p>}
           <section aria-label="Review decision" className="review-dialog-section"><h3>Review decision</h3>

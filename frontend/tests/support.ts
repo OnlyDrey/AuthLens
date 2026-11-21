@@ -90,19 +90,22 @@ export const resetConfiguration = (request: APIRequestContext) => request.post('
 export const mainNavigation = (page: Page) => page.getByRole('navigation', { name: 'Main navigation', exact: true })
 
 /** Open one main navigation destination by its link name. */
-export const goTo = (page: Page, name: string) => mainNavigation(page).getByRole('link', { name, exact: true }).click()
+export const goTo = async (page: Page, name: string) => {
+  if((page.viewportSize()?.width??1280)<1024){
+    await page.getByRole('button',{name:'Open navigation',exact:true}).click()
+    const drawer=page.getByRole('dialog',{name:'Navigation',exact:true})
+    if(['User Access','SoD'].includes(name)){
+      const group=drawer.locator('details').filter({has:page.locator('summary').filter({hasText:name})})
+      if(await group.getAttribute('open')===null)await group.locator('summary').click()
+      await group.getByRole('link',{name:name==='User Access'?'User directory':'Overview',exact:true}).click()
+    }else await drawer.getByRole('link',{name,exact:true}).click()
+  }else await mainNavigation(page).getByRole('link', { name, exact: true }).click()
+}
 
 export async function openSettings(page: Page, tab?: string) {
   await page.goto(sessionUrl)
-  const width=page.viewportSize()?.width??1280
-  if(width<1024){
-    await page.getByRole('button',{name:'Open navigation',exact:true}).click()
-    await page.getByRole('dialog',{name:'Navigation',exact:true}).getByRole('button',{name:'Settings',exact:true}).click()
-  }else await page.getByRole('button', { name: 'Open settings', exact: true }).click()
-  if(tab){
-    if(width<768)await page.getByRole('combobox',{name:'Settings section',exact:true}).selectOption({label:tab})
-    else await page.getByRole('tab', { name: tab, exact: true }).click()
-  }
+  await page.getByRole('button', { name: 'Open settings', exact: true }).click()
+  if(tab)await selectSettingsSection(page,tab)
 }
 
 export interface SeededSources { directory: string; cleanup: () => Promise<void> }
@@ -171,3 +174,10 @@ export async function recordClipboard(page: Page) {
   await page.evaluate(installClipboardRecorder)
 }
 export const copiedText = (page: Page) => page.evaluate(() => (window as Window & { __authLensCopied?: string[] }).__authLensCopied?.at(-1) ?? null)
+
+export async function selectSettingsSection(page: Page, label: string) {
+  if((page.viewportSize()?.width??1280)<768){
+    await page.getByRole('button',{name:/^Settings sections:/}).click()
+    await page.getByRole('dialog',{name:'Settings sections',exact:true}).getByRole('button',{name:label,exact:true}).click()
+  }else await page.getByRole('tab',{name:label,exact:true}).click()
+}

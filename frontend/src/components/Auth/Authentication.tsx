@@ -4,7 +4,7 @@ import {ApiError,apiRequest,setSessionRole} from '@/api/client'
 import {Button} from '@/components/Shared/Button'
 import {FormField,Input,PasswordInput} from '@/components/Shared/Controls'
 import {ConfirmDialog} from '@/components/Shared/ConfirmDialog'
-import {Check,Circle,LogOut} from 'lucide-react'
+import {Check,Circle,LogOut,LogIn,KeyRound,ShieldCheck} from 'lucide-react'
 import {Dialog} from '@/components/Shared/Dialog'
 import {DataTable,LoadingState,MetadataList,StatusBadge} from '@/components/Shared/Presentation'
 
@@ -63,8 +63,8 @@ function Login({setup,onActivated,onReady}:{setup:boolean;onActivated:()=>void;o
  {(setup||mode!=='login')&&<FormField label="One-time code" description={setup?'Generate a code in the local Service Manager or server administration command. Codes expire after 15 minutes.':'Use the code supplied by your administrator.'}><Input autoComplete="off" value={code} required onChange={e=>setCode(e.target.value)}/></FormField>}
  <FormField label={setup||mode!=='login'?'New password':'Password'}><PasswordInput autoComplete={setup||mode!=='login'?'new-password':'current-password'} minLength={setup||mode!=='login'?12:undefined} maxLength={1024} value={password} required onChange={e=>setPassword(e.target.value)}/></FormField>
  {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}
- <Button type="submit" variant="primary" loading={busy}>{setup?'Create administrator':mode==='login'?'Sign in':'Set password'}</Button>
- {!setup&&<div className="flex flex-wrap gap-2"><Button disabled={busy} variant="ghost" onClick={()=>{setMode(mode==='login'?'reset':'login');setError('');setPassword('')}}>{mode==='login'?'Use password reset code':'Back to sign in'}</Button>{mode==='reset'&&<Button variant="ghost" disabled={busy} onClick={()=>setMode('recover')}>Local administrator recovery</Button>}</div>}
+ <Button type="submit" variant="primary" loading={busy}>{!busy&&(setup?<ShieldCheck size={18} aria-hidden="true"/>:mode==='login'?<LogIn size={18} aria-hidden="true"/>:<KeyRound size={18} aria-hidden="true"/>)}{setup?'Create administrator':mode==='login'?'Sign in':'Set password'}</Button>
+ {!setup&&<div className="flex flex-wrap justify-center gap-2"><Button disabled={busy} variant="ghost" onClick={()=>{setMode(mode==='login'?'reset':'login');setError('');setPassword('')}}>{mode==='login'?<KeyRound size={16} aria-hidden="true"/>:<LogIn size={16} aria-hidden="true"/>}{mode==='login'?'Use password reset code':'Back to sign in'}</Button>{mode==='reset'&&<Button variant="ghost" disabled={busy} onClick={()=>setMode('recover')}>Local administrator recovery</Button>}</div>}
  </form></section></main>
 }
 interface AccountSession {id:string;created:number;seen:number;current:boolean}

@@ -1,3 +1,4 @@
+import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {useQueries} from '@tanstack/react-query'
 import {fetchRoleDetail} from '@/api/client'
 import {matchingTransactions} from '@/lib/searchMatching'
@@ -36,7 +37,7 @@ function ModLabel({ r, center }: { r: ComparisonRole; center?: boolean }) {
 type ComparisonTCode=TCode & {sourceRoles?:string[]}
 function TCodeTable({ rows }: { rows: ComparisonTCode[] }) {
   return (
-    <table className="w-full text-sm">
+    <ConfigurableTable className="w-full text-sm">
       <thead>
         <tr style={{ backgroundColor:'var(--surface2)' }}>
           <th
@@ -80,7 +81,7 @@ function TCodeTable({ rows }: { rows: ComparisonTCode[] }) {
           </tr>
         ))}
       </tbody>
-    </table>
+    </ConfigurableTable>
   )
 }
 

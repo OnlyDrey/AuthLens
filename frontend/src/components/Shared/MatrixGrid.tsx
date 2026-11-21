@@ -1,3 +1,9 @@
+import {ColumnOptions,ColumnActions} from './ColumnOptions'
+import {Dialog} from './Dialog'
+import {Button} from './Button'
+import {Columns3,RotateCcw} from 'lucide-react'
+import {buildTableCSV} from '@/lib/csv'
+import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import { SAPUserLink } from './SAPUserLink'
 import { UserGroupCell } from './UserGroup'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
@@ -17,7 +23,7 @@ const scrollMemory = new Map<string, { left: number; top: number }>()
 
 export interface MatrixGroupDef { id: string; label: string; summary: string; collapsed: boolean; onToggle: () => void }
 
-export function MatrixGrid({ caption, rowLabel, columns, rows, cell, onSelect, onRow, selected, scrollKey, codeRows, groups, groupColumn }: {
+export function MatrixGrid({ caption, rowLabel, columns: sourceColumns, rows, cell, onSelect, onRow, selected, scrollKey, codeRows, groups, groupColumn }: {
   /** Adds a dedicated "SAP User Group" column right after the row identity (rows carry `groups`). Leave it off when the groups are already the row headers. */
   groupColumn?: boolean
   /** Collapsible group headers in display order; rows name their group. A collapsed group has a header and no rows. */
@@ -35,6 +41,24 @@ export function MatrixGrid({ caption, rowLabel, columns, rows, cell, onSelect, o
   onRow?: (row: string) => void
   selected?: { row: string; col: string } | null
 }) {
+  const [columnsOpen,setColumnsOpen]=useState(false),[exportError,setExportError]=useState('')
+  const preferenceKey=`authlens.matrix-columns.${caption}`
+  const [preference,setPreference]=useState<{order:string[];hidden:string[]}>(()=>{
+    try{const saved=JSON.parse(localStorage.getItem(preferenceKey)||'null');if(saved&&Array.isArray(saved.order)&&Array.isArray(saved.hidden)&&[...saved.order,...saved.hidden].every(value=>typeof value==='string'))return saved}catch{/* local preference only */}
+    return {order:[],hidden:[]}
+  })
+  const columnOrder=[...new Set([...preference.order,...sourceColumns.map(column=>column.id)])].filter(id=>sourceColumns.some(column=>column.id===id))
+  const columns=columnOrder.filter(id=>!preference.hidden.includes(id)).map(id=>sourceColumns.find(column=>column.id===id)!)
+  const saveColumns=(next:typeof preference)=>{setPreference(next);wanted.current=false;setActive('');try{localStorage.setItem(preferenceKey,JSON.stringify(next))}catch{/* optional preference */}}
+  const exportView=(all:boolean)=>{
+    setExportError('')
+    try {
+      const exported=columnOrder.filter(id=>all||!preference.hidden.includes(id)).map(id=>sourceColumns.find(column=>column.id===id)!)
+      const shownRows=rows.filter(row=>!groups?.find(group=>group.id===row.group)?.collapsed)
+      const csv=buildTableCSV([rowLabel,...(groupColumn?['SAP User Group']:[]),...exported.map(column=>column.label)],shownRows.map(row=>[row.label,...(groupColumn?[(row.groups||[]).join('; ')]:[]),...exported.map(column=>cell(row.id,column.id)?.text||'')]))
+      const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),link=document.createElement('a');link.href=url;link.download='AuthLens-matrix.csv';link.click();URL.revokeObjectURL(url)
+    }catch(error){setExportError(error instanceof Error?error.message:'Export failed.')}
+  }
   const scroller = useRef<HTMLDivElement>(null),
     [range, setRange] = useState({ left: 0, width: 960 }),
     [active, setActive] = useState<string>(''),
@@ -64,10 +88,12 @@ export function MatrixGrid({ caption, rowLabel, columns, rows, cell, onSelect, o
   const first = windowed ? Math.max(0, Math.floor(range.left / CELL) - OVERSCAN) : 0,
     last = windowed ? Math.min(columns.length, Math.ceil((range.left + range.width) / CELL) + OVERSCAN) : columns.length,
     visible = columns.slice(first, last)
-  const exists = (r: number, c: number) => !!rows[r] && !!columns[c] && !!cell(rows[r].id, columns[c].id)
+  const visibleGroups=groups?new Set(groups.filter(group=>!group.collapsed).map(group=>group.id)):null
+  const exists = (r: number, c: number) => !!rows[r] && !!columns[c] && (!visibleGroups || (rows[r].group!==undefined&&visibleGroups.has(rows[r].group!))) && !!cell(rows[r].id, columns[c].id)
   let firstKey = ''
   for (let r = 0; r < rows.length && !firstKey; r++) for (let c = first; c < last && !firstKey; c++) if (exists(r, c)) firstKey = `${r}:${c}`
-  const current = active || firstKey
+  const [activeRow,activeColumn]=active.split(':').map(Number)
+  const current = active&&exists(activeRow,activeColumn) ? active : firstKey
   useEffect(() => {
     if (!wanted.current || !active) return
     // Windowed columns render after the scroll event; keep waiting until the target cell exists.
@@ -141,9 +167,11 @@ export function MatrixGrid({ caption, rowLabel, columns, rows, cell, onSelect, o
               {last < columns.length && <td aria-hidden="true" colSpan={columns.length - last} className="matrix-spacer" />}
             </tr>
   )
-  return (
+  return (<>
+    <div className="table-presentation-controls"><Button size="compact" onClick={()=>setColumnsOpen(true)} aria-label={`Columns for ${caption}`}><Columns3 size={16}/>Columns</Button></div>
+    {columnsOpen&&<Dialog title={`Columns for ${caption}`} size="medium" onClose={()=>setColumnsOpen(false)} footer={<ColumnActions onExport={exportView} onDone={()=>setColumnsOpen(false)} error={exportError}/>}><p className="ui-description">Choose matrix columns and export order. These exports contain loaded rows in expanded groups; full-result reports remain separate.</p><ColumnOptions items={columnOrder.map(id=>({id,label:sourceColumns.find(column=>column.id===id)!.label,checked:!preference.hidden.includes(id)}))} onToggle={id=>saveColumns({order:columnOrder,hidden:preference.hidden.includes(id)?preference.hidden.filter(value=>value!==id):[...preference.hidden,id]})} onMove={(id,direction)=>{const next=[...columnOrder],position=next.indexOf(id);[next[position],next[position+direction]]=[next[position+direction],next[position]];saveColumns({order:next,hidden:preference.hidden})}}/><Button size="compact" onClick={()=>saveColumns({order:[],hidden:[]})}><RotateCcw size={16} aria-hidden="true"/>Reset columns</Button></Dialog>}
     <div className="matrix-scroll" ref={scroller} role="region" aria-label={`Scrollable ${caption}`} onKeyDown={move}>
-      <table className="matrix-grid" data-group-column={groupColumn || undefined} style={{ width: pinned + columns.length * CELL, ['--matrix-head' as string]: `${HEAD}px` }}>
+      <ConfigurableTable className="matrix-grid" data-group-column={groupColumn || undefined} style={{ width: pinned + columns.length * CELL, ['--matrix-head' as string]: `${HEAD}px` }}>
         <caption className="sr-only">{caption}. Use arrow keys to move between detected cells; Enter opens the investigation.</caption>
         <colgroup>
           <col style={{ width: HEAD }} />
@@ -181,7 +209,7 @@ export function MatrixGrid({ caption, rowLabel, columns, rows, cell, onSelect, o
             ]
           })}
         </tbody>
-      </table>
-    </div>
+      </ConfigurableTable>
+    </div></>
   )
 }

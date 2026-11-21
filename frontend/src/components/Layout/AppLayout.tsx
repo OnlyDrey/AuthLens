@@ -11,7 +11,7 @@ import { useApplicationData } from '@/state/ApplicationData'
 import { Notification } from '@/components/Shared/Notification'
 import { useHistoryValue } from '@/hooks/useViewHistory'
 import { type ReactNode, lazy, Suspense, useEffect, useState, useRef } from 'react'
-import { RefreshCw, Sun, Moon, Settings, Loader2, Database, Menu, UserRound } from 'lucide-react'
+import { RefreshCw, Sun, Moon, Settings, Loader2, Database, Menu, UserRound, LogOut } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { apiRequest, ApiError } from '@/api/client'
 import { useSession } from '@/api/session'
@@ -99,10 +99,10 @@ export function AppLayout({
         }}
         role="banner"
       >
-        <div className="app-header-row max-w-screen-2xl mx-auto px-3 sm:px-4 min-h-[3.5rem] lg:min-h-[4.5rem] flex items-center justify-between gap-2 lg:gap-3">
-          <div className="app-navigation-trigger lg:hidden"><IconButton label="Open navigation" variant="ghost" aria-haspopup="dialog" aria-expanded={navigationOpen} onClick={()=>setNavigationOpen(true)}><Menu size={22} aria-hidden="true"/></IconButton></div>
+        <div className="app-header-row max-w-screen-2xl mx-auto px-3 sm:px-4 min-h-[3.5rem] lg:min-h-[4.5rem] flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-3">
+          <div className="app-navigation-trigger lg:hidden"><IconButton label="Open navigation" variant="ghost" aria-haspopup="dialog" aria-expanded={navigationOpen} disabled={settingsOpen} onClick={()=>setNavigationOpen(true)}><Menu size={22} aria-hidden="true"/></IconButton></div>
           {/* Brand: logo image + name */}
-          <div className="app-brand flex items-center gap-3 shrink-0">
+          <div className="app-brand flex min-w-0 items-center gap-3">
             {/* Logo image â€” fallback to styled "E" if file not found */}
             <img
               src={
@@ -144,12 +144,12 @@ export function AppLayout({
           <div className="hidden min-w-0 lg:block">{navigation}</div>
 
           <div className="app-utilities">
-            <div className="hidden lg:block"><IconButton label={isDark?'Switch to light mode':'Switch to dark mode'} variant="ghost" disabled={!auth.canAdmin||themeBusy||settingsOpen} loading={themeBusy} onClick={()=>{setErr(null);setThemeBusy(true);void onToggleTheme().catch(e=>setErr(e instanceof Error?e.message:'Could not save the theme.')).finally(()=>setThemeBusy(false))}}>{!themeBusy&&(isDark?<Sun size={17} aria-hidden="true"/>:<Moon size={17} aria-hidden="true"/>)}</IconButton></div>
+            <div><IconButton label={isDark?'Switch to light mode':'Switch to dark mode'} variant="ghost" disabled={!auth.canAdmin||themeBusy||settingsOpen} loading={themeBusy} onClick={()=>{setErr(null);setThemeBusy(true);void onToggleTheme().catch(e=>setErr(e instanceof Error?e.message:'Could not save the theme.')).finally(()=>setThemeBusy(false))}}>{!themeBusy&&(isDark?<Sun size={17} aria-hidden="true"/>:<Moon size={17} aria-hidden="true"/>)}</IconButton></div>
             <Tooltip label={auth.session?'My Profile':'Reviewer profile'}><Popover label={auth.session?'My Profile':'Reviewer profile'} triggerLabel={auth.session?'My Profile':'Reviewer profile'} trigger={<UserRound size={20} aria-hidden="true"/>} triggerSize="icon" triggerVariant="ghost" preferredWidth={240} className="ui-popover-menu">
-              {close=><div className="grid gap-2"><Button onClick={()=>{close();setProfileOpen(true)}}>{auth.session?'Profile & sessions':'Edit reviewer profile'}</Button>{auth.session&&<Button onClick={()=>{close();void auth.logout().catch(e=>setErr(e instanceof Error?e.message:'Could not sign out.'))}}>Sign out</Button>}</div>}
+              {close=><div className="grid gap-2"><Button className="justify-start text-left" onClick={()=>{close();setProfileOpen(true)}}><UserRound size={16} aria-hidden="true"/>{auth.session?'Profile & sessions':'Edit reviewer profile'}</Button>{auth.session&&<Button className="justify-start text-left" onClick={()=>{close();void auth.logout().catch(e=>setErr(e instanceof Error?e.message:'Could not sign out.'))}}><LogOut size={16} aria-hidden="true"/>Sign out</Button>}</div>}
             </Popover></Tooltip>
-            <div className="hidden lg:block"><IconButton disabled={!auth.canAdmin} label="Open settings" tooltip="Settings" variant="ghost" onClick={()=>setSettingsOpen(true)}><Settings size={17} aria-hidden="true"/></IconButton></div>
-            <div className="hidden lg:block"><IconButton label={busy?'Refreshing data':'Refresh role data from CSV'} tooltip="Refresh data" variant="ghost" disabled={!auth.canAdmin||busy||settingsOpen} loading={busy} onClick={()=>void handleRefresh()}>{!busy&&<RefreshCw size={17} aria-hidden="true"/>}</IconButton></div>
+            <div><IconButton disabled={!auth.canAdmin} label="Open settings" tooltip="Settings" variant="ghost" onClick={()=>setSettingsOpen(true)}><Settings size={17} aria-hidden="true"/></IconButton></div>
+            <div><IconButton label={busy?'Refreshing data':'Refresh role data from CSV'} tooltip="Refresh data" variant="ghost" disabled={!auth.canAdmin||busy||settingsOpen} loading={busy} onClick={()=>void handleRefresh()}>{!busy&&<RefreshCw size={17} aria-hidden="true"/>}</IconButton></div>
           </div>
         </div>
 
@@ -160,11 +160,6 @@ export function AppLayout({
       {navigationOpen&&<Dialog title="Navigation" presentation="drawer" footer={null} onClose={()=>setNavigationOpen(false)}>
         <div className="mobile-navigation" onClick={event=>{const target=event.target as HTMLElement;if(target.closest('a[href]'))setNavigationOpen(false)}}>
           <NavigationPresentation.Provider value="drawer">{navigation}</NavigationPresentation.Provider>
-        </div>
-        <div className="grid gap-2 border-t border-line pt-4">
-          <Button disabled={!auth.canAdmin} onClick={()=>{setNavigationOpen(false);setSettingsOpen(true)}}><Settings size={18} aria-hidden="true"/>Settings</Button>
-          <Button disabled={!auth.canAdmin||themeBusy||settingsOpen} onClick={()=>{setNavigationOpen(false);setErr(null);setThemeBusy(true);void onToggleTheme().catch(e=>setErr(e instanceof Error?e.message:'Could not save the theme.')).finally(()=>setThemeBusy(false))}}>{isDark?<Sun size={18} aria-hidden="true"/>:<Moon size={18} aria-hidden="true"/>}{isDark?'Switch to light mode':'Switch to dark mode'}</Button>
-          <Button disabled={!auth.canAdmin||busy||settingsOpen} onClick={()=>{setNavigationOpen(false);void handleRefresh()}}><RefreshCw size={18} aria-hidden="true"/>Refresh role data from CSV</Button>
         </div>
       </Dialog>}
 

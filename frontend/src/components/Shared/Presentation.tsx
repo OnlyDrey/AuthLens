@@ -1,3 +1,4 @@
+import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {ApiError} from '@/api/client'
 import type { HTMLAttributes, ReactNode } from 'react'
 import { AlertTriangle, Info, Loader2, RotateCw } from 'lucide-react'
@@ -118,10 +119,10 @@ export function DataTable({
       data-density={density}
       aria-label={regionLabel || `Scrollable ${caption}`}
     >
-      <table className={tableClassName}>
+      <ConfigurableTable className={tableClassName}>
         <caption className="sr-only">{caption}</caption>
         {children}
-      </table>
+      </ConfigurableTable>
     </div>
   )
 }

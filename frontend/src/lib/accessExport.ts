@@ -1,12 +1,7 @@
 import { accessQuery, type UserDetail, type Assignment } from '@/api/access'
 
-// Quote every field; neutralise spreadsheet formulas without changing normal SAP identifiers.
-export function csvField(value: unknown): string {
-  let text = value == null ? '' : String(value)
-  // eslint-disable-next-line no-control-regex -- control characters before a formula marker must be caught too
-  if (/^[\s\u0000-\u001f]*[=+@-]/u.test(text) || /^[\t\r\n]/u.test(text)) text = "'" + text
-  return '"' + text.replace(/"/g, '""') + '"'
-}
+import {csvField} from './csv.ts'
+export {csvField} from './csv.ts'
 const csvHeader = ['Username', 'User group', 'Full name', 'Role', 'Role description', 'Role family', 'Valid from', 'Valid to', 'Assignment status', 'Document type', 'Release group', 'Release strategy'].map(csvField).join(',')
 function assignmentLine(user: UserDetail, a: Assignment): string {
   return [user.username, a.user_group, [user.first_name, user.last_name].filter(Boolean).join(' '), a.role_name, a.role_description, a.scope === 'business' ? 'Business' : 'Release', a.valid_from, a.valid_to, a.status, a.release?.document_type, a.release?.release_group, a.release?.release_strategy].map(csvField).join(',') + '\r\n'

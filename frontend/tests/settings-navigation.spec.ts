@@ -1,3 +1,4 @@
+import {selectSettingsSection} from './support'
 import { test, expect, type Page } from '@playwright/test'
 
 // Settings sidebar: Back at the top, four groups that scroll on their own, About AuthLens as the footer. Without a sign-in server (this fixture)
@@ -13,9 +14,8 @@ const order = [...groups.flatMap(([, tabs]) => tabs), 'About AuthLens']
 const open = async (page: Page, width = 1280, height = 900) => {
   await page.setViewportSize({ width, height })
   await page.goto('/#session=browser-test-session')
-  if(width<1024){await page.getByRole('button',{name:'Open navigation',exact:true}).click();await page.getByRole('dialog',{name:'Navigation',exact:true}).getByRole('button',{name:'Settings',exact:true}).click()}
-  else await page.getByRole('button', { name: 'Open settings', exact: true }).click()
-  if(width<768)await expect(page.getByRole('combobox',{name:'Settings section',exact:true})).toBeVisible()
+  await page.getByRole('button', { name: 'Open settings', exact: true }).click()
+  if(width<768)await expect(page.getByRole('button',{name:/^Settings sections:/})).toBeVisible()
   else await expect(page.getByRole('tablist', { name: 'Settings sections' })).toBeVisible()
 }
 
@@ -64,7 +64,7 @@ for (const [width, height] of [[1280, 900], [1280, 520], [800, 600], [375, 700]]
     await open(page, width, height)
     if(width<768){
       await expect(page.locator('.settings-sidebar')).toBeHidden()
-      await page.getByRole('combobox',{name:'Settings section',exact:true}).selectOption({label:'About AuthLens'})
+      await selectSettingsSection(page,'About AuthLens')
       await expect(page.locator('#settings-heading')).toHaveText('About AuthLens')
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
       return

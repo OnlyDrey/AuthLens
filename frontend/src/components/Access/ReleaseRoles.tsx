@@ -1,3 +1,4 @@
+import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {SAPUserLink} from '@/components/Shared/SAPUserLink'
 import {ExportCSVButton} from '@/components/Shared/ExportCSVButton'
 import {useAssignmentCSVExport} from '@/hooks/useAssignmentCSVExport'
@@ -255,7 +256,7 @@ export function ReleaseRoles({
         ) : (
           <>
             <div className="access-table release-directory-table" role="region" aria-label="Release role results" tabIndex={0} data-density="compact">
-              <table>
+              <ConfigurableTable>
                 <thead>
                   <tr>
                     <th>Role name</th>
@@ -296,7 +297,7 @@ export function ReleaseRoles({
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </ConfigurableTable>
             </div>
             <Pagination label="Release role pages" offset={offset} total={result.data.total} limit={pageSize} onChange={setOffset} pageSizes={PAGE_SIZES} onPageSize={setPageSize} />
             {result.data.total === 0 && (
@@ -363,7 +364,7 @@ function ReleaseMatrix({
                 {kind} · distinct users
               </h2>
               <div className="access-table matrix-scroll" role="region" aria-label={`${kind} release matrix scroll area`} tabIndex={0}>
-                <table
+                <ConfigurableTable
                   className="release-matrix" aria-label={`${compare ? (group || "Unknown group") + " " : ""}${kind} release matrix`}
                 >
                   <thead>
@@ -400,7 +401,7 @@ function ReleaseMatrix({
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </ConfigurableTable>
               </div>
             </div>
           );
@@ -537,7 +538,7 @@ function ReleaseDetail({
             aria-label="Release role user assignments"
             tabIndex={0}
           >
-            <table>
+            <ConfigurableTable>
               <thead>
                 <tr>
                   {!drill.role && <th>Exact assigned role</th>}
@@ -586,7 +587,7 @@ function ReleaseDetail({
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ConfigurableTable>
           </div>
           {!result.data.items.length && !dataLoading && (
             <p>No assignments match these assignment filters.</p>
@@ -623,7 +624,7 @@ function ReleaseRoleUsersPanel({ role, filters, status, dates, onUser, onClose }
       {data && <>
         <p role="status" className="ui-description">{data.distinct_users} {data.distinct_users === 1 ? 'user' : 'users'} · {data.total} assignment {data.total === 1 ? 'record' : 'records'} in the current validity scope</p>
         <div className="access-table" role="region" aria-label="Users with this release role" tabIndex={0} data-density="compact">
-          <table>
+          <ConfigurableTable>
             <thead><tr><th>SAP username</th><th>Name</th><th>SAP User Group</th><th>Assignment</th><th className="col-actions"><span className="sr-only">Details</span></th></tr></thead>
             <tbody>{data.items.map((a) => (
               <tr key={a.id}>
@@ -633,7 +634,7 @@ function ReleaseRoleUsersPanel({ role, filters, status, dates, onUser, onClose }
                 <td><AssignmentStatus value={a.status} /><dl className="validity-dates"><div><dt>Valid from</dt><dd>{formatDate(a.valid_from)}</dd></div><div><dt>Valid to</dt><dd>{formatDate(a.valid_to)}</dd></div></dl></td>
                 <td className="col-actions"><DetailButton onClick={() => onUser(a.username)} aria-label={`View user details ${a.username}`}>Details</DetailButton></td>
               </tr>))}</tbody>
-          </table>
+          </ConfigurableTable>
         </div>
         {!data.items.length && <p>No assignments match the current validity scope.</p>}
         <Pagination offset={offset} total={data.total} onChange={setOffset} label="Release role user pages" />

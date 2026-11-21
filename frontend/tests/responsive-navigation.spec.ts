@@ -1,3 +1,4 @@
+import {selectSettingsSection} from './support'
 import {test,expect} from '@playwright/test'
 import {mkdirSync} from 'node:fs'
 import path from 'node:path'
@@ -29,7 +30,8 @@ test('mobile routes retain all groups, active labels, keyboard navigation and cl
   await page.setViewportSize({width:360,height:800});await page.goto('/#session=browser-test-session')
   const trigger=page.getByRole('button',{name:'Open navigation',exact:true})
   await trigger.click();const drawer=page.getByRole('dialog',{name:'Navigation',exact:true})
-  for(const label of ['Dashboard','Role Lookup','User Access','Release Roles','SoD','Account Review','Compare users','Risk Matrix','Review Periods'])await expect(drawer.getByRole('link',{name:label,exact:true})).toBeVisible()
+  await drawer.locator('summary').filter({hasText:'User Access'}).click();await drawer.locator('summary').filter({hasText:'SoD'}).click()
+  for(const label of ['Dashboard','Role Lookup','User directory','Release Roles','Overview','Account Review','Compare users','Risk Matrix','Review Periods'])await expect(drawer.getByRole('link',{name:label,exact:true})).toBeVisible()
   await expect(drawer.getByRole('link',{name:'Dashboard',exact:true})).toHaveAttribute('aria-current','page')
   await drawer.getByRole('link',{name:'Compare users',exact:true}).focus();await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/#\/user-access\/compare/);await expect(drawer).toHaveCount(0)
@@ -80,7 +82,7 @@ for(const width of [360,375,390,768,800,1024,1280,1440,1600])test(`responsive ro
       const trigger=page.getByRole('button',{name:'Open navigation',exact:true})
       expect(await trigger.evaluate(element=>getComputedStyle(element).color)).toBe(await page.getByRole('button',{name:'Reviewer profile',exact:true}).evaluate(element=>getComputedStyle(element).color))
     }
-    for(const route of ['dashboard','role-lookup','user-access','user-access/compare','user-access/account-review','release-roles','sod','sod/risk-matrix','sod/activity-matrix','sod/reviews','sod/periods']){
+    for(const route of ['dashboard','role-lookup','user-access','user-access/compare','user-access/account-review','release-roles','sod','sod/risk-matrix','sod/activity-matrix','sod/reviews','sod/periods','sod/reports']){
       await page.evaluate(route=>{location.hash='/'+route},route)
       const heading=route==='dashboard'?'Dashboard':route==='role-lookup'?'Role Lookup':route==='user-access'?'User Access':route.endsWith('/compare')?'Compare users':route.endsWith('/account-review')?'Account Review':route==='release-roles'?'Release Roles':'Segregation of Duties'
       await expect(page.getByRole('heading',{name:heading,exact:true}).first()).toBeVisible()
@@ -95,19 +97,18 @@ for(const width of [360,375,390,768,800,1024,1280,1440,1600])test(`responsive ro
         mkdirSync(screenshots,{recursive:true});await page.screenshot({path:path.join(screenshots,`${route.replaceAll('/','-')}-${width}-${theme}.png`)})
       }
     }
-    if(width<1024)await page.getByRole('button',{name:'Open navigation',exact:true}).click()
     if(width<1024){
-      const drawer=page.getByRole('dialog',{name:'Navigation',exact:true})
+      await page.getByRole('button',{name:'Open navigation',exact:true}).click()
       mkdirSync(screenshots,{recursive:true});await page.screenshot({path:path.join(screenshots,`navigation-${width}-${theme}.png`)})
-      await drawer.getByRole('button',{name:'Settings',exact:true}).click()
-    }else await page.getByRole('button',{name:'Open settings',exact:true}).click()
-    if(width<768)await page.getByRole('combobox',{name:'Settings section',exact:true}).selectOption({label:'Health & Diagnostics'})
-    else await page.getByRole('tab',{name:'Health & Diagnostics',exact:true}).click()
+      await page.keyboard.press('Escape')
+    }
+    await page.getByRole('button',{name:'Open settings',exact:true}).click()
+    await selectSettingsSection(page,'Health & Diagnostics')
     await expect(page.getByRole('heading',{name:'Health & Diagnostics',exact:true})).toBeVisible()
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`Settings ${theme}`).toBe(true)
     mkdirSync(screenshots,{recursive:true});await page.screenshot({path:path.join(screenshots,`settings-${width}-${theme}.png`)})
     await page.getByRole('button',{name:'Back to AuthLens',exact:true}).click()
-    if(width<1024)await expect(page.getByRole('button',{name:'Open navigation',exact:true})).toBeFocused()
+    await expect(page.getByRole('button',{name:'Open settings',exact:true})).toBeFocused()
     expect((await(await request.get('/api/configuration',{headers})).json()).settings.refresh_schedule.enabled).toBe(false)
   }
 })

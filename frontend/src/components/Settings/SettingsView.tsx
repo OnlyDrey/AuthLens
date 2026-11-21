@@ -1,6 +1,7 @@
 import {UserManagement} from './UserManagement'
 import {useAuthentication} from '@/components/Auth/Authentication'
 import type { ReactNode } from 'react'
+import {Dialog} from '@/components/Shared/Dialog'
 import {Button} from '@/components/Shared/Button'
 import {BackupRestore} from './BackupRestore'
 import {useApplicationData} from '@/state/ApplicationData'
@@ -25,6 +26,7 @@ import { isHex } from '@/lib/theme'
 import { useEffect, useRef, useState, lazy, Suspense } from 'react'
 import {
   ArrowLeft,
+  Menu,
   Save,
   RotateCcw,
   Image,
@@ -467,19 +469,23 @@ export function SettingsView({
       setMessage('Configuration exported; keep private packages secure.')
     })
 
-  const renderTab=(index:number)=>{
+  const [sectionsOpen,setSectionsOpen]=useState(false)
+  useEffect(()=>{if(!open)setSectionsOpen(false)},[open])
+  useEffect(()=>{const media=window.matchMedia('(min-width: 768px)');const close=()=>{if(media.matches)setSectionsOpen(false)};media.addEventListener('change',close);return()=>media.removeEventListener('change',close)},[])
+  const renderTab=(index:number,drawer=false)=>{
     const label=sections[index], Icon=sectionIcons[index], position=navigationOrder.indexOf(index)
     return <button
       key={index}
-      role="tab"
+      role={drawer?undefined:"tab"}
+      aria-current={drawer&&section===index?"page":undefined}
       aria-label={label}
       title={label}
-      id={`settings-tab-${index}`}
-      aria-selected={section === index}
+      id={`settings-${drawer?"drawer":"tab"}-${index}`}
+      aria-selected={drawer?undefined:section === index}
       aria-controls={`settings-panel-${index}`}
-      tabIndex={section === index ? 0 : -1}
+      tabIndex={drawer?0:section === index ? 0 : -1}
       onKeyDown={(event) => {
-        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        if (!drawer&&['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
           event.preventDefault()
           const next = event.key === 'Home' ? navigationOrder[0] : event.key === 'End' ? navigationOrder[navigationOrder.length-1]
             : navigationOrder[(position + (event.key === 'ArrowDown' ? 1 : navigationOrder.length - 1)) % navigationOrder.length]
@@ -487,7 +493,7 @@ export function SettingsView({
           document.getElementById(`settings-tab-${next}`)?.focus()
         }
       }}
-      onClick={() => { setSection(index); setError(null); setMessage(null) }}
+      onClick={() => { setSection(index); setError(null); setMessage(null);if(drawer){setSectionsOpen(false);requestAnimationFrame(()=>document.getElementById('settings-heading')?.focus())} }}
       className={`settings-nav-item ${section === index ? 'active' : ''}`}
     >
       <Icon size={19} aria-hidden="true" />
@@ -502,8 +508,9 @@ export function SettingsView({
     >
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface p-3 md:hidden">
         <Button disabled={busy} onClick={()=>show(false)}><ArrowLeft size={16} aria-hidden="true"/>Back to AuthLens</Button>
-        <FormField label="Settings section"><SettingsSelect value={String(section)} disabled={busy} onChange={event=>setSection(Number(event.target.value))}>{navigationOrder.map(index=><option key={index} value={index}>{sections[index]}</option>)}</SettingsSelect></FormField>
+        <Button aria-label={`Settings sections: ${sections[section]}`} aria-haspopup="dialog" aria-expanded={sectionsOpen} onClick={()=>setSectionsOpen(true)} disabled={busy}><Menu size={18} aria-hidden="true"/>Settings sections<span className="sr-only">: {sections[section]}</span></Button>
       </div>
+      {open&&sectionsOpen&&<Dialog title="Settings sections" presentation="drawer" footer={null} onClose={()=>setSectionsOpen(false)}><nav aria-label="Settings pages" className="settings-nav">{groups.map(group=><div key={group.label} className="settings-nav-group"><p className="settings-nav-category">{group.label}</p>{group.sections.map(index=>renderTab(index,true))}</div>)}{renderTab(footerSection,true)}</nav></Dialog>}
       <aside className="settings-sidebar">
         <button
           className={`${buttonClass} settings-back`}

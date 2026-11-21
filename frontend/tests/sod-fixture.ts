@@ -1,5 +1,5 @@
 import { expect, type APIRequestContext, type Page } from '@playwright/test'
-import { headers, postConfiguration } from './support'
+import { headers, postConfiguration, goTo } from './support'
 export { headers }
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -54,7 +54,7 @@ export async function cleanup(request: APIRequestContext, directory: string) {
 
 export async function openSod(page: Page, link = 'Overview') {
   await page.goto('/#session=browser-test-session')
-  await page.getByRole('navigation', { name: 'Main navigation', exact: true }).getByRole('link', { name: 'SoD', exact: true }).click()
+  await goTo(page, 'SoD')
   if (link !== 'Overview') await page.getByRole('link', { name: link, exact: true }).click()
 }
 

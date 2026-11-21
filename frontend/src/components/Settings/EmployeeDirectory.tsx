@@ -1,3 +1,4 @@
+import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import { sentenceCase } from '@/lib/labels'
 import { Toggle, SearchInput } from '@/components/Shared/Controls'
 import { Button } from '@/components/Shared/Button'
@@ -450,7 +451,7 @@ export function EmployeeBrowser() {
       {query.data && (
         <>
           <div className="access-table">
-            <table>
+            <ConfigurableTable>
               <thead>
                 <tr>
                   <th>Employee</th>
@@ -483,7 +484,7 @@ export function EmployeeBrowser() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ConfigurableTable>
           </div>
           {!query.data.total && <p>No employees match this search.</p>}
           <div className="employee-pagination flex flex-wrap gap-3 items-center">

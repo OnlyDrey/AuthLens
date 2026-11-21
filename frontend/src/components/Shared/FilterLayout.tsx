@@ -1,3 +1,4 @@
+import {Dialog} from './Dialog'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { ArrowDownAZ, ArrowUpAZ, Eraser, PanelLeftClose, PanelLeftOpen, SlidersHorizontal, X } from 'lucide-react'
 import { Button, IconButton } from './Button'
@@ -24,32 +25,28 @@ export function FilterLayout({ activeCount, toolbar, sidebar, children, label = 
     id = useId(),
     [open, setOpen] = useState(() => { try { return localStorage.getItem(storageKey) !== 'closed' } catch { return true } }),
     [drawer, setDrawer] = useState(false),
-    drawerRef = useRef<HTMLElement>(null),
     trigger = useRef<HTMLButtonElement>(null)
+  useEffect(()=>{if(wide)setDrawer(false)},[wide])
   const persist = (value: boolean) => { setOpen(value); try { localStorage.setItem(storageKey, value ? 'open' : 'closed') } catch { /* optional convenience */ } }
-  useEffect(() => {
-    if (!drawer || wide) return
-    drawerRef.current?.focus()
-    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); setDrawer(false); trigger.current?.focus() } }
-    document.addEventListener('keydown', key)
-    return () => document.removeEventListener('keydown', key)
-  }, [drawer, wide])
   const shown = wide ? open : drawer
   const toggle = () => (wide ? persist(!open) : setDrawer(!drawer))
   const close = () => { if (wide) persist(false); else { setDrawer(false); trigger.current?.focus() } }
   return (
     <div className="filter-layout" data-wide={wide} data-open={shown}>
       <div className="page-toolbar" role="toolbar" aria-label="Page actions">
-        <Button ref={trigger} aria-expanded={shown} aria-controls={id} onClick={toggle}>
+        <Button ref={trigger} aria-expanded={shown} aria-controls={wide?id:undefined} aria-haspopup={wide?undefined:"dialog"} onClick={toggle}>
           {wide ? (open ? <PanelLeftClose size={16} aria-hidden="true" /> : <PanelLeftOpen size={16} aria-hidden="true" />) : <SlidersHorizontal size={16} aria-hidden="true" />}
           {shown && wide ? `Hide ${label.toLowerCase()}` : label}
           {activeCount > 0 && <span className="ui-tab-count" aria-label={`${activeCount} active`}>{activeCount}</span>}
         </Button>
         {toolbar}
       </div>
+      {!wide&&drawer&&<Dialog title={label} presentation="drawer" onClose={close} footer={<Button variant="primary" onClick={close}>Show results</Button>}>
+        {onClear&&<Button disabled={clearDisabled} onClick={onClear} aria-label={clearLabel}><Eraser size={16} aria-hidden="true"/>Clear filters</Button>}
+        <div className="grid min-w-0 gap-3">{sidebar}</div>
+      </Dialog>}
       <div className="filter-layout-body">
-        {!wide && drawer && <div className="filter-backdrop" onClick={close} aria-hidden="true" />}
-        <aside id={id} ref={drawerRef} tabIndex={-1} hidden={!shown} aria-label={label} className="filter-sidebar" role={wide ? 'complementary' : 'dialog'} aria-modal={wide ? undefined : 'false'}>
+        {wide&&<aside id={id} tabIndex={-1} hidden={!shown} aria-label={label} className="filter-sidebar" role="complementary">
           <header>
             <h2>{label}</h2>
             <div className="filter-sidebar-actions">
@@ -58,7 +55,7 @@ export function FilterLayout({ activeCount, toolbar, sidebar, children, label = 
             </div>
           </header>
           <div className="filter-sidebar-body">{sidebar}</div>
-        </aside>
+        </aside>}
         <div className="filter-layout-main">{children}</div>
       </div>
     </div>

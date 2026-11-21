@@ -264,16 +264,8 @@ export function RoleList({
     <div className="flex flex-col gap-4" role="region" aria-label="Role catalogue investigation" aria-busy={isLoading||search!==debSearch||transaction.settling||excludeTransaction.settling||exactTransactions.isFetching}>
       <PageHeader title="Role Lookup" icon={<PageIcon size={22} aria-hidden="true"/>}/>
       {packageOpen&&<AccessPackagePanel onClose={()=>setPackageOpen(false)}/>}
-      <FilterLayout label="Filters" onClear={clearAll} clearDisabled={!isFiltering && sortBy === 'name-asc'} activeCount={[transaction.codes.length, excludeTransaction.codes.length].filter(Boolean).length}
+      <FilterLayout label="Filters" onClear={clearAll} clearDisabled={!isFiltering && sortBy === 'name-asc'} activeCount={[transaction.codes.length, excludeTransaction.codes.length,search.trim().length,activeModules.length].filter(Boolean).length}
         sidebar={<div className="grid min-w-0 gap-3" role="search" aria-label="Role filters">
-          <FilterSection title="Saved Filters">
-  <SavedFilters showClear={false} view="roles" state={{search,activeModules,transactionMode,tcodes:transaction.codes,excludeTcodes:excludeTransaction.codes,excludeMode,sortBy}} apply={s=>{if(typeof s.search==='string')setSearch(s.search);if(Array.isArray(s.activeModules))setActiveModules(s.activeModules);if(s.transactionMode==='and'||s.transactionMode==='or')setTransactionMode(s.transactionMode);if(Array.isArray(s.tcodes)){transaction.setInput('');transaction.setChips(s.tcodes)};if(Array.isArray(s.excludeTcodes)){excludeTransaction.setInput('');excludeTransaction.setChips(s.excludeTcodes)}else excludeTransaction.clear();setExcludeMode(s.excludeMode==='all'?'all':'any');if(SORT_OPTIONS.some(o=>o.key===s.sortBy))setSortBy(s.sortBy as SortKey)}} clear={clearAll}/>
-          </FilterSection>
-          <FilterSection title="Transactions">
-            <TransactionFilterGroups subject="roles" groups={transactionGroups} includeLabel="Filter catalogue by transaction" excludeLabel="Exclude roles by transaction" />
-          </FilterSection>
-        </div>}>
-      <div className="flex min-w-0 flex-col gap-4">
       <div
         className="catalogue-search-controls rounded-2xl border px-4 py-3 gap-3 "
         style={{
@@ -369,6 +361,15 @@ export function RoleList({
         )}
       </div>
 
+
+          <FilterSection title="Saved Filters">
+  <SavedFilters showClear={false} view="roles" state={{search,activeModules,transactionMode,tcodes:transaction.codes,excludeTcodes:excludeTransaction.codes,excludeMode,sortBy}} apply={s=>{if(typeof s.search==='string')setSearch(s.search);if(Array.isArray(s.activeModules))setActiveModules(s.activeModules);if(s.transactionMode==='and'||s.transactionMode==='or')setTransactionMode(s.transactionMode);if(Array.isArray(s.tcodes)){transaction.setInput('');transaction.setChips(s.tcodes)};if(Array.isArray(s.excludeTcodes)){excludeTransaction.setInput('');excludeTransaction.setChips(s.excludeTcodes)}else excludeTransaction.clear();setExcludeMode(s.excludeMode==='all'?'all':'any');if(SORT_OPTIONS.some(o=>o.key===s.sortBy))setSortBy(s.sortBy as SortKey)}} clear={clearAll}/>
+          </FilterSection>
+          <FilterSection title="Transactions">
+            <TransactionFilterGroups subject="roles" groups={transactionGroups} includeLabel="Filter catalogue by transaction" excludeLabel="Exclude roles by transaction" />
+          </FilterSection>
+        </div>}>
+      <div className="flex min-w-0 flex-col gap-4">
       {!isLoading && !isError && (
         <div className="flex items-center justify-between px-1">
           <p className="text-sm" style={{ color:'var(--muted)' }}>
