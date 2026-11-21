@@ -43,7 +43,7 @@ Paths below are relative to `frontend/src/components/`. The inventory covers reu
 | `Shared/InvestigationNavigation.tsx`: DetailNavigation / DetailButton | User/role/release investigations | Existing breadcrumb/record position/focus and global filtered navigation. Routine buttons now canonical; domain routing preserved |
 | `Access/Shared.tsx`: Filter / Pagination / QueryState | Access, review, comparison and library | Filter aliases FormField; pagination uses compact Button; shared LoadingState and existing error semantics. Server pagination unchanged |
 | `Shared/Presentation.tsx`: Card / Toolbar / PageHeader | Comparison and library | Lightweight layout wrappers with explicit children/classes, no data responsibilities |
-| DataTable, same file | Comparison and library; existing tables share CSS | Caption, focusable bounded overflow; columns remain caller-owned rather than a complex table framework |
+| DataTable, same file | Comparison and library; existing tables share CSS | Caption, focusable bounded overflow and shared column presentation; row data remains caller-owned |
 | StatusBadge / EmptyState / LoadingState, same file | Domain status wrappers, query state and library | Generic presentation only; labels and source interpretation remain in domain components |
 | EvidenceDisclosure, same file | Comparison and library | Discoverable information summary, keyboard-operable disclosure; evidence limitations retained |
 | `Shared/AccountStatus.tsx` | User Directory/Details, comparison, review, library | Existing SAP validity/lock/AD classifications and friendly type labels unchanged; generic badge rendering reused |
@@ -216,9 +216,7 @@ prefixes; capability, size and destination protections remain intact.
 
 Component Library uses eight category tabs (actions, navigation, forms, filters, feedback, dialogs, data display and SAP controls); All components is an explicit expanded QA view. Previews use real shared controls and isolated in-memory state. ModuleEditor uses the shared Dialog with a local draft and explicit parent-draft Apply. SourceDetailsDialog groups status, storage and diagnostics, with complete copyable paths. SourceHealthSummary supports a compact dashboard variant from the same diagnostic evidence. Anchored portals stay hidden until measured; event-driven anchor observation continues tracking subsequent layout changes.
 
-The SAP Lens 1 desktop bridge (`window.pywebview`: native file and save dialogs, tray and sign-in options) was removed on
-2026-11-20; the .NET Desktop never provided it. Every export is a browser download, sources are chosen with the browser
-file picker or a server-visible path, and there are no Windows tray options.
+Desktop integration uses the supported native bridge and shared frontend lifecycle.
 
 ### Refined controls and search
 
@@ -357,6 +355,24 @@ switching with explicit discard confirmation.
 
 ## Session notice and bundle layout
 
-`Layout/SessionNotice` is the only component that renders session or connection state (see [session lifecycle](../archive/v1/architecture/DESKTOP.md#session-lifecycle-and-recovery-states)). Settings and the SoD workspace and investigation panel are loaded on first use (`lazy` with `Suspense`; Settings then stays mounted so its drafts survive). Measured on the production build: largest chunk 909.5 kB to 361.6 kB, initial JavaScript 926.7 kB to 600.5 kB (gzip 261 kB to 192 kB), at the cost of about 58 more small shared chunks (hoisted lucide icons). Further splitting needs new evidence; do not raise `chunkSizeWarningLimit` or add manual chunks to hide the warning.
+`Layout/SessionNotice` is the only component that renders session or connection state (see [session lifecycle](../deployment/DESKTOP_SERVER_DEPLOYMENT.md)). Settings and the SoD workspace and investigation panel are loaded on first use (`lazy` with `Suspense`; Settings then stays mounted so its drafts survive). Measured on the production build: largest chunk 909.5 kB to 361.6 kB, initial JavaScript 926.7 kB to 600.5 kB (gzip 261 kB to 192 kB), at the cost of about 58 more small shared chunks (hoisted lucide icons). Further splitting needs new evidence; do not raise `chunkSizeWarningLimit` or add manual chunks to hide the warning.
 
 `Shared/ExportMenu` is the export button for pages with several formats: an outline **Export CSV** trigger on the shared Popover listing options with a title and one-line description, arrow-key navigation, closing after a choice and Escape returning focus. A disabled menu renders the plain disabled `ExportCSVButton`. First use: SoD Remediation.
+
+## Configurable tables and group pills
+
+`Shared/ConfigurableTable` renders native table children with a shared **Columns** dialog for simple headers. It changes cell DOM order and hidden
+state together, preserves locked sticky identity/selection fields, supports default no-wrap and permits Functional Group wrapping. Preferences are
+validated and kept in local browser storage; saving one schema preserves other schemas. Source row objects and backend queries are unchanged.
+`Shared/ColumnOptions` supplies the common keyboard/touch visibility and up/down editor. `Shared/MatrixGrid` uses that editor against its complete
+column definitions, before virtualization, keeping grouped/windowed matrix geometry and keyboard investigation behavior intact.
+
+Displayed-row CSV defaults to visible columns in the chosen order, with an explicit all-column alternative. Matrices export loaded rows in expanded
+groups; page-level full-result/evidence exports remain separate. `lib/csv` centralizes unchanged formula/quote escaping and bounded UTF-8 CSV
+construction; mismatched row shapes or output above 32 MiB fail without a partial download. Raw HTML, hidden pages and credentials are not exported.
+
+`Shared/FunctionalGroupPills` accepts group IDs/names/status plus username, displays two bounded pills and a read-only expansion dialog. Its
+`data-export-value` exposes the full group list to table projection, including names truncated visually. It does not edit memberships or approvals.
+
+Mobile Filters and Settings navigation reuse the shared Dialog drawer. Desktop/tab navigation and per-page filter/permission state remain owned
+by their existing callers. Do not implement another focus trap or reorder the DOM using CSS.

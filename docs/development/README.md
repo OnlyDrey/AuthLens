@@ -1,14 +1,14 @@
 # Development and testing (AuthLens .NET)
 
 How to build and test AuthLens. Deployment: [deployment](../deployment/README.md). Architecture: [architecture](../architecture/README.md).
-SAP Lens 1 (Python) is archived outside the repository; its historical development guide is in [legacy v1 development](../archive/v1/development/README.md).
+
 
 ## Everyday commands
 
 ```bash
 # .NET backend (from the repository root)
 cd backend && dotnet build AuthLens.slnx -c Release
-dotnet test tests/AuthLens.Tests -c Release --no-build --filter "FullyQualifiedName~V1DataMigrationTests"   # affected classes first
+dotnet test tests/AuthLens.Tests -c Release --no-build --filter "FullyQualifiedName~AccountReviewTests"   # affected classes first
 dotnet test tests/AuthLens.Tests -c Release --no-build                                                       # whole suite at checkpoints
 
 # Frontend (from frontend/)
@@ -41,7 +41,7 @@ selection, duplicate-module isolation and the elevated native NTFS restore gate.
 | `backend/tests/` | `AuthLens.Tests` (xUnit, fixtures) and `AuthLens.BrowserHost` (the test-only .NET host Playwright starts) | |
 | `backend/scripts/` | Release (`build-release.ps1`/`.sh`, `verify-release.ps1`, `build-installers.ps1`), Windows deployment (`deploy/`), operator tools (`Service-Manager.ps1`, `start-server-test.ps1`) and their Pester/Bash tests (`scripts/tests/`) | Application code |
 | `backend/installer/` | Inno Setup scripts; built only from a verified release folder | |
-| `backend/tools/` | Historical SAP Lens 1 reference generators, synthetic data and benchmarks; never run by a build or test | |
+| `backend/tools/` | Synthetic fixtures, reference utilities and benchmarks; never run by a build or test | |
 | `frontend/` | React/Vite source (`src/`), its configs, unit tests and the Playwright suite (`tests/`, which drives the .NET host) | .NET code |
 | `scripts/` (root) | Repository-wide checks (`check-*.py`, `product-version.mjs`, `sync-lucide-catalog.mjs`) and `browser-server.mjs` (starts `AuthLens.BrowserHost` for Playwright and `npm run dev`) | Release or deployment |
 | `docs/`, `examples/`, `assets/` | Documentation, synthetic sample files, the product icon and logo (used by the projects and installers) | Private data |
@@ -96,15 +96,10 @@ retain their normal token/session policy.
 
 `npm run test:browser` runs the Playwright suite against the isolated .NET host (`scripts/browser-server.mjs`, `backend/tests/AuthLens.BrowserHost`):
 one host and disposable data directory per Playwright process, the Desktop-mode access token on every request, one worker. No Python and no
-SAP Lens 1 server are involved; fixtures are versioned files in `frontend/tests/fixtures` (synthetic CSV and SoD reference workbooks).
+external application server is involved; fixtures are versioned files in `frontend/tests/fixtures` (synthetic CSV and SoD reference workbooks).
 CI runs the focused smoke: `npm --prefix frontend run test:browser -- tests/dotnet-host.spec.ts tests/component-library.spec.ts`.
 
-Tests that exercised SAP Lens 1 itself were removed with it: its Python server process and identity codes, its desktop startup document, and its
-backup format. The remaining suite is kept and run in full at checkpoints. Specs never change a source file through a settings save (AuthLens refuses
-`*_csv_path` in `POST /api/configuration`: "Source files change through Data Sources"): they call `postConfiguration` in
-`frontend/tests/support.ts`, which saves ordinary settings and activates each changed source through `POST /api/data-sources/{source}/select`,
-the call the UI makes. In the UI, specs use the browser picker, the source location field (`activateSourcePath`, `activateCSV`) or real
-downloads; the SAP Lens 1 desktop bridge no longer exists.
+
 
 ## Backend layout
 
@@ -112,23 +107,21 @@ The .NET backend lives in [`backend/`](../../backend):
 
 | Path | Purpose |
 | --- | --- |
-| `src/AuthLens.Domain` | Ported v1 business rules: CSV import, normalization, catalogue, users, lookups, comparison, SoD, import checks |
+| `src/AuthLens.Domain` | Shared business rules: CSV import, normalization, catalogue, users, lookups, comparison, SoD, import checks |
 | `src/AuthLens.Persistence` | EF Core SQLite: schema, migrations, immutability triggers, write coordinator, integrity, online backup |
-| `src/AuthLens.Application` | Import pipeline, persistent job queue and worker, snapshot service, review service, accounts, application backups and crypto, SAP Lens 1 archive validation, data retention |
-| `src/AuthLens.Api` | ASP.NET Core host and Server entry point: `/api/v1`, OpenAPI, problem details, health, security boundary, embedded production React UI (`frontend/dist`) and sign-in page, v1 compatibility API (`V1Compatibility.cs`), startup probe |
+| `src/AuthLens.Application` | Import pipeline, persistent job queue and worker, snapshot service, review service, accounts, application backups and crypto, encrypted archive validation, data retention |
+| `src/AuthLens.Api` | ASP.NET Core host and Server entry point: `/api/v1`, OpenAPI, problem details, health, security boundary, embedded production React UI (`frontend/dist`) and sign-in page, application API, startup probe |
 | `src/AuthLens.Desktop` | Windows shell: WinForms + WebView2, in-process core, loopback, per-run token |
 | `src/AuthLens.Cli` | `accounts-code` (administrator activation and recovery code, an operator command), plus developer tools: equivalence writer, benchmark, cross-process database probes |
-| `tests/AuthLens.Tests` | xUnit tests (418 at the last full run): domain, SQLite, imports, jobs, reviews, multi-process concurrency, HTTP integration, UI serving, sign-in, startup, network policy, certificates, LAN HTTPS, v1 compatibility contracts (Data Sources, Access, Data Health, Dashboard, Saved Filters, Access Packages, accounts and sessions, Employee Directory, Account Review, SoD source metadata, catalogue, reference workbook and analysis), build integration (embedded UI, incremental embedding, release script order), publish acceptance (`Category=Publish`, slow) |
-| `tools/` | Synthetic data generators, Python v1 reference runner, comparers, benchmark harnesses, v1 reference-data export |
+| `tests/AuthLens.Tests` | xUnit tests: domain, SQLite, imports, jobs, reviews, multi-process concurrency, HTTP integration, UI serving, sign-in, startup, network policy, certificates, LAN HTTPS, API contracts (Data Sources, Access, Data Health, Dashboard, Saved Filters, Access Packages, accounts and sessions, Employee Directory, Account Review, SoD source metadata, catalogue, reference workbook and analysis), build integration (embedded UI, incremental embedding, release script order), publish acceptance (`Category=Publish`, slow) |
+| `tools/` | Synthetic data generators, reference utilities, comparers, benchmark harnesses, reference-data export |
 | `installer/` | Inno Setup installers: `AuthLens-Desktop.iss` (per user) and `AuthLens-Server.iss` (machine), built by `scripts/build-installers.ps1` ([installers](../deployment/WINDOWS_DEPLOYMENT.md#installers)) |
 | `scripts/` | `build-release.ps1` (Windows) and `build-release.sh` (Linux): one .NET build that builds and embeds the UI, tests, self-contained single-file packages in a versioned release folder (`server/`, `desktop/`, `symbols/`, `build-manifest.json`, `README.txt`, `SHA256SUMS`); `verify-release.ps1`; `start-server-test.ps1` (test launcher); `deploy/` (SSH-driven Windows deployment); Pester and Bash tests in `scripts/tests` |
 
 ## Reproduce
 
 Prerequisites: .NET SDK 10 (LTS), Node.js 24 or 25 (frontend), PowerShell 7 with Pester 5 (script tests), Python 3 for the repository checks
-(`scripts/requirements-checks.txt`). Builds and tests never need SAP Lens 1. Only regenerating a v1 comparison fixture with `tools/*_reference.py`
-does: a Python 3.12 environment with SAP Lens 1's requirements and `SAP_LENS_V1_BACKEND` pointing at a SAP Lens 1 checkout
-(`tools/v1_location.py`; for example a worktree of commit `604f21e`).
+(`scripts/requirements-checks.txt`). Builds and tests use committed synthetic fixtures and require no external application installation.
 
 ```bash
 cd backend
@@ -157,17 +150,9 @@ Generated data, publish output and benchmark JSON stay outside the repository.
 ## Testing
 
 - **Suite:** `dotnet test tests/AuthLens.Tests -c Release` runs every xUnit test; the release scripts run the same suite. During development,
-  select the affected classes, for example `--filter "FullyQualifiedName~V1DataMigrationTests|FullyQualifiedName~ApplicationBackupTests"`.
-- **Python v1 references:** tests that compare with SAP Lens 1 read fixtures written by `tools/*_reference.py` from the real v1 code
-  (`SAP_LENS_V1_BACKEND` pointing at a SAP Lens 1 checkout); a test that compares with v1 is also checked by tampering its fixture once (it must fail).
-- **SAP Lens 1 installation fixture:** `tests/AuthLens.Tests/Fixtures/v1-data` is written by `tools/v1_data_fixture.py`
-  (`python -I tools/v1_data_fixture.py $SAP_LENS_V1_BACKEND <out>`). It is a v1 data directory with SoD decisions, periods, remediation,
-  legacy reviews and Account Review history, plus its host-key and passphrase `.slbak` backups and `expected.json` (synthetic secrets
-  included). The repository `.gitignore` excludes private v1 data patterns, so these fixture paths (and the build-970d219 account store) are
-  re-included explicitly; check `git status --ignored` after regenerating.
-- **Migration procedure:** `pwsh -File scripts/tests/v1-migration-procedure.ps1 -Exe <AuthLens.Api> -Root <new folder>` runs the documented
-  Windows procedure ([V1_MIGRATION.md](../migration/V1_MIGRATION.md)) against that fixture with 12 checks.
-- **Not covered by automated tests here:** native Windows (Desktop, service, ACLs, PowerShell 5.1), WebView2, and real SAP Lens 1 data.
+  select the affected classes, for example `--filter "FullyQualifiedName~AccountReviewTests|FullyQualifiedName~ApplicationBackupTests"`.
+
+- **Not covered by automated tests here:** native Windows (Desktop, service, ACLs, PowerShell 5.1), WebView2, and production-shaped recovery/network scenarios.
 
 ## Infrastructure commands and compatibility
 
@@ -189,7 +174,7 @@ Build/release scripts remain in `backend/scripts`. Historical
 `experiments/dotnet-backend` references survive only in the deployment compatibility
 resolver and its older-commit tests. They are needed for verified rollback and
 inspection of pre-promotion commits, and are not competing current entrypoints.
-The release scripts now read the frontend mirror, not archived v1 metadata. Their
+The release scripts now read the frontend mirror, from the canonical product-version metadata. Their
 checksum, source identity, no-overwrite, backup/restore and private-data guards
 remain intact. No installed service or release is modified by repository checks.
 

@@ -120,3 +120,13 @@ if this limit is reached.
 - **Selection:** the header checkbox selects the current page; *Select all N matching* selects every user matching the filters (names are fetched from `users-selection`, capped at 5,000); *Clear selection* clears only the selection. The selection survives paging and sorting and is cleared when the result set changes (any filter or the username list), so no invisible user can be affected. The toolbar shows `N matching · M selected`.
 - **Export CSV** always covers all matching users and ignores the selection.
 - **Assign group** opens the bulk dialog for the explicit selected usernames (see [Functional Groups](FUNCTIONAL_GROUPS.md)); the dialog states the number of users, shows current assignments, requires confirmation before replacing and reports applied, unchanged and failed users, retrying only the failed ones.
+
+## Table presentation and exports
+
+**Columns** opens the shared editor for visibility, order and one-line cells. Sticky selection/identity columns remain fixed; other fields can be
+reordered or hidden. Preferences are local to the browser profile and persist on reload. Functional Groups use bounded pills; **+N** or **View groups**
+opens a read-only list of every group, including archived labels, without opening a record editor. Exported group values include the complete list.
+
+The primary table export uses selected columns in their current order; **Export all columns** is an explicit alternative. These exports contain
+only displayed rows, not other result pages. Existing full assignment/evidence exports retain their documented all-matching scope and revision checks.
+CSV escaping protects spreadsheet fields and table projections enforce the 32 MiB limit. Source observations and historical decisions are not changed.

@@ -2,9 +2,9 @@
 
 A runbook for one **isolated Windows 11 Pro test VM**: building a release natively, starting the Server by hand or with the test launcher,
 checking HTTPS from the VM and from another machine, and recording what passed. The configuration reference (every option, environment
-variable, default and refusal) is [SERVER_NETWORK_ACCESS.md, section 2](SERVER_NETWORK_ACCESS.md#2-configuration-reference); certificates
-are in [section 4](SERVER_NETWORK_ACCESS.md#4-tls-certificates). The Windows service procedure is in
-[section 5](SERVER_NETWORK_ACCESS.md#5-deployment); it has **not** been run natively yet.
+variable, default and refusal) is [SERVER_NETWORK_ACCESS.md, section 2](SERVER_NETWORK_ACCESS.md#2-configuration); certificates
+are in [section 4](SERVER_NETWORK_ACCESS.md#1-hosting-boundary). The Windows service procedure is in
+[section 5](SERVER_NETWORK_ACCESS.md#7-windows-service-and-filesystem-permissions); it has **not** been run natively yet.
 
 ## Example values and local configuration
 
@@ -27,10 +27,10 @@ then reports any tracked file that contains them.
 | Releases built on the VM | `C:\AuthLens-Acceptance\builds\<name>` |
 | Certificate (PFX, SAN includes `192.168.10.20`) | `C:\AuthLens-Acceptance\tls\server.pfx` |
 | Certificate password file | `C:\AuthLens-Acceptance\tls\cert-password` |
-| Repository checkout | `C:\src\sap-lens` |
+| Repository checkout | `C:\src\AuthLens` |
 
 The certificate and password file are created once by an administrator with the commands in
-[SERVER_NETWORK_ACCESS.md section 4](SERVER_NETWORK_ACCESS.md#windows-powershell-as-administrator), using `$ip = '192.168.10.20'` and a DNS name
+[SERVER_NETWORK_ACCESS.md section 4](SERVER_NETWORK_ACCESS.md#7-windows-service-and-filesystem-permissions), using `$ip = '192.168.10.20'` and a DNS name
 of your choice. Nothing in this runbook creates or overwrites them.
 
 ## 1. Build a native release
@@ -38,7 +38,7 @@ of your choice. Nothing in this runbook creates or overwrites them.
 Prerequisites: .NET 10 SDK, Node.js 24 or 25, Git. PowerShell 5.1 or 7.
 
 ```powershell
-cd C:\src\sap-lens
+cd C:\src\AuthLens
 git fetch origin experiment/dotnet-backend; git checkout experiment/dotnet-backend; git pull --ff-only
 powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\build-release.ps1 -Output C:\AuthLens-Acceptance\builds
 ```
@@ -69,7 +69,7 @@ replaced or deleted without touching data.
 
 ```powershell
 $release = Get-ChildItem C:\AuthLens-Acceptance\builds -Directory -Filter 'AuthLens-*' | Sort-Object { (Get-Item (Join-Path $_.FullName 'build-manifest.json')).LastWriteTime } | Select-Object -Last 1
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\src\sap-lens\backend\scripts\verify-release.ps1 -ReleasePath $release.FullName   # after copying a release, too
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\src\AuthLens\backend\scripts\verify-release.ps1 -ReleasePath $release.FullName   # after copying a release, too
 Get-Content (Join-Path $release.FullName 'build-manifest.json') | Select-Object -First 12
 & (Join-Path $release.FullName 'server\AuthLens.Api.exe') --version
 & (Join-Path $release.FullName 'server\AuthLens.Api.exe') --help
@@ -83,7 +83,7 @@ earlier folder-publish releases with `manifest.json` and `server-win-x64\` are s
 configuration and runs the Server in the foreground.
 
 ```powershell
-cd C:\src\sap-lens\backend
+cd C:\src\AuthLens\backend
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-server-test.ps1 -DryRun       # validate and show the command; starts nothing
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-server-test.ps1              # foreground; Ctrl+C stops it gracefully
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-server-test.ps1 -Background  # detached; logs and PID file in C:\AuthLens-Acceptance\logs
@@ -100,8 +100,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-server-test.
 | `-ListenAddress` | none (required, from the parameter or the local file) | Must be assigned to this machine; loopback and `0.0.0.0` are refused |
 | `-Port` | `18790` | Must be free on that address |
 | `-AllowedHosts` | the listen address | Host names or addresses clients type; the certificate SAN must cover each |
-| `-TrustedProxies` | none | Reverse-proxy tests only: IP or CIDR of the proxy peer, passed as `--trusted-proxies` ([section 11](SERVER_NETWORK_ACCESS.md#11-reverse-proxy-pangolin-cloudflare)) |
-| `-DataDirectory` | `C:\AuthLens-Acceptance\server-test` | Absolute, local; refused inside the production data roots of AuthLens and every earlier product (`%ProgramData%\AuthLens`, `sap-lens`, `SapLens`, `SapLens2`, `SAP Lens Server`, `AuthLens Server`; `%LOCALAPPDATA%\AuthLens`, `AuthLens Desktop`, `SAP Lens`, `SAP Lens Desktop`, `SAP Lens 2 Prototype`), Program Files, Windows or the release folder |
+| `-TrustedProxies` | none | Reverse-proxy tests only: IP or CIDR of the proxy peer, passed as `--trusted-proxies` ([section 11](SERVER_NETWORK_ACCESS.md#5-reverse-proxy-pangolin-or-another-trusted-proxy)) |
+| `-DataDirectory` | `C:\AuthLens-Acceptance\server-test` | Absolute, local; refused inside protected installation/system roots or the release folder |
 | `-CertificatePath` | `C:\AuthLens-Acceptance\tls\server.pfx` | Must exist; never created |
 | `-CertificatePasswordFile` | `C:\AuthLens-Acceptance\tls\cert-password` | Must exist and be non-empty; the Server reads it, the launcher never does |
 | `-DryRun` | off | Validates and prints the command without secrets |
@@ -118,7 +118,7 @@ Launcher tests (Pester 5; Windows ships Pester 3, so install 5 for the current u
 
 ```powershell
 Install-Module Pester -MinimumVersion 5.5 -Scope CurrentUser -Force -SkipPublisherCheck
-Invoke-Pester C:\src\sap-lens\backend\scripts\tests -Output Detailed
+Invoke-Pester C:\src\AuthLens\backend\scripts\tests -Output Detailed
 ```
 
 On Windows the end-to-end block (a fake `AuthLens.Api.exe` shell script) is skipped; it runs on Linux test hosts.
@@ -147,7 +147,7 @@ A fresh data directory starts with `setup_required`. Issue the one-time activati
 part of the release packages), then complete the setup in the browser:
 
 ```powershell
-cd C:\src\sap-lens\backend
+cd C:\src\AuthLens\backend
 dotnet run --project src\AuthLens.Cli -c Release -- accounts-code --data C:\AuthLens-Acceptance\server-test
 ```
 
@@ -246,8 +246,8 @@ Record each level separately. A successful build is **never** runtime acceptance
 | 6 Browser UI | React UI loads with a valid lock from another machine | Pending |
 | 7 Authentication and API | First administrator activated, sign-in works, import and lookups return data, 401/421 refusals as listed | Pending |
 | 8 Restart and persistence | Section 7 | Pending |
-| 9 Desktop startup | `AuthLens.exe --self-check` exit 0, window and WebView2 ([checklist](DESKTOP_SERVER_DEPLOYMENT.md#acceptance-checklist-windows)) | Pending for the current build |
-| 10 Windows service | [Section 5 procedure](SERVER_NETWORK_ACCESS.md#5-deployment): install, start, stop, restart, recovery, reboot, removal | Pending (never run) |
+| 9 Desktop startup | `AuthLens.exe --self-check` exit 0, window and WebView2 ([checklist](DESKTOP_SERVER_DEPLOYMENT.md#acceptance)) | Pending for the current build |
+| 10 Windows service | [Section 5 procedure](SERVER_NETWORK_ACCESS.md#7-windows-service-and-filesystem-permissions): install, start, stop, restart, recovery, reboot, removal | Pending (never run) |
 | 11 Full Windows acceptance | Levels 1 to 10 on one commit | Not achieved |
 
 Levels 1 to 3 run without starting the product. Only levels 4 to 10, executed on Windows, count as runtime acceptance.
@@ -256,7 +256,7 @@ Levels 1 to 3 run without starting the product. Only levels 4 to 10, executed on
 
 **Pending; not executed on Windows.** Run only after authorization, from an elevated PowerShell 7 session, with the verified package from above.
 It installs a second AuthLens instance under a new GUID root with a unique service name, loopback only and synthetic/reserved-domain data. It never
-selects the real `AuthLens` service or any SAP Lens service (`SapLens2`, `sap-lens`, `SapLens`). Do not copy production data, TLS or keys.
+selects the real `AuthLens` service or any unrelated service. Do not copy production data, TLS or keys.
 
 ```powershell
 $run  = [guid]::NewGuid().ToString('N')
@@ -267,7 +267,7 @@ $config = Join-Path $env:TEMP "authlens-acceptance-$run.json"
             AllowedHosts=@('localhost') } | ConvertTo-Json | Set-Content $config
 $entry = '.\backend\scripts\deploy\Deploy-AuthLens.ps1'
 & $entry -Action InstallService -ConfigFile $config -DryRun          # read-only plan
-# Install, then restore a synthetic SAP Lens backup and its key (both created on a separate SAP Lens test instance):
+# Install, then restore a synthetic AuthLens backup and its key (both created on a separate AuthLens test instance):
 & $entry -Action InstallService -ConfigFile $config -Yes
 & $entry -Action Restore -ConfigFile $config -Backup <synthetic.slbak> -KeyFile <synthetic.key> -Yes
 & $entry -Action Status -ConfigFile $config
@@ -275,7 +275,7 @@ $entry = '.\backend\scripts\deploy\Deploy-AuthLens.ps1'
 
 `InstallService` creates the root with the private ACL (SYSTEM and Administrators only) before any file is staged; place the TLS certificate and
 password file under `$root\tls` first, or use the [test launcher](#2-start-the-server-with-the-test-launcher-recommended) for an HTTP-only check.
-Then verify in the browser: SAP Lens snapshots, imported revisions, SoD decisions, accounts and backup history are present and unchanged; new
+Then verify in the browser: Source snapshots, imported revisions, SoD decisions, accounts and backup history are present and unchanged; new
 backups are named `authlens-*` and contain `authlens.sqlite3`. Record the rows of the
 [AuthLens acceptance checklist](WINDOWS_DEPLOYMENT.md#acceptance-checklist-windows-pending) this covers (fresh install, restore, wrong key,
 earlier services untouched). Test a wrong key file and a corrupted archive as refusal cases; the installation must keep its previous data.

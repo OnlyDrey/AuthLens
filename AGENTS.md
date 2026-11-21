@@ -199,7 +199,7 @@ planned checkpoints, never after every correction. Commands: [development](docs/
   change conflict detection, snapshots and decisions are immutable private data, reports render
   from one frozen model. Browser specs share `frontend/tests/sod-fixture.ts` (unique users per
   test because reset keeps review history). Guides: [SoD workflow](docs/features/SOD.md),
-  [SoD architecture (v1 history)](docs/archive/v1/architecture/SOD.md), [SoD matrix reference](docs/data/SOD_MATRIX.md).
+  [SoD architecture (v1 history)](docs/features/SOD.md), [SoD matrix reference](docs/data/SOD_MATRIX.md).
 - Business logic lives in the shared .NET projects; `AuthLens.Desktop` owns the Windows WebView2 lifecycle and `AuthLens.Api` the Server host
   (console or Windows service). Do not duplicate CSV import, role matching, transaction evidence or account interpretation per host.
 - Server mode must use separate mutable storage, enforce its authentication and

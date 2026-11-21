@@ -49,11 +49,11 @@ Both redacted and private configuration exports include theme colors and custom 
 
 Linux backend/lifecycle tests mock Windows GUI boundaries. Chromium tests cover settings navigation, retained dashboard selections, unsaved confirmation, theme cancel/save/reload, presets, invalid HEX, contrast, System preference, branding proportions, visual icon selection and responsive layouts at 1280×720, 1366×768 and 1920×1080. Synthetic light/dark screenshots are inspected locally.
 
-These changes subsequently passed automated Windows GUI startup/lifecycle and packaging smoke in [cleanup run 39469463871](https://github.com/OnlyDrey/sap-lens/actions/runs/39469463871). This does not replace the native dialog, visual/high-DPI and clean-PC checklist in DESKTOP.md. Start the manual Build Windows application workflow for future executable builds. Automatic validation intentionally does not build an EXE.
+Native dialogs, high-DPI layouts and clean-machine startup require separate Windows acceptance. Use the current release scripts; CI runs only on push to main.
 
 ## Settings refinement
 
 Shared controls, the lazy Lucide catalog and save/cancel behavior are described in the
-[Component Library](COMPONENTS.md) and [Configuration](../archive/v1/getting-started/CONFIGURATION.md).
+[Component Library](COMPONENTS.md) and [Configuration](README.md).
 
 Appearance starts with the draft-synchronized live preview, followed by theme/preset controls and compact swatch/hex/reset fields. Logo preview and selection controls use responsive columns. These layout changes do not persist previews or bypass Apply/Cancel.

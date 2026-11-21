@@ -4,7 +4,7 @@ The sole active workflow is `.github/workflows/validate.yml`, triggered **only b
 push to main**. No experiment/work/PR, dispatch, schedule, downstream workflow or
 production deployment trigger exists. Jobs have read-only repository permissions,
 pinned actions, bounded timeouts and no publish credential. No workflow was run
-while implementing this migration.
+during local development.
 
 Jobs:
 
@@ -15,11 +15,9 @@ Jobs:
   NuGet advisory audit, active PowerShell syntax and Pester deployment tests.
 - Browser: .NET fixture, one worker, focused UI/host smoke plus shared Component
   Library. Failure traces are preserved. The rest of the browser suite remains
-  available locally; specs that still configure source files through a settings save (a SAP Lens 1 contract the .NET
-  host refuses) are migration gaps of the harness and are not claimed as passing ([development](README.md#browser-tests)).
+  available locally; use focused affected specifications during development.
 
-SAP Lens 1's workflow definitions were archived with it outside this repository; only `validate.yml` exists. Existing v1 release tags/assets
-are unchanged. No replacement release publisher is enabled: stable promotion,
+Only `validate.yml` is active. No automatic release publisher is enabled: stable promotion,
 validated exact-commit artifacts and release approval remain required before any
 future publication. Installer/deployment scripts still validate manifests and
 checksums locally.

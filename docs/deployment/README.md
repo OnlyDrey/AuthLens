@@ -4,7 +4,7 @@
 | --- | --- |
 | [DESKTOP_SERVER_DEPLOYMENT.md](DESKTOP_SERVER_DEPLOYMENT.md) | The two products: Desktop (WebView2, one user, loopback) and Server (console or Windows service); release folder, run commands, acceptance checklist |
 | [SERVER_NETWORK_ACCESS.md](SERVER_NETWORK_ACCESS.md) | Every Server option and environment variable, HTTPS and certificates, host allow-list, Origin/CSRF, reverse proxy and trusted proxies, authentication, firewall, Windows service and systemd |
-| [WINDOWS_DEPLOYMENT.md](WINDOWS_DEPLOYMENT.md) | SSH-driven build, verified deployment, rollback, recovery and restore of the `AuthLens` Windows service; migrating from SAP Lens (fresh install plus restore); firewall behind a reverse proxy; Desktop and Server installers; acceptance checklist |
+| [WINDOWS_DEPLOYMENT.md](WINDOWS_DEPLOYMENT.md) | SSH-driven build, verified deployment, rollback, recovery and restore of the `AuthLens` Windows service; firewall behind a reverse proxy; Desktop and Server installers; acceptance checklist |
 | [WINDOWS_TEST_VM.md](WINDOWS_TEST_VM.md) | Windows test machine runbook: native release build, test launcher, TLS checks, logs and acceptance levels |
 
 ## Commands
@@ -19,12 +19,8 @@ powershell -NoProfile -File .\backend\scripts\build-installers.ps1 -ReleasePath 
 .\backend\scripts\deploy\Deploy-AuthLens.ps1 -Action Status
 ```
 
-The previous `experiments/dotnet-backend` path is historical. Current checkouts use
-`backend/scripts`; the deployment resolver supports older commits for compatibility. Installed services run from the deployment's release folder (`ReleasesRoot\current`) and are not affected by the
-repository layout.
+Installed services run from a verified release directory selected by the deployment junction.
 
 Manual installer updates use the existing backup/deployment engine. Desktop retains the selected data profile and a private recovery journal;
 Server requires an explicit configuration. Both refuse updates with pending schema changes and preserve recovery artifacts. See
 [installer transactions and acceptance limits](WINDOWS_DEPLOYMENT.md#manual-installer-transaction) before any installation.
-
-SAP Lens 1 deployment (WinSW service, Docker, Linux native, v1 installer): [legacy v1 deployment](../archive/v1/deployment/README.md).

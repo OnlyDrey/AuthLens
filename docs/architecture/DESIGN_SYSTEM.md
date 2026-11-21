@@ -27,8 +27,7 @@ production. There are no checked-in frontend copies. The .NET API embeds the pro
 and both Inno Setup scripts consume `assets/branding/app.ico`. The Desktop window extracts that embedded executable icon. Existing custom uploaded
 header/report logos are user data and are unaffected. Report image fixtures are synthetic validation inputs, not application branding.
 
-The former product-specific asset paths are not compatibility interfaces; no redirects or duplicate aliases are retained. Archived documentation
-and the historical rename inventory retain original names as evidence. An already-installed release keeps its embedded images until deliberately
+The former product-specific asset paths are not compatibility interfaces; no redirects or duplicate aliases are retained. An already-installed release keeps its embedded images until deliberately
 updated; changing repository branding never changes a running service. Validate with `node --test scripts/tests/branding.test.mjs`, the frontend
 production build, affected .NET build/installer tests and native Inno compilation when available.
 

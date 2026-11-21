@@ -21,7 +21,7 @@ corresponding activity identifier. Each risk requires two distinct, complete
 activity sides. Transaction overlap between sides remains intact and generates
 a definition-review warning.
 
-`TYPE` is the source risk-type value. The named `sod-two-sided-v1` policy supports
+`TYPE` is the source risk-type value. The named two-sided policy supports
 observed `S` definitions with both sides; this is an explicit application policy,
 not a claim that `S` universally defines two-sided SAP risk semantics. Other types
 are retained and flagged as unsupported for evaluation. Criticality is preserved
@@ -112,7 +112,7 @@ store; portable appearance/configuration packages do not include it.
 
 ## Analysis methodology
 
-The deterministic `sod-two-sided-v1` engine requires supporting mappings on both
+The deterministic two-sided engine requires supporting mappings on both
 activity sides. User evidence follows exact imported assignments through the
 existing exact/unambiguous wildcard catalogue matching, single-role relationships
 and transaction mappings. Matching transaction codes is case-insensitive and exact;
@@ -157,7 +157,7 @@ filters for larger exports. Native Save-dialog behavior requires Windows accepta
 
 Decisions are recorded in three independent layers (activity, role assignment, risk
 acceptance); see the [SoD guide](../features/SOD.md) and
-[architecture](../archive/v1/architecture/SOD.md). Reviewer and approver names are self-reported, not
+[architecture](../features/SOD.md). Reviewer and approver names are self-reported, not
 authenticated identities or verified signatures. SAP source data is never modified.
 Each save appends an event referencing an immutable evidence snapshot, so history keeps the
 original rationale, conditions and both supporting paths after source changes. Missing
@@ -178,7 +178,7 @@ actions and removal verification and cannot be edited or recaptured; ordinary re
 changes a snapshot. Comparisons classify new, changed, unchanged, reopened and resolved
 findings and list decision changes. Lost users, changed risks or incomplete coverage give
 "Not observed / coverage changed", never automatic resolution. Periods can be deleted only
-under the guarded rules in [architecture](../archive/v1/architecture/SOD.md#deletion). Private backups
+under the guarded rules in [architecture](../features/SOD.md). Private backups
 must include the period and decision stores and their immutable snapshot files.
 
 ## DOCX and PDF reports
@@ -327,7 +327,6 @@ The original workbooks and matrix remain outside Git.
 |---|---|
 | [backend/src/AuthLens.Api/V1Reference/sod-reference-defaults.json](../../backend/src/AuthLens.Api/V1Reference/sod-reference-defaults.json) | Canonical business library 1.0.1: 14 risks, 14 activities, six terms. Contains P001, P002, P008 and PR01. Validated by the Library model; risk/activity records also round-trip through the real XLSX importer in tests. |
 | [backend/src/AuthLens.Api/V1Reference/sod-reference-template.xlsx](../../backend/src/AuthLens.Api/V1Reference/sod-reference-template.xlsx) | Schema example, not a populated copy of library 1.0.1. Contains synthetic R_EXAMPLE/ACT_EXAMPLE and one example term. Parsed by the real importer; its XML members are checked against the canonical generator. |
-| `reference-template.py` (SAP Lens 1 maintenance script, archived) | Generates that synthetic template from the importer's actual header mappings. It does not duplicate curated business definitions. |
 | [examples/sod-matrix.example.csv](../../examples/sod-matrix.example.csv) | Separate active-matrix example: two synthetic risks/four mapping rows. Validated by `parse_sod`, including links to example catalogue transactions. It intentionally does not substitute production-like P001/PR01 relationships into the synthetic scenario. |
 | [backend/tests/AuthLens.Tests/Fixtures/sod/reference](../../backend/tests/AuthLens.Tests/Fixtures/sod/reference) and `SodCatalogueTests` | Synthetic schema/negative fixtures; populated round-trip fixtures derive directly from the JSON library. No second maintained business library. |
 

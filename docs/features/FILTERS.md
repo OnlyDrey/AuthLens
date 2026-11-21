@@ -301,3 +301,12 @@ Access and its dashboard drill-downs retain their existing exact group behavior.
 Account Review's general text search is not a selected SAP User Group filter;
 its license-group classification is a separate control. Explicit role, suffix and
 transaction search patterns retain their documented semantics.
+
+## Responsive filter ownership
+
+Role Lookup search and SAP area pills belong inside **Filters**. User Access **Search users** and **Exact usernames**, including Apply/Clear list,
+also live inside Filters. Their existing normalization, matching, deferred queries, saved-state and clearing behavior is unchanged.
+
+On desktop the panel is a collapsible sidebar; on narrow screens it is a modal drawer using the shared focus/scroll owner. **Show results** closes
+it without resetting filters. Escape/backdrop close it and return focus; widening to desktop dismisses the mobile drawer and does not reopen it on
+return. Only one instance of the filter form is mounted at a time, avoiding duplicate field/help IDs. Active filter summaries remain available with results.

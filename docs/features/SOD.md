@@ -4,7 +4,7 @@ SoD turns an externally supplied risk matrix into **potential conflict evidence*
 documented review trail. It supports investigation: a transaction mapping does not prove
 effective SAP authorization, a confirmed violation or license use. Methodology, schema and
 limits: [SoD matrix reference](../data/SOD_MATRIX.md). Internals:
-[SoD architecture](../archive/v1/architecture/SOD.md).
+[SoD architecture](SOD.md).
 
 **Analyze → Investigate → Review activities → Review role assignments → Calculate risks →
 Accept or reject → Approve → Remediate → Verify → Report**
@@ -65,7 +65,7 @@ remain separate events; reviewers may approve their own work. Session servers
 record the authenticated account UUID and username/display snapshots, while
 passwordless Desktop uses a stable, explicitly self-reported local profile.
 Legacy reviewer strings and frozen evidence are retained without invented account
-mappings. See [application accounts](../archive/v1/getting-started/CONFIGURATION.md#application-accounts-session-authenticated-servers).
+mappings. See [application accounts](../architecture/README.md).
 Reports: PDF and DOCX formal review (executive summary, scope, sources,
 risk overview, activity, assignment and acceptance results, controls, remediation, changes,
 conclusion and signature lines, technical appendix) and an access remediation report with
@@ -80,7 +80,7 @@ lines are not verified digital signatures.
   exports exclude them. Use only synthetic data in examples and tests.
 
 Source import: [Data & CSV](../data/IMPORT_AND_REFRESH.md), synthetic example
-[sod-matrix.example.csv](../../examples/sod-matrix.example.csv). API: [SoD API](../archive/v1/architecture/API.md#sod-api).
+[sod-matrix.example.csv](../../examples/sod-matrix.example.csv). API: [SoD API](../architecture/UI_INTEGRATION.md).
 Validation and open native acceptance items: [validation tracker](../validation/README.md)
 and [validation tracker](../validation/README.md).
 
@@ -555,8 +555,8 @@ checks, period gates and per-assignment immutable history are unchanged.
 
 **Export CSV** on Remediation is a menu with two formats, both honoring every active Remediation filter (SAP User Group, username, risk, activity, assigned role, role suffix, transaction code, business area, assignment validity, recommended handling and tracking) across all pages, independent of expanded rows:
 
-- **Role Assignments** (`sap-lens-sod-role-assignments-YYYY-MM-DD.csv`): columns `USERNAME;ROLE;SAP User Group;Decision Status`, one row per exact SAP username and assigned role, sorted by username then role. Several activities, risks or validity intervals of the same pair never add rows; display names and descriptions are not used to merge anything. Where one pair has several values the result is deterministic and visible: the SAP User Group is the distinct non-empty groups joined with `, ` (empty when none exists, never invented), and the Decision Status is the authoritative assignment decision when all intervals agree, otherwise `Mixed (A / B)` listing the distinct decisions. It reports the review decision only; remediation actions and verification stay in the detailed export.
-- **Detailed Remediation** (`sap-lens-sod-access-remediation-YYYY-MM-DD.csv`): unchanged columns and activity-level rows for evidence and investigation.
+- **Role Assignments** (CSV download): columns `USERNAME;ROLE;SAP User Group;Decision Status`, one row per exact SAP username and assigned role, sorted by username then role. Several activities, risks or validity intervals of the same pair never add rows; display names and descriptions are not used to merge anything. Where one pair has several values the result is deterministic and visible: the SAP User Group is the distinct non-empty groups joined with `, ` (empty when none exists, never invented), and the Decision Status is the authoritative assignment decision when all intervals agree, otherwise `Mixed (A / B)` listing the distinct decisions. It reports the review decision only; remediation actions and verification stay in the detailed export.
+- **Detailed Remediation** (CSV download): unchanged columns and activity-level rows for evidence and investigation.
 
 Both use the established CSV conventions (semicolon delimiter, all fields quoted, UTF-8 with BOM, spreadsheet-formula protection).
 

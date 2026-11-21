@@ -1,16 +1,14 @@
 # Database design: SQLite as the system of record
 
-One file, `authlens.sqlite3`, in the data directory, for Desktop and Server. A data directory that holds only the earlier SAP Lens file
-`sap-lens-v2.sqlite3` is **refused** at startup (never opened, renamed or replaced by an empty database): bring that data over by restoring a backup,
-or explicitly with `--adopt-legacy-database`, which takes an exclusive lock, makes a verified copy, checks integrity and identical migrations and
-row counts, and only then renames the file. Schema in
-`backend/src/AuthLens.Persistence` (`AuthLensDb`, `Entities.cs`, migration `Initial`, `ImmutabilitySql`).
+The dedicated data directory contains `authlens.sqlite3`. Desktop and Server use the shared schema and transaction/evidence rules. Never
+initialize an empty database over a recovery failure or adopt a different installation implicitly. Schema definitions live in
+`backend/src/AuthLens.Persistence` (`AuthLensDb`, entities, migrations and immutability triggers).
 
 ## Tables
 
 | Table | Purpose | Key constraints |
 | --- | --- | --- |
-| `Datasets` | One revision of one source (`roles`, `users`, `sod`): status Staged / Held / Active / Retired / Discarded / Failed, content hash, counts, import report and evaluation JSON, confirmation (who, when) | Unique `(Source, Revision)`; **unique filtered index `Source WHERE Status='Active'`**: one active revision per source, enforced by SQLite |
+| `Datasets` | One revision of one source (`roles`, `users`, `employees`, `sod`): status Staged / Held / Active / Retired / Discarded / Failed, content hash, counts, import report and evaluation JSON, confirmation (who, when) | Unique `(Source, Revision)`; **unique filtered index `Source WHERE Status='Active'`**: one active revision per source, enforced by SQLite |
 | `DatasetRecords` | Canonical mapped CSV rows as JSON, ordinal order | Unique `(DatasetId, Ordinal)`; FK cascade from dataset |
 | `Jobs` | Persistent background jobs: status, attempts, lease owner and expiry, not-before, progress, cancel flag, result, error | Unique `IdempotencyKey`; index `(Status, NotBeforeUtc)` |
 | `ReviewDecisions` | Append-only review decisions with the users revision they were made against and a SHA-256 hash chained to the previous row | Unique `Hash`; FK to dataset (restrict) |
@@ -36,17 +34,7 @@ test drops the trigger, edits a decision and shows the chain reports the exact b
 - Short-lived `DbContext` per operation (`IDbContextFactory`, pooled).
 - **A database file that is hashed, moved, replaced or deleted is opened without pooling.** A pooled connection keeps SQLite's file handle
   open after its `DbContext` is disposed. Linux allows hashing and renaming such a file; Windows refuses (`The process cannot access the file
-  ... because it is being used by another process`). This broke every v1 migration run on Windows: the candidate was built and verified through
-  pooled contexts and then hashed with `File.OpenRead`, whose `FileShare.Read` conflicts with the open read-write handle. The migration now uses
-  `V1DataMigration.CandidateDb` (`Pooling=False`), so disposing the context closes the handle; `V1DataMigrationTests` assert through
-  `/proc/self/fd` that no file of the migration folder stays open after a run. Integrity checks, backups, the account store and the
-  maintenance commands already open their files without pooling or clear the pool first. Never use `SqliteConnection.ClearAllPools()` inside
-  a running server for this: it also drops the server's own idle connections. [T]
-- Explicit transactions for every write through `WriteCoordinator`: an in-process `SemaphoreSlim` (avoids busy-waiting between our own
-  threads) **plus** a transaction that Microsoft.Data.Sqlite begins as `BEGIN IMMEDIATE`, so the cross-process guarantee comes from
-  SQLite's file lock and never from the in-process lock alone.
-- Evidence [T]: four separate OS processes plus the test process enqueue 300 jobs concurrently with no lost write; four worker processes
-  compete for 150 jobs and each job is claimed exactly once with `Attempts=1`.
+  ... because it is being used by another process`). Every process must close SQLite handles before a staged database directory is activated or moved.
 
 ## Concurrency evaluation
 
@@ -68,10 +56,8 @@ type check]
 
 - `Purged`: a superseded revision whose records data retention removed after approval; the row (content hash, revision, record count, times)
   stays as evidence because activated datasets are never deleted (trigger `Datasets_NoDeleteActivated`). [T]
-- Revisions migrated from SAP Lens 1 keep the v1 snapshot id in `ReportJson.migrated_from_v1.snapshot`; retention treats a reference to
-  either id as a reference to the revision. [T]
-- The SAP Lens 1 migration builds a separate candidate database under `migration/<id>/candidate`, verifies it, and activates it at the
-  next start by replacing the database files (the previous files are kept for rollback). [T]
+
+
 
 ## Migrations
 
@@ -92,7 +78,7 @@ type check]
   administrator approval; manual backups until a person deletes them; migration backups until an administrator deletes them after confirming
   the upgrade (never by retention). [T]
 - Application backups, their schedule and restore: encrypted SLBAK3 archives of the database, account store and branding (`ApplicationBackups`,
-  `BackupCrypto`), restored at the next start with rollback. See [MIGRATION_MATRIX.md](../migration/MIGRATION_MATRIX.md) (MIG-005). [T]
+  `BackupCrypto`), restored at the next start with rollback. See [MIGRATION_MATRIX.md](../features/README.md) (MIG-005). [T]
 
 ### Backup administration and scheduling
 
@@ -113,7 +99,7 @@ Completion merges runtime history into the newest configuration revision, preser
 and bounded execution history. No restart is required to enable, disable or edit a schedule. A verified separately stored recovery copy is required.
 
 Retention has separate source/review/automatic-backup approvals, previews/digests and configurable periods (24 months, 24 months and 90 days by default).
-Shortening a period invalidates approval. Manual/migration archives and immutable review evidence stay protected. A restore/v1 activation imposes a
+Shortening a period invalidates approval. Manual/migration archives and immutable review evidence stay protected. A restore activation imposes a
 seven-day hold on both automatic and explicitly approved cleanup; previews remain available. Upgrade integrity is separate from functional acceptance:
 the UI never auto-confirms an activated migration and confirmation never deletes its backup.
 

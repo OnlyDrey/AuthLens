@@ -6,22 +6,9 @@ license savings or actual license entitlement is inferred.
 
 ## Sources and prerequisites
 
-**V1 schema-2 compatibility correction (2026-11-20):** the source now recognizes V1's spaced JSON fingerprints, including nested ASCII escaping
-and Unicode-scalar ordering, alongside existing .NET compact fingerprints. Newly issued .NET evidence/identity versions are unchanged.
-Compatibility is evaluated on reads; no historical decision, evidence or hash is rewritten. Explicit disappearance markers and database
-invalidations still take precedence. Unknown/schema-1 V1 encodings do not receive the schema-2 fallback and remain fail-closed.
-The installed acceptance Server at build 4b20cdb still has the original defect until a separately verified update is approved.
-
-The exact archived V1 algorithm from the backup's source commit reports all three real decisions as **current/completed**, matching the corrected
-isolated Server copy. An earlier reconstruction incorrectly used a user-detail API that truncates assignment transaction lists to 100 entries;
-the complete lists contain 255, 649 and 387 entries. That earlier stale-status conclusion is superseded. The correction changes derived status,
-never historical decisions or saved hashes. Do not re-save histories to clear the UI. Exact contents and hash chains were verified.
-See the [isolated acceptance result](../migration/RELEASE_STATUS.md#account-review-compatibility-correction-and-isolated-continuation).
-
-Focused regressions cover unchanged/changed evidence, Unicode, mixed V1/.NET decisions, independent user invalidation and database history/hash
-chain immutability. The affected Account Review and V1 migration classes pass 22 tests. The migration fixture now explicitly includes completed
-reviews: a current migrated `No action required` decision correctly leaves the default pending queue. Real-data copy, recovery and UI acceptance
-are recorded separately in release status; unit results alone do not authorize updating the running Server.
+Stored decisions are compared with the current identity and evidence using their recorded schema. Explicit invalidation and disappearance
+markers take precedence. Read-time currency checks never rewrite historical decisions, evidence or hashes; changed evidence requires an explicit
+new review. Unknown encodings fail closed.
 
 The existing User Access CSV supplies SAP identities, groups, account validity,
 locks and user types. The optional Employee Directory supplies AD state through a
@@ -111,8 +98,7 @@ append-only (database triggers reject updates and deletes) and SHA-256 hash-chai
 current one and earlier ones are its history. Each record holds the decision, reviewer, rationale, timestamp, the
 User Access revision it was made against and an evidence fingerprint, not copied SAP rows. An account that disappears
 from a later User Access revision gets an invalidation record and needs a new review. Decisions travel with application
-backups and restores ([backup and recovery](../operations/BACKUP_AND_RECOVERY.md)); SAP Lens 1's `account-review.json`
-is imported by the [v1 data migration](../migration/V1_MIGRATION.md). Review timestamps are stored and
+backups and restores ([backup and recovery](../operations/BACKUP_AND_RECOVERY.md)). Review timestamps are stored and
 exported in ISO UTC; the UI uses Norwegian dates and local 24-hour time. Reviewer/rationale can still
 contain personal information and must be treated as private local data.
 
@@ -177,7 +163,7 @@ unreadable store rejects replacement and preserves previous annotations.
 
 New evidence fingerprints exclude CSV row order/IDs and unrelated directory fields.
 Material identity, assignments, account validity/lock, AD status, matching and group
-classification changes reassess currency. Legacy fingerprints remain supported for
+classification changes reassess currency. Stored fingerprints remain validated for
 unchanged evidence until the annotation is explicitly saved with the new schema.
 A valid replacement that removes an account marks its retained annotation absent;
 a reappearing username requires review even if its fields look unchanged. Missing
@@ -213,3 +199,9 @@ is outstanding. Completed reviews are hidden from the default list; no parallel 
 - A completed review reopens only when its evidence version changes (a new or different finding, changed identity or directory data), or a new
   position change, manager change or Functional Group reconfirmation is open. Nothing else reopens it.
 - Total, pagination, sorting and the review CSV export all use the same filter. The response carries `completed_hidden` and `summary.completed`.
+
+## Responsive table presentation
+
+Functional Groups use the shared pills/read-only expansion. Manager is a separate column, not appended to group labels. **Columns** controls
+visibility, DOM/export order and no-wrap presentation; Functional Groups may wrap. Local column preferences and displayed-row CSV projections
+are presentation only. They do not alter review currency, evidence, decisions, historical hashes or the complete review-evidence export.
