@@ -61,7 +61,7 @@ Product version `2.0.0-alpha.1` (pre-release; [versioning](docs/architecture/VER
 npm --prefix frontend ci && npm --prefix frontend run build
 dotnet build backend/AuthLens.slnx -c Release
 dotnet test backend/tests/AuthLens.Tests -c Release --no-build --filter "Category!=Publish"
-backend/scripts/build-release.sh <output>                     # Linux; Windows: backend\scripts\build-release.ps1 -Output <folder>
+backend/scripts/build-release.sh <output>                     # Linux; Windows: .\build.ps1
 ```
 
 Details: [development](docs/development/README.md), [deployment](docs/deployment/README.md).

@@ -29,7 +29,8 @@ param(
     [switch]$SkipTests,
     [switch]$SkipPublishTests,
     # Runs only the tests matching this test filter expression (for example a deployment's focused selection) instead of the whole suite.
-    [string]$TestFilter = ''
+    [string]$TestFilter = '',
+    [string]$BuildTimestampUtc = ''
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -60,7 +61,7 @@ if ($version -notmatch '^(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})(-(
 $channel = if ($Matches[5]) { $Matches[5] } else { 'stable' }
 $fileVersion = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3], $(if ($Matches[6]) { [int]$Matches[6] } else { 0 }))
 $uiVersion = (Get-Content (Join-Path $root '..\frontend\package.json') -Raw | ConvertFrom-Json).version   # checked by the frontend prebuild contract
-$built = [DateTime]::UtcNow
+$built = if ($BuildTimestampUtc) { [DateTime]::Parse($BuildTimestampUtc).ToUniversalTime() } else { [DateTime]::UtcNow }
 $release = Join-Path $Output ('AuthLens-{0}-{1}-{2}-{3}' -f $version, $built.ToString('yyyyMMdd-HHmmss'), $sha.Substring(0, 7), $platform)
 if (Test-Path -LiteralPath $release) { throw "Release folder $release exists; an existing release is never overwritten." }
 $identity = "-p:SourceRevisionId=$sha"

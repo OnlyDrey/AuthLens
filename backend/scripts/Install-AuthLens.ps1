@@ -15,10 +15,12 @@ param(
     [string]$ConfigFile='',
     [switch]$Recover,
     [switch]$PrepareOnly,
+    [string]$DiagnosticFile='',
     [switch]$Yes
 )
 Set-StrictMode -Version 3.0
 $ErrorActionPreference='Stop'
+$stage='helper verification'
 try {
     if (-not $Yes) { throw 'Installation requires explicit -Yes after reviewing the selected paths and configuration.' }
     # Inno embeds these tools separately from the unchanged release manifest. Verify every helper before importing executable code.
@@ -34,6 +36,7 @@ try {
         }
     } else { throw 'Packaged installer helper integrity manifest is missing.' }
     Import-Module (Join-Path $PSScriptRoot 'deploy\AuthLens.Deploy.psm1') -Force
+    $stage='configuration and prerequisites'
     if ($Mode -eq 'Server') {
         if (-not $ConfigFile) { throw 'Server Setup requires an explicit -ConfigFile; it never infers a running installation.' }
         if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Server Setup requires an elevated operator session.' }
@@ -41,7 +44,11 @@ try {
         if (-not $InstallRoot -or [IO.Path]::GetFullPath($InstallRoot).TrimEnd('\') -ine [IO.Path]::GetFullPath((Join-Path $config.Root 'app')).TrimEnd('\')) { throw 'Server Setup program directory must be the configured installation root app directory.' }
         if ($Recover -and $PrepareOnly) { throw 'Recover and PrepareOnly cannot be combined.' }
         if ($Recover) { $result=Invoke-ALInstallerServer $config '' -Recover }
-        elseif ($PrepareOnly) { Initialize-ALInstallerServerRoot $config; $result=@{prepared=$true} }
+        elseif ($PrepareOnly) {
+            $stage='Server upgrade preflight'; $operation=Assert-ALInstallerServerPreflight $config
+            $stage='Server root preparation'; Initialize-ALInstallerServerRoot $config
+            $result=@{prepared=$true;operation=$operation}
+        }
         else { if (-not $Package) { throw 'A verified package is required.' }; $result=Invoke-ALInstallerServer $config $Package }
     } else {
         if ($PrepareOnly) { throw 'PrepareOnly applies to Server directory provisioning only.' }
@@ -52,7 +59,15 @@ try {
     Write-Host ('AUTHLENS-INSTALLER: '+($result | ConvertTo-Json -Depth 8 -Compress))
     exit 0
 } catch {
-    Write-Host ('Installer refused or failed: '+$_.Exception.Message)
+    # Never include invocation text, configuration content, stack dumps or arbitrary parser errors.
+    $known=@('Packaged installer helper integrity manifest is missing.','Installer helper integrity verification failed.','Installer helper inventory is incomplete or unexpected.','Invalid installer helper path.','Server Setup requires an explicit -ConfigFile; it never infers a running installation.','Server Setup requires an elevated operator session.','Server Setup program directory must be the configured installation root app directory.','Recover and PrepareOnly cannot be combined.')
+    $reason=if ($_.Exception.GetType().Name -eq 'DeployException' -or $_.Exception.Message -in $known) { $_.Exception.Message } else { 'Prerequisite/helper/configuration error ('+$_.Exception.GetType().Name+'). Review the explicit configuration and packaged helper integrity.' }
+    $reason=[regex]::Replace($reason,'(?i)(password|token|secret|credential|passphrase)\s*[:=]\s*[^\s;,]+','$1=[REDACTED]')
+    $diagnostic="Stage: $stage. $reason"
+    Write-Host ('Installer refused or failed: '+$diagnostic)
+    if ($DiagnosticFile) {
+        try { $stream=[IO.File]::Open($DiagnosticFile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None); $writer=[IO.StreamWriter]::new($stream); try { $writer.Write($diagnostic) } finally { $writer.Dispose() } } catch { Write-Host 'Diagnostic file could not be created; existing evidence was not overwritten.' }
+    }
     $code=2
     if ($_.Exception.PSObject.Properties['ExitCode']) { $code=$_.Exception.ExitCode }
     exit $code

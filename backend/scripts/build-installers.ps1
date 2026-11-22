@@ -67,5 +67,9 @@ $lines = foreach ($name in $names) {
     '{0} *{1}' -f (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant(), $name
 }
 [System.IO.File]::WriteAllLines((Join-Path $Output 'installers-SHA256SUMS'), [string[]]$lines)
+$metadata=[ordered]@{}
+foreach ($field in 'product','version','source_sha','branch','build_timestamp_utc','source_dirty','executables') { $metadata[$field]=$manifest.$field }
+$metadata.artifacts=@($names | ForEach-Object { @{path=$_;sha256=(Get-FileHash -LiteralPath (Join-Path $Output $_) -Algorithm SHA256).Hash.ToLowerInvariant()} })
+[IO.File]::WriteAllText((Join-Path $Output 'installer-manifest.json'),($metadata | ConvertTo-Json -Depth 6))
 $lines | ForEach-Object { Write-Host $_ }
 Write-Host "Installers complete: $Output (unsigned; source commit $($manifest.source_sha))"

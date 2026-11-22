@@ -10,11 +10,10 @@
 ## Commands
 
 ```powershell
-# Windows release folder (Server and Desktop, versioned, with build-manifest.json and SHA256SUMS)
-powershell -NoProfile -File .\backend\scripts\build-release.ps1 -Output C:\AuthLens-Build\builds
-powershell -NoProfile -File .\backend\scripts\verify-release.ps1 -ReleasePath <release folder>   # manifest contract, sizes, checksums
-# Installers (Inno Setup 6): clean verified release and helper sources at the same commit; output must be empty
-powershell -NoProfile -File .\backend\scripts\build-installers.ps1 -ReleasePath <release folder> -Output C:\AuthLens-Build\installers
+# Canonical Windows workflow: build, package and verify both products; never installs
+.\build.ps1
+# Development packaging: skip backend tests, retain security and manifest checks
+.\build.ps1 -SkipTests -OutputRoot C:\AuthLens-Development
 # Managed Windows service deployment on the host (or over SSH with backend/scripts/deploy/deploy-windows.sh)
 .\backend\scripts\deploy\Deploy-AuthLens.ps1 -Action Status
 ```

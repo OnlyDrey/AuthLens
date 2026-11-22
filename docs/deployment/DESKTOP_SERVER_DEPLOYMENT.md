@@ -19,8 +19,7 @@ by the same process. See [network/security](SERVER_NETWORK_ACCESS.md) and [Windo
 From a checkout of the intended source commit, use .NET SDK 10 and Node.js 24 or 25:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\build-release.ps1 -Output C:\AuthLens-Build\releases
-powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\verify-release.ps1 -ReleasePath <release-directory>
+.\build.ps1
 ```
 
 The release script rebuilds the production frontend once, builds the solution and publishes self-contained Windows x64 executables. Use its
@@ -39,7 +38,7 @@ Branding sources are [assets/branding](../../assets/branding/); Vite emits the l
 
 ## Installers
 
-Build installers only from a clean verified release and helper sources from the same commit:
+The canonical command also builds installers from the same clean verified release and committed helper sources. Advanced installer-only invocation:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\build-installers.ps1 -ReleasePath <release-directory> -Output C:\AuthLens-Build\installers

@@ -703,6 +703,8 @@ function Invoke-ALDeploy($Config, [string]$ReleaseFolder, [string]$Commit, [swit
     if (-not $schema.compatible) { Stop-AL ('The data directory was written by a newer AuthLens build (unknown migrations: {0}); this release would refuse it.' -f (@($schema.unknown_applied) -join ', ')) }
     if ($RequireRollback -and ($service.Exists -or $previous)) {
         if (-not $previous -or -not (Test-ALPathWithin $previous $Config.ReleasesRoot) -or -not (Test-ALPublishedRelease $previous).Verified) { Stop-AL 'The previous managed release must verify before an installer update.' }
+        $oldManifest=Get-Content -LiteralPath (Join-AL $previous 'build-manifest.json') -Raw | ConvertFrom-Json
+        Assert-ALInstallerUpgradeIdentity $oldManifest $manifest
         $oldSchema = Invoke-ALMaintenance (Join-AL $previous 'server\AuthLens.Api.exe') @('--schema-info', '--data-dir', $Config.DataDirectory)
         if (-not $oldSchema.compatible -or @($schema.pending).Count -gt 0) { Stop-AL 'Installer update cannot prove binary rollback across a schema change. Use a separately approved migration/recovery procedure; nothing was stopped.' }
         if ($service.Exists -and $service.Account -ine $Config.ServiceAccount) { Stop-AL 'The configured service identity differs; installer updates never reconfigure credentials or service accounts.' }

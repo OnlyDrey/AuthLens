@@ -27,7 +27,9 @@ Describe 'Compiled Inno installer isolation' {
         $code = Get-Content -LiteralPath $expanded -Raw
         $code | Should -Match 'This exact Setup payload already exists'
         $code | Should -Match 'ssPostInstall'
-        $code | Should -Match 'if Code <> 0 then\s+RaiseException'
+        $code | Should -Match 'if Code <> 0 then begin'
+        $code | Should -Match 'LoadStringFromFile\(Diagnostic, Detail\)'
+        $code | Should -Match 'RaiseException'
         $code | Should -Match ('-Mode ' + $Mode + ' -Package')
         if ($Mode -eq 'Desktop') {
             $code | Should -Not -Match 'CONFIGFILE|ConfigFile|PrepareOnly|ExtractTemporaryFiles|Server root security|ServiceRunsFrom'

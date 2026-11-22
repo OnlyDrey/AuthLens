@@ -63,11 +63,40 @@ function Assert-ALInstallerServerConfiguration($Config) {
     if ($Config.ServiceName -in @('SapLens2','sap-lens','SapLens')) { Stop-AL 'Legacy services are protected.' }
     foreach ($path in $Config.Root,$Config.DataDirectory,$Config.WorkRoot,$Config.ReleasesRoot,$Config.BackupRoot,$Config.ConfigFile,$Config.CertificatePath,$Config.CertificatePasswordFile) { Assert-ALInstallerPath $path }
 }
+function Assert-ALInstallerUpgradeIdentity($Previous, $Next) {
+    foreach ($manifest in $Previous,$Next) {
+        if ($manifest.product -cne 'AuthLens' -or $manifest.source_sha -notmatch '^[a-f0-9]{40}$' -or
+            (@($manifest.file_version) -join '.') -notmatch '^\d+\.\d+\.\d+\.\d+$') { Stop-AL 'Upgrade identity is incomplete; retain the installed release and recovery evidence.' }
+    }
+    $old=[version](@($Previous.file_version) -join '.'); $new=[version](@($Next.file_version) -join '.')
+    if ($new -lt $old) { Stop-AL 'Installer downgrades are not supported.' }
+    if ($new -eq $old -and $Previous.source_sha -ne $Next.source_sha) {
+        if (-not $Previous.PSObject.Properties['build_timestamp_utc'] -or -not $Next.PSObject.Properties['build_timestamp_utc'] -or
+            [datetime]::Parse($Next.build_timestamp_utc).ToUniversalTime() -le [datetime]::Parse($Previous.build_timestamp_utc).ToUniversalTime()) { Stop-AL 'Same-version update requires a newer verified build identity; silent replacement is refused.' }
+    }
+}
 function Initialize-ALInstallerServerRoot($Config) {
     Assert-ALInstallerServerConfiguration $Config
     if (-not (Test-Path -LiteralPath $Config.Root)) { New-ALDirectoryWithAcl $Config.Root (New-ALProtectedDirectorySecurity) }
     $null=Assert-ALAclPlan @([pscustomobject]@{Path=$Config.Root;Class='private';Role='installation root';Recurse=$false}) 'Server installation root'
     Initialize-ALInstallation $Config
+}
+function Assert-ALInstallerServerPreflight($Config) {
+    Assert-ALInstallerServerConfiguration $Config
+    $journal=Read-ALJournal $Config
+    if ($journal -and $journal.phase -in $script:CriticalPhases) { Stop-AL 'An interrupted Server deployment requires explicit recovery before Setup can continue.' 4 }
+    $service=Get-ALService $Config.ServiceName
+    $previous=Get-ALLink (Get-ALCurrentLink $Config)
+    if ($service.Exists) {
+        if (-not (Test-ALServiceBinary $service.PathName $Config)) { Stop-AL 'Existing service is outside the managed release link; Setup will not adopt or replace it.' }
+        if ($service.Account -ine $Config.ServiceAccount) { Stop-AL 'Existing service identity differs; Setup will not reconfigure it.' }
+        $arguments=@(Split-ALCommandLine $service.PathName)
+        if (@(Compare-ALServiceArguments @($arguments | Select-Object -Skip 1) @(Get-ALServiceArguments $Config)).Count) { Stop-AL 'Existing service configuration differs; review explicit deployment settings before Setup.' }
+        if (-not $previous -or -not (Test-ALPathWithin $previous $Config.ReleasesRoot) -or -not (Test-ALPublishedRelease $previous).Verified) { Stop-AL 'Existing Server release cannot prove rollback; nothing was changed.' }
+        return 'upgrade'
+    }
+    if ($previous) { Stop-AL 'A release pointer exists without its service; explicit recovery is required.' }
+    'fresh installation'
 }
 
 function New-ALInstallerPrivateDirectory([string]$Path) {
@@ -179,6 +208,7 @@ function Invoke-ALInstallerDesktop([string]$Root, [string]$Data, [string]$Packag
             $oldManifest = Assert-ALInstalledDesktop $Root
             if ($oldManifest.PSObject.Properties['file_version'] -and $manifest.PSObject.Properties['file_version'] -and
                 [version](@($manifest.file_version) -join '.') -lt [version](@($oldManifest.file_version) -join '.')) { Stop-AL 'Installer downgrades are not supported.' }
+            if ($oldManifest.PSObject.Properties['file_version'] -and $manifest.PSObject.Properties['file_version']) { Assert-ALInstallerUpgradeIdentity $oldManifest $manifest }
         } elseif (Test-Path -LiteralPath (Join-AL $Root 'build-manifest.json')) { Stop-AL 'A manifest exists without its installed Desktop; inspect the incomplete installation before proceeding.' }
         $run = Join-AL $state ([Guid]::NewGuid().ToString('N')); New-ALInstallerPrivateDirectory $run
         Save-ALInstallerRecoveryTools $run

@@ -733,3 +733,86 @@ approval; CI configuration and the browser tests remain unchanged.
 An explicit `AuthLens.exe --data-dir <absolute fresh fixture> --self-check` now places logs and WebView2 runtime files under `<fixture>/.desktop` and derives its mutex from that data directory. It neither shares the normal Desktop mutex/profile nor writes into earlier product folders. The default Desktop path and mutex stay unchanged, including when that exact default data path is passed explicitly. Relative/empty/drive-root/linked paths and earlier product profiles are refused before log creation. Use a new GUID fixture, never a directory selected because its name sounds disposable. Self-check verifies the private loopback host and embedded UI without a window; it does not prove WebView2 interactions, downloads or installer acceptance.
 
 The publish acceptance tests now run the single-file Server smoke workflow on Windows as well as Linux, and a Windows-only Desktop `--self-check` against a fresh temporary data directory. These checks never register an SCM service. Startup deadline tests run in the existing nonparallel process collection because they clear global SQLite pools and must not compete with unrelated host/build fixtures; their deadlines are unchanged. Final execution results are recorded in [release status](../validation/STATUS.md).
+
+## Canonical Windows build
+
+From a clean committed checkout, run `.\build.ps1`. Windows PowerShell 5.1 or PowerShell 7,
+Git, .NET SDK 10, Node 24/25, npm, Python 3 and Inno Setup 6 are required. Use `-Iscc <absolute ISCC.exe>` for a nonstandard installation.
+The entry point orchestrates the existing release builder, verifier, release secret scan and installer builder. It never installs software or
+changes services. CI triggers, product version and runtime configuration are unchanged.
+
+```powershell
+.\build.ps1
+.\build.ps1 -SkipTests                            # development only; summary explicitly records skipped tests
+.\build.ps1 -TestFilter 'FullyQualifiedName~VersioningTests' -OutputRoot C:\AuthLens-Development
+```
+
+`-TestFilter` selects focused backend validation; the default release command runs the existing backend release test selection.
+Do not use a development build as evidence that full release acceptance passed.
+
+Each invocation generates one UTC timestamp and keeps its full Git SHA. Outputs are never reused:
+
+```text
+C:\AuthLens\<UTC-timestamp>-<short-sha>\
+  build\AuthLens-<version>-<timestamp>-<sha>-win-x64\
+    desktop\AuthLens.exe
+    server\AuthLens.Api.exe
+    symbols\
+    build-manifest.json
+    SHA256SUMS
+  installer\
+    AuthLens-<version>-Setup.exe
+    AuthLens-Server-<version>-Setup.exe
+    installer-manifest.json
+    installers-SHA256SUMS
+    installer-tools-<unique-id>\
+  build-summary.json
+  build.log
+  .build-claim
+```
+
+The summary records tools, test status, checks, artifact hashes and failure reason. The release and installer manifests carry identical product,
+version, full SHA, branch and timestamp. A failure returns nonzero and retains partial outputs/logs. Dirty checkout rejection happens before
+creating a build directory. Start a new build after a failure; never overwrite a partial directory. This is traceable orchestration, not a claim
+of byte-for-byte reproducible executable timestamps or compression output.
+
+### Preparation diagnostics and remaining acceptance
+
+Setup previously hid PowerShell output behind `Server root security preparation refused (exit 2)`. That exit code covers configuration,
+helper integrity, path, elevation and ACL failures; it does not identify an ACL defect. The ordinary ACL plan does not audit the installation root
+itself, while Setup checks that root as private storage before staging executable helpers. Therefore a safe ordinary audit does not prove that
+Setup preparation passes. Keep the stronger root check; do not grant broad access or bypass preparation.
+
+Preparation now preserves a diagnostic in Setup's private temporary directory and displays/logs its stage and safe refusal. Transaction failures
+also retain a diagnostic next to the immutable staged payload. Arbitrary parser/configuration exception content is suppressed; known adapter
+refusals and deployment-policy exceptions are reported with credential assignments redacted. Retain the Setup log, diagnostic and transaction
+journal. An existing diagnostic/payload is never overwritten. A fresh Setup invocation supplies a new temporary directory for a preparation retry;
+interrupted transactions require the existing explicit recovery procedure.
+
+Server preparation checks managed service ownership, account, argument equivalence, release-pointer verification and interrupted journals before
+provisioning directories. It identifies fresh installation versus upgrade. The locked deployment transaction still verifies schema compatibility,
+rollback, backup and readiness before service replacement. Same-version Server updates require a different, newer verified build timestamp;
+version downgrades are refused. Desktop uses the same identity check when its installed manifest carries version metadata and retains its
+existing schema/backup checks. Native same-version upgrade acceptance remains required.
+
+The exact production-machine PrepareOnly refusal has not been reproduced: the development process cannot read the protected production
+configuration. Do not diagnose its ACL as incorrect from exit 2 alone. Capture the new diagnostic under an elevated operator session on an
+explicitly isolated acceptance configuration before making further corrections.
+
+### Manual installer upgrade commands
+
+Use disposable acceptance installations and copied synthetic/test data only. Do not select the running production root or change its service.
+Before upgrading, verify backups and the old build, record fingerprints and verify rollback. Close the selected Desktop. Example commands after
+replacing the build-folder variable with the actual successful output:
+
+```powershell
+$built = 'C:\AuthLens\<UTC-timestamp>-<short-sha>'
+# Desktop: current user, selected isolated data profile, no service
+& "$built\installer\AuthLens-2.0.0-alpha.1-Setup.exe" /DIR="C:\AuthLens-Desktop-Acceptance\app" /DATADIR="C:\AuthLens-Desktop-Acceptance\data" /LOG="C:\AuthLens-Desktop-Acceptance\setup-upgrade.log"
+# Server: elevated operator, explicit isolated root/service/port/TLS in this configuration
+& "$built\installer\AuthLens-Server-2.0.0-alpha.1-Setup.exe" /DIR="C:\AuthLens-Server-Acceptance\app" /CONFIGFILE="C:\AuthLens-Server-Acceptance\config\deploy.json" /LOG="C:\AuthLens-Server-Acceptance\setup-upgrade.log"
+```
+
+Use a configuration already validated for the disposable Server service and certificate; placeholders are not an initialization recipe.
+After each fresh install and same-version/different-build upgrade, verify data/account/evidence fingerprints, HTTPS, permissions, backup,
+restart persistence and explicit interrupted-run recovery. Neither synthetic ISCC compilation nor mocked Pester tests certify native upgrades.

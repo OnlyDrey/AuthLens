@@ -36,7 +36,7 @@ BeforeAll {
     function New-TestRelease($Config, [string]$Name, [string]$Sha, [string]$Version = '2.0.0-alpha.1') {
         $folder = Join-Path $Config.ReleasesRoot $Name
         New-Item -ItemType Directory -Force (Join-Path $folder 'server') | Out-Null
-        @{ source_sha = $Sha; version = $Version; source_dirty = $false } | ConvertTo-Json | Set-Content (Join-Path $folder 'build-manifest.json')
+        @{ product='AuthLens'; source_sha = $Sha; version = $Version; source_dirty = $false; file_version=@(2,0,0,1); build_timestamp_utc=$(if ($Name -eq 'old') {'2026-11-21T10:00:00Z'} else {'2026-11-22T10:00:00Z'}) } | ConvertTo-Json | Set-Content (Join-Path $folder 'build-manifest.json')
         $folder
     }
 
