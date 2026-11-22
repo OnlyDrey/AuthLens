@@ -166,6 +166,8 @@ public sealed class ApiTests : IAsyncLifetime
     [Theory]
     [InlineData("/theme.js", "text/javascript")]
     [InlineData("/logo.png", "image/png")]
+    [InlineData("/favicon.ico", "image/x-icon")]
+    [InlineData("/apple-touch-icon.png", "image/png")]
     [InlineData("/login.html", "text/html")]
     [InlineData("/login.css", "text/css")]
     public async Task Static_ui_assets_are_served_without_credentials_and_with_security_headers(string path, string mediaType)

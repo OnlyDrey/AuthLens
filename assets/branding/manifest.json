@@ -1,6 +1,7 @@
 {
   "logo": "logo.png",
-  "favicon": "favicon.png",
+  "favicon": "favicon.ico",
+  "appleTouchIcon": "apple-touch-icon.png",
   "windowsIcon": "app.ico",
   "applicationImage": "app.png"
 }

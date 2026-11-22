@@ -13,23 +13,36 @@ All built-in branding sources live in [`assets/branding/`](../../assets/branding
 
 | File | Use |
 | --- | --- |
-| `logo.png` | Existing 256 px application/header/sign-in logo |
-| `app.png` | Existing full-resolution README/application image |
-| `favicon.png` | Existing browser favicon |
-| `app.ico` | Existing seven-size Windows Server, Desktop and installer icon |
+| `logo.png` | Supplied transparent 256 px application/header/sign-in logo |
+| `app.png` | Supplied transparent 512 px README/application image |
+| `favicon.ico` | Supplied browser icon: 16, 32, 48 and 64 px |
+| `apple-touch-icon.png` | Supplied transparent 180 px bookmark/touch icon |
+| `app.ico` | Supplied Windows icon: 16, 24, 32, 48, 64, 128 and 256 px |
 
 Replace these source files at the same paths to update branding; preserve valid formats and the multi-size ICO contract. No application code
-change is required. The original raster artwork is unchanged. There is no SVG source or distinct light/dark artwork, so `logo.svg`, `icon.svg`,
-`logo-light.svg`, `logo-dark.svg` and `favicon.ico` are deliberately absent; do not rename raster bytes to an incompatible extension or invent variants.
+change is required. These are byte-identical selections from the approved AuthLens asset package, not conversions or redesigned artwork.
+Preserve square proportions and transparency. There is no SVG source or distinct light/dark artwork; do not rename raster bytes to SVG or invent variants.
 
-The Vite branding plugin reads the manifest and serves/emits `/logo.png` and `/favicon.png` directly from canonical sources for development and
+The Vite branding plugin reads the manifest and serves/emits `/logo.png`, `/favicon.ico` and `/apple-touch-icon.png` directly from canonical sources for development and
 production. There are no checked-in frontend copies. The .NET API embeds the production UI for both Server and Desktop; both executable projects
 and both Inno Setup scripts consume `assets/branding/app.ico`. The Desktop window extracts that embedded executable icon. Existing custom uploaded
-header/report logos are user data and are unaffected. Report image fixtures are synthetic validation inputs, not application branding.
+header/report logos are user data and are unaffected. A configured organization logo continues to override the built-in header logo.
+Report image fixtures are synthetic validation inputs, not application branding. Desktop shortcuts inherit the Desktop EXE icon; the Server
+Service Manager shortcut explicitly uses the Server EXE icon rather than PowerShell's. The Service Manager itself is a console tool.
+
+The supplied preview backgrounds, original concept, duplicate PNG sizes and PWA candidates stay outside the repository. The current application
+does not register a service worker or advertise PWA installation; no web manifest or maskable-icon promise is introduced. No role data is cached offline.
 
 The former product-specific asset paths are not compatibility interfaces; no redirects or duplicate aliases are retained. An already-installed release keeps its embedded images until deliberately
 updated; changing repository branding never changes a running service. Validate with `node --test scripts/tests/branding.test.mjs`, the frontend
-production build, affected .NET build/installer tests and native Inno compilation when available.
+production build, affected .NET build/installer tests and native Inno compilation when available. The canonical Windows `.\build.ps1` command
+also runs `scripts/verify-branding.mjs`: all seven canonical ICO frame payloads must exist in both published EXEs
+and both Setup EXEs, and canonical web images must occur byte-for-byte in both embedded UIs and in frontend output. Its report is stored at
+`build/branding-verification.json` inside the unique build directory. Single-file compression stays disabled; stale embedded images fail verification.
+
+Windows Explorer, Start Menu and taskbar may retain cached icons after an upgrade. Relaunch the application, unpin/re-pin a stale shortcut or sign
+out/in if needed; do not delete icon-cache files or add cache-reset behavior to Setup. Browser tabs may need a reload/cache refresh. Native
+window/taskbar, installed shortcuts, actual 16/24/32 px rendering, high-DPI and browser bookmark appearance still require manual GUI acceptance.
 
 ## Token ownership
 

@@ -771,6 +771,10 @@ C:\AuthLens\<UTC-timestamp>-<short-sha>\
   .build-claim
 ```
 
+The build directory also contains `branding-verification.json`. Canonical packaging checks the actual PE icon resources of Desktop, Server
+and both installers against the canonical multi-size ICO, plus exact web-image bytes in each embedded UI and frontend output. A mismatch fails
+the build even with `-SkipTests`; see [branding sources](../architecture/DESIGN_SYSTEM.md#branding-source-assets).
+
 The summary records tools, test status, checks, artifact hashes and failure reason. The release and installer manifests carry identical product,
 version, full SHA, branch and timestamp. A failure returns nonzero and retains partial outputs/logs. Dirty checkout rejection happens before
 creating a build directory. Start a new build after a failure; never overwrite a partial directory. This is traceable orchestration, not a claim

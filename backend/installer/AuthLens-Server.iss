@@ -63,7 +63,7 @@ Source: "{#ToolsDir}\*"; DestDir: "{app}\setup\{#PackageName}\tools"; Flags: ign
 Source: "{#RepoRoot}\LICENSE.md"; DestDir: "{app}\setup\{#PackageName}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\AuthLens Service Manager"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -File ""{app}\setup\{#PackageName}\payload\{#PackageName}\Service-Manager.ps1"""; WorkingDir: "{app}"
+Name: "{group}\AuthLens Service Manager"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -File ""{app}\setup\{#PackageName}\payload\{#PackageName}\Service-Manager.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\setup\{#PackageName}\payload\{#PackageName}\server\AuthLens.Api.exe"
 
 [Registry]
 Root: HKLM; Subkey: "{#VersionKey}"; ValueType: string; ValueName: "FileVersion"; ValueData: "{#NumericVersion}"; Flags: uninsdeletekey

@@ -5,7 +5,7 @@ Set-StrictMode -Version 3.0
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'backend/scripts/Build-Workflow.ps1')
 $directory=$null; $transcribing=$false; $status='failed'; $failure=$null
-$summary=[ordered]@{schema=1;identity=$null;tools=@{};tests=@{status='not_run';filter=$TestFilter};verification=@{release=$false;installers=$false;secrets=$false};status='failed';failure_reason=$null;artifacts=@()}
+$summary=[ordered]@{schema=1;identity=$null;tools=@{};tests=@{status='not_run';filter=$TestFilter};verification=@{release=$false;installers=$false;secrets=$false;branding=$false};status='failed';failure_reason=$null;artifacts=@()}
 try {
     if ($env:OS -ne 'Windows_NT') { throw 'This entry point requires Windows.' }
     foreach ($command in 'git','dotnet','node','npm.cmd','python') { if (-not (Get-Command $command -ErrorAction SilentlyContinue)) { throw "Missing prerequisite: $command" } }
@@ -39,6 +39,9 @@ try {
     $summary.verification.secrets=$true
     $code=Invoke-AuthLensBuildProcess $shell @('-NoProfile','-NonInteractive','-File',(Join-Path $PSScriptRoot 'backend/scripts/build-installers.ps1'),'-ReleasePath',$manifests[0].DirectoryName,'-Output',$installer,'-Iscc',$Iscc)
     if ($code) { throw 'Installer build failed.' }
+    $code=Invoke-AuthLensBuildProcess (Get-Command node).Source @((Join-Path $PSScriptRoot 'scripts/verify-branding.mjs'),$manifests[0].DirectoryName,$installer,(Join-Path $PSScriptRoot 'frontend/dist'),(Join-Path $build 'branding-verification.json'))
+    if ($code) { throw 'Native executable/installer or frontend branding verification failed.' }
+    $summary.verification.branding=$true
     $metadata=Get-Content -LiteralPath (Join-Path $installer 'installer-manifest.json') -Raw | ConvertFrom-Json
     Assert-AuthLensBuildIdentity $metadata ([pscustomobject]$summary.identity)
     foreach ($artifact in $metadata.artifacts) { if ((Get-FileHash -LiteralPath (Join-Path $installer $artifact.path) -Algorithm SHA256).Hash -ine $artifact.sha256) { throw 'Installer checksum mismatch.' } }
