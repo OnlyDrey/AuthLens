@@ -802,6 +802,8 @@ explicitly isolated acceptance configuration before making further corrections.
 ### Manual installer upgrade commands
 
 Use disposable acceptance installations and copied synthetic/test data only. Do not select the running production root or change its service.
+Run Setup acceptance in a separate disposable Windows VM/snapshot without the production installation: the installers retain their canonical
+AppIds and uninstall registrations. A different directory/service name alone does not isolate those machine/user installer registrations.
 Before upgrading, verify backups and the old build, record fingerprints and verify rollback. Close the selected Desktop. Example commands after
 replacing the build-folder variable with the actual successful output:
 
