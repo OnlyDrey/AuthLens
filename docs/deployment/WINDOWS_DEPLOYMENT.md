@@ -851,7 +851,8 @@ that configuration. An explicit conflicting `/DIR` fails; do not remove the Powe
 `--server-preflight` is a non-listening command of the packaged Server. It uses the actual host/TLS policy, ephemeral certificate keys and read-only
 schema, SQLite integrity and foreign-key checks. It validates certificate SANs for configured backend hosts/listen IP (public proxy hosts are not
 required backend SANs), private-key material, validity/EKU/key size, host/proxy policy and existing backup-key readability. It never creates a token,
-initializes a data directory/database, changes existing keys or binds a listener. Local HTTPS omits the LAN `--network` flag. LAN/proxy mode keeps
+initializes a data directory/database, changes existing keys or binds a listener. Local HTTPS omits the LAN `--network` flag and omits an empty
+extra-host list rather than emitting a valueless option; the loopback Host/Origin boundary is unchanged. LAN/proxy mode still requires explicit hosts and keeps
 one assigned private address, explicit hosts/proxies and HTTPS; no unrestricted HTTP or TLS-verification bypass is introduced. Actual service-account
 key access, certificate chain/Windows TLS and client trust still need post-deployment/native checks.
 

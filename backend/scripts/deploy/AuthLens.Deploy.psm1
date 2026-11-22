@@ -94,8 +94,10 @@ function Get-ALServiceArguments($Config) {
     $address=$null
     if(-not [Net.IPAddress]::TryParse($Config.ListenAddress,[ref]$address)){Stop-AL 'ListenAddress must be an explicit IP address.'}
     if(-not [Net.IPAddress]::IsLoopback($address)){$arguments+='--network'}
-    $arguments+=@('--listen', $Config.ListenAddress, '--port', [string]$Config.Port,
-        '--allowed-hosts', ($Config.AllowedHosts -join ','), '--cert', $Config.CertificatePath, '--cert-password-file', $Config.CertificatePasswordFile)
+    $arguments+=@('--listen', $Config.ListenAddress, '--port', [string]$Config.Port)
+    $hosts=($Config.AllowedHosts -join ',').Trim()
+    if($hosts){$arguments+=@('--allowed-hosts',$hosts)}
+    $arguments+=@('--cert', $Config.CertificatePath, '--cert-password-file', $Config.CertificatePasswordFile)
     if (@($Config.TrustedProxies).Count -gt 0) { $arguments += @('--trusted-proxies', ($Config.TrustedProxies -join ',')) }
     if ($Config.PSObject.Properties['ProxyHosts'] -and @($Config.ProxyHosts).Count -gt 0) { $arguments += @('--proxy-hosts', ($Config.ProxyHosts -join ',')) }
     $arguments

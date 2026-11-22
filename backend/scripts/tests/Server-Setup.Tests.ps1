@@ -137,6 +137,10 @@ Describe 'Read-only Setup planning and guarded lifecycle operations' {
     It 'does not add the network exposure flag for local HTTPS' {
         @(Get-ALServiceArguments $resolved.Config)|Should -Not -Contain '--network'
     }
+    It 'omits an empty extra-host list in local HTTPS instead of emitting a valueless command option' {
+        $resolved.Config.AllowedHosts=@()
+        @(Get-ALServiceArguments $resolved.Config)|Should -Not -Contain '--allowed-hosts'
+    }
     It 'rejects a busy port rather than stopping an unrelated process' {
         Mock -ModuleName AuthLens.Deploy Get-ALListener {9999}
         {Get-ALServerSetupPlan $resolved $package}|Should -Throw '*owned by another process*'

@@ -2,8 +2,9 @@
 .SYNOPSIS
   Inno Setup's explicit manual install/update adapter. Uses verified versioned Server deployment and the existing application backup engine.
 .DESCRIPTION
-  No Git, SDK, download, service discovery or legacy adoption. Desktop requires a closed application and an external data directory.
-  Server requires an explicit deployment configuration and elevation. -Yes is mandatory. Native SCM acceptance uses isolated test names/roots only.
+  No Git, SDK, download or legacy adoption. Desktop requires a closed application and an external data directory.
+  Server uses validated registered/managed configuration discovery or an explicit configuration, with elevation.
+  ResolveOnly/PreflightOnly are read-only; provisioning/deployment requires -Yes. Native SCM acceptance must use a separate disposable VM.
   Interrupted updates require -Recover; Server recovery delegates to the existing deployment Recover action with the same configuration.
 #>
 [CmdletBinding()]

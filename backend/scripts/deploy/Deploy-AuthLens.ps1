@@ -25,7 +25,8 @@
     ProtectAcl      Explicit remediation of what AuditAcl reports, after verified ACL inventories in -AclBackupRoot. Needs -Yes and -ApprovedAclRoot.
     RestoreAcl      Restores the ACLs saved by ProtectAcl (-AclBackup <folder>). Needs -Yes and -ApprovedAclRoot.
 
-  Services of earlier products (SAP Lens: sap-lens, SapLens, SapLens2) are never detected, adopted, stopped or changed.
+  Services of earlier products (SAP Lens: sap-lens, SapLens, SapLens2) are never adopted, stopped or changed.
+  Separate Setup planning can report their presence by name without inspecting their data or taking ownership.
 
   Configuration: a JSON file that is not committed (-ConfigFile, $env:AUTHLENS_DEPLOY_CONFIG, or C:\ProgramData\AuthLens\config\deploy.json; template
   deploy.example.json). It holds paths, addresses and host names, never a secret. The last output line is 'AUTHLENS-RESULT: <json>'.
