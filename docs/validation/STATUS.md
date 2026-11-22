@@ -11,11 +11,21 @@ AuthLens `2.0.0-alpha.1` is under private acceptance. This page records current 
 | Evidence | Database integrity, foreign keys, immutable review history and evidence fingerprints passed preservation checks |
 | Branding | Generic canonical assets, frontend production build, embedded Windows icons and isolated installer compilation passed |
 | Windows build workflow | Root build entry point produced both Windows packages and Setup executables with matching manifests; focused orchestration/installer tests passed |
-| Server Setup lifecycle | Fresh configuration editing/create-only publication, explicit restricted firewall creation and CLI offline component repair implemented alongside existing preflight/upgrade guards. Focused source tests and synthetic Inno compilation do not establish native acceptance. TLS issuance, custom-account provisioning, firewall update/removal, missing-service repair, safe uninstall and full native lifecycle/recovery acceptance remain incomplete |
+| Server Setup lifecycle | Fresh configuration editing, local TLS generation/PFX import, bound publication, owned firewall creation/update/removal/recovery and CLI offline component repair implemented. Restricted SYSTEM task bootstrap has focused security and native synthetic timeout coverage; registration/elevation is pending. These checks and Inno compilation do not establish installer acceptance. Installed-certificate renewal, custom accounts, missing-service repair, uninstall and native SCM recovery remain incomplete |
 | Mobile UX | Header tools, independent navigation drawers, Filters, configurable tables, Functional Group pills and SoD scrolling passed focused isolated browser acceptance; not deployed |
 
 Scheduled refresh stays disabled until configured external sources and credentials have been reviewed. Production data, accounts, keys,
 certificates and retained rollback copies must be preserved during every update. Successful smoke checks do not establish production readiness.
+
+Windows continuation: an independent encrypted archive was actually restored through the supported workflow into a new private loopback HTTPS
+process using build `89901d7`. SQLite integrity/foreign keys passed. DatasetRecords (332,348), ReviewDecisions (3), SodDocuments (11),
+SodDecisionEvents (1,086) and SodEvidenceSnapshots (1,023) retained identical table fingerprints from validated staging through activation and
+process restart; empty SavedFilters/ReviewInvalidations also matched. Account/credential fingerprints and active-administrator state remained
+unchanged, the removed temporary account stayed absent, and scheduled refresh stayed disabled. HTTPS used an explicit public certificate anchor
+without verification bypass or trusted-store changes. Frontend HTML loaded; password login was not exercised. The isolated process was forcibly
+terminated for the persistence check; this proves neither graceful SCM restart nor installer/VM rollback. The original service PID and source
+archive hash remained unchanged. Private raw evidence and failed harness runs are retained outside Git. The on-VM recovery directory is separate
+from installer targets; move a verified copy off-VM before any Proxmox disk-snapshot rollback, which would discard files created after that snapshot.
 
 ## Responsive acceptance scope
 

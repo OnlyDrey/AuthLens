@@ -2,6 +2,7 @@
 var
   ServerConfigPage: TInputFileWizardPage;
   ServerCreatePage: TInputOptionWizardPage;
+  ServerTlsModePage: TInputOptionWizardPage;
   ServerEditPaths, ServerEditNetwork, ServerEditTls: TInputQueryWizardPage;
   ServerPathsPage, ServerNetworkPage, ServerIdentityPage, ServerValidationPage: TOutputMsgWizardPage;
   ServerFirewallPage: TInputOptionWizardPage;
@@ -9,6 +10,7 @@ var
   ServerConfig, ServerConfigHash, ServerRoot, ServerPlanFile, ServerError, ServerOperation: String;
   ServerToolsReady, ServerPayloadReady, ServerResolved, ServerPreflighted, ServerVerified: Boolean;
   ServerAttempt: Integer;
+  ServerGenerateTls: Boolean;
 
 function ServerFirewallArguments(): String;
 begin
@@ -45,12 +47,18 @@ begin
 end;
 
 function CreateServerDraft(): Boolean;
-var Draft, Contents: String; Lines: TArrayOfString; Port: Integer;
+var Draft, Contents, TlsDirectory: String; Lines: TArrayOfString; Port: Integer;
 begin
   Result := False;
   Port := StrToIntDef(ServerEditNetwork.Values[1], 0);
   if (Port < 1) or (Port > 65535) then begin ServerError := 'HTTPS port must be 1..65535.'; Exit; end;
   ServerAttempt := ServerAttempt + 1;
+  ServerGenerateTls := ServerTlsModePage.SelectedValueIndex = 1;
+  if ServerGenerateTls then begin
+    TlsDirectory := ExpandConstant('{commonappdata}\AuthLensSetup\TLS-') + Lowercase(Copy(GetSHA256OfString(ExpandConstant('{tmp}') + GetDateTimeString('yyyymmddhhnnsszzz', '-', ':') + IntToStr(ServerAttempt)), 1, 32));
+    ServerEditTls.Values[0] := TlsDirectory + '\server.pfx';
+    ServerEditTls.Values[1] := TlsDirectory + '\cert-password';
+  end;
   Draft := ExpandConstant('{tmp}\AuthLens-configuration-') + IntToStr(ServerAttempt) + '.json';
   Contents := '{"Root":' + JsonString(Trim(ServerEditPaths.Values[0])) +
     ',"ListenAddress":' + JsonString(Trim(ServerEditNetwork.Values[0])) + ',"Port":' + IntToStr(Port) +
@@ -130,7 +138,11 @@ begin
   if (Pos('"', ServerConfig) > 0) or (Pos(#13, ServerConfig) > 0) or (Pos(#10, ServerConfig) > 0) then begin
     ServerError := 'Select an ordinary absolute deployment configuration file.'; Result := False; Exit;
   end;
-  Result := RunServerHelper('-ResolveOnly', True);
+  if ServerGenerateTls then begin
+    EnsureServerPayload();
+    Result := RunServerHelper('-GenerateTlsDraft -Package "' + ServerPackage() + '" -Yes', True);
+    if Result then ServerGenerateTls := False;
+  end else Result := RunServerHelper('-ResolveOnly', True);
   if not Result then Exit;
   ServerConfig := ServerValue('config_file'); ServerConfigHash := ServerValue('config_sha256'); ServerRoot := ServerValue('root');
   if (ServerValue('program_directory') = '') or (ServerConfigHash = '') then begin
@@ -139,7 +151,7 @@ begin
   WizardForm.DirEdit.Text := ServerValue('program_directory');
   ServerConfigPage.Values[0] := ServerConfig;
   ServerPathsPage.MsgLabel.Caption := 'Configuration: ' + ServerConfig + #13#10 + 'Root: ' + ServerRoot + #13#10 + 'Program staging: ' + WizardDirValue() + #13#10 + 'Data: ' + ServerValue('data_directory') + #13#10 + 'Backups: ' + ServerValue('backup_directory') + #13#10#13#10 + 'Paths are derived from the validated configuration. Fresh wizard choices are published only after approval. Existing installations are never relocated.';
-  ServerNetworkPage.MsgLabel.Caption := 'HTTPS listen address: ' + ServerValue('listen_address') + #13#10 + 'Port: ' + ServerValue('port') + #13#10 + 'Certificate: ' + ServerValue('certificate') + #13#10 + 'Allowed hosts: ' + ServerValue('allowed_hosts') + #13#10 + 'Public proxy hosts: ' + ServerValue('proxy_hosts') + #13#10 + 'Trusted proxy peers: ' + ServerValue('trusted_proxies') + #13#10#13#10 + 'Existing TLS and network settings are preserved. Setup never generates/replaces keys, disables certificate verification or trusts arbitrary proxies.';
+  ServerNetworkPage.MsgLabel.Caption := 'HTTPS listen address: ' + ServerValue('listen_address') + #13#10 + 'Port: ' + ServerValue('port') + #13#10 + 'Certificate: ' + ServerValue('certificate') + #13#10 + 'Allowed hosts: ' + ServerValue('allowed_hosts') + #13#10 + 'Public proxy hosts: ' + ServerValue('proxy_hosts') + #13#10 + 'Trusted proxy peers: ' + ServerValue('trusted_proxies') + #13#10#13#10 + 'Fresh TLS is imported into a new protected versioned directory under the selected root. Existing TLS/network settings are preserved during upgrade. Setup never adds trusted roots, disables certificate verification or trusts arbitrary proxies.';
   ServerIdentityPage.MsgLabel.Caption := 'Service: ' + ServerValue('service_name') + #13#10 + 'Identity: ' + ServerValue('service_account') + #13#10#13#10 + 'Fresh Setup uses NT SERVICE\AuthLens. Existing identities are preserved and checked. Password-bearing accounts and gMSA provisioning are not exposed until service-logon and credential validation are supported.';
   ServerResolved := True;
 end;
@@ -180,7 +192,11 @@ begin
   ServerEditNetwork.Add('Allowed hosts (comma-separated):', False);
   ServerEditNetwork.Add('Public reverse-proxy hosts (optional):', False);
   ServerEditNetwork.Add('Trusted proxy IP addresses (optional):', False);
-  ServerEditTls := CreateInputQueryPage(ServerEditNetwork.ID, 'Existing TLS certificate', 'Select protected certificate material', 'Provide an existing PFX and its protected password file. Password contents are never entered here or passed on a command line. Certificate name, validity and private key are validated before provisioning. Client trust remains an explicit administrator responsibility.');
+  ServerTlsModePage := CreateInputOptionPage(ServerEditNetwork.ID, 'HTTPS certificate', 'Select existing TLS or generate a local certificate', 'Generated certificates are self-signed and are NOT automatically trusted. No trusted store is changed. Review client trust separately; public server.cer is retained beside the protected draft. Both options create new private imported files under the installation root after approval.', True, False);
+  ServerTlsModePage.Add('Use an existing PFX certificate and protected password file');
+  ServerTlsModePage.Add('Generate local HTTPS: new 3072-bit RSA key, server authentication, one-year validity');
+  ServerTlsModePage.SelectedValueIndex := 0;
+  ServerEditTls := CreateInputQueryPage(ServerTlsModePage.ID, 'Existing TLS certificate', 'Select protected certificate material', 'Provide an existing PFX and its protected password file. Password contents are never entered here or passed on a command line. Certificate name, validity and private key are validated before provisioning. Client trust remains an explicit administrator responsibility.');
   ServerEditTls.Add('Absolute PFX certificate path:', False);
   ServerEditTls.Add('Absolute certificate password file path:', False);
   ServerPathsPage := CreateOutputMsgPage(ServerEditTls.ID, 'Installation directories', 'Validated configuration owns the directory selection', '');
@@ -210,6 +226,10 @@ begin
     Result := CreateServerDraft();
     if Result then Result := ResolveServerWizard();
   end;
+  if (CurPageID = ServerTlsModePage.ID) and (ServerTlsModePage.SelectedValueIndex = 1) then begin
+    Result := CreateServerDraft();
+    if Result then Result := ResolveServerWizard();
+  end;
   if (CurPageID = ServerValidationPage.ID) or ((CurPageID = wpReady) and not ServerPreflighted) then Result := PreflightServerWizard();
   if not Result then SuppressibleMsgBox(ServerError, mbError, MB_OK, IDOK);
 end;
@@ -219,7 +239,8 @@ begin
   Result := PageID = wpSelectDir;
   if PageID = ServerFirewallScope.ID then Result := ServerFirewallPage.SelectedValueIndex <> 1;
   if PageID = ServerConfigPage.ID then Result := ServerCreatePage.SelectedValueIndex = 1;
-  if (PageID = ServerEditPaths.ID) or (PageID = ServerEditNetwork.ID) or (PageID = ServerEditTls.ID) then Result := ServerCreatePage.SelectedValueIndex <> 1;
+  if (PageID = ServerEditPaths.ID) or (PageID = ServerEditNetwork.ID) or (PageID = ServerTlsModePage.ID) then Result := ServerCreatePage.SelectedValueIndex <> 1;
+  if PageID = ServerEditTls.ID then Result := (ServerCreatePage.SelectedValueIndex <> 1) or (ServerTlsModePage.SelectedValueIndex = 1);
 end;
 
 function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
@@ -240,7 +261,7 @@ begin
   Result := '';
   if not ServerPreflighted then if not PreflightServerWizard() then begin Result := ServerError; Exit; end;
   if ServerCreatePage.SelectedValueIndex = 1 then begin
-    if not RunServerHelper('-PrepareOnly -CommitNewConfiguration -Package "' + ServerPackage() + '" -Yes', True) then begin Result := ServerError; Exit; end;
+    if not RunServerHelper('-PrepareOnly -CommitNewConfiguration -ImportTls -Package "' + ServerPackage() + '" -Yes', True) then begin Result := ServerError; Exit; end;
     ServerConfig := ServerValue('config_file'); ServerConfigHash := ServerValue('config_sha256');
   end else if not RunServerHelper('-PrepareOnly -Package "' + ServerPackage() + '" -Yes', False) then Result := ServerError;
 end;

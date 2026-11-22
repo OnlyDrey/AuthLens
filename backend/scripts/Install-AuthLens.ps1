@@ -19,9 +19,12 @@ param(
     [switch]$ResolveOnly,
     [switch]$PreflightOnly,
     [switch]$CommitNewConfiguration,
+    [switch]$GenerateTlsDraft,
+    [switch]$ImportTls,
     [string]$FirewallSources='',
     [string]$FirewallProfiles='Private',
     [switch]$ApproveFirewall,
+    [switch]$FirewallRollback,
     [string]$Operation='Auto',
     [string]$PlanFile='',
     [string]$ResultFile='',
@@ -44,7 +47,7 @@ function Write-InstallerResult($Value) {
     }
 }
 try {
-    if($Operation -notin @('Auto','Install','Upgrade','Repair','UninstallPlan')){$stage='argument validation';throw 'Unknown installer operation. Use Auto, Install, Upgrade, Repair or UninstallPlan.'}
+    if($Operation -notin @('Auto','Install','Upgrade','Repair','UninstallPlan','Firewall','FirewallRemove')){$stage='argument validation';throw 'Unknown installer operation. Use Auto, Install, Upgrade, Repair, Firewall, FirewallRemove or UninstallPlan.'}
     if($ResultFile -and (Test-Path -LiteralPath $ResultFile)){throw 'A previous installer result exists; it will not be overwritten.'}
     if (-not $Yes -and -not ($ResolveOnly -or $PreflightOnly -or $Operation -eq 'UninstallPlan')) { throw 'Installation requires explicit -Yes after reviewing the selected paths and configuration.' }
     # Inno embeds these tools separately from the unchanged release manifest. Verify every helper before importing executable code.
@@ -63,36 +66,67 @@ try {
     $stage='configuration and prerequisites'
     if ($Mode -eq 'Server') {
         if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Server Setup requires an elevated operator session.' }
-        if (@(@($Recover,$PrepareOnly,$ResolveOnly,$PreflightOnly)|Where-Object{$_}).Count -gt 1){throw 'Select only one recovery, resolve, preflight or preparation mode.'}
+        if (@(@($Recover,$PrepareOnly,$ResolveOnly,$PreflightOnly,$GenerateTlsDraft)|Where-Object{$_}).Count -gt 1){throw 'Select only one recovery, resolve, preflight or preparation mode.'}
         if($CommitNewConfiguration -and -not $PrepareOnly){Stop-AL 'New configuration publication requires explicit preparation and approval.'}
+        if($ImportTls -and -not($CommitNewConfiguration -and $PrepareOnly)){Stop-AL 'TLS import requires explicit fresh configuration publication and approval.'}
+        if($FirewallRollback -and -not($Recover -and $ApproveFirewall)){Stop-AL 'Firewall rollback requires explicit recovery and security approval.'}
         $resolved=Resolve-ALServerSetupConfiguration $ConfigFile $InstallRoot
         $config=$resolved.Config; $InstallRoot=$resolved.ProgramDirectory
         $firewall=$null
-        if($FirewallSources -or $ApproveFirewall){
-            if(-not $ApproveFirewall){Stop-AL 'Firewall changes require explicit security approval.'}
-            $firewall=Get-ALInstallerFirewallPlan $config $FirewallSources $FirewallProfiles
+        if(-not $Recover -and ($FirewallSources -or $ApproveFirewall -or $Operation -in @('Firewall','FirewallRemove'))){
+            if(-not $ApproveFirewall -and -not $PreflightOnly){Stop-AL 'Firewall changes require explicit security approval.'}
+            if($Operation -ne 'FirewallRemove'){$firewall=Get-ALInstallerFirewallPlan $config $FirewallSources $FirewallProfiles -AllowOwnedUpdate}
+            $null=Get-ALOwnedFirewallReceipts $config
         }
         $journalPath=Get-ALJournalPath $config
-        if(($PreflightOnly -or $PrepareOnly) -and -not $Package){Stop-AL 'Preflight/preparation requires a verified release Package. ResolveOnly is the read-only configuration inspection mode.'}
+        if(($PrepareOnly -or ($PreflightOnly -and $Operation -notin @('Firewall','FirewallRemove'))) -and -not $Package){Stop-AL 'Preflight/preparation requires a verified release Package. ResolveOnly is the read-only configuration inspection mode.'}
         Assert-ALServerSetupFingerprint $resolved $ExpectedConfigSha256
         if ($Recover -and $PrepareOnly) { throw 'Recover and PrepareOnly cannot be combined.' }
-        if($ResolveOnly){
+        if($GenerateTlsDraft){
+            $stage='private local TLS draft'
+            if(-not $Package -or (Get-ALService 'AuthLens').Exists){Stop-AL 'TLS draft generation requires a verified package and a fresh installation without an existing AuthLens service.'}
+            if(-not(Test-ALInstallerListenAddress $config.ListenAddress)){Stop-AL 'TLS draft listen address is not assigned to this machine.'}
+            $manifest=Get-ALInstallerPackage $Package
+            $parent=Join-AL ([Environment]::GetFolderPath('CommonApplicationData')) 'AuthLensSetup'
+            $directory=Split-Path $config.CertificatePath
+            if((Split-Path $directory) -ine $parent -or (Split-Path $directory -Leaf) -notmatch '^TLS-[a-f0-9]{32}$' -or
+                (Split-Path $config.CertificatePath -Leaf) -cne 'server.pfx' -or $config.CertificatePasswordFile -ine (Join-AL $directory 'cert-password')){Stop-AL 'TLS draft paths must select a new protected AuthLensSetup TLS identity.'}
+            if(-not(Test-Path -LiteralPath $parent)){New-ALInstallerTlsDirectory $parent}
+            Assert-ALInstallerTlsBoundary $parent
+            $material=New-ALServerTlsMaterial $directory $config.ListenAddress @($config.AllowedHosts)
+            $probe=Invoke-ALMaintenance (Join-AL $Package 'server/AuthLens.Api.exe') (@('--server-preflight')+@(Get-ALServiceArguments $config))
+            if(-not $probe.validated -or -not $probe.read_only -or $probe.source_sha -cne $manifest.source_sha){Stop-AL 'Generated TLS material did not pass the packaged host policy. Protected drafts were retained; no installation was changed.'}
+        }
+        if($ResolveOnly -or $GenerateTlsDraft){
             $result=[pscustomobject]@{operation_id=$operationId;operation='configuration selected; preflight pending';root=$config.Root;program_directory=$InstallRoot;config_file=$config.ConfigFile;config_sha256=$resolved.ConfigSha256;data_directory=$config.DataDirectory;backup_directory=$config.BackupRoot;listen_address=$config.ListenAddress;port=$config.Port;service_name=$config.ServiceName;service_account=$config.ServiceAccount;certificate=$config.CertificatePath;allowed_hosts=@($config.AllowedHosts);proxy_hosts=@($config.ProxyHosts);trusted_proxies=@($config.TrustedProxies)}
         }
         elseif($PreflightOnly -or $Operation -eq 'UninstallPlan'){
             if($Operation -eq 'Repair'){$result=Get-ALServerRepairPlan $resolved $Package}
+            elseif($Operation -in @('Firewall','FirewallRemove')){
+                $result=Get-ALServerSetupPlan $resolved '' Auto
+                $result.operation='firewall scope/ownership review'
+                $result|Add-Member -NotePropertyName firewall -NotePropertyValue $firewall
+            }
             else{$result=Get-ALServerSetupPlan $resolved $Package $(if($Operation -eq 'UninstallPlan'){'Auto'}else{$Operation})}
             if($Operation -eq 'UninstallPlan'){$result.operation='uninstall planning; all data preserved; service removal requires a separately reviewed procedure'}
         }
-        elseif ($Recover) { $stage='Server recovery transaction'; $result=Invoke-ALInstallerServer $config '' -Recover }
+        elseif ($Recover) {
+            if(Test-ALInstallerFirewallRecoveryNeeded $config){
+                $stage='Server firewall recovery transaction'
+                $null=Assert-ALAclPlan (Get-ALAclPlan $config) 'Firewall recovery'
+                $result=Invoke-ALInstallerFirewallRecover $config -Rollback:$FirewallRollback
+            }elseif($FirewallRollback){Stop-AL 'No firewall recovery journal exists; nothing was rolled back.'}
+            else{$stage='Server recovery transaction'; $result=Invoke-ALInstallerServer $config '' -Recover}
+        }
         elseif ($PrepareOnly) {
             $stage='Server upgrade preflight'; $plan=Get-ALServerSetupPlan $resolved $Package $Operation; $operation=$plan.operation
             $stage='Server root preparation'; Initialize-ALInstallerServerRoot $config
             if($CommitNewConfiguration){
                 $stage='fresh configuration publication'
-                $resolved=Publish-ALServerSetupConfiguration $resolved
+                $resolved=Publish-ALServerSetupConfiguration $resolved -ImportTls:$ImportTls
                 $config=$resolved.Config
                 $plan.config_file=$config.ConfigFile; $plan.config_sha256=$resolved.ConfigSha256
+                $plan.certificate=$config.CertificatePath
             }
             $result=$plan
         }
@@ -101,14 +135,20 @@ try {
             $stage='Server offline repair transaction'
             $result=Invoke-ALInstallerServerRepair $resolved $Package
         }
+        elseif($Operation -in @('Firewall','FirewallRemove')){
+            if(-not (Get-ALService $config.ServiceName).Exists){Stop-AL 'Standalone firewall changes require a verified owned Server service.'}
+            $null=Get-ALServerSetupPlan $resolved '' Auto
+            $stage='Server firewall transaction'
+            $result=Invoke-ALInstallerFirewallChange $config $FirewallSources $FirewallProfiles -Remove:($Operation -eq 'FirewallRemove') -Approved:$ApproveFirewall
+        }
         else {
             if (-not $Package) { throw 'A verified package is required.' }
             $null=Get-ALServerSetupPlan $resolved $Package $Operation
             $stage='Server deployment transaction'; $result=Invoke-ALInstallerServer $config $Package
-            if($firewall){$stage='Server firewall transaction'; $null=Install-ALInstallerFirewallRule $config $firewall -Approved:$ApproveFirewall}
+            if($firewall){$stage='Server firewall transaction'; $null=Invoke-ALInstallerFirewallChange $config $FirewallSources $FirewallProfiles -Approved:$ApproveFirewall}
         }
     } else {
-        if($CommitNewConfiguration -or $FirewallSources -or $ApproveFirewall){throw 'Server lifecycle options are not Desktop options.'}
+        if($CommitNewConfiguration -or $GenerateTlsDraft -or $ImportTls -or $FirewallSources -or $ApproveFirewall -or $FirewallRollback){throw 'Server lifecycle options are not Desktop options.'}
         if($ResolveOnly -or $PreflightOnly -or $PlanFile -or $Operation -ne 'Auto'){throw 'Server lifecycle options are not Desktop options.'}
         if ($PrepareOnly) { throw 'PrepareOnly applies to Server directory provisioning only.' }
         if (-not $Package) { throw 'A verified package is required.' }
@@ -130,7 +170,7 @@ try {
     exit 0
 } catch {
     # Never include invocation text, configuration content, stack dumps or arbitrary parser errors.
-    $known=@('Unknown installer operation. Use Auto, Install, Upgrade, Repair or UninstallPlan.','A previous installer result exists; it will not be overwritten.','Select only one recovery, resolve, preflight or preparation mode.','Server lifecycle options are not Desktop options.','Installation requires explicit -Yes after reviewing the selected paths and configuration.','Packaged installer helper integrity manifest is missing.','Installer helper integrity verification failed.','Installer helper inventory is incomplete or unexpected.','Invalid installer helper path.','Server Setup requires an elevated operator session.','Recover and PrepareOnly cannot be combined.')
+    $known=@('Unknown installer operation. Use Auto, Install, Upgrade, Repair, Firewall, FirewallRemove or UninstallPlan.','A previous installer result exists; it will not be overwritten.','Select only one recovery, resolve, preflight or preparation mode.','Server lifecycle options are not Desktop options.','Installation requires explicit -Yes after reviewing the selected paths and configuration.','Packaged installer helper integrity manifest is missing.','Installer helper integrity verification failed.','Installer helper inventory is incomplete or unexpected.','Invalid installer helper path.','Server Setup requires an elevated operator session.','Recover and PrepareOnly cannot be combined.')
     $reason=if ($_.Exception.GetType().Name -eq 'DeployException' -or $_.Exception.Message -in $known) { $_.Exception.Message } else { 'Prerequisite/helper/configuration error ('+$_.Exception.GetType().Name+'). Review the explicit configuration and packaged helper integrity.' }
     $reason=[regex]::Replace($reason,'(?i)(password|token|secret|credential|passphrase)\s*[:=]\s*[^\s;,]+','$1=[REDACTED]')
     $diagnostic="Stage: $stage. $reason"

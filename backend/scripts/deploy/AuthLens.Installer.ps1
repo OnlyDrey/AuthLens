@@ -317,7 +317,7 @@ function Invoke-ALInstallerServerRepair($Resolved,[string]$Package) {
     }finally{Exit-ALLock}
 }
 
-function Get-ALInstallerFirewallPlan($Config,[string]$Sources,[string]$Profiles='Private') {
+function Get-ALInstallerFirewallPlan($Config,[string]$Sources,[string]$Profiles='Private',[switch]$AllowOwnedUpdate) {
     $ip=$null
     if(-not [Net.IPAddress]::TryParse($Config.ListenAddress,[ref]$ip)){Stop-AL 'Firewall requires an explicit listening IP.'}
     if([Net.IPAddress]::IsLoopback($ip)){
@@ -338,14 +338,14 @@ function Get-ALInstallerFirewallPlan($Config,[string]$Sources,[string]$Profiles=
     }
     $selected=@($Profiles.Split(',')|ForEach-Object{$_.Trim()}|Sort-Object -Unique)
     if(-not $selected.Count -or @($selected|Where-Object{$_ -notin @('Private','Domain')}).Count){Stop-AL 'Firewall profiles must explicitly select Private and/or Domain; Public and Any are refused.'}
-    if((Test-Path -LiteralPath $Config.WorkRoot) -and @(Get-ChildItem -LiteralPath $Config.WorkRoot -Filter 'firewall-*.json' -File).Count){Stop-AL 'Existing Setup firewall evidence requires ownership/recovery review before changing scope. No rule was updated or duplicated.'}
+    if(-not $AllowOwnedUpdate -and (Test-Path -LiteralPath $Config.WorkRoot) -and @(Get-ChildItem -LiteralPath $Config.WorkRoot -Filter 'firewall-*.json' -File).Count){Stop-AL 'Existing Setup firewall evidence requires ownership/recovery review before changing scope. No rule was updated or duplicated.'}
     [pscustomobject]@{required=$true;remote_addresses=$addresses;profiles=$selected;port=[int]$Config.Port;local_address=$Config.ListenAddress}
 }
 
-function Install-ALInstallerFirewallRule($Config,$Plan,[switch]$Approved) {
+function Install-ALInstallerFirewallRule($Config,$Plan,[switch]$Approved,[switch]$OwnedHistoryVerified) {
     if(-not $Plan.required){return @{changed=$false;reason='loopback'}}
     if(-not $Approved){Stop-AL 'Firewall changes require explicit security approval.'}
-    $null=Get-ALInstallerFirewallPlan $Config ($Plan.remote_addresses -join ',') ($Plan.profiles -join ',')
+    $null=Get-ALInstallerFirewallPlan $Config ($Plan.remote_addresses -join ',') ($Plan.profiles -join ',') -AllowOwnedUpdate:$OwnedHistoryVerified
     # A fresh, uniquely named rule is used; administrator-created rules are never edited or removed.
     # Persist intent before the OS mutation so interrupted work can be identified without inferring ownership by display name.
     $id=[guid]::NewGuid().ToString('N')
@@ -357,6 +357,7 @@ function Install-ALInstallerFirewallRule($Config,$Plan,[switch]$Approved) {
     try{$writer.Write(($record|ConvertTo-Json -Depth 6));$writer.Flush();$stream.Flush($true)}finally{$writer.Dispose()}
     try{
         $null=New-NetFirewallRule -PolicyStore PersistentStore -Name $name -DisplayName 'AuthLens Server (Setup owned)' -Group 'AuthLens Setup' -Direction Inbound -Action Allow -Enabled True -Protocol TCP -LocalAddress $Plan.local_address -LocalPort $Plan.port -RemoteAddress $Plan.remote_addresses -Profile $Plan.profiles -Service $Config.ServiceName -ErrorAction Stop
+        Assert-ALOwnedFirewallRule $Config $record
         $record.phase='applied'
         Write-ALInstallerJournal $receipt $record
     }catch{
@@ -367,7 +368,296 @@ function Install-ALInstallerFirewallRule($Config,$Plan,[switch]$Approved) {
     @{changed=$true;name=$name;receipt=$receipt}
 }
 
-function Publish-ALServerSetupConfiguration($Resolved) {
+function Get-ALFirewallAddressIdentity([string]$Value) {
+    $parts=$Value.Split('/');$ip=$null
+    if($parts.Count -gt 2 -or -not [Net.IPAddress]::TryParse($parts[0],[ref]$ip)){Stop-AL 'Firewall address identity cannot be proven.'}
+    $bytes=$ip.GetAddressBytes();$width=$bytes.Length*8;$prefix=$width
+    if($parts.Count -eq 2){
+        if(-not [int]::TryParse($parts[1],[ref]$prefix)){
+            $mask=$null
+            if(-not [Net.IPAddress]::TryParse($parts[1],[ref]$mask) -or $mask.GetAddressBytes().Length -ne $bytes.Length){Stop-AL 'Firewall subnet mask cannot be proven.'}
+            $prefix=0;$zero=$false
+            foreach($octet in $mask.GetAddressBytes()){for($bit=7;$bit -ge 0;$bit--){if($octet -band (1 -shl $bit)){if($zero){Stop-AL 'Firewall subnet mask is not contiguous.'};$prefix++}else{$zero=$true}}}
+        }
+        if($prefix -lt 1 -or $prefix -gt $width){Stop-AL 'Unrestricted or invalid firewall subnet identity.'}
+    }
+    for($bit=0;$bit -lt $width;$bit++){if($bit -ge $prefix){$index=[int][Math]::Floor($bit/8);$bytes[$index]=$bytes[$index] -band (255 -bxor (1 -shl (7-($bit%8))))}}
+    ([BitConverter]::ToString($bytes))+'/'+$prefix
+}
+function Get-ALNativeFirewallState([string]$Name) {
+    $rules=@(Get-NetFirewallRule -PolicyStore PersistentStore -Name $Name -ErrorAction SilentlyContinue)
+    if(-not $rules.Count){return $null}
+    if($rules.Count -ne 1){Stop-AL 'Firewall rule name is ambiguous; nothing was changed.'}
+    $rule=$rules[0]
+    $address=$rule|Get-NetFirewallAddressFilter -ErrorAction Stop
+    $port=$rule|Get-NetFirewallPortFilter -ErrorAction Stop
+    $service=$rule|Get-NetFirewallServiceFilter -ErrorAction Stop
+    $application=$rule|Get-NetFirewallApplicationFilter -ErrorAction Stop
+    $security=$rule|Get-NetFirewallSecurityFilter -ErrorAction Stop
+    $interface=$rule|Get-NetFirewallInterfaceFilter -ErrorAction Stop
+    $interfaceType=$rule|Get-NetFirewallInterfaceTypeFilter -ErrorAction Stop
+    [pscustomobject]@{name=$rule.Name;group=$rule.Group;direction=[string]$rule.Direction;action=[string]$rule.Action;enabled=([string]$rule.Enabled -eq 'True');profiles=([string]$rule.Profile);edge=[string]$rule.EdgeTraversalPolicy;protocol=[string]$port.Protocol;local_ports=@($port.LocalPort);remote_ports=@($port.RemotePort);local_addresses=@($address.LocalAddress);remote_addresses=@($address.RemoteAddress);service=$service.Service;program=$application.Program;authentication=[string]$security.Authentication;encryption=[string]$security.Encryption;override_block=[bool]$security.OverrideBlockRules;local_user=[string]$security.LocalUser;remote_user=[string]$security.RemoteUser;remote_machine=[string]$security.RemoteMachine;interfaces=@($interface.InterfaceAlias);interface_type=[string]$interfaceType.InterfaceType}
+}
+function Assert-ALFirewallOwnershipRecord($Config,$Record) {
+    if($Record.schema -ne 1 -or $Record.owner -cne 'AuthLens Setup' -or $Record.root -ine $Config.Root -or $Record.name -notmatch '^AuthLens-Setup-([a-f0-9]{32})$'){Stop-AL 'Firewall ownership receipt is invalid; administrator rules were preserved.'}
+    $id=$Matches[1]
+    if([int]$Record.plan.port -lt 1 -or [int]$Record.plan.port -gt 65535){Stop-AL 'Firewall receipt port is invalid.'}
+    $scope=[pscustomobject]@{ListenAddress=$Record.plan.local_address;Port=$Record.plan.port;WorkRoot=$Config.WorkRoot}
+    $validated=Get-ALInstallerFirewallPlan $scope ($Record.plan.remote_addresses -join ',') ($Record.plan.profiles -join ',') -AllowOwnedUpdate
+    if(-not $validated.required){Stop-AL 'Firewall receipt cannot authorize loopback exposure.'}
+    $Record|Add-Member -NotePropertyName receipt -NotePropertyValue (Join-AL $Config.WorkRoot ('firewall-'+$id+'.json')) -Force
+}
+function Assert-ALOwnedFirewallRule($Config,$Record,[bool]$Enabled=$true) {
+    Assert-ALFirewallOwnershipRecord $Config $Record
+    $rule=Get-ALNativeFirewallState $Record.name
+    if(-not $rule){Stop-AL 'Owned firewall rule is missing; explicit firewall recovery is required.'}
+    $profiles=@($rule.profiles.Split(',')|ForEach-Object{$_.Trim()}|Sort-Object)
+    $expected=@($Record.plan.profiles|Sort-Object)
+    if($rule.group -cne 'AuthLens Setup' -or $rule.direction -ne 'Inbound' -or $rule.action -ne 'Allow' -or $rule.enabled -ne $Enabled -or $rule.edge -ne 'Block' -or
+        $rule.protocol -notin @('TCP','6') -or (@($rule.local_ports)-join ',') -ne [string]$Record.plan.port -or (@($rule.remote_ports)-join ',') -ne 'Any' -or
+        $rule.service -ine $Config.ServiceName -or $rule.program -ne 'Any' -or ($profiles -join ',') -ine ($expected -join ',') -or
+        $rule.authentication -ne 'NotRequired' -or $rule.encryption -ne 'NotRequired' -or $rule.override_block -or $rule.local_user -ne 'Any' -or $rule.remote_user -ne 'Any' -or $rule.remote_machine -ne 'Any' -or
+        (@($rule.interfaces)-join ',') -ne 'Any' -or $rule.interface_type -ne 'Any'){Stop-AL 'Firewall definition differs from its ownership receipt; administrator changes were preserved.'}
+    $actualLocal=@($rule.local_addresses|ForEach-Object{Get-ALFirewallAddressIdentity $_}|Sort-Object)
+    $actualRemote=@($rule.remote_addresses|ForEach-Object{Get-ALFirewallAddressIdentity $_}|Sort-Object)
+    $expectedRemote=@($Record.plan.remote_addresses|ForEach-Object{Get-ALFirewallAddressIdentity $_}|Sort-Object)
+    if(($actualLocal -join ',') -cne (Get-ALFirewallAddressIdentity $Record.plan.local_address) -or ($actualRemote -join ',') -cne ($expectedRemote -join ',')){Stop-AL 'Firewall addresses differ from their approved scope; administrator changes were preserved.'}
+}
+function New-ALNativeOwnedFirewallRule($Config,$Record) {
+    Assert-ALFirewallOwnershipRecord $Config $Record
+    $null=New-NetFirewallRule -PolicyStore PersistentStore -Name $Record.name -DisplayName 'AuthLens Server (Setup owned)' -Group 'AuthLens Setup' -Direction Inbound -Action Allow -Enabled True -Protocol TCP -LocalAddress $Record.plan.local_address -LocalPort $Record.plan.port -RemoteAddress $Record.plan.remote_addresses -Profile $Record.plan.profiles -Service $Config.ServiceName -EdgeTraversalPolicy Block -ErrorAction Stop
+}
+function Get-ALOwnedFirewallReceipts($Config) {
+    if(-not(Test-Path -LiteralPath $Config.WorkRoot)){return @()}
+    $records=@()
+    foreach($file in Get-ChildItem -LiteralPath $Config.WorkRoot -Filter 'firewall-*.json' -File){
+        if($file.Name -eq 'firewall-pending.json'){continue}
+        $record=Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8|ConvertFrom-Json
+        Assert-ALFirewallOwnershipRecord $Config $record
+        if($file.FullName -ine $record.receipt){Stop-AL 'Unrecognized firewall evidence was preserved; no rule was adopted.'}
+        if($record.phase -eq 'applied'){Assert-ALOwnedFirewallRule $Config $record;$records+=$record}
+        elseif($record.phase -in @('removed','superseded','aborted')){if(Get-ALNativeFirewallState $record.name){Stop-AL 'An inactive ownership receipt still has a rule; explicit firewall recovery is required.'}}
+        else{Stop-AL 'Interrupted firewall evidence requires recovery before another mutation.' 4}
+    }
+    ,$records
+}
+function Test-ALInstallerFirewallRecoveryNeeded($Config) {
+    if(Test-Path -LiteralPath (Join-AL $Config.WorkRoot 'firewall-pending.json')){return $true}
+    if(Test-Path -LiteralPath $Config.WorkRoot){
+        foreach($file in Get-ChildItem -LiteralPath $Config.WorkRoot -Filter 'firewall-*.json' -File){
+            if((Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8|ConvertFrom-Json).phase -eq 'prepared'){return $true}
+        }
+    }
+    $false
+}
+function Invoke-ALInstallerFirewallChange($Config,[string]$Sources,[string]$Profiles='Private',[switch]$Remove,[switch]$Approved) {
+    if(-not $Approved){Stop-AL 'Firewall changes require explicit security approval.'}
+    Enter-ALLock $Config
+    try{
+        $pending=Join-AL $Config.WorkRoot 'firewall-pending.json'
+        if(Test-Path -LiteralPath $pending){Stop-AL 'Interrupted firewall transaction requires recovery.' 4}
+        $records=Get-ALOwnedFirewallReceipts $Config
+        if(@($records).Count -gt 1){Stop-AL 'Multiple active owned rules require explicit recovery review; no scope was changed.'}
+        $previous=if(@($records).Count){$records[0]}else{$null}
+        $plan=if(-not $Remove){Get-ALInstallerFirewallPlan $Config $Sources $Profiles -AllowOwnedUpdate}else{$null}
+        if(-not $previous){
+            if($Remove -or -not $plan.required){return @{changed=$false}}
+            return Install-ALInstallerFirewallRule $Config $plan -Approved -OwnedHistoryVerified
+        }
+        $next=$null
+        if(-not $Remove -and $plan.required){
+            $id=[guid]::NewGuid().ToString('N')
+            $next=[pscustomobject]@{schema=1;owner='AuthLens Setup';name=('AuthLens-Setup-'+$id);root=$Config.Root;phase='prepared';plan=$plan;receipt=(Join-AL $Config.WorkRoot ('firewall-'+$id+'.json'))}
+            Write-ALInstallerJournal $next.receipt $next
+        }
+        $journal=[pscustomobject]@{schema=1;root=$Config.Root;phase='prepared';previous=$previous;next=$next}
+        Write-ALInstallerJournal $pending $journal
+        try{
+            Assert-ALOwnedFirewallRule $Config $previous
+            Disable-NetFirewallRule -PolicyStore PersistentStore -Name $previous.name -ErrorAction Stop|Out-Null
+            Assert-ALOwnedFirewallRule $Config $previous $false
+            if($next){New-ALNativeOwnedFirewallRule $Config $next;Assert-ALOwnedFirewallRule $Config $next}
+            Remove-NetFirewallRule -PolicyStore PersistentStore -Name $previous.name -ErrorAction Stop
+            if(Get-ALNativeFirewallState $previous.name){Stop-AL 'Old firewall rule removal did not verify.' 4}
+            $previous.phase=if($next){'superseded'}else{'removed'};Write-ALInstallerJournal $previous.receipt $previous
+            if($next){$next.phase='applied';Write-ALInstallerJournal $next.receipt $next}
+            $journal.phase='complete';Write-ALInstallerJournal $pending $journal
+            Remove-Item -LiteralPath $pending -ErrorAction Stop
+            @{changed=$true;removed=[bool](-not $next);rule=$(if($next){$next.name}else{''})}
+        }catch{
+            $journal|Add-Member -NotePropertyName failure_type -NotePropertyValue $_.Exception.GetType().Name -Force
+            $journal|Add-Member -NotePropertyName failure_hresult -NotePropertyValue $_.Exception.HResult -Force
+            $journal|Add-Member -NotePropertyName failure_line -NotePropertyValue $_.InvocationInfo.ScriptLineNumber -Force
+            Write-ALInstallerJournal $pending $journal
+            Stop-AL 'Firewall transition did not complete. Retained receipts/journal require explicit recovery; no administrator rule was adopted or replaced.' 4
+        }
+    }finally{Exit-ALLock}
+}
+function Invoke-ALInstallerFirewallRecover($Config,[switch]$Rollback) {
+    Enter-ALLock $Config
+    try{
+        $pending=Join-AL $Config.WorkRoot 'firewall-pending.json'
+        if(-not(Test-Path -LiteralPath $pending)){
+            if($Rollback){Stop-AL 'Firewall rollback requires a retained transition journal.'}
+            $recovered=0
+            foreach($file in Get-ChildItem -LiteralPath $Config.WorkRoot -Filter 'firewall-*.json' -File){
+                $record=Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8|ConvertFrom-Json
+                Assert-ALFirewallOwnershipRecord $Config $record
+                if($file.FullName -ine $record.receipt){Stop-AL 'Firewall recovery receipt path mismatch.'}
+                if($record.phase -eq 'prepared'){
+                    if(Get-ALNativeFirewallState $record.name){Assert-ALOwnedFirewallRule $Config $record;$record.phase='applied'}else{$record.phase='aborted'}
+                    Write-ALInstallerJournal $record.receipt $record;$recovered++
+                }
+            }
+            $null=Get-ALOwnedFirewallReceipts $Config
+            return @{recovered=$true;creation_receipts_verified=$recovered;firewall_rollback_verified=$false}
+        }
+        $journal=Get-Content -LiteralPath $pending -Raw -Encoding UTF8|ConvertFrom-Json
+        if($journal.schema -ne 1 -or $journal.root -ine $Config.Root){Stop-AL 'Firewall recovery root mismatch.'}
+        $old=$journal.previous;$next=$journal.next
+        Assert-ALFirewallOwnershipRecord $Config $old
+        if($next){Assert-ALFirewallOwnershipRecord $Config $next}
+        if($journal.phase -eq 'rolled_back' -and -not $Rollback){
+            Assert-ALOwnedFirewallRule $Config $old
+            if($next -and (Get-ALNativeFirewallState $next.name)){Stop-AL 'A rolled-back transaction still has a replacement rule; manual review is required.' 4}
+            Remove-Item -LiteralPath $pending -ErrorAction Stop
+            return @{recovered=$true;firewall_rollback_verified=$true;restored_rule=$old.name}
+        }
+        if(-not $Rollback){
+            # Complete the latest explicitly approved intent. Do not silently reopen a superseded wider scope.
+            $state=Get-ALNativeFirewallState $old.name
+            if($state){
+                Assert-ALOwnedFirewallRule $Config $old ([bool]$state.enabled)
+                if($state.enabled){Disable-NetFirewallRule -PolicyStore PersistentStore -Name $old.name -ErrorAction Stop|Out-Null}
+                Assert-ALOwnedFirewallRule $Config $old $false
+            }
+            if($next){
+                if(-not(Get-ALNativeFirewallState $next.name)){New-ALNativeOwnedFirewallRule $Config $next}
+                Assert-ALOwnedFirewallRule $Config $next
+            }
+            if($state){Remove-NetFirewallRule -PolicyStore PersistentStore -Name $old.name -ErrorAction Stop}
+            if(Get-ALNativeFirewallState $old.name){Stop-AL 'Old firewall rule removal did not verify during recovery.' 4}
+            $old.phase=if($next){'superseded'}else{'removed'};Write-ALInstallerJournal $old.receipt $old
+            if($next){$next.phase='applied';Write-ALInstallerJournal $next.receipt $next}
+            $journal.phase='complete';Write-ALInstallerJournal $pending $journal
+            Remove-Item -LiteralPath $pending -ErrorAction Stop
+            return @{recovered=$true;firewall_transition_verified=$true;firewall_rollback_verified=$false}
+        }
+        # Roll back to the previously approved scope. Never infer ownership from display names.
+        if($next){
+            $state=Get-ALNativeFirewallState $next.name
+            if($state){Assert-ALOwnedFirewallRule $Config $next;Remove-NetFirewallRule -PolicyStore PersistentStore -Name $next.name -ErrorAction Stop}
+            if(Get-ALNativeFirewallState $next.name){Stop-AL 'New rule removal did not verify during firewall recovery.' 4}
+            $next.phase='aborted';Write-ALInstallerJournal $next.receipt $next
+        }
+        $state=Get-ALNativeFirewallState $old.name
+        if(-not $state){New-ALNativeOwnedFirewallRule $Config $old}
+        elseif(-not $state.enabled){Assert-ALOwnedFirewallRule $Config $old $false;Enable-NetFirewallRule -PolicyStore PersistentStore -Name $old.name -ErrorAction Stop|Out-Null}
+        Assert-ALOwnedFirewallRule $Config $old
+        $old.phase='applied';Write-ALInstallerJournal $old.receipt $old
+        $journal.phase='rolled_back';Write-ALInstallerJournal $pending $journal
+        Remove-Item -LiteralPath $pending -ErrorAction Stop
+        @{recovered=$true;firewall_rollback_verified=$true;restored_rule=$old.name}
+    }finally{Exit-ALLock}
+}
+
+function New-ALInstallerTlsDirectory([string]$Path) {
+    Assert-ALInstallerPath $Path
+    if(Test-Path -LiteralPath $Path){Stop-AL 'TLS destination already exists; certificate material is never overwritten.'}
+    $security=New-ALProtectedDirectorySecurity
+    $security.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'))
+    New-ALDirectoryWithAcl $Path $security
+}
+function Assert-ALInstallerTlsBoundary([string]$Path) {
+    Test-ALPathTree $Path
+    $acl=Get-Acl -LiteralPath $Path
+    if($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -notin @('S-1-5-18','S-1-5-32-544')){Stop-AL 'TLS staging requires administrative ownership; an existing user-owned directory was not adopted.'}
+    $write=[long]852310 -bor [long]1073741824 -bor [long]268435456
+    foreach($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])){
+        if($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -notin @('S-1-5-18','S-1-5-32-544') -and ([long]$rule.FileSystemRights -band $write)){Stop-AL 'TLS staging permits non-administrative mutation; no secret was written.'}
+    }
+}
+function Get-ALInstallerBytesHash([byte[]]$Bytes) {
+    $hash=[Security.Cryptography.SHA256]::Create()
+    try{([BitConverter]::ToString($hash.ComputeHash($Bytes))).Replace('-','').ToLowerInvariant()}finally{$hash.Dispose()}
+}
+function Write-ALInstallerPrivateBytes([string]$Path,[byte[]]$Bytes) {
+    $stream=[IO.File]::Open($Path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    try{$stream.Write($Bytes,0,$Bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+}
+function New-ALServerTlsMaterial([string]$Directory,[string]$ListenAddress,[string[]]$Hosts) {
+    $address=$null
+    if(-not [Net.IPAddress]::TryParse($ListenAddress,[ref]$address) -or $address.Equals([Net.IPAddress]::Any) -or $address.Equals([Net.IPAddress]::IPv6Any)){
+        Stop-AL 'Local TLS generation requires one explicit listening IP.'
+    }
+    $names=@($ListenAddress)+@($Hosts)
+    if([Net.IPAddress]::IsLoopback($address)){$names+=@('localhost')}
+    foreach($name in $names){
+        $ip=$null
+        if(-not [Net.IPAddress]::TryParse($name,[ref]$ip) -and ($name.Contains('*') -or [Uri]::CheckHostName($name) -ne [UriHostNameType]::Dns)){Stop-AL 'TLS names must be literal IP addresses or DNS host names; wildcards and URLs are refused.'}
+    }
+    New-ALInstallerTlsDirectory $Directory
+    $rsa=$null;$certificate=$null;$rng=$null;$entropy=New-Object byte[] 32;$pfx=$null;$passwordBytes=$null
+    try{
+        $rsa=[Security.Cryptography.RSACng]::new(3072)
+        $request=[Security.Cryptography.X509Certificates.CertificateRequest]::new('CN=AuthLens local HTTPS',$rsa,[Security.Cryptography.HashAlgorithmName]::SHA256,[Security.Cryptography.RSASignaturePadding]::Pkcs1)
+        $san=[Security.Cryptography.X509Certificates.SubjectAlternativeNameBuilder]::new()
+        foreach($name in @($names|Sort-Object -Unique)){
+            $ip=$null
+            if([Net.IPAddress]::TryParse($name,[ref]$ip)){$san.AddIpAddress($ip)}else{$san.AddDnsName($name)}
+        }
+        $request.CertificateExtensions.Add($san.Build())
+        $request.CertificateExtensions.Add([Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]::new($false,$false,0,$true))
+        $request.CertificateExtensions.Add([Security.Cryptography.X509Certificates.X509KeyUsageExtension]::new(([Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature -bor [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyEncipherment),$true))
+        $usages=[Security.Cryptography.OidCollection]::new();$null=$usages.Add([Security.Cryptography.Oid]::new('1.3.6.1.5.5.7.3.1'))
+        $request.CertificateExtensions.Add([Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]::new($usages,$true))
+        $certificate=$request.CreateSelfSigned([DateTimeOffset]::UtcNow.AddMinutes(-5),[DateTimeOffset]::UtcNow.AddDays(365))
+        $rng=[Security.Cryptography.RandomNumberGenerator]::Create();$rng.GetBytes($entropy)
+        $password=[Convert]::ToBase64String($entropy)
+        $pfx=$certificate.Export([Security.Cryptography.X509Certificates.X509ContentType]::Pkcs12,$password)
+        $passwordBytes=[Text.Encoding]::UTF8.GetBytes($password)
+        Write-ALInstallerPrivateBytes (Join-AL $Directory 'server.pfx') $pfx
+        Write-ALInstallerPrivateBytes (Join-AL $Directory 'cert-password') $passwordBytes
+        Write-ALInstallerPrivateBytes (Join-AL $Directory 'server.cer') ($certificate.Export([Security.Cryptography.X509Certificates.X509ContentType]::Cert))
+        [pscustomobject]@{certificate=(Join-AL $Directory 'server.pfx');password_file=(Join-AL $Directory 'cert-password');public_certificate=(Join-AL $Directory 'server.cer');thumbprint=$certificate.Thumbprint;expires_utc=$certificate.NotAfter.ToUniversalTime().ToString('o');self_signed=$true;trust_store_modified=$false}
+    }catch{
+        Stop-AL 'TLS generation failed; partial protected material was retained for review. No certificate or trust store was replaced.' 4
+    }finally{
+        if($certificate){$certificate.Dispose()};if($rsa){$rsa.Dispose()};if($rng){$rng.Dispose()}
+        [Array]::Clear($entropy,0,$entropy.Length)
+        if($pfx){[Array]::Clear($pfx,0,$pfx.Length)};if($passwordBytes){[Array]::Clear($passwordBytes,0,$passwordBytes.Length)}
+        $password=$null
+    }
+}
+function Copy-ALServerTlsMaterial($Config,[string]$Directory) {
+    # Read leases prevent source replacement during import. Each version has new paths and create-only files.
+    $certificate=$null;$password=$null
+    try{
+        if([IO.Path]::GetExtension($Config.CertificatePath) -notin @('.pfx','.p12')){Stop-AL 'TLS import requires a PFX/PKCS12 certificate. Existing PEM deployments may retain their explicit external files without import.'}
+        $certificate=[IO.File]::Open($Config.CertificatePath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        $password=[IO.File]::Open($Config.CertificatePasswordFile,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        New-ALInstallerTlsDirectory $Directory
+        foreach($entry in @(@($certificate,'server.pfx'),@($password,'cert-password'))){
+            $destination=Join-AL $Directory $entry[1]
+            $output=[IO.File]::Open($destination,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+            try{$entry[0].CopyTo($output);$output.Flush($true)}finally{$output.Dispose()}
+        }
+        foreach($entry in @(@($Config.CertificatePath,'server.pfx'),@($Config.CertificatePasswordFile,'cert-password'))){
+            if((Get-FileHash -LiteralPath $entry[0]).Hash -ine (Get-FileHash -LiteralPath (Join-AL $Directory $entry[1])).Hash){Stop-AL 'TLS import verification failed; original material was preserved.' 4}
+        }
+        Export-ALServerPublicCertificate $Config (Join-AL $Directory 'server.cer')
+        [pscustomobject]@{certificate=(Join-AL $Directory 'server.pfx');password_file=(Join-AL $Directory 'cert-password');public_certificate=(Join-AL $Directory 'server.cer')}
+    }finally{if($certificate){$certificate.Dispose()};if($password){$password.Dispose()}}
+}
+function Export-ALServerPublicCertificate($Config,[string]$Destination) {
+    $certificate=$null;$password=$null
+    try{
+        $password=[IO.File]::ReadAllText($Config.CertificatePasswordFile).Trim()
+        $certificate=[Security.Cryptography.X509Certificates.X509Certificate2]::new($Config.CertificatePath,$password,[Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
+        Write-ALInstallerPrivateBytes $Destination ($certificate.Export([Security.Cryptography.X509Certificates.X509ContentType]::Cert))
+    }finally{if($certificate){$certificate.Dispose()};$password=$null}
+}
+function Publish-ALServerSetupConfiguration($Resolved,[switch]$ImportTls) {
     # Called only after complete package/host preflight and protected directory preparation.
     # Publication is create-only: retries retain the reviewed file and never replace an upgrade's configuration.
     $config=$Resolved.Config
@@ -376,14 +666,36 @@ function Publish-ALServerSetupConfiguration($Resolved) {
     $target=Join-AL (Join-AL $config.Root 'config') 'deploy.json'
     Assert-ALInstallerPath $target
     $bytes=[IO.File]::ReadAllBytes($config.ConfigFile)
+    if((Get-ALInstallerBytesHash $bytes) -ine $Resolved.ConfigSha256){Stop-AL 'Deployment configuration changed before publication; repeat review.'}
+    $receipt=Join-AL (Join-AL $config.Root 'config') 'fresh-publication.json'
     if(Test-Path -LiteralPath $target){
-        if((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ine $Resolved.ConfigSha256){Stop-AL 'Existing deployment configuration differs; it was preserved.'}
+        $hash=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+        if($hash -ine $Resolved.ConfigSha256){
+            if(-not(Test-Path -LiteralPath $receipt)){Stop-AL 'Existing deployment configuration differs; it was preserved.'}
+            $proof=Get-Content -LiteralPath $receipt -Raw -Encoding UTF8|ConvertFrom-Json
+            if($proof.schema -ne 1 -or $proof.source_sha256 -ine $Resolved.ConfigSha256 -or $proof.published_sha256 -ine $hash -or @($proof.tls_files).Count -ne 3){Stop-AL 'Existing deployment configuration differs; it was preserved.'}
+            foreach($file in $proof.tls_files){if(-not(Test-ALPathWithin $file.path (Join-AL $config.Root 'tls')) -or (Get-FileHash -LiteralPath $file.path).Hash -ine $file.sha256){Stop-AL 'Published TLS material changed; explicit recovery is required.' 4}}
+        }
+        return Resolve-ALServerSetupConfiguration $target
     }else{
         $null=Assert-ALAclPlan @([pscustomobject]@{Path=(Split-Path $target);Class='private';Role='configuration';Recurse=$false}) 'Fresh configuration publication'
+        $tls=$null
+        if($ImportTls){
+            $tls=Copy-ALServerTlsMaterial $config (Join-AL (Join-AL $config.Root 'tls') ('setup-'+[guid]::NewGuid().ToString('N')))
+            $raw=[Text.Encoding]::UTF8.GetString($bytes).TrimStart([char]0xfeff)|ConvertFrom-Json
+            $raw|Add-Member -NotePropertyName CertificatePath -NotePropertyValue $tls.certificate -Force
+            $raw|Add-Member -NotePropertyName CertificatePasswordFile -NotePropertyValue $tls.password_file -Force
+            $bytes=[Text.Encoding]::UTF8.GetBytes(($raw|ConvertTo-Json -Depth 5))
+        }
         $stream=[IO.File]::Open($target,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
         try{$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
     }
-    if((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ine $Resolved.ConfigSha256){Stop-AL 'Published configuration verification failed; retain evidence and review before retrying.' 4}
+    $hash=Get-ALInstallerBytesHash $bytes
+    if((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ine $hash){Stop-AL 'Published configuration verification failed; retain evidence and review before retrying.' 4}
+    if($ImportTls){
+        $proof=@{schema=1;source_sha256=$Resolved.ConfigSha256;published_sha256=$hash;tls_files=@($tls.certificate,$tls.password_file,$tls.public_certificate)|ForEach-Object{@{path=$_;sha256=(Get-FileHash -LiteralPath $_).Hash.ToLowerInvariant()}}}
+        Write-ALInstallerPrivateBytes $receipt ([Text.Encoding]::UTF8.GetBytes(($proof|ConvertTo-Json -Depth 5)))
+    }
     Resolve-ALServerSetupConfiguration $target
 }
 function Initialize-ALInstallerServerRoot($Config) {

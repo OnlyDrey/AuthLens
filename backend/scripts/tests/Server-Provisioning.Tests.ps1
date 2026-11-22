@@ -55,6 +55,7 @@ Describe 'Approved source-restricted Server firewall provisioning' {
         {Get-ALInstallerFirewallPlan $config '10.0.7.10'}|Should -Throw '*No rule was updated or duplicated*'
     }
     It 'records intent before creating a service-bound rule without touching existing rules' {
+        Mock -ModuleName AuthLens.Deploy Assert-ALOwnedFirewallRule {}
         Mock -ModuleName AuthLens.Deploy New-NetFirewallRule {
             @(Get-ChildItem $work -Filter 'firewall-*.json').Count|Should -Be 1
         }

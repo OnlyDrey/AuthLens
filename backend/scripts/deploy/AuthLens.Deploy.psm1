@@ -35,6 +35,7 @@ function Stop-AL([string]$Message, [int]$Code = 2) { throw [DeployException]::ne
 
 function Assert-ALNoPendingRepair($Config) {
     if(Test-Path -LiteralPath (Join-AL $Config.WorkRoot 'repair-pending.json')){Stop-AL 'A pending offline repair requires explicit recovery review; its marker and journal were preserved.' 4}
+    if(Test-Path -LiteralPath (Join-AL $Config.WorkRoot 'firewall-pending.json')){Stop-AL 'A pending firewall transition requires explicit recovery; its journal was preserved.' 4}
 }
 
 function Write-ALLog([string]$Message) {

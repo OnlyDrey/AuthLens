@@ -850,6 +850,20 @@ A matching retry is allowed; an existing different file is preserved and refused
 network/service settings remains unimplemented. A stale `UsePreviousAppDir` value never wins over
 that configuration. An explicit conflicting `/DIR` fails; do not remove the PowerShell path guard to work around it.
 
+Fresh GUI TLS has two implemented choices: select an existing PFX/password file, or generate a local certificate with a new 3072-bit RSA key,
+server-authentication EKU, explicit DNS/IP SANs and one-year validity. The packaged host validates the generated material. Generation stages
+create-only files beneath administratively owned `C:\ProgramData\AuthLensSetup\TLS-<id>`; no installation database is initialized and no
+trusted store is changed. A generated certificate is self-signed: browsers/clients require an explicit trust decision outside automatic Setup.
+Cancelled/failed drafts remain protected for review and are never reused or overwritten.
+
+After confirmation, both fresh choices import PFX/password bytes through read leases into a **new** protected `Root\tls\setup-<id>` directory.
+The source is preserved; public-only `server.cer` is exported alongside the imported material. Configuration publication records an immutable
+private receipt binding the reviewed draft to the canonical configuration and imported file hashes. A matching retry reuses the same files;
+changed configuration or key material refuses recovery rather than replacing keys. The service receives read access through the existing ACL
+transaction. Existing PEM configurations may retain explicit external files; fresh import deliberately requires PKCS12 and never relabels PEM.
+These paths have focused crypto/import/compiler checks; elevated ACL, native GUI/service TLS and cancellation/recovery acceptance remain pending.
+Renewal/replacement of an installed service certificate is still unimplemented; fresh import is not advertised as renewal.
+
 `--server-preflight` is a non-listening command of the packaged Server. It uses the actual host/TLS policy, ephemeral certificate keys and read-only
 schema, SQLite integrity and foreign-key checks. It validates certificate SANs for configured backend hosts/listen IP (public proxy hosts are not
 required backend SANs), private-key material, validity/EKU/key size, host/proxy policy and existing backup-key readability. It never creates a token,
@@ -873,8 +887,21 @@ Silent Setup requires `/APPROVEFIREWALL=Yes /FIREWALLSOURCES=10.0.7.10 /FIREWALL
 No exception is created for loopback, no rule is created by default, and administrator-created rules are not changed. The native rule is
 created only after deployment readiness succeeds. Receipts under the protected deployment directory record intent before mutation; failed
 rule creation attempts compensating deletion of only that unpredictable rule ID and preserves evidence. Firewall failure does not undo an
-already successful application deployment; retain the healthy instance and inspect the receipt. Existing receipts refuse automatic updates
-or duplicate creation until ownership/recovery is reviewed. Safe scope updates and uninstall cleanup are still incomplete.
+already successful application deployment; retain the healthy instance and inspect the receipt.
+
+Standalone `-Operation Firewall -FirewallSources <approved list> -FirewallProfiles Private -ApproveFirewall -Yes` creates or updates only a proven
+owned rule; `-Operation FirewallRemove -ApproveFirewall -Yes` removes only that owned rule. Both require a verified managed service/configuration;
+`-PreflightOnly` reviews without applying and needs no release package for these two operations. Ownership is the private receipt plus the exact
+native name/group, service binding, protocol/ports, addresses, profiles, interface/security filters and edge policy. Changed administrator definitions
+are preserved and refused. CIDR/netmask normalization compares equivalent scopes without treating wildcards as identities.
+
+Updates disable the old rule **before** creating a new one, verify the new definition, remove the old rule and retain superseded receipts.
+There is no temporary union of old/new allowed sources. Failures retain `deployment\firewall-pending.json` and receipts; ordinary deployment/
+rollback refuses this barrier. `-Recover -Yes` completes the latest approved intent after validating actual native state; it does not silently reopen
+a superseded broader scope. Explicit `-Recover -FirewallRollback -ApproveFirewall -Yes` requests restoration of the previous approved scope and
+reports rollback verified only after the native definition matches. Prepared creation receipts are resolved only against proven matching native
+state or proven absence. Administrator-created rules and unrelated resources are never enumerated for deletion. Native elevated rule lifecycle
+acceptance remains pending; focused tests use mocked NetSecurity calls. Uninstall integration remains incomplete.
 
 Offline repair is intentionally distinct from upgrade: the damaged previous payload cannot prove a working rollback. It requires a stopped,
 owned service, byte-identical installed/replacement manifest, existing database, compatible schema without pending migrations, existing keys
@@ -900,6 +927,8 @@ Use the packaged `installer-tools-<id>/Install-AuthLens.ps1`, not an unverified 
 | `-PlanFile <new path>` | Private Unicode INI bridge for resolve/preflight results used by Inno; not a configuration file |
 | `-ExpectedConfigSha256 <reviewed hash>` | Refuse changes between review, preparation and deployment |
 | `-PrepareOnly -CommitNewConfiguration -Yes` | After complete preflight/protected preparation, publish the exact reviewed draft to `Root\config\deploy.json`; never overwrite a different configuration or publish over an existing service/release |
+| `-GenerateTlsDraft -Package ... -Yes` | Explicit fresh-only private TLS generation using reviewed configuration paths beneath `AuthLensSetup\TLS-<id>`; requires no existing AuthLens service and validates through the packaged host; does not install/trust/start anything |
+| `-PrepareOnly -CommitNewConfiguration -ImportTls -Yes` | Validate first, copy existing/generated PFX/password into new protected versioned files, export public certificate and publish bound configuration/receipt; original material stays untouched |
 | `-ApproveFirewall -FirewallSources <IP/CIDR list> -FirewallProfiles Private,Domain` | Explicit restricted-rule approval; preflight checks scope, final deployment applies only after readiness. Existing rule receipts refuse automatic updates |
 
 Adapter exit codes: `0` completed selected operation (a read-only plan/repair check is not installation success), `1` worker/verification failure,
@@ -915,9 +944,9 @@ host recovery-key provisioning/escrow; external proxy/DNS/firewall/client trust 
 
 | Requirement | Status and reason | Next action |
 | --- | --- | --- |
-| Fresh configuration and TLS | Partial: editable fresh paths/network/proxy/existing-certificate controls and create-only publication implemented; no self-signed issuance, key import/copy or trust transaction | Existing PFX/password files must be protected and provisioned explicitly; native GUI and service-account TLS acceptance pending |
+| Fresh configuration and TLS | Fresh generation/selection/import and create-only bound publication implemented; no automatic trusted-store modification | Installed-certificate renewal/replacement transaction remains incomplete; native GUI, ACL/service-key access and client-trust acceptance pending |
 | Dedicated account / gMSA creation | Blocked: existing SCM adapter has no secure password transport, account-logon-right or managed-password validation contract | Add validated credential/logon provisioning; preserve existing identities meanwhile |
-| Automatic firewall configuration | Partial: explicit GUI/CLI approval creates a uniquely named service/IP/port/source/profile-bound rule with prior intent receipt and compensating removal on failure; loopback/wildcards/Public/Any refused | Existing Setup receipts refuse scope changes/retries rather than duplicating rules; ownership-verified update/removal and native policy acceptance remain unimplemented |
+| Automatic firewall configuration | Source implementation covers approved creation, ownership-verified update/removal, retained transition journals and explicit completion/rollback recovery; loopback/wildcards/Public/Any refused | Native elevated rule/policy acceptance and uninstall integration remain pending |
 | Repair missing/corrupt components/service | Partial: real offline payload replacement implemented through the CLI, without overwriting damaged files; exact retained manifest, stopped owned service and verified backup required | Missing service registration or installed manifest still requires manual recovery; GUI repair selection and native recovery rehearsal remain unimplemented |
 | Automatic/destructive uninstall | Partial: canonical service registration blocks Inno uninstall; data always preserved | Review service removal separately; add explicit ownership inventory before offering any deletion, especially external storage |
 | Downgrade in Setup | Refused safely; schema compatibility alone does not prove safe data/version rollback | Use separately authorized verified rollback/recovery; no `allow downgrade` bypass |
