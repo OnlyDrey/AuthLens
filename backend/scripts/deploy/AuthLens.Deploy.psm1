@@ -33,6 +33,10 @@ function Join-AL([string]$Path, [string]$Child) { [System.IO.Path]::Combine($Pat
 
 function Stop-AL([string]$Message, [int]$Code = 2) { throw [DeployException]::new($Message, $Code) }
 
+function Assert-ALNoPendingRepair($Config) {
+    if(Test-Path -LiteralPath (Join-AL $Config.WorkRoot 'repair-pending.json')){Stop-AL 'A pending offline repair requires explicit recovery review; its marker and journal were preserved.' 4}
+}
+
 function Write-ALLog([string]$Message) {
     $line = '{0:yyyy-MM-ddTHH:mm:ssZ} {1}' -f [DateTime]::UtcNow, $Message
     Write-Host $line
@@ -319,8 +323,13 @@ function Invoke-ALConfiguredHttp($Config, [string]$Path) {
     # Connect directly to the configured listener with an already allowed host.
     # Never change DNS, host/origin policy or proxy configuration for a probe.
     $hostName = @($Config.AllowedHosts | Where-Object { $_ -and $_ -ne '*' }) | Select-Object -First 1
+    $listenIp=$null
+    if(-not $hostName -and [Net.IPAddress]::TryParse($Config.ListenAddress,[ref]$listenIp) -and [Net.IPAddress]::IsLoopback($listenIp)){$hostName=$Config.ListenAddress}
     if (-not $hostName) { Stop-AL 'A configured allowed host is required for health inspection.' }
-    Invoke-ALHttp "https://$($Config.ListenAddress):$($Config.Port)$Path" "$hostName`:$($Config.Port)"
+    $address=$Config.ListenAddress
+    if($address.Contains(':')){$address='['+$address+']'}
+    if($hostName.Contains(':')){$hostName='['+$hostName+']'}
+    Invoke-ALHttp "https://${address}:$($Config.Port)$Path" "$hostName`:$($Config.Port)"
 }
 
 # ---- journal and lock
@@ -474,8 +483,12 @@ function Test-ALPublishedRelease([string]$Folder) {
 # The versioned deployment folder <ReleasesRoot>\<release name>. It is assembled in <ReleasesRoot>\.staging\<release name>, verified there and only
 # then moved into place, so an interrupted or incomplete copy is never visible as a release. An existing folder is reused only when its manifest
 # names the same commit and it verifies as a server package; it is never overwritten or repaired.
-function Publish-ALRelease($Config, [string]$Release, $Manifest) {
+function Publish-ALRelease($Config, [string]$Release, $Manifest, [string]$RepairId='') {
     $name = Split-Path $Release -Leaf
+    if($RepairId){
+        if($RepairId -notmatch '^[a-f0-9]{32}$'){Stop-AL 'Invalid immutable repair publication identity.'}
+        $name='repair-'+$RepairId
+    }
     $target = Join-AL $Config.ReleasesRoot $name
     if (Test-Path -LiteralPath $target) {
         $existing = Get-Content -LiteralPath (Join-AL $target 'build-manifest.json') -Raw | ConvertFrom-Json
@@ -681,6 +694,7 @@ function Invoke-ALRollbackCore($Config, $Journal, [string]$Target) {
 }
 
 function Invoke-ALDeploy($Config, [string]$ReleaseFolder, [string]$Commit, [switch]$DryRun, [switch]$FirstInstall, [switch]$AdoptService, [switch]$RequireRollback) {
+    Assert-ALNoPendingRepair $Config
     $previousJournal = Read-ALJournal $Config
     if ($previousJournal -and $previousJournal.phase -in $script:CriticalPhases) {
         Stop-AL "An earlier deployment ($($previousJournal.run)) was interrupted in phase '$($previousJournal.phase)'. Run -Action Recover first."
@@ -774,6 +788,7 @@ function Invoke-ALDeploy($Config, [string]$ReleaseFolder, [string]$Commit, [swit
 }
 
 function Invoke-ALRecover($Config) {
+    Assert-ALNoPendingRepair $Config
     $journal = Read-ALJournal $Config
     if (-not $journal) { Write-ALLog 'no deployment journal: nothing to recover'; return [pscustomobject]@{ recovered = $false; reason = 'no journal' } }
     if ($journal.phase -in $script:FinalPhases) { Write-ALLog "last deployment $($journal.run) ended in '$($journal.phase)': nothing to recover"; return [pscustomobject]@{ recovered = $false; phase = $journal.phase } }
@@ -794,6 +809,7 @@ function Invoke-ALRecover($Config) {
 }
 
 function Invoke-ALRollback($Config, [string]$ToRelease) {
+    Assert-ALNoPendingRepair $Config
     $journal = Read-ALJournal $Config
     if ($journal -and $journal.phase -in $script:CriticalPhases) { Stop-AL 'A deployment is in progress or interrupted; run -Action Recover.' }
     $target = if ($ToRelease) { $ToRelease } elseif ($journal -and $journal.from_release) { $journal.from_release } else { '' }

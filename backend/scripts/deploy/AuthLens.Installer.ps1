@@ -252,6 +252,140 @@ function Write-ALServerSetupPlan([string]$Path,$Plan) {
     $writer=[IO.StreamWriter]::new($stream,[Text.Encoding]::Unicode)
     try{$writer.Write($lines -join "`r`n")}finally{$writer.Dispose()}
 }
+function Get-ALServerRepairPlan($Resolved,[string]$Package) {
+    $config=$Resolved.Config
+    Assert-ALNoPendingRepair $config
+    Assert-ALServerSetupFingerprint $Resolved $Resolved.ConfigSha256
+    Assert-ALInstallerServerConfiguration $config
+    $null=Assert-ALAclPlan (Get-ALAclPlan $config) 'Server repair'
+    $journal=Read-ALJournal $config
+    if($journal -and $journal.phase -in $script:CriticalPhases){Stop-AL 'Interrupted deployment requires recovery before repair.' 4}
+    $service=Get-ALService $config.ServiceName
+    if(-not $service.Exists -or $service.State -ne 'Stopped'){Stop-AL 'Offline repair requires the owned service to exist and be stopped explicitly; Setup will not stop a running installation for repair.'}
+    if($service.Account -ine $config.ServiceAccount -or -not(Test-ALServiceBinary $service.PathName $config) -or
+        @(Compare-ALServiceArguments @((Split-ALCommandLine $service.PathName)|Select-Object -Skip 1) @(Get-ALServiceArguments $config)).Count){Stop-AL 'Repair service identity or arguments disagree with the reviewed configuration.'}
+    $previous=Get-ALLink (Get-ALCurrentLink $config)
+    if(-not $previous -or -not(Test-ALPathWithin $previous $config.ReleasesRoot)){Stop-AL 'Repair requires an owned release pointer and retained installation identity.'}
+    Assert-ALInstallerPath $previous
+    $manifest=Get-ALInstallerPackage $Package
+    $oldManifest=Join-AL $previous 'build-manifest.json'
+    if(-not(Test-Path -LiteralPath $oldManifest) -or (Get-FileHash -LiteralPath $oldManifest).Hash -ine (Get-FileHash -LiteralPath (Join-AL $Package 'build-manifest.json')).Hash){Stop-AL 'Repair requires the exact installed manifest; missing or changed product identity needs manual recovery.'}
+    if(-not(Test-Path -LiteralPath (Join-AL $config.DataDirectory 'authlens.sqlite3') -PathType Leaf)){Stop-AL 'Repair refuses a missing database; empty initialization is not repair.'}
+    $probe=Invoke-ALMaintenance (Join-AL $Package 'server/AuthLens.Api.exe') (@('--server-preflight')+@(Get-ALServiceArguments $config))
+    if(-not $probe.validated -or -not $probe.read_only -or $probe.source_sha -cne $manifest.source_sha -or $probe.version -cne $manifest.version -or @($probe.schema.pending).Count){Stop-AL 'Repair cannot prove package/TLS/database compatibility without schema changes.'}
+    [pscustomobject]@{operation='offline repair';previous=$previous;manifest=$manifest;root=$config.Root;program_directory=$Resolved.ProgramDirectory;config_file=$config.ConfigFile;config_sha256=$Resolved.ConfigSha256;data_directory=$config.DataDirectory;backup_directory=$config.BackupRoot;listen_address=$config.ListenAddress;port=$config.Port;service_name=$config.ServiceName;service_account=$config.ServiceAccount;certificate=$config.CertificatePath;allowed_hosts=@($config.AllowedHosts);proxy_hosts=@($config.ProxyHosts);trusted_proxies=@($config.TrustedProxies);operation_id=[guid]::NewGuid().ToString('N')}
+}
+
+function Invoke-ALInstallerServerRepair($Resolved,[string]$Package) {
+    $config=$Resolved.Config
+    Enter-ALLock $config
+    try{
+        $plan=Get-ALServerRepairPlan $Resolved $Package
+        $null=New-ALRun $config 'installer-repair'
+        if(-not $script:RunFolder -or -not(Test-ALPathWithin $script:RunFolder $config.WorkRoot)){Stop-AL 'Repair evidence directory is outside the deployment workspace; no files were activated.'}
+        Save-ALInstallerRecoveryTools $script:RunFolder
+        $exe=Join-AL $Package 'server/AuthLens.Api.exe'
+        $backup=Invoke-ALMaintenance $exe @('--backup-local',$config.BackupRoot,'--data-dir',$config.DataDirectory)
+        $verified=Invoke-ALMaintenance $exe @('--backup-verify',$backup.file,'--data-dir',$config.DataDirectory)
+        if(-not $verified.verified -or $verified.sha256 -cne $backup.sha256){Stop-AL 'Repair backup verification failed; no release pointer or service was changed.'}
+        $candidate=Publish-ALRelease $config $Package $plan.manifest -RepairId ([guid]::NewGuid().ToString('N'))
+        $journal=[pscustomobject]@{operation='offline repair';phase='prepared';from_release=$plan.previous;to_release=$candidate;backup=$backup;run=$script:RunFolder}
+        $path=Join-AL $script:RunFolder 'repair-journal.json'
+        Write-ALInstallerJournal $path $journal
+        $marker=Join-AL $config.WorkRoot 'repair-pending.json'
+        $stream=[IO.File]::Open($marker,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        try{$bytes=[Text.Encoding]::UTF8.GetBytes($path);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+        $activated=$false
+        try{
+            # Recheck immediately before the only pointer mutation; never replace damaged bytes in place.
+            if((Get-ALService $config.ServiceName).State -ne 'Stopped'){Stop-AL 'Service started during offline repair; publication was retained but not activated.'}
+            $journal.phase='switching';Write-ALInstallerJournal $path $journal
+            Set-ALLink (Get-ALCurrentLink $config) $candidate
+            $activated=$true
+            Grant-ALAccess $config
+            Start-ALService $config.ServiceName
+            $null=Wait-ALReady $config $plan.manifest.source_sha $plan.manifest.version
+            $journal.phase='complete';Write-ALInstallerJournal $path $journal
+            Remove-Item -LiteralPath $marker -ErrorAction Stop
+            @{repaired=$true;release=$candidate;preserved_damaged_release=$plan.previous;backup=$backup.file;run=$script:RunFolder}
+        }catch{
+            # The previous payload may be damaged: keep it for forensic recovery, never claim it is a working rollback.
+            if($activated){try{Stop-ALService $config.ServiceName ([int]$config.StopTimeoutSeconds)}catch{}}
+            $journal.phase='manual_recovery_required';Write-ALInstallerJournal $path $journal
+            Stop-AL 'Offline repair did not verify readiness. Service stop was attempted; both payloads, verified backup and repair journal are preserved. Review recovery before restarting.' 4
+        }
+    }finally{Exit-ALLock}
+}
+
+function Get-ALInstallerFirewallPlan($Config,[string]$Sources,[string]$Profiles='Private') {
+    $ip=$null
+    if(-not [Net.IPAddress]::TryParse($Config.ListenAddress,[ref]$ip)){Stop-AL 'Firewall requires an explicit listening IP.'}
+    if([Net.IPAddress]::IsLoopback($ip)){
+        if($Sources){Stop-AL 'Loopback deployments do not accept inbound firewall exceptions.'}
+        return [pscustomobject]@{required=$false;remote_addresses=@();profiles=@();port=$Config.Port;local_address=$Config.ListenAddress}
+    }
+    $addresses=@($Sources.Split(',')|ForEach-Object{$_.Trim()}|Where-Object{$_}|Sort-Object -Unique)
+    if(-not $addresses.Count){Stop-AL 'Firewall approval requires explicit source IP addresses or subnets.'}
+    foreach($source in $addresses){
+        $parts=$source.Split('/');$address=$null
+        if($parts.Count -gt 2 -or -not [Net.IPAddress]::TryParse($parts[0],[ref]$address) -or $address.Equals([Net.IPAddress]::Any) -or $address.Equals([Net.IPAddress]::IPv6Any)){
+            Stop-AL 'Firewall sources must be explicit IP addresses or restricted CIDR subnets; aliases and wildcards are refused.'
+        }
+        if($parts.Count -eq 2){
+            $prefix=0;$max=if($address.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork){32}else{128}
+            if(-not [int]::TryParse($parts[1],[ref]$prefix) -or $prefix -lt 1 -or $prefix -gt $max){Stop-AL 'Firewall subnet prefix is invalid or unrestricted.'}
+        }
+    }
+    $selected=@($Profiles.Split(',')|ForEach-Object{$_.Trim()}|Sort-Object -Unique)
+    if(-not $selected.Count -or @($selected|Where-Object{$_ -notin @('Private','Domain')}).Count){Stop-AL 'Firewall profiles must explicitly select Private and/or Domain; Public and Any are refused.'}
+    if((Test-Path -LiteralPath $Config.WorkRoot) -and @(Get-ChildItem -LiteralPath $Config.WorkRoot -Filter 'firewall-*.json' -File).Count){Stop-AL 'Existing Setup firewall evidence requires ownership/recovery review before changing scope. No rule was updated or duplicated.'}
+    [pscustomobject]@{required=$true;remote_addresses=$addresses;profiles=$selected;port=[int]$Config.Port;local_address=$Config.ListenAddress}
+}
+
+function Install-ALInstallerFirewallRule($Config,$Plan,[switch]$Approved) {
+    if(-not $Plan.required){return @{changed=$false;reason='loopback'}}
+    if(-not $Approved){Stop-AL 'Firewall changes require explicit security approval.'}
+    $null=Get-ALInstallerFirewallPlan $Config ($Plan.remote_addresses -join ',') ($Plan.profiles -join ',')
+    # A fresh, uniquely named rule is used; administrator-created rules are never edited or removed.
+    # Persist intent before the OS mutation so interrupted work can be identified without inferring ownership by display name.
+    $id=[guid]::NewGuid().ToString('N')
+    $name='AuthLens-Setup-'+$id
+    $receipt=Join-AL $Config.WorkRoot ('firewall-'+$id+'.json')
+    $record=[ordered]@{schema=1;owner='AuthLens Setup';name=$name;root=$Config.Root;phase='prepared';plan=$Plan}
+    $stream=[IO.File]::Open($receipt,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    $writer=[IO.StreamWriter]::new($stream)
+    try{$writer.Write(($record|ConvertTo-Json -Depth 6));$writer.Flush();$stream.Flush($true)}finally{$writer.Dispose()}
+    try{
+        $null=New-NetFirewallRule -PolicyStore PersistentStore -Name $name -DisplayName 'AuthLens Server (Setup owned)' -Group 'AuthLens Setup' -Direction Inbound -Action Allow -Enabled True -Protocol TCP -LocalAddress $Plan.local_address -LocalPort $Plan.port -RemoteAddress $Plan.remote_addresses -Profile $Plan.profiles -Service $Config.ServiceName -ErrorAction Stop
+        $record.phase='applied'
+        Write-ALInstallerJournal $receipt $record
+    }catch{
+        # Only this transaction's unpredictable rule ID can be rolled back.
+        Remove-NetFirewallRule -PolicyStore PersistentStore -Name $name -ErrorAction SilentlyContinue
+        Stop-AL 'Firewall provisioning failed; its uniquely named rule was removed where possible. Preserve the receipt and verify Windows Firewall before retrying.' 4
+    }
+    @{changed=$true;name=$name;receipt=$receipt}
+}
+
+function Publish-ALServerSetupConfiguration($Resolved) {
+    # Called only after complete package/host preflight and protected directory preparation.
+    # Publication is create-only: retries retain the reviewed file and never replace an upgrade's configuration.
+    $config=$Resolved.Config
+    if((Get-ALService $config.ServiceName).Exists -or (Get-ALLink (Get-ALCurrentLink $config))){Stop-AL 'Fresh configuration publication refuses an existing service or release pointer.'}
+    Assert-ALServerSetupFingerprint $Resolved $Resolved.ConfigSha256
+    $target=Join-AL (Join-AL $config.Root 'config') 'deploy.json'
+    Assert-ALInstallerPath $target
+    $bytes=[IO.File]::ReadAllBytes($config.ConfigFile)
+    if(Test-Path -LiteralPath $target){
+        if((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ine $Resolved.ConfigSha256){Stop-AL 'Existing deployment configuration differs; it was preserved.'}
+    }else{
+        $null=Assert-ALAclPlan @([pscustomobject]@{Path=(Split-Path $target);Class='private';Role='configuration';Recurse=$false}) 'Fresh configuration publication'
+        $stream=[IO.File]::Open($target,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        try{$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+    }
+    if((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ine $Resolved.ConfigSha256){Stop-AL 'Published configuration verification failed; retain evidence and review before retrying.' 4}
+    Resolve-ALServerSetupConfiguration $target
+}
 function Initialize-ALInstallerServerRoot($Config) {
     Assert-ALInstallerServerConfiguration $Config
     if (-not (Test-Path -LiteralPath $Config.Root)) { New-ALDirectoryWithAcl $Config.Root (New-ALProtectedDirectorySecurity) }
@@ -259,6 +393,7 @@ function Initialize-ALInstallerServerRoot($Config) {
     Initialize-ALInstallation $Config
 }
 function Assert-ALInstallerServerPreflight($Config) {
+    Assert-ALNoPendingRepair $Config
     Assert-ALInstallerServerConfiguration $Config
     $journal=Read-ALJournal $Config
     if ($journal -and $journal.phase -in $script:CriticalPhases) { Stop-AL 'An interrupted Server deployment requires explicit recovery before Setup can continue.' 4 }

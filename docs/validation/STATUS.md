@@ -11,7 +11,7 @@ AuthLens `2.0.0-alpha.1` is under private acceptance. This page records current 
 | Evidence | Database integrity, foreign keys, immutable review history and evidence fingerprints passed preservation checks |
 | Branding | Generic canonical assets, frontend production build, embedded Windows icons and isolated installer compilation passed |
 | Windows build workflow | Root build entry point produced both Windows packages and Setup executables with matching manifests; focused orchestration/installer tests passed |
-| Server Setup lifecycle | Configuration-derived root, reviewed discovery, read-only TLS/database preflight and SemVer guards implemented; focused tests/native synthetic compilation cover source behavior. Wizard editing, destructive repair/uninstall, automatic firewall/custom-account provisioning and full native lifecycle acceptance remain incomplete |
+| Server Setup lifecycle | Fresh configuration editing/create-only publication, explicit restricted firewall creation and CLI offline component repair implemented alongside existing preflight/upgrade guards. Focused source tests and synthetic Inno compilation do not establish native acceptance. TLS issuance, custom-account provisioning, firewall update/removal, missing-service repair, safe uninstall and full native lifecycle/recovery acceptance remain incomplete |
 | Mobile UX | Header tools, independent navigation drawers, Filters, configurable tables, Functional Group pills and SoD scrolling passed focused isolated browser acceptance; not deployed |
 
 Scheduled refresh stays disabled until configured external sources and credentials have been reviewed. Production data, accounts, keys,

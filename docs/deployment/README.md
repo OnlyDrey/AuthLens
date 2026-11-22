@@ -22,6 +22,9 @@ Installed services run from a verified release directory selected by the deploym
 
 Manual installer updates use the existing backup/deployment engine. Desktop retains the selected data profile and a private recovery journal;
 Server uses a reviewed explicit or validated discovered configuration, resolves its program directory before staging and preserves existing settings.
-Its interactive pages review configuration; they do not yet generate certificates, provision custom service credentials or manage firewall rules.
+Interactive Setup can author fresh path/network/proxy configuration using existing protected TLS files and explicitly approve a restricted
+firewall rule. Upgrades preserve configuration. Local certificate issuance, custom credential provisioning, owned-rule updates/removal and
+safe automatic uninstall remain incomplete. CLI offline repair can publish verified replacement components while retaining damaged payloads;
+native lifecycle/recovery acceptance is still pending.
 Both refuse updates with pending schema changes and preserve recovery artifacts. See
 [installer transactions and acceptance limits](WINDOWS_DEPLOYMENT.md#manual-installer-transaction) before any installation.

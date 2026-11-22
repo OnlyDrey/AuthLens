@@ -31,7 +31,7 @@ Describe 'Installer preparation and same-version upgrade boundaries' {
         Mock -ModuleName AuthLens.Deploy Get-ALLink { 'synthetic-previous' }
         Mock -ModuleName AuthLens.Deploy Test-ALServiceBinary { $false }
         Mock -ModuleName AuthLens.Deploy Initialize-ALInstallation { }
-        {Assert-ALInstallerServerPreflight ([pscustomobject]@{ServiceName='AuthLens-Acceptance'})} | Should -Throw '*outside the managed release link*'
+        {Assert-ALInstallerServerPreflight ([pscustomobject]@{ServiceName='AuthLens-Acceptance';WorkRoot=$TestDrive})} | Should -Throw '*outside the managed release link*'
         Should -Invoke -ModuleName AuthLens.Deploy Initialize-ALInstallation -Times 0
     }
     It 'persists a safe preparation failure and never overwrites a previous diagnostic' {

@@ -843,9 +843,11 @@ existing nonstandard releases/deployment layouts need separate review rather tha
 paths are preserved and may be external, but cannot overlap each other or program/configuration/TLS/key/deployment storage. Long staged paths
 are rejected before permanent writes. Disk estimates include immutable staging/publication, backup size and temporary verification workspace.
 
-Interactive pages now cover configuration selection/discovery, effective directories, HTTPS/proxy settings, service identity, unchanged firewall
-policy, read-only preflight and confirmation. They **review** the file; they do not yet author a fresh deployment JSON or edit network/service
-settings. Choose a custom fresh root/data/backup layout in a separately reviewed configuration. A stale `UsePreviousAppDir` value never wins over
+Interactive Setup can author fresh root/data/backup paths, listening IP/port, host/proxy boundaries and existing PFX/password-file locations.
+Select **Configure a fresh Server through this wizard**. The temporary draft uses the same strict contract and host preflight as silent
+deployment. After approval, protected preparation publishes the exact reviewed bytes to `Root\config\deploy.json` using create-only semantics.
+A matching retry is allowed; an existing different file is preserved and refused. Upgrades preserve existing configuration; editing installed
+network/service settings remains unimplemented. A stale `UsePreviousAppDir` value never wins over
 that configuration. An explicit conflicting `/DIR` fails; do not remove the PowerShell path guard to work around it.
 
 `--server-preflight` is a non-listening command of the packaged Server. It uses the actual host/TLS policy, ephemeral certificate keys and read-only
@@ -865,6 +867,24 @@ rollback checks.
 
 #### Supported adapter operations
 
+Firewall configuration is opt-in. GUI confirmation lists local IP/TCP port, explicit source IP/CIDR scopes and Private/Domain profiles.
+Silent Setup requires `/APPROVEFIREWALL=Yes /FIREWALLSOURCES=10.0.7.10 /FIREWALLPROFILES=Private`; the adapter equivalents are
+`-ApproveFirewall -FirewallSources '10.0.7.10' -FirewallProfiles Private`. These are examples, not discovered trusted peers.
+No exception is created for loopback, no rule is created by default, and administrator-created rules are not changed. The native rule is
+created only after deployment readiness succeeds. Receipts under the protected deployment directory record intent before mutation; failed
+rule creation attempts compensating deletion of only that unpredictable rule ID and preserves evidence. Firewall failure does not undo an
+already successful application deployment; retain the healthy instance and inspect the receipt. Existing receipts refuse automatic updates
+or duplicate creation until ownership/recovery is reviewed. Safe scope updates and uninstall cleanup are still incomplete.
+
+Offline repair is intentionally distinct from upgrade: the damaged previous payload cannot prove a working rollback. It requires a stopped,
+owned service, byte-identical installed/replacement manifest, existing database, compatible schema without pending migrations, existing keys
+and a newly verified encrypted backup. A uniquely named replacement release is verified and activated; old bytes are retained. Missing service
+registration/manifest/database is refused. Activation failure attempts to stop only a repair-activated service and leaves an explicit recovery
+barrier. Recovery of an interrupted repair remains a manual reviewed operation, not an automatic rollback to possibly damaged executables.
+
+These changes have source-level tests and compile-only Inno coverage; native provisioning, GUI interaction and repair/recovery acceptance are
+pending. The existing local health probe does not establish client certificate-chain trust; validate chain/name from an actual client separately.
+
 Use the packaged `installer-tools-<id>/Install-AuthLens.ps1`, not an unverified checkout copy. Parameters apply with `-Mode Server`:
 
 | Option | Actual behavior |
@@ -873,12 +893,14 @@ Use the packaged `installer-tools-<id>/Install-AuthLens.ps1`, not an unverified 
 | `-PreflightOnly -Package <verified full release>` | Read-only installation, network/TLS/database/schema/key, path/ACL/address/port/storage checks |
 | `-Operation Auto` | Detect fresh install or upgrade; never adopt unrelated service/data |
 | `-Operation Install` / `Upgrade` | Explicitly require the matching detected state; `-Package` and `-Yes` required to apply |
-| `-Operation Repair -Package ...` | Verification-only of the identical verifiable product/build; no file/service/data reset. Corrupt/missing rollback material is refused |
+| `-Operation Repair -Package ... -Yes` | Offline component repair: owned service must already be stopped; exact installed manifest and existing database required. Verifies an encrypted backup, publishes an immutable replacement, switches the pointer and checks service readiness. Retains damaged payload and recovery evidence |
 | `-Operation UninstallPlan` | Read-only resource/ownership review; all data and the service remain untouched |
 | `-Recover -Yes` | Existing journal-driven recovery; retain exact configuration and recovery tools |
 | `-ResultFile <new absolute path>` | Immutable JSON envelope, schema/operation ID/status/exit/stage/journal location; no overwrite |
 | `-PlanFile <new path>` | Private Unicode INI bridge for resolve/preflight results used by Inno; not a configuration file |
 | `-ExpectedConfigSha256 <reviewed hash>` | Refuse changes between review, preparation and deployment |
+| `-PrepareOnly -CommitNewConfiguration -Yes` | After complete preflight/protected preparation, publish the exact reviewed draft to `Root\config\deploy.json`; never overwrite a different configuration or publish over an existing service/release |
+| `-ApproveFirewall -FirewallSources <IP/CIDR list> -FirewallProfiles Private,Domain` | Explicit restricted-rule approval; preflight checks scope, final deployment applies only after readiness. Existing rule receipts refuse automatic updates |
 
 Adapter exit codes: `0` completed selected operation (a read-only plan/repair check is not installation success), `1` worker/verification failure,
 `2` policy/configuration refusal, `4` manual recovery/review required. Unclassified transaction failures use `4`, never claim that nothing changed.
@@ -893,10 +915,10 @@ host recovery-key provisioning/escrow; external proxy/DNS/firewall/client trust 
 
 | Requirement | Status and reason | Next action |
 | --- | --- | --- |
-| Fresh configuration editing, local certificate generation/selection wizard | Partial: review only; existing runtime requires explicit operator certificate/password files, with no installer-owned issuance/trust transaction | Design/prove certificate provisioning and trust/rollback before adding mutation controls |
+| Fresh configuration and TLS | Partial: editable fresh paths/network/proxy/existing-certificate controls and create-only publication implemented; no self-signed issuance, key import/copy or trust transaction | Existing PFX/password files must be protected and provisioned explicitly; native GUI and service-account TLS acceptance pending |
 | Dedicated account / gMSA creation | Blocked: existing SCM adapter has no secure password transport, account-logon-right or managed-password validation contract | Add validated credential/logon provisioning; preserve existing identities meanwhile |
-| Automatic firewall configuration | Blocked: no installer-owned rule manifest/rollback engine exists | Implement explicit source/profile approval, ownership and rollback; existing rules stay unchanged |
-| Repair missing/corrupt components/service | Partial: identical healthy installation can be verified; replacing corrupted rollback material cannot satisfy current rollback proof | Build a separate verified repair transaction/recovery acceptance; do not disguise replacement as repair |
+| Automatic firewall configuration | Partial: explicit GUI/CLI approval creates a uniquely named service/IP/port/source/profile-bound rule with prior intent receipt and compensating removal on failure; loopback/wildcards/Public/Any refused | Existing Setup receipts refuse scope changes/retries rather than duplicating rules; ownership-verified update/removal and native policy acceptance remain unimplemented |
+| Repair missing/corrupt components/service | Partial: real offline payload replacement implemented through the CLI, without overwriting damaged files; exact retained manifest, stopped owned service and verified backup required | Missing service registration or installed manifest still requires manual recovery; GUI repair selection and native recovery rehearsal remain unimplemented |
 | Automatic/destructive uninstall | Partial: canonical service registration blocks Inno uninstall; data always preserved | Review service removal separately; add explicit ownership inventory before offering any deletion, especially external storage |
 | Downgrade in Setup | Refused safely; schema compatibility alone does not prove safe data/version rollback | Use separately authorized verified rollback/recovery; no `allow downgrade` bypass |
 | Legacy migration wizard | Partial: known service/root presence is reported read-only and protected paths are refused; supported backup conversion remains explicit | Rehearse supported preview/run/activate or fresh restore separately; never auto-adopt/modify/delete legacy resources |
@@ -924,13 +946,13 @@ $config = 'C:\AuthLens-Server-Acceptance\config\deploy.json'
 & "$built\installer\AuthLens-Server-2.0.0-alpha.1-Setup.exe" "/CONFIGFILE=$config" /OPERATION=Install
 # Silent upgrade of the lab instance only; same engine and safety checks
 & "$built\installer\AuthLens-Server-2.0.0-alpha.1-Setup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/CONFIGFILE=$config" /OPERATION=Upgrade
-# Read-only same-build repair verification / uninstall planning; no removal
+# Read-only offline same-build repair preflight (owned lab service must already be stopped) / uninstall planning
 & "$tools\Install-AuthLens.ps1" -Mode Server -PreflightOnly -Operation Repair -Package $release -ConfigFile $config -ResultFile "$env:TEMP\authlens-repair-unique.json"
 & "$tools\Install-AuthLens.ps1" -Mode Server -Operation UninstallPlan -ConfigFile $config -ResultFile "$env:TEMP\authlens-uninstall-plan-unique.json"
 ```
 
 Use a **newer** verified package for upgrade, not an already-staged identical payload. For repair checks, select the exact currently installed
-package. Verify before/after application/account/evidence fingerprints, SQLite integrity/foreign keys, backup decrypt/verify and separate clean
+package. Applying CLI repair requires the same arguments without `-PreflightOnly`, plus `-Yes`; it starts the repaired service. A failed/interrupted activation preserves `deployment\repair-pending.json` pointing to the retained repair journal. Deploy/Recover/Rollback refuse that barrier: manually review the journal, verified encrypted backup, database/schema and both payloads before authorizing recovery; never simply delete the marker to retry. No generic automatic recovery is claimed for a damaged previous payload. Verify before/after application/account/evidence fingerprints, SQLite integrity/foreign keys, backup decrypt/verify and separate clean
 restore, TLS/health/build identity, virtual-account access, startup/restart persistence and journal/recovery behavior. Negative cases must include:
 custom root without `/DIR`, stale previous Setup directory, conflicting `/DIR`, registry/service disagreement, changed config after review,
 occupied port, invalid/expired/wrong-name certificate, unavailable key/space, Desktop/legacy paths, pending/newer schema, older SemVer,

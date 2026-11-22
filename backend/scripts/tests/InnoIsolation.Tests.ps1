@@ -38,7 +38,9 @@ Describe 'Compiled Inno installer isolation' {
             $code | Should -Match 'PrivilegesRequired=lowest'
             $code | Should -Match '\{localappdata\}\\AuthLens\\data'
         } else {
-            $code | Should -Not -Match 'DesktopData|DataDirectory|DATADIR|WebViewKey'
+            $code | Should -Not -Match 'DesktopData|-DataDirectory|param:DATADIR|WebViewKey'
+            $code | Should -Match 'CreateServerDraft'
+            $code | Should -Match '-CommitNewConfiguration'
             $code | Should -Match 'param:CONFIGFILE'
             $code | Should -Match '-ResolveOnly'
             $code | Should -Match '-PreflightOnly -Package'

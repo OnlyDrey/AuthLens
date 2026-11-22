@@ -1,10 +1,72 @@
 // Server-only wizard; all deployment decisions stay in the hash-verified PowerShell adapter.
 var
   ServerConfigPage: TInputFileWizardPage;
-  ServerPathsPage, ServerNetworkPage, ServerIdentityPage, ServerFirewallPage, ServerValidationPage: TOutputMsgWizardPage;
+  ServerCreatePage: TInputOptionWizardPage;
+  ServerEditPaths, ServerEditNetwork, ServerEditTls: TInputQueryWizardPage;
+  ServerPathsPage, ServerNetworkPage, ServerIdentityPage, ServerValidationPage: TOutputMsgWizardPage;
+  ServerFirewallPage: TInputOptionWizardPage;
+  ServerFirewallScope: TInputQueryWizardPage;
   ServerConfig, ServerConfigHash, ServerRoot, ServerPlanFile, ServerError, ServerOperation: String;
   ServerToolsReady, ServerPayloadReady, ServerResolved, ServerPreflighted, ServerVerified: Boolean;
   ServerAttempt: Integer;
+
+function ServerFirewallArguments(): String;
+begin
+  Result := '';
+  if ServerFirewallPage.SelectedValueIndex <> 1 then Exit;
+  if (Pos('"', ServerFirewallScope.Values[0]) > 0) or (Pos(#13, ServerFirewallScope.Values[0]) > 0) or (Pos(#10, ServerFirewallScope.Values[0]) > 0) or
+     (Pos('"', ServerFirewallScope.Values[1]) > 0) or (Pos(#13, ServerFirewallScope.Values[1]) > 0) or (Pos(#10, ServerFirewallScope.Values[1]) > 0) then
+    RaiseException('Invalid firewall scope. Enter explicit IP addresses/subnets and Private or Domain profiles.');
+  Result := ' -ApproveFirewall -FirewallSources "' + ServerFirewallScope.Values[0] + '" -FirewallProfiles "' + ServerFirewallScope.Values[1] + '"';
+end;
+
+function JsonString(Value: String): String;
+begin
+  StringChangeEx(Value, '\', '\\', True);
+  StringChangeEx(Value, '"', '\"', True);
+  StringChangeEx(Value, #13, '\r', True);
+  StringChangeEx(Value, #10, '\n', True);
+  StringChangeEx(Value, #9, '\t', True);
+  Result := '"' + Value + '"';
+end;
+
+function JsonList(Value: String): String;
+var Item: String; P: Integer;
+begin
+  Result := '[';
+  while Trim(Value) <> '' do begin
+    P := Pos(',', Value);
+    if P = 0 then begin Item := Trim(Value); Value := ''; end
+    else begin Item := Trim(Copy(Value, 1, P - 1)); Delete(Value, 1, P); end;
+    if Result <> '[' then Result := Result + ',';
+    Result := Result + JsonString(Item);
+  end;
+  Result := Result + ']';
+end;
+
+function CreateServerDraft(): Boolean;
+var Draft, Contents: String; Lines: TArrayOfString; Port: Integer;
+begin
+  Result := False;
+  Port := StrToIntDef(ServerEditNetwork.Values[1], 0);
+  if (Port < 1) or (Port > 65535) then begin ServerError := 'HTTPS port must be 1..65535.'; Exit; end;
+  ServerAttempt := ServerAttempt + 1;
+  Draft := ExpandConstant('{tmp}\AuthLens-configuration-') + IntToStr(ServerAttempt) + '.json';
+  Contents := '{"Root":' + JsonString(Trim(ServerEditPaths.Values[0])) +
+    ',"ListenAddress":' + JsonString(Trim(ServerEditNetwork.Values[0])) + ',"Port":' + IntToStr(Port) +
+    ',"AllowedHosts":' + JsonList(ServerEditNetwork.Values[2]) +
+    ',"ProxyHosts":' + JsonList(ServerEditNetwork.Values[3]) +
+    ',"TrustedProxies":' + JsonList(ServerEditNetwork.Values[4]) +
+    ',"CertificatePath":' + JsonString(Trim(ServerEditTls.Values[0])) +
+    ',"CertificatePasswordFile":' + JsonString(Trim(ServerEditTls.Values[1]));
+  if Trim(ServerEditPaths.Values[1]) <> '' then Contents := Contents + ',"DataDirectory":' + JsonString(Trim(ServerEditPaths.Values[1]));
+  if Trim(ServerEditPaths.Values[2]) <> '' then Contents := Contents + ',"BackupRoot":' + JsonString(Trim(ServerEditPaths.Values[2]));
+  Contents := Contents + '}';
+  SetArrayLength(Lines, 1); Lines[0] := Contents;
+  if FileExists(Draft) or not SaveStringsToUTF8File(Draft, Lines, False) then begin ServerError := 'Cannot create a new private configuration draft.'; Exit; end;
+  ServerConfigPage.Values[0] := Draft;
+  Result := True;
+end;
 
 function ServerValue(Name: String): String;
 begin
@@ -48,6 +110,7 @@ begin
   if RequestedDir <> '' then Arguments := Arguments + ' -InstallRoot "' + RequestedDir + '"';
   if ServerConfigHash <> '' then Arguments := Arguments + ' -ExpectedConfigSha256 ' + ServerConfigHash;
   Arguments := Arguments + ' -Operation ' + ServerOperation + ' -DiagnosticFile "' + Diagnostic + '" -ResultFile "' + Report + '"';
+  Arguments := Arguments + ServerFirewallArguments();
   if NeedPlan then Arguments := Arguments + ' -PlanFile "' + ServerPlanFile + '"';
   if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Arguments, '', SW_HIDE, ewWaitUntilTerminated, Code) then Code := 4;
   if LoadStringFromFile(Report, Detail) then Log(UTF8Decode(Detail));
@@ -75,7 +138,7 @@ begin
   end;
   WizardForm.DirEdit.Text := ServerValue('program_directory');
   ServerConfigPage.Values[0] := ServerConfig;
-  ServerPathsPage.MsgLabel.Caption := 'Configuration: ' + ServerConfig + #13#10 + 'Root: ' + ServerRoot + #13#10 + 'Program staging: ' + WizardDirValue() + #13#10 + 'Data: ' + ServerValue('data_directory') + #13#10 + 'Backups: ' + ServerValue('backup_directory') + #13#10#13#10 + 'Paths are derived from the validated configuration. Existing installations are never relocated. Advanced data/backup choices must be explicitly configured before review.';
+  ServerPathsPage.MsgLabel.Caption := 'Configuration: ' + ServerConfig + #13#10 + 'Root: ' + ServerRoot + #13#10 + 'Program staging: ' + WizardDirValue() + #13#10 + 'Data: ' + ServerValue('data_directory') + #13#10 + 'Backups: ' + ServerValue('backup_directory') + #13#10#13#10 + 'Paths are derived from the validated configuration. Fresh wizard choices are published only after approval. Existing installations are never relocated.';
   ServerNetworkPage.MsgLabel.Caption := 'HTTPS listen address: ' + ServerValue('listen_address') + #13#10 + 'Port: ' + ServerValue('port') + #13#10 + 'Certificate: ' + ServerValue('certificate') + #13#10 + 'Allowed hosts: ' + ServerValue('allowed_hosts') + #13#10 + 'Public proxy hosts: ' + ServerValue('proxy_hosts') + #13#10 + 'Trusted proxy peers: ' + ServerValue('trusted_proxies') + #13#10#13#10 + 'Existing TLS and network settings are preserved. Setup never generates/replaces keys, disables certificate verification or trusts arbitrary proxies.';
   ServerIdentityPage.MsgLabel.Caption := 'Service: ' + ServerValue('service_name') + #13#10 + 'Identity: ' + ServerValue('service_account') + #13#10#13#10 + 'Fresh Setup uses NT SERVICE\AuthLens. Existing identities are preserved and checked. Password-bearing accounts and gMSA provisioning are not exposed until service-logon and credential validation are supported.';
   ServerResolved := True;
@@ -98,16 +161,44 @@ begin
   ServerOperation := ExpandConstant('{param:OPERATION|Auto}');
   if (CompareText(ServerOperation, 'Auto') <> 0) and (CompareText(ServerOperation, 'Install') <> 0) and (CompareText(ServerOperation, 'Upgrade') <> 0) then
     RaiseException('Setup supports /OPERATION=Auto, Install or Upgrade. Use the supported read-only CLI for repair and uninstall planning; no destructive fallback is performed.');
-  ServerConfigPage := CreateInputFilePage(wpWelcome, 'Server configuration and detection', 'Choose the deployment configuration', 'Leave blank for registered/managed configuration discovery. Fresh installation requires an operator-prepared JSON configuration and TLS files. Service ownership and release metadata are validated; detection never changes services or databases.');
+  ServerCreatePage := CreateInputOptionPage(wpWelcome, 'Configuration source', 'Create a fresh configuration or preserve an existing installation', 'Fresh configuration is published only after validated preparation. Existing configuration and certificate files are never overwritten.', True, False);
+  ServerCreatePage.Add('Discover or select existing deployment configuration (upgrade)');
+  ServerCreatePage.Add('Configure a fresh Server through this wizard');
+  ServerCreatePage.SelectedValueIndex := 0;
+  ServerConfigPage := CreateInputFilePage(ServerCreatePage.ID, 'Server configuration and detection', 'Choose the deployment configuration', 'Leave blank for registered/managed configuration discovery. Service ownership and release metadata are validated; detection never changes services or databases.');
   ServerConfigPage.Add('Deployment configuration:', 'JSON configuration|*.json|All files|*.*', '.json');
   InitialConfig := ExpandConstant('{param:CONFIGFILE|}');
   if InitialConfig = '' then RegQueryStringValue(HKLM, '{#VersionKey}', 'ConfigFile', InitialConfig);
   ServerConfigPage.Values[0] := InitialConfig;
-  ServerPathsPage := CreateOutputMsgPage(ServerConfigPage.ID, 'Installation directories', 'Validated configuration owns the directory selection', '');
+  ServerEditPaths := CreateInputQueryPage(ServerConfigPage.ID, 'Fresh installation directories', 'Choose private AuthLens storage', 'Advanced paths may be left blank to use directories under the installation root. Existing installations cannot be relocated.');
+  ServerEditPaths.Add('Installation root:', False); ServerEditPaths.Values[0] := 'C:\ProgramData\AuthLens';
+  ServerEditPaths.Add('Advanced application data directory (optional):', False);
+  ServerEditPaths.Add('Advanced predeployment backup directory (optional):', False);
+  ServerEditNetwork := CreateInputQueryPage(ServerEditPaths.ID, 'HTTPS and reverse proxy', 'Choose explicit network boundaries', 'Use 127.0.0.1 for local HTTPS. LAN requires an assigned IP and certificate-valid hosts. Proxy hosts and trusted peers are comma-separated; leave blank without a reverse proxy.');
+  ServerEditNetwork.Add('Listening IP address:', False); ServerEditNetwork.Values[0] := '127.0.0.1';
+  ServerEditNetwork.Add('HTTPS port:', False); ServerEditNetwork.Values[1] := '18795';
+  ServerEditNetwork.Add('Allowed hosts (comma-separated):', False);
+  ServerEditNetwork.Add('Public reverse-proxy hosts (optional):', False);
+  ServerEditNetwork.Add('Trusted proxy IP addresses (optional):', False);
+  ServerEditTls := CreateInputQueryPage(ServerEditNetwork.ID, 'Existing TLS certificate', 'Select protected certificate material', 'Provide an existing PFX and its protected password file. Password contents are never entered here or passed on a command line. Certificate name, validity and private key are validated before provisioning. Client trust remains an explicit administrator responsibility.');
+  ServerEditTls.Add('Absolute PFX certificate path:', False);
+  ServerEditTls.Add('Absolute certificate password file path:', False);
+  ServerPathsPage := CreateOutputMsgPage(ServerEditTls.ID, 'Installation directories', 'Validated configuration owns the directory selection', '');
   ServerNetworkPage := CreateOutputMsgPage(ServerPathsPage.ID, 'Network and TLS', 'Review preserved HTTPS and reverse-proxy settings', '');
   ServerIdentityPage := CreateOutputMsgPage(ServerNetworkPage.ID, 'Windows Service', 'Review the explicit service identity', '');
-  ServerFirewallPage := CreateOutputMsgPage(ServerIdentityPage.ID, 'Windows Firewall', 'No firewall changes will be made', 'Setup does not own firewall rules yet. Existing rules remain untouched. Loopback requires no inbound exception; LAN/proxy access needs a separately approved source-restricted rule. No broad rule or silent exception is created.');
-  ServerValidationPage := CreateOutputMsgPage(ServerFirewallPage.ID, 'Read-only preflight', 'Validation runs before confirmation and system provisioning', 'The helper verifies package identity, installation/service ownership, directory isolation, ACLs, assigned address, port ownership and staging/backup storage. The packaged host validates HTTPS/proxy policy, certificate names/private key/expiry, database integrity and schema without initializing data. Upgrade rollback compatibility is checked. Backup verification, service-identity key access and actual TLS/readiness are repeated in the protected transaction.');
+  ServerFirewallPage := CreateInputOptionPage(ServerIdentityPage.ID, 'Windows Firewall security approval', 'Choose whether to authorize a source-restricted inbound rule', 'Default preserves all rules. Loopback never needs an exception. A new rule is restricted to the selected local IP, TCP port, AuthLens service, remote addresses and Private/Domain profiles. Administrator-created rules remain untouched.', True, False);
+  ServerFirewallPage.Add('Preserve firewall configuration; no new inbound exception');
+  ServerFirewallPage.Add('I explicitly authorize the source-restricted rule reviewed below');
+  ServerFirewallPage.SelectedValueIndex := 0;
+  ServerFirewallScope := CreateInputQueryPage(ServerFirewallPage.ID, 'Review approved firewall scope', 'Only the following traffic will be allowed', 'Comma-separated literal IP addresses or CIDR subnets are required. No wildcard, Public or Any profile is accepted. The rule is applied only after the Server transaction succeeds.');
+  ServerFirewallScope.Add('Allowed source addresses/subnets:', False);
+  ServerFirewallScope.Add('Profiles (Private and/or Domain):', False); ServerFirewallScope.Values[1] := 'Private';
+  if CompareText(ExpandConstant('{param:APPROVEFIREWALL|No}'), 'Yes') = 0 then begin
+    ServerFirewallPage.SelectedValueIndex := 1;
+    ServerFirewallScope.Values[0] := ExpandConstant('{param:FIREWALLSOURCES|}');
+    ServerFirewallScope.Values[1] := ExpandConstant('{param:FIREWALLPROFILES|Private}');
+  end;
+  ServerValidationPage := CreateOutputMsgPage(ServerFirewallScope.ID, 'Read-only preflight', 'Validation runs before confirmation and system provisioning', 'The helper verifies package identity, installation/service ownership, directory isolation, ACLs, assigned address, port ownership and staging/backup storage. The packaged host validates HTTPS/proxy policy, certificate names/private key/expiry, database integrity and schema without initializing data. Upgrade rollback compatibility is checked. Backup verification, service-identity key access and actual TLS/readiness are repeated in the protected transaction.');
   if WizardSilent then if not ResolveServerWizard() then RaiseException(ServerError);
 end;
 
@@ -115,6 +206,10 @@ function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
   if CurPageID = ServerConfigPage.ID then Result := ResolveServerWizard();
+  if CurPageID = ServerEditTls.ID then begin
+    Result := CreateServerDraft();
+    if Result then Result := ResolveServerWizard();
+  end;
   if (CurPageID = ServerValidationPage.ID) or ((CurPageID = wpReady) and not ServerPreflighted) then Result := PreflightServerWizard();
   if not Result then SuppressibleMsgBox(ServerError, mbError, MB_OK, IDOK);
 end;
@@ -122,23 +217,32 @@ end;
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := PageID = wpSelectDir;
+  if PageID = ServerFirewallScope.ID then Result := ServerFirewallPage.SelectedValueIndex <> 1;
+  if PageID = ServerConfigPage.ID then Result := ServerCreatePage.SelectedValueIndex = 1;
+  if (PageID = ServerEditPaths.ID) or (PageID = ServerEditNetwork.ID) or (PageID = ServerEditTls.ID) then Result := ServerCreatePage.SelectedValueIndex <> 1;
 end;
 
 function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
 begin
-  Result := 'Operation: ' + ServerValue('operation') + NewLine + 'AuthLens {#FullVersion}' + NewLine + 'Root: ' + ServerRoot + NewLine + 'Program staging: ' + WizardDirValue() + NewLine + 'Data preserved: ' + ServerValue('data_directory') + NewLine + 'Backups preserved: ' + ServerValue('backup_directory') + NewLine + 'Configuration, TLS, encryption keys, accounts and history are preserved.' + NewLine + 'New immutable payload/release and transaction evidence will be created. The owned service may stop/restart after verified backup and rollback checks.' + NewLine + 'No firewall, DNS, legacy installation or external proxy changes.';
+  Result := 'Operation: ' + ServerValue('operation') + NewLine + 'AuthLens {#FullVersion}' + NewLine + 'Root: ' + ServerRoot + NewLine + 'Program staging: ' + WizardDirValue() + NewLine + 'Data preserved: ' + ServerValue('data_directory') + NewLine + 'Backups preserved: ' + ServerValue('backup_directory') + NewLine + 'Existing configuration, TLS, encryption keys, accounts and history are preserved.' + NewLine + 'New immutable payload/release and transaction evidence will be created. The owned service may stop/restart after verified backup and rollback checks.' + NewLine + 'No DNS, legacy installation or external proxy changes.';
+  if ServerFirewallPage.SelectedValueIndex = 1 then Result := Result + NewLine + 'Explicitly approved firewall: TCP ' + ServerValue('listen_address') + ':' + ServerValue('port') + ', sources ' + ServerFirewallScope.Values[0] + ', profiles ' + ServerFirewallScope.Values[1]
+  else Result := Result + NewLine + 'Firewall configuration preserved; no new rule.';
 end;
 
 function InstallerArguments(): String;
 begin
   Result := ' -ConfigFile "' + ServerConfig + '" -InstallRoot "' + ExpandConstant('{app}') + '" -ExpectedConfigSha256 ' + ServerConfigHash + ' -Operation ' + ServerOperation;
+  Result := Result + ServerFirewallArguments();
 end;
 
 function PrepareInstaller(): String;
 begin
   Result := '';
   if not ServerPreflighted then if not PreflightServerWizard() then begin Result := ServerError; Exit; end;
-  if not RunServerHelper('-PrepareOnly -Package "' + ServerPackage() + '" -Yes', False) then Result := ServerError;
+  if ServerCreatePage.SelectedValueIndex = 1 then begin
+    if not RunServerHelper('-PrepareOnly -CommitNewConfiguration -Package "' + ServerPackage() + '" -Yes', True) then begin Result := ServerError; Exit; end;
+    ServerConfig := ServerValue('config_file'); ServerConfigHash := ServerValue('config_sha256');
+  end else if not RunServerHelper('-PrepareOnly -Package "' + ServerPackage() + '" -Yes', False) then Result := ServerError;
 end;
 
 procedure AfterInstallerSuccess();

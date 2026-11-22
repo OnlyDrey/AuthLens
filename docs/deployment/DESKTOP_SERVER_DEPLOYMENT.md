@@ -46,7 +46,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\build-inst
 
 Inno Setup 6 is required. Desktop setup is per user and never requires Server configuration. Server Setup derives its program directory from reviewed
 configuration (explicit absolute `/CONFIGFILE`, validated registered/managed discovery or the known default); ordinary upgrades need no `/DIR`.
-Fresh configuration, credentials, TLS and keys remain operator-provisioned. Each installer owns its validation callbacks; shared transaction code does not
+Fresh configuration can be authored in the Server wizard; existing protected TLS/password files and keys remain explicitly provisioned.
+Source-restricted firewall creation requires explicit approval; rule updates/removal remain incomplete. Each installer owns its validation callbacks; shared transaction code does not
 select a different installer's configuration path. Existing data, installation identities and recovery artifacts remain protected.
 See [installer transactions](WINDOWS_DEPLOYMENT.md#installers). Compilation does not replace native installation, upgrade, interruption and rollback checks.
 

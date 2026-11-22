@@ -18,6 +18,10 @@ param(
     [switch]$PrepareOnly,
     [switch]$ResolveOnly,
     [switch]$PreflightOnly,
+    [switch]$CommitNewConfiguration,
+    [string]$FirewallSources='',
+    [string]$FirewallProfiles='Private',
+    [switch]$ApproveFirewall,
     [string]$Operation='Auto',
     [string]$PlanFile='',
     [string]$ResultFile='',
@@ -60,8 +64,14 @@ try {
     if ($Mode -eq 'Server') {
         if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Server Setup requires an elevated operator session.' }
         if (@(@($Recover,$PrepareOnly,$ResolveOnly,$PreflightOnly)|Where-Object{$_}).Count -gt 1){throw 'Select only one recovery, resolve, preflight or preparation mode.'}
+        if($CommitNewConfiguration -and -not $PrepareOnly){Stop-AL 'New configuration publication requires explicit preparation and approval.'}
         $resolved=Resolve-ALServerSetupConfiguration $ConfigFile $InstallRoot
         $config=$resolved.Config; $InstallRoot=$resolved.ProgramDirectory
+        $firewall=$null
+        if($FirewallSources -or $ApproveFirewall){
+            if(-not $ApproveFirewall){Stop-AL 'Firewall changes require explicit security approval.'}
+            $firewall=Get-ALInstallerFirewallPlan $config $FirewallSources $FirewallProfiles
+        }
         $journalPath=Get-ALJournalPath $config
         if(($PreflightOnly -or $PrepareOnly) -and -not $Package){Stop-AL 'Preflight/preparation requires a verified release Package. ResolveOnly is the read-only configuration inspection mode.'}
         Assert-ALServerSetupFingerprint $resolved $ExpectedConfigSha256
@@ -70,22 +80,35 @@ try {
             $result=[pscustomobject]@{operation_id=$operationId;operation='configuration selected; preflight pending';root=$config.Root;program_directory=$InstallRoot;config_file=$config.ConfigFile;config_sha256=$resolved.ConfigSha256;data_directory=$config.DataDirectory;backup_directory=$config.BackupRoot;listen_address=$config.ListenAddress;port=$config.Port;service_name=$config.ServiceName;service_account=$config.ServiceAccount;certificate=$config.CertificatePath;allowed_hosts=@($config.AllowedHosts);proxy_hosts=@($config.ProxyHosts);trusted_proxies=@($config.TrustedProxies)}
         }
         elseif($PreflightOnly -or $Operation -eq 'UninstallPlan'){
-            $result=Get-ALServerSetupPlan $resolved $Package $(if($Operation -eq 'UninstallPlan'){'Auto'}else{$Operation})
+            if($Operation -eq 'Repair'){$result=Get-ALServerRepairPlan $resolved $Package}
+            else{$result=Get-ALServerSetupPlan $resolved $Package $(if($Operation -eq 'UninstallPlan'){'Auto'}else{$Operation})}
             if($Operation -eq 'UninstallPlan'){$result.operation='uninstall planning; all data preserved; service removal requires a separately reviewed procedure'}
         }
         elseif ($Recover) { $stage='Server recovery transaction'; $result=Invoke-ALInstallerServer $config '' -Recover }
         elseif ($PrepareOnly) {
             $stage='Server upgrade preflight'; $plan=Get-ALServerSetupPlan $resolved $Package $Operation; $operation=$plan.operation
             $stage='Server root preparation'; Initialize-ALInstallerServerRoot $config
-            $result=@{prepared=$true;operation=$operation}
+            if($CommitNewConfiguration){
+                $stage='fresh configuration publication'
+                $resolved=Publish-ALServerSetupConfiguration $resolved
+                $config=$resolved.Config
+                $plan.config_file=$config.ConfigFile; $plan.config_sha256=$resolved.ConfigSha256
+            }
+            $result=$plan
         }
         elseif($Operation -eq 'Repair'){
             if(-not $Package){Stop-AL 'Repair requires the identical verified release package.'}
-            $result=Get-ALServerSetupPlan $resolved $Package Repair
-            $result.operation='repair verification only; no files, accounts, data or service settings changed'
+            $stage='Server offline repair transaction'
+            $result=Invoke-ALInstallerServerRepair $resolved $Package
         }
-        else { if (-not $Package) { throw 'A verified package is required.' }; $null=Get-ALServerSetupPlan $resolved $Package $Operation; $stage='Server deployment transaction'; $result=Invoke-ALInstallerServer $config $Package }
+        else {
+            if (-not $Package) { throw 'A verified package is required.' }
+            $null=Get-ALServerSetupPlan $resolved $Package $Operation
+            $stage='Server deployment transaction'; $result=Invoke-ALInstallerServer $config $Package
+            if($firewall){$stage='Server firewall transaction'; $null=Install-ALInstallerFirewallRule $config $firewall -Approved:$ApproveFirewall}
+        }
     } else {
+        if($CommitNewConfiguration -or $FirewallSources -or $ApproveFirewall){throw 'Server lifecycle options are not Desktop options.'}
         if($ResolveOnly -or $PreflightOnly -or $PlanFile -or $Operation -ne 'Auto'){throw 'Server lifecycle options are not Desktop options.'}
         if ($PrepareOnly) { throw 'PrepareOnly applies to Server directory provisioning only.' }
         if (-not $Package) { throw 'A verified package is required.' }
