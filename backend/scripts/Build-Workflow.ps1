@@ -1,4 +1,14 @@
 # Pure helpers shared by the canonical Windows build and its focused tests.
+function Invoke-AuthLensBuildProcess([string]$Executable, [string[]]$Arguments) {
+    # Out-Host is intentional: direct native console output is otherwise absent from PS 5.1 transcripts.
+    $saved=$ErrorActionPreference
+    try {
+        $ErrorActionPreference='Continue'
+        & $Executable @Arguments 2>&1 | Out-Host
+        $code=$LASTEXITCODE
+    } finally { $ErrorActionPreference=$saved }
+    $code
+}
 function New-AuthLensBuildDirectory([string]$OutputRoot, [datetime]$Timestamp, [string]$Commit) {
     if ($Commit -notmatch '^[0-9a-f]{40}$') { throw 'A full Git SHA is required.' }
     $path = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ($Timestamp.ToUniversalTime().ToString('yyyyMMddTHHmmssfffffffZ')+'-'+$Commit.Substring(0,7))

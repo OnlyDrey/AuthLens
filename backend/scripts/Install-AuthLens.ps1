@@ -57,6 +57,11 @@ try {
         $result=Invoke-ALInstallerDesktop $InstallRoot $DataDirectory $Package -Recover:$Recover
     }
     Write-Host ('AUTHLENS-INSTALLER: '+($result | ConvertTo-Json -Depth 8 -Compress))
+    if ($PrepareOnly -and $DiagnosticFile) {
+        $stream=[IO.File]::Open($DiagnosticFile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        $writer=[IO.StreamWriter]::new($stream)
+        try { $writer.Write('Server preflight verified: '+$operation) } finally { $writer.Dispose() }
+    }
     exit 0
 } catch {
     # Never include invocation text, configuration content, stack dumps or arbitrary parser errors.

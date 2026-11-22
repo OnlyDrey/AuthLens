@@ -13,7 +13,7 @@ begin
   if Code <> 0 then begin
     Detail := 'No diagnostic returned; retain the Setup log.';
     LoadStringFromFile(Diagnostic, Detail);
-    RaiseException('AuthLens transaction failed (exit ' + IntToStr(Code) + '). ' + Detail + ' Retain the installation journal and recovery tools; no data is deleted.');
+    RaiseException('AuthLens transaction failed (exit ' + IntToStr(Code) + '). ' + UTF8Decode(Detail) + ' Retain the installation journal and recovery tools; no data is deleted.');
   end;
 end;
 

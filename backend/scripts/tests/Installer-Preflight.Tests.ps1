@@ -34,4 +34,16 @@ Describe 'Installer preparation and same-version upgrade boundaries' {
         {Assert-ALInstallerServerPreflight ([pscustomobject]@{ServiceName='AuthLens-Acceptance'})} | Should -Throw '*outside the managed release link*'
         Should -Invoke -ModuleName AuthLens.Deploy Initialize-ALInstallation -Times 0
     }
+    It 'persists a safe preparation failure and never overwrites a previous diagnostic' {
+        $diagnostic=Join-Path $TestDrive 'prepare-diagnostic.txt'
+        $arguments=@('-File',(Join-Path $PSScriptRoot '../Install-AuthLens.ps1'),'-Mode','Server','-PrepareOnly','-Yes','-DiagnosticFile',$diagnostic)
+        $result=Invoke-TestPowerShell $arguments
+        $result.Code | Should -Be 2
+        Get-Content -LiteralPath $diagnostic -Raw | Should -Match 'Stage: helper verification.*integrity manifest is missing'
+        $before=(Get-FileHash -LiteralPath $diagnostic).Hash
+        $retry=Invoke-TestPowerShell $arguments
+        $retry.Code | Should -Be 2
+        (Get-FileHash -LiteralPath $diagnostic).Hash | Should -Be $before
+        $retry.Output | Should -Match 'existing evidence was not overwritten'
+    }
 }

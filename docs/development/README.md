@@ -51,6 +51,10 @@ selection, duplicate-module isolation and the elevated native NTFS restore gate.
 
 MSBuild is the only frontend build of a release; the scripts orchestrate and verify.
 
+On Windows, start with root-level `.\build.ps1`: it creates a unique UTC/SHA directory under `C:\AuthLens`, rejects dirty sources and orchestrates
+release verification and both installers. See [canonical Windows build](../deployment/WINDOWS_DEPLOYMENT.md#canonical-windows-build) for development switches,
+traceability and manual upgrade acceptance. The lower-level scripts described below remain the implementation, not a second installation workflow.
+
 1. **Checks** (`build-release.ps1` on Windows, `build-release.sh` on Linux): Node.js 24 or 25, a valid `product-version.json`, the commit and
    whether the tree is dirty (recorded as `source_dirty`), and that no release folder is overwritten.
 2. **One build:** the script removes `frontend/dist` and runs `dotnet build AuthLens.slnx -c Release -p:SourceRevisionId=<commit> -p:BuildFrontend=true`.

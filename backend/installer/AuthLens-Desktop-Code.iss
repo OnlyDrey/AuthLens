@@ -14,4 +14,8 @@ end;
 function PrepareInstaller(): String;
 begin
   Result := '';
+  if FileExists(ExpandConstant('{app}\AuthLens.exe')) then
+    WizardForm.Caption := 'AuthLens Desktop - upgrade'
+  else WizardForm.Caption := 'AuthLens Desktop - fresh installation';
+  Log(WizardForm.Caption);
 end;

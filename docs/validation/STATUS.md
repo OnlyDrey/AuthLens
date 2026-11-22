@@ -10,6 +10,7 @@ AuthLens `2.0.0-alpha.1` is under private acceptance. This page records current 
 | Backup and recovery | Encrypted creation, verification and isolated restore have been exercised; recovery and upgrade acceptance must remain part of future updates |
 | Evidence | Database integrity, foreign keys, immutable review history and evidence fingerprints passed preservation checks |
 | Branding | Generic canonical assets, frontend production build, embedded Windows icons and isolated installer compilation passed |
+| Windows build workflow | Root build entry point produced both Windows packages and Setup executables with matching manifests; focused orchestration/installer tests passed. Native upgrade acceptance and the exact protected-machine preparation refusal remain outstanding |
 | Mobile UX | Header tools, independent navigation drawers, Filters, configurable tables, Functional Group pills and SoD scrolling passed focused isolated browser acceptance; not deployed |
 
 Scheduled refresh stays disabled until configured external sources and credentials have been reviewed. Production data, accounts, keys,

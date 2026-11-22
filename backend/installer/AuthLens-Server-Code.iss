@@ -27,7 +27,12 @@ begin
   if Code <> 0 then begin
     Detail := 'No diagnostic was returned; verify PowerShell launch and retain the Setup log.';
     LoadStringFromFile(Diagnostic, Detail);
-    Result := 'Server root security preparation refused (exit ' + IntToStr(Code) + '). No service was changed. ' + Detail;
+    Result := 'Server root security preparation refused (exit ' + IntToStr(Code) + '). No service was changed. ' + UTF8Decode(Detail);
     Log(Result);
+  end else begin
+    if LoadStringFromFile(Diagnostic, Detail) then begin
+      WizardForm.Caption := 'AuthLens - ' + UTF8Decode(Detail);
+      Log(UTF8Decode(Detail));
+    end;
   end;
 end;

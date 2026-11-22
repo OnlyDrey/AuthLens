@@ -40,4 +40,15 @@ Describe 'Canonical Windows build identity and collision boundaries' {
         $artifacts[0].sha256 | Should -Be ((Get-FileHash (Join-Path $directory 'partial.exe')).Hash.ToLowerInvariant())
         Test-Path (Join-Path $directory 'partial.exe') | Should -BeTrue
     }
+    It 'captures native child output in the transcript and preserves its nonzero exit code' {
+        $log=Join-Path $TestDrive 'native-output.log'
+        $child=Join-Path $TestDrive 'synthetic-child.ps1'
+        Set-Content -LiteralPath $child "Write-Output 'synthetic native diagnostic'; exit 7"
+        $shell=Join-Path $PSHOME 'powershell.exe'
+        if ($PSVersionTable.PSEdition -eq 'Core') { $shell=Join-Path $PSHOME 'pwsh.exe' }
+        Start-Transcript -Path $log -NoClobber | Out-Null
+        try { $code=Invoke-AuthLensBuildProcess $shell @('-NoProfile','-NonInteractive','-File',$child) } finally { Stop-Transcript | Out-Null }
+        $code | Should -Be 7
+        Get-Content -LiteralPath $log -Raw | Should -Match 'synthetic native diagnostic'
+    }
 }
