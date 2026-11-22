@@ -6,6 +6,57 @@ variable, default and refusal) is [SERVER_NETWORK_ACCESS.md, section 2](SERVER_N
 are in [section 4](SERVER_NETWORK_ACCESS.md#1-hosting-boundary). The Windows service procedure is in
 [section 5](SERVER_NETWORK_ACCESS.md#7-windows-service-and-filesystem-permissions); it has **not** been run natively yet.
 
+## Restricted unattended administration
+
+`backend/scripts/Register-AuthLensAdmin.ps1` is a one-time **elevated** development-VM bootstrap. It never prompts for UAC or stores a Windows
+password. The administrator explicitly approves a verified release, its packaged installer tools, one existing deployment configuration,
+an independent recovery bundle and the allowed operation list. It supports the canonical development root or the dedicated
+`C:\AuthLens-Lifecycle\Server` root, with mutable/TLS paths confined beneath that selected root. It refuses arbitrary target paths.
+
+The bootstrap rehashes the independent recovery inventory/archive and decrypts/verifies the archive with the separately copied key using the
+protected approved binary. This proves backup verification, **not an actual restore**. Snapshot existence is a separate precondition; a snapshot
+without guest-agent quiescing must never replace application backup/recovery acceptance.
+
+Protected capsules live outside product/uninstall roots under `C:\ProgramData\AuthLensAdmin`. SYSTEM and Administrators own/control the scripts,
+package, configuration approval and immutable job definitions; the selected enabled local operator gets only traversal, report reads and
+read/execute permission on the dedicated Task Scheduler folder/tasks. Task ownership is Administrators, not the operator user SID. Tasks run
+as SYSTEM with highest privileges, on demand only, with no password or automatic trigger. UAC and Windows security policy are unchanged.
+
+There is deliberately no inbox accepting shell commands, scripts, executable paths, arbitrary arguments or newly built payloads. Each task
+selects one preapproved immutable operation ID. Supported verbs currently are Health, Preflight, Install, Upgrade, Repair, Recover, Start, Stop
+and Restart; firewall/uninstall jobs are not advertised before their adapters exist. To approve **changed privileged code/payload/configuration**,
+an administrator must register a new capsule explicitly. An unprivileged build cannot update SYSTEM's inputs; unattended operation is not
+permission to approve future arbitrary code. Old capsules and recovery artifacts are retained.
+
+The original reviewed configuration stays in place to preserve installer registration. Its approved SHA-256 and a read-only file lease prevent
+replacement/modification during an operation. A global mutex serializes jobs. A Windows Job Object contains the worker and descendants before
+its operation gate opens. A timeout kills only that process tree and retains a global pending-operation barrier and transaction journals;
+subsequent mutations require the approved recovery operation for the same root (a safe Stop remains available but never clears the barrier).
+Task interruption also leaves that barrier. Recovery must
+prove service readiness and absence of interrupted transaction markers before clearing it. No automatic rollback success is inferred.
+
+Each invocation has a unique report directory with operation/job IDs, UTC start/end, exit code and redacted diagnostic. Raw subprocess output
+and credentials are not published. Existing encrypted backups, keys, TLS, historical evidence and repository/development tools are outside
+the capsule's administrative target paths and must not be removed.
+
+```powershell
+# Once, from an administrator PowerShell. Substitute one verified build and independent recovery bundle.
+.\backend\scripts\Register-AuthLensAdmin.ps1 `
+  -Package '<verified-build>\build\<release>' `
+  -ToolsDirectory '<verified-build>\installer\installer-tools-<id>' `
+  -ConfigFile 'C:\ProgramData\AuthLens\config\deploy.json' `
+  -RecoveryBundle 'C:\AuthLens-Recovery\<verified-independent-bundle>' `
+  -Operations Health,Preflight,Start,Stop,Restart,Upgrade,Repair,Recover -Approve
+# bootstrap.json prints the exact task folder, operation/task IDs and protected read-only report directory.
+# Afterwards, medium-integrity operator shell, using an exact registered ID:
+Start-ScheduledTask -TaskPath '\AuthLens-Development-<capsule-id>\' -TaskName '<approved-operation-id>'
+```
+
+Current validation: focused allowlist, injection, manifest-tamper and isolation contracts pass; a native Windows test proved timeout termination
+of a synthetic worker **and descendant** while retaining evidence. Actual task registration, medium-integrity start/deny-write checks and
+installer lifecycle runs still require the one-time elevated bootstrap. These source/native containment checks do not prove unattended
+elevation, restore, upgrade or production readiness.
+
 ## Example values and local configuration
 
 The addresses and names in this runbook are **reserved examples** (`192.168.10.20`, `lens.example.com`), not product defaults and not any real
