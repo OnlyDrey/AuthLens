@@ -6,6 +6,10 @@ begin
   if Result = '' then Result := ExpandConstant('{localappdata}\AuthLens\data');
 end;
 
+procedure AfterInstallerSuccess();
+begin
+end;
+
 function InstallerArguments(): String;
 begin
   Result := ' -InstallRoot "' + ExpandConstant('{app}') + '" -DataDirectory "' + DesktopData('') + '"';

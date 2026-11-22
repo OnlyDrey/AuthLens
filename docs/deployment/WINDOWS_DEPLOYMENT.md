@@ -407,7 +407,7 @@ powershell -NoProfile -File .\scripts\build-installers.ps1 -ReleasePath $release
 | Installer | Scope and folder | Behavior |
 | --- | --- | --- |
 | `AuthLens-<version>-Setup.exe` (Desktop) | Per user, `%LOCALAPPDATA%\Programs\AuthLens Desktop`; data `%LOCALAPPDATA%\AuthLens\data` | New AppId, closed-application check, private recovery journal, encrypted protective backup, atomic executable replacement and readiness-verified binary rollback |
-| `AuthLens-Server-<version>-Setup.exe` | Machine, `C:\ProgramData\AuthLens\app`; executable under `releases\current\server` | Explicit `/CONFIGFILE`, protected root before staging, verified versioned deployment with the existing service state machine |
+| `AuthLens-Server-<version>-Setup.exe` | Machine, `<Root>\app`; executable under `<Root>\releases\current\server` | Validated configuration/managed discovery, derived program directory, read-only package/TLS/database preflight, protected provisioning and the existing verified service transaction |
 
 Full release installer execution and privileged service acceptance are **not verified here**. The PowerShell adapter has native isolated Desktop evidence;
 the Inno definitions have contract tests and synthetic native compiler checks. Installers are unsigned; approved transport, signing, publication and deployment are separate steps.
@@ -426,7 +426,7 @@ now have local Inno Setup 6.7.4 compiler evidence.
 Each entry script includes only its own Pascal callbacks (`AuthLens-Desktop-Code.iss` or `AuthLens-Server-Code.iss`) before
 `AuthLens-Transaction.iss`. Shared events retain the immutable-payload refusal and transaction exit handling; they do not contain conditional
 Desktop/Server validation. Desktop preparation requires no `/CONFIGFILE`, uses per-user privileges and the selected HKCU data profile
-(default `%LOCALAPPDATA%\AuthLens\data`). Server alone requires `/CONFIGFILE` and provisions its protected root before payload extraction.
+(default `%LOCALAPPDATA%\AuthLens\data`). Server alone reads reviewed/discovered deployment configuration, derives `Root\app`, validates the temporary package before confirmation and provisions its protected root before permanent payload staging.
 Backup, rollback, recovery journals and installation boundaries are unchanged.
 
 Focused checks: `dotnet test backend/tests/AuthLens.Tests -c Release --filter FullyQualifiedName~InstallerTests` and
@@ -465,8 +465,9 @@ history. Binary rollback never restores an older database automatically. An inco
 failed rollback leaves exit 4 and preserved evidence for an operator. A fresh install has no previous version: failed readiness retains its
 diagnostics for manual review. A probe timeout records its owned PID and leaves it running for inspection rather than terminating it.
 
-Server Setup requires `/CONFIGFILE="absolute reviewed deployment config"` and `/DIR="<configured Root>\app"`. The root is protected before payload
-extraction; configuration, TLS, credentials and host keys must already be provisioned securely. No inferred or unrelated service is adopted.
+Server Setup accepts `/CONFIGFILE="absolute reviewed deployment config"`; without it, validated registration or a managed service's canonical configuration is discovered, then the known default is used only when no service exists. Ordinary installs/upgrades do not need `/DIR`.
+The selected configuration owns `Root\app`; an explicit conflicting `/DIR` is refused. `UsePreviousAppDir=no` prevents stale uninstall registration
+from overriding that contract. Configuration, TLS, credentials and existing host keys must already be provisioned securely. No unrelated service is adopted.
 An existing service must use the managed link and identical configured arguments/account, its previous release must verify and open the data,
 and the new release must have no pending migration. Its **previous executable** creates and verifies the predeployment backup before any stop.
 Retained managed releases require the same rollback proof even if the service registration is missing; `FirstInstall` does not bypass it.
@@ -493,6 +494,9 @@ Desktop recovery verifies recorded paths, old hashes and unchanged schema, then 
 TLS, configuration or data. Inno's own rollback can remove its new payload, so recovery tools and proof live outside that payload. Keep a separately
 verified complete package available. Uninstall removes tracked Setup payloads/shortcuts/registry entries; Desktop program/recovery files and
 Server managed releases/state, services and all persistent data are deliberately retained. Cleanup requires separate review.
+Server uninstall now refuses while **any** canonical `AuthLens` service registration exists, including its normal `releases\current` binary path
+outside `app`. A directory-prefix test cannot prove that the service is unrelated. Review `UninstallPlan`, verify backup/ownership and obtain
+separate authorization for service removal. No automatic recursive data removal is offered.
 
 ## Local Service Manager
 
@@ -799,9 +803,10 @@ rollback, backup and readiness before service replacement. Same-version Server u
 version downgrades are refused. Desktop uses the same identity check when its installed manifest carries version metadata and retains its
 existing schema/backup checks. Native same-version upgrade acceptance remains required.
 
-The exact production-machine PrepareOnly refusal has not been reproduced: the development process cannot read the protected production
-configuration. Do not diagnose its ACL as incorrect from exit 2 alone. Capture the new diagnostic under an elevated operator session on an
-explicitly isolated acceptance configuration before making further corrections.
+The subsequently reported `Server Setup program directory must be the configured installation root app directory` has a confirmed source cause:
+Inno previously selected `app` independently from defaults, previous registration and `/DIR`, while PowerShell required `Root\app`. The resolver
+now synchronizes that path before staging, retains strict mismatch rejection and fingerprints the reviewed JSON. Custom-root/no-DIR tests and
+native synthetic Inno compilation cover the correction; actual production upgrade acceptance remains unperformed. ACL checks are unchanged.
 
 ### Manual installer upgrade commands
 
@@ -816,9 +821,117 @@ $built = 'C:\AuthLens\<UTC-timestamp>-<short-sha>'
 # Desktop: current user, selected isolated data profile, no service
 & "$built\installer\AuthLens-2.0.0-alpha.1-Setup.exe" /DIR="C:\AuthLens-Desktop-Acceptance\app" /DATADIR="C:\AuthLens-Desktop-Acceptance\data" /LOG="C:\AuthLens-Desktop-Acceptance\setup-upgrade.log"
 # Server: elevated operator, explicit isolated root/service/port/TLS in this configuration
-& "$built\installer\AuthLens-Server-2.0.0-alpha.1-Setup.exe" /DIR="C:\AuthLens-Server-Acceptance\app" /CONFIGFILE="C:\AuthLens-Server-Acceptance\config\deploy.json" /LOG="C:\AuthLens-Server-Acceptance\setup-upgrade.log"
+& "$built\installer\AuthLens-Server-2.0.0-alpha.1-Setup.exe" /CONFIGFILE="C:\AuthLens-Server-Acceptance\config\deploy.json" /OPERATION=Upgrade /LOG="C:\AuthLens-Server-Acceptance\setup-upgrade.log"
 ```
 
 Use a configuration already validated for the disposable Server service and certificate; placeholders are not an initialization recipe.
 After each fresh install and same-version/different-build upgrade, verify data/account/evidence fingerprints, HTTPS, permissions, backup,
 restart persistence and explicit interrupted-run recovery. Neither synthetic ISCC compilation nor mocked Pester tests certify native upgrades.
+
+### Server Setup configuration review and automation
+
+This is a partial lifecycle modernization, not native installation certification. The existing PowerShell deployment engine still owns
+backup, locking, atomic release switching, service changes, readiness and schema-aware binary rollback. The wizard and silent Setup call the same
+hash-verified adapter; neither bypasses those checks. Configuration is never rewritten during upgrades.
+
+Detection uses the reviewed configuration plus managed service arguments, verified release pointer/metadata and, when available, installer-owned
+registration. Registration hints are saved only after a successful deployment. Conflicting identities, relocation, populated unregistered data,
+Desktop profiles and earlier-product paths are refused. A missing/invalid registration is not permission to overwrite an installation.
+
+Setup supports one canonical `AuthLens` service per machine. `Root` owns `app`, `releases`, `config`, `tls`, `keys` and `deployment` conventions;
+existing nonstandard releases/deployment layouts need separate review rather than automatic relocation. Custom data and predeployment backup
+paths are preserved and may be external, but cannot overlap each other or program/configuration/TLS/key/deployment storage. Long staged paths
+are rejected before permanent writes. Disk estimates include immutable staging/publication, backup size and temporary verification workspace.
+
+Interactive pages now cover configuration selection/discovery, effective directories, HTTPS/proxy settings, service identity, unchanged firewall
+policy, read-only preflight and confirmation. They **review** the file; they do not yet author a fresh deployment JSON or edit network/service
+settings. Choose a custom fresh root/data/backup layout in a separately reviewed configuration. A stale `UsePreviousAppDir` value never wins over
+that configuration. An explicit conflicting `/DIR` fails; do not remove the PowerShell path guard to work around it.
+
+`--server-preflight` is a non-listening command of the packaged Server. It uses the actual host/TLS policy, ephemeral certificate keys and read-only
+schema, SQLite integrity and foreign-key checks. It validates certificate SANs for configured backend hosts/listen IP (public proxy hosts are not
+required backend SANs), private-key material, validity/EKU/key size, host/proxy policy and existing backup-key readability. It never creates a token,
+initializes a data directory/database, changes existing keys or binds a listener. Local HTTPS omits the LAN `--network` flag. LAN/proxy mode keeps
+one assigned private address, explicit hosts/proxies and HTTPS; no unrestricted HTTP or TLS-verification bypass is introduced. Actual service-account
+key access, certificate chain/Windows TLS and client trust still need post-deployment/native checks.
+
+The preparation stage is distinct: `-PrepareOnly` **does** provision protected directories after successful read-only checks and explicit `-Yes`.
+It is not a synonym for `-PreflightOnly`. Full release verification and the configuration fingerprint are checked again before deployment.
+Pending schema changes or an incompatible/unverified previous release refuse installer upgrades. Product channel order is
+`alpha < beta < rc < stable`; Windows' numeric file revision alone is not an authoritative product version comparison. Older versions remain refused;
+only a separately approved, compatible rollback/recovery procedure may downgrade. Same-version/different-build updates retain the newer-build and
+rollback checks.
+
+#### Supported adapter operations
+
+Use the packaged `installer-tools-<id>/Install-AuthLens.ps1`, not an unverified checkout copy. Parameters apply with `-Mode Server`:
+
+| Option | Actual behavior |
+| --- | --- |
+| `-ResolveOnly` | Read configuration/identity, derive `Root\app`, fingerprint JSON; no system provisioning |
+| `-PreflightOnly -Package <verified full release>` | Read-only installation, network/TLS/database/schema/key, path/ACL/address/port/storage checks |
+| `-Operation Auto` | Detect fresh install or upgrade; never adopt unrelated service/data |
+| `-Operation Install` / `Upgrade` | Explicitly require the matching detected state; `-Package` and `-Yes` required to apply |
+| `-Operation Repair -Package ...` | Verification-only of the identical verifiable product/build; no file/service/data reset. Corrupt/missing rollback material is refused |
+| `-Operation UninstallPlan` | Read-only resource/ownership review; all data and the service remain untouched |
+| `-Recover -Yes` | Existing journal-driven recovery; retain exact configuration and recovery tools |
+| `-ResultFile <new absolute path>` | Immutable JSON envelope, schema/operation ID/status/exit/stage/journal location; no overwrite |
+| `-PlanFile <new path>` | Private Unicode INI bridge for resolve/preflight results used by Inno; not a configuration file |
+| `-ExpectedConfigSha256 <reviewed hash>` | Refuse changes between review, preparation and deployment |
+
+Adapter exit codes: `0` completed selected operation (a read-only plan/repair check is not installation success), `1` worker/verification failure,
+`2` policy/configuration refusal, `4` manual recovery/review required. Unclassified transaction failures use `4`, never claim that nothing changed.
+PowerShell syntax/binding failures occur before this envelope and must be treated as invocation failures. Inno retains its own standard process
+exit codes; use the adapter JSON/report and Setup log for the underlying code. Automatic Setup logging is enabled. Logs contain no certificate
+password, recovery-key bytes or business records. Temporary planning reports are logged; the final operation report lives next to the staged
+payload and points to the persistent deployment journal outside that payload. Preserve journals, backups, recovery tools and failed payloads.
+The completion page/open-URL action is gated on transaction success, not extraction alone. Fresh installs still need administrator activation and
+host recovery-key provisioning/escrow; external proxy/DNS/firewall/client trust are separate checks.
+
+#### Explicit remaining lifecycle limits
+
+| Requirement | Status and reason | Next action |
+| --- | --- | --- |
+| Fresh configuration editing, local certificate generation/selection wizard | Partial: review only; existing runtime requires explicit operator certificate/password files, with no installer-owned issuance/trust transaction | Design/prove certificate provisioning and trust/rollback before adding mutation controls |
+| Dedicated account / gMSA creation | Blocked: existing SCM adapter has no secure password transport, account-logon-right or managed-password validation contract | Add validated credential/logon provisioning; preserve existing identities meanwhile |
+| Automatic firewall configuration | Blocked: no installer-owned rule manifest/rollback engine exists | Implement explicit source/profile approval, ownership and rollback; existing rules stay unchanged |
+| Repair missing/corrupt components/service | Partial: identical healthy installation can be verified; replacing corrupted rollback material cannot satisfy current rollback proof | Build a separate verified repair transaction/recovery acceptance; do not disguise replacement as repair |
+| Automatic/destructive uninstall | Partial: canonical service registration blocks Inno uninstall; data always preserved | Review service removal separately; add explicit ownership inventory before offering any deletion, especially external storage |
+| Downgrade in Setup | Refused safely; schema compatibility alone does not prove safe data/version rollback | Use separately authorized verified rollback/recovery; no `allow downgrade` bypass |
+| Legacy migration wizard | Partial: known service/root presence is reported read-only and protected paths are refused; supported backup conversion remains explicit | Rehearse supported preview/run/activate or fresh restore separately; never auto-adopt/modify/delete legacy resources |
+| Native lifecycle acceptance | Not performed by source/unit/compiler checks | Execute the isolated Windows matrix below with separate authorization; preserve production |
+
+### Proposed isolated Server lifecycle acceptance
+
+Run only in a disposable Windows VM/snapshot without the production instance or conflicting installer registrations. Never execute these steps
+against the current service. Pre-provision a private lab configuration/TLS/password files using the existing deployment contract; use an actual
+assigned address and certificate-valid hosts (or loopback HTTPS). Keys/credentials must never enter transcripts. Obtain explicit approval before
+any full regression; the packaging command below deliberately skips it.
+
+```powershell
+# Repository: clean, committed experiment/dotnet-backend; native prerequisites from the canonical build section
+.\build.ps1 -SkipTests
+# Select an explicit output whose build-summary.json status and verification fields passed; never blindly select the newest partial folder
+$built = 'C:\AuthLens\<verified-build-directory>'
+$release = (Get-ChildItem "$built\build" -Directory | Where-Object Name -Like 'AuthLens-*-win-x64').FullName
+$tools = (Get-ChildItem "$built\installer" -Directory -Filter 'installer-tools-*').FullName
+$config = 'C:\AuthLens-Server-Acceptance\config\deploy.json'
+# Elevated lab operator; each result path must be new. These two steps do not provision the target.
+& "$tools\Install-AuthLens.ps1" -Mode Server -ResolveOnly -ConfigFile $config -ResultFile "$env:TEMP\authlens-resolve-unique.json"
+& "$tools\Install-AuthLens.ps1" -Mode Server -PreflightOnly -Operation Install -Package $release -ConfigFile $config -ResultFile "$env:TEMP\authlens-preflight-unique.json"
+# Fresh GUI: no DIR workaround. Repeat later with Upgrade and a newer compatible build.
+& "$built\installer\AuthLens-Server-2.0.0-alpha.1-Setup.exe" "/CONFIGFILE=$config" /OPERATION=Install
+# Silent upgrade of the lab instance only; same engine and safety checks
+& "$built\installer\AuthLens-Server-2.0.0-alpha.1-Setup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/CONFIGFILE=$config" /OPERATION=Upgrade
+# Read-only same-build repair verification / uninstall planning; no removal
+& "$tools\Install-AuthLens.ps1" -Mode Server -PreflightOnly -Operation Repair -Package $release -ConfigFile $config -ResultFile "$env:TEMP\authlens-repair-unique.json"
+& "$tools\Install-AuthLens.ps1" -Mode Server -Operation UninstallPlan -ConfigFile $config -ResultFile "$env:TEMP\authlens-uninstall-plan-unique.json"
+```
+
+Use a **newer** verified package for upgrade, not an already-staged identical payload. For repair checks, select the exact currently installed
+package. Verify before/after application/account/evidence fingerprints, SQLite integrity/foreign keys, backup decrypt/verify and separate clean
+restore, TLS/health/build identity, virtual-account access, startup/restart persistence and journal/recovery behavior. Negative cases must include:
+custom root without `/DIR`, stale previous Setup directory, conflicting `/DIR`, registry/service disagreement, changed config after review,
+occupied port, invalid/expired/wrong-name certificate, unavailable key/space, Desktop/legacy paths, pending/newer schema, older SemVer,
+identical payload retry, interrupted update and uninstall while the service still exists. Verify the default preserved-data uninstall only after
+an approved ownership/backup/service-removal procedure. Do not delete rollback artifacts or automatically restore an older database.

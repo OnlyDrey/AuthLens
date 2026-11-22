@@ -39,8 +39,15 @@ Describe 'Compiled Inno installer isolation' {
             $code | Should -Match '\{localappdata\}\\AuthLens\\data'
         } else {
             $code | Should -Not -Match 'DesktopData|DataDirectory|DATADIR|WebViewKey'
-            $code | Should -Match 'Server Setup requires /CONFIGFILE='
-            $code | Should -Match '-Mode Server -PrepareOnly -ConfigFile'
+            $code | Should -Match 'param:CONFIGFILE'
+            $code | Should -Match '-ResolveOnly'
+            $code | Should -Match '-PreflightOnly -Package'
+            $code | Should -Match '-PrepareOnly -Package'
+            $code | Should -Match 'UsePreviousAppDir=no'
+            $code | Should -Match "WizardForm.DirEdit.Text := ServerValue\('program_directory'\)"
+            $code | Should -Match "RegKeyExists\(HKLM, ServicesKey \+ 'AuthLens'\)"
+            $code | Should -Match 'SetupLogging=yes'
+            $code | Should -Not -Match 'ComparePackedVersion\(ThisVersion, InstalledVersion\)'
             $code | Should -Match 'ExtractTemporaryFiles'
             $code | Should -Match 'PrivilegesRequired=admin'
             $code | Should -Match 'function InitializeUninstall'

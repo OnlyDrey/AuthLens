@@ -15,14 +15,33 @@ param(
     [string]$ConfigFile='',
     [switch]$Recover,
     [switch]$PrepareOnly,
+    [switch]$ResolveOnly,
+    [switch]$PreflightOnly,
+    [string]$Operation='Auto',
+    [string]$PlanFile='',
+    [string]$ResultFile='',
+    [string]$ExpectedConfigSha256='',
     [string]$DiagnosticFile='',
     [switch]$Yes
 )
 Set-StrictMode -Version 3.0
 $ErrorActionPreference='Stop'
 $stage='helper verification'
+$operationId=[guid]::NewGuid().ToString('N')
+$journalPath=''
+function Write-InstallerResult($Value) {
+    $json=$Value|ConvertTo-Json -Depth 12 -Compress
+    Write-Host ('AUTHLENS-INSTALLER-RESULT: '+$json)
+    if($ResultFile){
+        $stream=[IO.File]::Open($ResultFile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        $writer=[IO.StreamWriter]::new($stream)
+        try{$writer.Write($json)}finally{$writer.Dispose()}
+    }
+}
 try {
-    if (-not $Yes) { throw 'Installation requires explicit -Yes after reviewing the selected paths and configuration.' }
+    if($Operation -notin @('Auto','Install','Upgrade','Repair','UninstallPlan')){$stage='argument validation';throw 'Unknown installer operation. Use Auto, Install, Upgrade, Repair or UninstallPlan.'}
+    if($ResultFile -and (Test-Path -LiteralPath $ResultFile)){throw 'A previous installer result exists; it will not be overwritten.'}
+    if (-not $Yes -and -not ($ResolveOnly -or $PreflightOnly -or $Operation -eq 'UninstallPlan')) { throw 'Installation requires explicit -Yes after reviewing the selected paths and configuration.' }
     # Inno embeds these tools separately from the unchanged release manifest. Verify every helper before importing executable code.
     $proof = Join-Path $PSScriptRoot 'installer-tools.json'
     if (Test-Path -LiteralPath $proof) {
@@ -38,25 +57,47 @@ try {
     Import-Module (Join-Path $PSScriptRoot 'deploy\AuthLens.Deploy.psm1') -Force
     $stage='configuration and prerequisites'
     if ($Mode -eq 'Server') {
-        if (-not $ConfigFile) { throw 'Server Setup requires an explicit -ConfigFile; it never infers a running installation.' }
         if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Server Setup requires an elevated operator session.' }
-        $config=Read-AuthLensSettings $ConfigFile -Packaged
-        if (-not $InstallRoot -or [IO.Path]::GetFullPath($InstallRoot).TrimEnd('\') -ine [IO.Path]::GetFullPath((Join-Path $config.Root 'app')).TrimEnd('\')) { throw 'Server Setup program directory must be the configured installation root app directory.' }
+        if (@(@($Recover,$PrepareOnly,$ResolveOnly,$PreflightOnly)|Where-Object{$_}).Count -gt 1){throw 'Select only one recovery, resolve, preflight or preparation mode.'}
+        $resolved=Resolve-ALServerSetupConfiguration $ConfigFile $InstallRoot
+        $config=$resolved.Config; $InstallRoot=$resolved.ProgramDirectory
+        $journalPath=Get-ALJournalPath $config
+        if(($PreflightOnly -or $PrepareOnly) -and -not $Package){Stop-AL 'Preflight/preparation requires a verified release Package. ResolveOnly is the read-only configuration inspection mode.'}
+        Assert-ALServerSetupFingerprint $resolved $ExpectedConfigSha256
         if ($Recover -and $PrepareOnly) { throw 'Recover and PrepareOnly cannot be combined.' }
-        if ($Recover) { $result=Invoke-ALInstallerServer $config '' -Recover }
+        if($ResolveOnly){
+            $result=[pscustomobject]@{operation_id=$operationId;operation='configuration selected; preflight pending';root=$config.Root;program_directory=$InstallRoot;config_file=$config.ConfigFile;config_sha256=$resolved.ConfigSha256;data_directory=$config.DataDirectory;backup_directory=$config.BackupRoot;listen_address=$config.ListenAddress;port=$config.Port;service_name=$config.ServiceName;service_account=$config.ServiceAccount;certificate=$config.CertificatePath;allowed_hosts=@($config.AllowedHosts);proxy_hosts=@($config.ProxyHosts);trusted_proxies=@($config.TrustedProxies)}
+        }
+        elseif($PreflightOnly -or $Operation -eq 'UninstallPlan'){
+            $result=Get-ALServerSetupPlan $resolved $Package $(if($Operation -eq 'UninstallPlan'){'Auto'}else{$Operation})
+            if($Operation -eq 'UninstallPlan'){$result.operation='uninstall planning; all data preserved; service removal requires a separately reviewed procedure'}
+        }
+        elseif ($Recover) { $stage='Server recovery transaction'; $result=Invoke-ALInstallerServer $config '' -Recover }
         elseif ($PrepareOnly) {
-            $stage='Server upgrade preflight'; $operation=Assert-ALInstallerServerPreflight $config
+            $stage='Server upgrade preflight'; $plan=Get-ALServerSetupPlan $resolved $Package $Operation; $operation=$plan.operation
             $stage='Server root preparation'; Initialize-ALInstallerServerRoot $config
             $result=@{prepared=$true;operation=$operation}
         }
-        else { if (-not $Package) { throw 'A verified package is required.' }; $result=Invoke-ALInstallerServer $config $Package }
+        elseif($Operation -eq 'Repair'){
+            if(-not $Package){Stop-AL 'Repair requires the identical verified release package.'}
+            $result=Get-ALServerSetupPlan $resolved $Package Repair
+            $result.operation='repair verification only; no files, accounts, data or service settings changed'
+        }
+        else { if (-not $Package) { throw 'A verified package is required.' }; $null=Get-ALServerSetupPlan $resolved $Package $Operation; $stage='Server deployment transaction'; $result=Invoke-ALInstallerServer $config $Package }
     } else {
+        if($ResolveOnly -or $PreflightOnly -or $PlanFile -or $Operation -ne 'Auto'){throw 'Server lifecycle options are not Desktop options.'}
         if ($PrepareOnly) { throw 'PrepareOnly applies to Server directory provisioning only.' }
         if (-not $Package) { throw 'A verified package is required.' }
         if (-not $InstallRoot -or -not $DataDirectory) { throw 'Desktop Setup requires explicit program and data directories.' }
-        $result=Invoke-ALInstallerDesktop $InstallRoot $DataDirectory $Package -Recover:$Recover
+        $stage='Desktop transaction'; $result=Invoke-ALInstallerDesktop $InstallRoot $DataDirectory $Package -Recover:$Recover
     }
+    if($Mode -eq 'Server' -and $null -ne $result){
+        $legacy=Get-ALInstallerLegacyPresence
+        if($result -is [Collections.IDictionary]){$result['legacy']=$legacy}else{$result|Add-Member -NotePropertyName legacy -NotePropertyValue $legacy}
+    }
+    if($PlanFile){Write-ALServerSetupPlan $PlanFile $result}
     Write-Host ('AUTHLENS-INSTALLER: '+($result | ConvertTo-Json -Depth 8 -Compress))
+    Write-InstallerResult @{schema=1;operation_id=$operationId;status='completed';exit_code=0;deployment_journal=$journalPath;result=$result}
     if ($PrepareOnly -and $DiagnosticFile) {
         $stream=[IO.File]::Open($DiagnosticFile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
         $writer=[IO.StreamWriter]::new($stream)
@@ -65,7 +106,7 @@ try {
     exit 0
 } catch {
     # Never include invocation text, configuration content, stack dumps or arbitrary parser errors.
-    $known=@('Packaged installer helper integrity manifest is missing.','Installer helper integrity verification failed.','Installer helper inventory is incomplete or unexpected.','Invalid installer helper path.','Server Setup requires an explicit -ConfigFile; it never infers a running installation.','Server Setup requires an elevated operator session.','Server Setup program directory must be the configured installation root app directory.','Recover and PrepareOnly cannot be combined.')
+    $known=@('Unknown installer operation. Use Auto, Install, Upgrade, Repair or UninstallPlan.','A previous installer result exists; it will not be overwritten.','Select only one recovery, resolve, preflight or preparation mode.','Server lifecycle options are not Desktop options.','Installation requires explicit -Yes after reviewing the selected paths and configuration.','Packaged installer helper integrity manifest is missing.','Installer helper integrity verification failed.','Installer helper inventory is incomplete or unexpected.','Invalid installer helper path.','Server Setup requires an elevated operator session.','Recover and PrepareOnly cannot be combined.')
     $reason=if ($_.Exception.GetType().Name -eq 'DeployException' -or $_.Exception.Message -in $known) { $_.Exception.Message } else { 'Prerequisite/helper/configuration error ('+$_.Exception.GetType().Name+'). Review the explicit configuration and packaged helper integrity.' }
     $reason=[regex]::Replace($reason,'(?i)(password|token|secret|credential|passphrase)\s*[:=]\s*[^\s;,]+','$1=[REDACTED]')
     $diagnostic="Stage: $stage. $reason"
@@ -73,7 +114,8 @@ try {
     if ($DiagnosticFile) {
         try { $stream=[IO.File]::Open($DiagnosticFile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None); $writer=[IO.StreamWriter]::new($stream); try { $writer.Write($diagnostic) } finally { $writer.Dispose() } } catch { Write-Host 'Diagnostic file could not be created; existing evidence was not overwritten.' }
     }
-    $code=2
+    $code=if($stage -like '*transaction'){4}else{2}
     if ($_.Exception.PSObject.Properties['ExitCode']) { $code=$_.Exception.ExitCode }
+    try{Write-InstallerResult @{schema=1;operation_id=$operationId;status='refused_or_failed';exit_code=$code;stage=$stage;message=$reason;diagnostic_file=$DiagnosticFile;deployment_journal=$journalPath}}catch{Write-Host 'Structured result could not be persisted; existing evidence was retained.'}
     exit $code
 }

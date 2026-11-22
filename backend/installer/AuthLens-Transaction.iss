@@ -8,13 +8,14 @@ begin
     '" -Mode {#InstallerMode} -Package "' + ExpandConstant('{app}\setup\{#PackageName}\payload\{#PackageName}') + '" -Yes';
   Arguments := Arguments + InstallerArguments();
   Diagnostic := ExpandConstant('{app}\setup\{#PackageName}\transaction-diagnostic.txt');
-  Arguments := Arguments + ' -DiagnosticFile "' + Diagnostic + '"';
+  Arguments := Arguments + ' -DiagnosticFile "' + Diagnostic + '" -ResultFile "' + ExpandConstant('{app}\setup\{#PackageName}\operation-result.json') + '"';
   if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Arguments, '', SW_HIDE, ewWaitUntilTerminated, Code) then Code := 4;
   if Code <> 0 then begin
     Detail := 'No diagnostic returned; retain the Setup log.';
     LoadStringFromFile(Diagnostic, Detail);
     RaiseException('AuthLens transaction failed (exit ' + IntToStr(Code) + '). ' + UTF8Decode(Detail) + ' Retain the installation journal and recovery tools; no data is deleted.');
   end;
+  AfterInstallerSuccess();
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;

@@ -61,19 +61,196 @@ function Invoke-ALInstallerServer($Config, [string]$Package, [switch]$Recover) {
 
 function Assert-ALInstallerServerConfiguration($Config) {
     if ($Config.ServiceName -in @('SapLens2','sap-lens','SapLens')) { Stop-AL 'Legacy services are protected.' }
-    foreach ($path in $Config.Root,$Config.DataDirectory,$Config.WorkRoot,$Config.ReleasesRoot,$Config.BackupRoot,$Config.ConfigFile,$Config.CertificatePath,$Config.CertificatePasswordFile) { Assert-ALInstallerPath $path }
+    foreach ($path in $Config.Root,$Config.DataDirectory,$Config.WorkRoot,$Config.ReleasesRoot,$Config.BackupRoot,$Config.ConfigFile,$Config.CertificatePath,$Config.CertificatePasswordFile) {
+        if($path.IndexOfAny([char[]]"`r`n`0`"") -ge 0){Stop-AL 'Server paths contain unsupported delimiters.'}
+        Assert-ALInstallerPath $path
+        if([IO.Path]::GetFullPath($path).TrimEnd('\','/') -ine $path.Replace([IO.Path]::AltDirectorySeparatorChar,[IO.Path]::DirectorySeparatorChar).TrimEnd('\','/')){Stop-AL 'Server paths must be normalized absolute paths without dot segments.'}
+        $local=[Environment]::GetFolderPath('LocalApplicationData')
+        if($local -and ((Test-ALPathWithin $path (Join-AL $local 'AuthLens')) -or (Test-ALPathWithin $path (Join-AL $local 'Programs\AuthLens Desktop')))){Stop-AL 'Server Setup cannot use the current Desktop application or data profile.'}
+    }
 }
 function Assert-ALInstallerUpgradeIdentity($Previous, $Next) {
     foreach ($manifest in $Previous,$Next) {
         if ($manifest.product -cne 'AuthLens' -or $manifest.source_sha -notmatch '^[a-f0-9]{40}$' -or
             (@($manifest.file_version) -join '.') -notmatch '^\d+\.\d+\.\d+\.\d+$') { Stop-AL 'Upgrade identity is incomplete; retain the installed release and recovery evidence.' }
     }
-    $old=[version](@($Previous.file_version) -join '.'); $new=[version](@($Next.file_version) -join '.')
-    if ($new -lt $old) { Stop-AL 'Installer downgrades are not supported.' }
-    if ($new -eq $old -and $Previous.source_sha -ne $Next.source_sha) {
+    $comparison=if ($Previous.PSObject.Properties['version'] -and $Next.PSObject.Properties['version']) { Compare-ALProductVersion $Next.version $Previous.version } else { ([version](@($Next.file_version) -join '.')).CompareTo([version](@($Previous.file_version) -join '.')) }
+    if ($comparison -lt 0) { Stop-AL 'Installer downgrades are not supported; use a separately authorized compatible rollback/recovery plan.' }
+    if ($comparison -eq 0 -and $Previous.source_sha -ne $Next.source_sha) {
         if (-not $Previous.PSObject.Properties['build_timestamp_utc'] -or -not $Next.PSObject.Properties['build_timestamp_utc'] -or
             [datetime]::Parse($Next.build_timestamp_utc).ToUniversalTime() -le [datetime]::Parse($Previous.build_timestamp_utc).ToUniversalTime()) { Stop-AL 'Same-version update requires a newer verified build identity; silent replacement is refused.' }
     }
+}
+
+# Product channel ordering is separate from Windows' four numeric version fields.
+function Compare-ALProductVersion([string]$Left, [string]$Right) {
+    $values=@()
+    foreach ($value in $Left,$Right) {
+        if ($value -notmatch '^(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})(?:-(alpha|beta|rc)\.([1-9]\d{0,4}))?$') { Stop-AL 'Invalid AuthLens product version; verified release metadata is required.' }
+        $rank=if(-not $Matches[4]){3}elseif($Matches[4]-eq 'alpha'){0}elseif($Matches[4]-eq 'beta'){1}else{2}
+        $sequence=if($Matches[5]){[int]$Matches[5]}else{0}
+        $values+=,@([int]$Matches[1],[int]$Matches[2],[int]$Matches[3],$rank,$sequence)
+    }
+    for($i=0;$i -lt 5;$i++){if($values[0][$i] -lt $values[1][$i]){return -1};if($values[0][$i] -gt $values[1][$i]){return 1}}
+    0
+}
+
+function Get-ALServerSetupRegistration {
+    $key='Registry::HKEY_LOCAL_MACHINE\Software\AuthLens\Server'
+    if(Test-Path -LiteralPath $key){
+        $record=Get-ItemProperty -LiteralPath $key
+        if($record.PSObject.Properties['Root'] -or $record.PSObject.Properties['ConfigFile'] -or $record.PSObject.Properties['ProgramDirectory']){
+            foreach($field in 'Root','ConfigFile','ProgramDirectory'){if(-not $record.PSObject.Properties[$field] -or -not $record.$field){Stop-AL 'Server installer registration is incomplete; review its deployment history before continuing.'}}
+        }
+        if($record.PSObject.Properties['ConfigFile'] -and $record.ConfigFile){
+            return [pscustomobject]@{ConfigFile=[string]$record.ConfigFile;Root=[string]$record.Root;ProgramDirectory=[string]$record.ProgramDirectory}
+        }
+    }
+    $null
+}
+
+function Resolve-ALServerSetupConfiguration([string]$ConfigFile='',[string]$InstallRoot='') {
+    $registration=Get-ALServerSetupRegistration
+    $discoveredRoot=''
+    if(-not $ConfigFile){
+        if($registration){$ConfigFile=$registration.ConfigFile}
+        else{
+            $service=Get-ALService 'AuthLens'
+            if($service.Exists){
+                $parts=@(Split-ALCommandLine $service.PathName)
+                if(-not $parts.Count -or $parts[0] -notmatch '^(?<root>[A-Za-z]:[\\/].+)[\\/]releases[\\/]current[\\/]server[\\/]AuthLens\.Api\.exe$'){Stop-AL 'Existing service is not a discoverable managed Server; supply its reviewed configuration explicitly. No service is adopted.'}
+                $discoveredRoot=$Matches.root
+                $ConfigFile=Join-AL (Join-AL $discoveredRoot 'config') 'deploy.json'
+            }else{$ConfigFile=Join-AL (Join-AL $script:DefaultRoot 'config') 'deploy.json'}
+        }
+    }
+    Assert-ALInstallerPath $ConfigFile
+    $before=(Get-FileHash -LiteralPath $ConfigFile -Algorithm SHA256).Hash
+    $config=Read-AuthLensSettings $ConfigFile -Packaged
+    $after=(Get-FileHash -LiteralPath $ConfigFile -Algorithm SHA256).Hash
+    if($before -ine $after){Stop-AL 'Deployment configuration changed while loading; repeat detection before continuing.'}
+    if($config.ServiceName -cne 'AuthLens'){Stop-AL 'Server Setup supports one canonical AuthLens service per machine. Custom test services use the separate deployment acceptance tooling.'}
+    Assert-ALInstallerServerConfiguration $config
+    if([IO.Path]::GetFullPath($config.ReleasesRoot).TrimEnd('\','/') -ine [IO.Path]::GetFullPath((Join-AL $config.Root 'releases')) -or
+        [IO.Path]::GetFullPath($config.WorkRoot).TrimEnd('\','/') -ine [IO.Path]::GetFullPath((Join-AL $config.Root 'deployment'))){Stop-AL 'Setup requires releases/deployment beneath the selected root. Existing nonstandard layouts need a separately reviewed procedure; no relocation was attempted.'}
+    $observed=Get-ALService 'AuthLens'
+    if($observed.Exists -and -not(Test-ALServiceBinary $observed.PathName $config)){Stop-AL 'Existing AuthLens service and selected configuration/root disagree. Setup never adopts an unrelated service or relocates its installation.'}
+    if($discoveredRoot -and [IO.Path]::GetFullPath($discoveredRoot).TrimEnd('\','/') -ine [IO.Path]::GetFullPath($config.Root).TrimEnd('\','/')){Stop-AL 'Managed service root and discovered configuration disagree; relocation is refused.'}
+    $program=[IO.Path]::GetFullPath((Join-AL $config.Root 'app')).TrimEnd('\','/')
+    Assert-ALInstallerPath $program
+    if($InstallRoot -and [IO.Path]::GetFullPath($InstallRoot).TrimEnd('\','/') -ine $program){Stop-AL 'Explicit program directory conflicts with configuration Root\app. Remove /DIR or select the matching deployment configuration; no path validation was bypassed.'}
+    if($registration -and ([IO.Path]::GetFullPath($registration.Root).TrimEnd('\','/') -ine [IO.Path]::GetFullPath($config.Root).TrimEnd('\','/') -or
+        [IO.Path]::GetFullPath($registration.ConfigFile) -ine [IO.Path]::GetFullPath($ConfigFile) -or
+        [IO.Path]::GetFullPath($registration.ProgramDirectory).TrimEnd('\','/') -ine $program)){Stop-AL 'Registered Server identity and deployment configuration disagree. Relocation is not an upgrade; retain the current installation and review its registration.'}
+    [pscustomobject]@{Config=$config;ProgramDirectory=$program;ConfigSha256=$after.ToLowerInvariant();Registered=[bool]$registration}
+}
+
+function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto','Install','Upgrade','Repair')][string]$Operation='Auto') {
+    $config=$Resolved.Config
+    Assert-ALServerSetupFingerprint $Resolved $Resolved.ConfigSha256
+    # Nothing here initializes paths, locks, journals, databases, keys or services.
+    $kind=Assert-ALInstallerServerPreflight $config
+    if($Operation -eq 'Install' -and $kind -ne 'fresh installation'){Stop-AL 'Install was requested but an existing Server was found.'}
+    if($Operation -in @('Upgrade','Repair') -and $kind -eq 'fresh installation'){Stop-AL 'The requested operation requires a verified existing Server.'}
+    foreach($path in $config.DataDirectory,$config.BackupRoot){
+        foreach($protected in (Join-AL $config.Root 'app'),$config.ReleasesRoot,$config.WorkRoot,(Split-Path $config.ConfigFile),(Split-Path $config.CertificatePath),(Join-AL $config.Root 'keys')){
+            if(Test-ALPathOverlap $path $protected){Stop-AL 'Data/backup storage overlaps program, deployment, configuration, TLS or key storage.'}
+        }
+    }
+    if(Test-ALPathOverlap $config.DataDirectory $config.BackupRoot){Stop-AL 'Data and pre-deployment backup directories must be separate.'}
+    $null=Assert-ALAclPlan @([pscustomobject]@{Path=$config.Root;Class='private';Role='installation root';Recurse=$false}) 'Server installation root'
+    $null=Assert-ALAclPlan (Get-ALAclPlan $config) 'Server preflight'
+    foreach($file in $config.CertificatePath,$config.CertificatePasswordFile){if(-not(Test-Path -LiteralPath $file -PathType Leaf)){Stop-AL 'TLS certificate/password file is missing; Setup never invents or replaces TLS secrets.'}}
+    if(-not (Test-ALInstallerListenAddress $config.ListenAddress)){Stop-AL 'The configured listen address is not assigned to this machine; no listener or interface was changed.'}
+    $service=Get-ALService $config.ServiceName
+    $listeners=@(Get-ALListener $config.ListenAddress ([int]$config.Port))
+    if(@($listeners|Where-Object{-not $service.Exists -or $_ -ne $service.ProcessId}).Count){Stop-AL 'Configured port is owned by another process; it will never be terminated by Setup.'}
+    if($kind -eq 'fresh installation' -and (Test-Path -LiteralPath (Join-AL $config.DataDirectory 'authlens.sqlite3'))){Stop-AL 'Existing database without a verified Server identity requires recovery or an explicit isolated restore; empty initialization/adoption is refused.'}
+    if($kind -eq 'fresh installation'){
+        foreach($directory in $config.DataDirectory,$config.ReleasesRoot,$config.WorkRoot){
+            if((Test-Path -LiteralPath $directory) -and @(Get-ChildItem -LiteralPath $directory -Force).Count){Stop-AL 'Fresh installation found retained or unrelated data/program/deployment files. Review recovery; Setup never treats an unregistered populated directory as empty.'}
+        }
+        $app=Join-AL $config.Root 'app'
+        if((Test-Path -LiteralPath $app) -and @(Get-ChildItem -LiteralPath $app -Force).Count){
+            $name=if($Package){Split-Path $Package -Leaf}else{''}
+            $expected=Join-AL (Join-AL (Join-AL (Join-AL $app 'setup') $name) 'payload') $name
+            if(-not $Package -or [IO.Path]::GetFullPath($Package).TrimEnd('\','/') -ine [IO.Path]::GetFullPath($expected) -or
+                @(Get-ChildItem -LiteralPath $app -Force|Where-Object Name -ne 'setup').Count -or
+                @(Get-ChildItem -LiteralPath (Join-AL $app 'setup') -Force|Where-Object Name -ne $name).Count){Stop-AL 'Fresh program directory is populated beyond this verified Setup payload; explicit recovery is required.'}
+        }
+        if(Test-Path -LiteralPath $config.Root){
+            foreach($entry in Get-ChildItem -LiteralPath $config.Root -Force){if($entry.Name -notin @('app','releases','config','tls','keys','deployment','data','backups')){Stop-AL 'Selected fresh root contains unrelated entries. Choose a dedicated installation root; no cleanup is automatic.'}}
+        }
+    }
+    if($kind -eq 'fresh installation' -and $config.ServiceAccount -ine ('NT SERVICE\'+$config.ServiceName)){Stop-AL 'Fresh Setup supports the virtual service account only. Password-bearing and gMSA provisioning require a separate validated service-logon procedure.'}
+    $manifest=$null
+    if($Package){
+        $manifest=Get-ALInstallerPackage $Package
+        $network=Invoke-ALMaintenance (Join-AL $Package 'server/AuthLens.Api.exe') (@('--server-preflight')+@(Get-ALServiceArguments $config))
+        if(-not $network.validated -or -not $network.read_only){Stop-AL 'The packaged Server did not prove read-only network/TLS configuration validation.'}
+        if($network.version -cne $manifest.version -or $network.source_sha -cne $manifest.source_sha){Stop-AL 'Verified manifest and Server preflight runtime identity disagree; no installation was provisioned.'}
+        $previous=Get-ALLink (Get-ALCurrentLink $config)
+        if($previous){
+            $old=Get-Content -LiteralPath (Join-AL $previous 'build-manifest.json') -Raw | ConvertFrom-Json
+            if($Operation -eq 'Repair' -and ($old.source_sha -ne $manifest.source_sha -or (Compare-ALProductVersion $manifest.version $old.version) -ne 0)){Stop-AL 'Repair requires the identical verified product/build; use Upgrade for a different build.'}
+            Assert-ALInstallerUpgradeIdentity $old $manifest
+            if(@($network.schema.pending).Count){Stop-AL 'Installer preflight cannot prove binary rollback across pending schema changes; use a separately approved migration/recovery procedure.'}
+            $oldSchema=Invoke-ALMaintenance (Join-AL $previous 'server/AuthLens.Api.exe') @('--schema-info','--data-dir',$config.DataDirectory)
+            if(-not $oldSchema.compatible){Stop-AL 'The previous release cannot open the current schema; repair/upgrade rollback is not safe.'}
+        }
+        $payloadFiles=@(Get-ALTreeFiles $Package)
+        $staging=Join-AL (Join-AL (Join-AL (Join-AL (Join-AL $config.Root 'app') 'setup') (Split-Path $Package -Leaf)) 'payload') (Split-Path $Package -Leaf)
+        $packagePath=[IO.Path]::GetFullPath($Package).TrimEnd('\','/')
+        foreach($file in $payloadFiles){if((Join-AL $staging $file.FullName.Substring($packagePath.Length+1)).Length -ge 248){Stop-AL 'Staged payload exceeds the supported Windows PowerShell path length. Choose a shorter dedicated root; no file was moved.'}}
+        $bytes=($payloadFiles|Measure-Object Length -Sum).Sum
+        $dataBytes=if(Test-Path -LiteralPath $config.DataDirectory){(@(Get-ALTreeFiles $config.DataDirectory)|Measure-Object Length -Sum).Sum}else{0}
+        $needed=@{}
+        foreach($entry in @(@($config.Root,([long]$bytes*2+64MB)),@($config.BackupRoot,([long]$dataBytes*2+64MB)),@([IO.Path]::GetTempPath(),([long]$dataBytes*2+64MB)))){
+            $drive=[IO.Path]::GetPathRoot($entry[0]).ToUpperInvariant()
+            if(-not $needed.ContainsKey($drive)){$needed[$drive]=[long]0}
+            $needed[$drive]+=[long]$entry[1]
+        }
+        foreach($drive in $needed.Keys){if((Get-ALInstallerFreeBytes $drive) -lt $needed[$drive]){Stop-AL 'Insufficient free storage for immutable staging/publication and a verified backup; nothing was provisioned.'}}
+    }
+    [pscustomobject]@{schema=1;operation_id=[guid]::NewGuid().ToString('N');operation=$(if($Operation-eq 'Repair'){'repair'}else{$kind});read_only=$true;package_network_database_verified=[bool]$Package;root=$config.Root;program_directory=$Resolved.ProgramDirectory;config_file=$config.ConfigFile;config_sha256=$Resolved.ConfigSha256;data_directory=$config.DataDirectory;backup_directory=$config.BackupRoot;listen_address=$config.ListenAddress;port=$config.Port;service_name=$config.ServiceName;service_account=$config.ServiceAccount;certificate=$config.CertificatePath;allowed_hosts=@($config.AllowedHosts);proxy_hosts=@($config.ProxyHosts);trusted_proxies=@($config.TrustedProxies);firewall='unchanged; no automatic rule creation';version=$(if($manifest){$manifest.version}else{''});source_sha=$(if($manifest){$manifest.source_sha}else{''});limitations=@('Service-identity key access, encrypted backup verification and final Windows TLS/readiness are mandatory transaction checks.','Custom-account provisioning, automatic firewall changes, destructive uninstall and legacy restore remain separate explicit operations.')}
+}
+
+function Get-ALInstallerFreeBytes([string]$Drive){([IO.DriveInfo]::new($Drive)).AvailableFreeSpace}
+
+function Assert-ALServerSetupFingerprint($Resolved,[string]$Expected){
+    if($Expected -and (Get-FileHash -LiteralPath $Resolved.Config.ConfigFile -Algorithm SHA256).Hash -ine $Expected){Stop-AL 'Deployment configuration changed after review; repeat detection and preflight before installation.'}
+}
+
+function Test-ALInstallerListenAddress([string]$Address){
+    $ip=$null
+    if(-not [Net.IPAddress]::TryParse($Address,[ref]$ip)){return $false}
+    if([Net.IPAddress]::IsLoopback($ip)){return $true}
+    foreach($adapter in [Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()){
+        foreach($unicast in $adapter.GetIPProperties().UnicastAddresses){if($unicast.Address.Equals($ip)){return $true}}
+    }
+    $false
+}
+
+function Get-ALInstallerLegacyPresence([switch]$ServicesOnly){
+    $present=@();$unknown=@()
+    foreach($name in 'sap-lens','SapLens','SapLens2'){
+        try{if((Get-ALService $name).Exists){$present+=('service:'+ $name)}}catch{$unknown+=('service:'+ $name)}
+    }
+    if(-not $ServicesOnly){foreach($path in 'C:\sap-lens','C:\saplens2'){try{if(Test-Path -LiteralPath $path){$present+=('protected path:'+ $path)}}catch{$unknown+=('protected path:'+ $path)}}}
+    [pscustomobject]@{present=$present;unknown=$unknown;policy='read-only presence only; never adopted, modified or deleted'}
+}
+
+function Write-ALServerSetupPlan([string]$Path,$Plan) {
+    # GUI uses a private INI bridge; automation consumes the same JSON plan on stdout.
+    $lines=@('[AuthLens]')
+    foreach($name in @('operation_id','operation','root','program_directory','config_file','config_sha256','data_directory','backup_directory','listen_address','port','service_name','service_account','certificate','allowed_hosts','proxy_hosts','trusted_proxies')){
+        $value=@($Plan.$name) -join ', '
+        if($value.IndexOfAny([char[]]"`r`n`0") -ge 0){Stop-AL 'Setup plan contains invalid line delimiters.'}
+        $lines+=($name+'='+$value)
+    }
+    $stream=[IO.File]::Open($Path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    $writer=[IO.StreamWriter]::new($stream,[Text.Encoding]::Unicode)
+    try{$writer.Write($lines -join "`r`n")}finally{$writer.Dispose()}
 }
 function Initialize-ALInstallerServerRoot($Config) {
     Assert-ALInstallerServerConfiguration $Config

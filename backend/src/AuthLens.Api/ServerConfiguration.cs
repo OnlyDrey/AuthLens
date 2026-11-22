@@ -108,6 +108,7 @@ public static class ServerConfiguration
               [--recover-administrator <username>]                 Instead issue a recovery code for an existing administrator; ends their sessions.
           --inspect-data                                          Inspect scratch copies of SQLite files and WAL without opening source databases.
           --schema-info                                            With --data-dir: migrations this build knows and the database applied (read-only).
+          --server-preflight                                       With explicit Server options: read-only TLS/network/schema/integrity and backup-key readiness; no listener, token or data initialization.
           --backup-local <folder>                                  With --data-dir: a verified, host-key encrypted archive of the data (online copy).
           --backup-verify <file>                                   With --data-dir: decrypt and validate an archive like a restore would.
           --restore <file> --replace-all-data                      With --data-dir: stage and confirm an AuthLens or SAP Lens backup; it is applied
@@ -127,7 +128,7 @@ public static class ServerConfiguration
         Unknown options, missing values and invalid settings stop startup with exit code 3 and "startup refused: <reason>".
         """;
 
-    public static HostSettings Parse(string[] args, Func<string, string?> environment)
+    public static HostSettings Parse(string[] args, Func<string, string?> environment, bool inspection = false)
     {
         var options = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 0; i < args.Length; i++)
@@ -152,7 +153,7 @@ public static class ServerConfiguration
         var hosts = (Get("--allowed-hosts", "AUTHLENS_ALLOWED_HOSTS") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         var certificatePath = Get("--cert", "AUTHLENS_CERT");
-        var certificate = certificatePath is null ? null : CertificatePolicy.Load(Path.GetFullPath(certificatePath), Get("--cert-key", "AUTHLENS_CERT_KEY"), Password(Get("--cert-password-file", "AUTHLENS_CERT_PASSWORD_FILE"), environment));
+        var certificate = certificatePath is null ? null : CertificatePolicy.Load(Path.GetFullPath(certificatePath), Get("--cert-key", "AUTHLENS_CERT_KEY"), Password(Get("--cert-password-file", "AUTHLENS_CERT_PASSWORD_FILE"), environment), inspection);
         var auth = (Get("--auth", "AUTHLENS_AUTH") ?? "accounts") switch
         {
             "accounts" => AuthenticationMode.Accounts,
@@ -166,12 +167,12 @@ public static class ServerConfiguration
         if (hopsText is not null && (!int.TryParse(hopsText, out hops) || hops is < 1 or > ProxyTrust.MaxHops))
             throw new InvalidOperationException($"--trusted-proxy-hops must be between 1 and {ProxyTrust.MaxHops}.");
         if (hopsText is not null && proxies.Count == 0) throw new InvalidOperationException("--trusted-proxy-hops needs --trusted-proxies.");
-        Directory.CreateDirectory(dataDirectory);
+        if (!inspection) Directory.CreateDirectory(dataDirectory);
         return new HostSettings
         {
             DataDirectory = Path.GetFullPath(dataDirectory), ListenAddress = listen, Port = port, NetworkAccess = network, AllowedHosts = hosts, Certificate = certificate,
             ProxyHosts = (Get("--proxy-hosts", "AUTHLENS_PROXY_HOSTS") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-            AccessToken = Token(dataDirectory, environment), WorkerEnabled = !options.ContainsKey("--no-worker"), Authentication = auth,
+            AccessToken = inspection ? HostSettings.NewToken() : Token(dataDirectory, environment), WorkerEnabled = !options.ContainsKey("--no-worker"), Authentication = auth,
             PrincipalName = environment("AUTHLENS_PRINCIPAL") ?? "server-operator", TrustedProxies = proxies, TrustedProxyHops = hops,
         };
     }

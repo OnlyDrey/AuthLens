@@ -33,7 +33,8 @@ AppVersion={#FullVersion}
 AppVerName=AuthLens {#FullVersion}
 AppPublisher=AuthLens
 DefaultDirName={commonappdata}\AuthLens\app
-UsePreviousAppDir=yes
+UsePreviousAppDir=no
+SetupLogging=yes
 DisableDirPage=auto
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
@@ -59,6 +60,7 @@ OutputBaseFilename=AuthLens-Server-{#FullVersion}-Setup
 [Files]
 Source: "{#ToolsDir}\*"; DestDir: "{tmp}\AuthLensPrerequisites\{#PackageName}\tools"; Flags: dontcopy recursesubdirs noencryption
 Source: "{#ReleaseDir}\*"; DestDir: "{app}\setup\{#PackageName}\payload\{#PackageName}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#ReleaseDir}\*"; DestDir: "{tmp}\AuthLensPrerequisites\{#PackageName}\payload\{#PackageName}"; Flags: dontcopy recursesubdirs noencryption
 Source: "{#ToolsDir}\*"; DestDir: "{app}\setup\{#PackageName}\tools"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#RepoRoot}\LICENSE.md"; DestDir: "{app}\setup\{#PackageName}"; Flags: ignoreversion
 
@@ -67,6 +69,9 @@ Name: "{group}\AuthLens Service Manager"; Filename: "{sys}\WindowsPowerShell\v1.
 
 [Registry]
 Root: HKLM; Subkey: "{#VersionKey}"; ValueType: string; ValueName: "FileVersion"; ValueData: "{#NumericVersion}"; Flags: uninsdeletekey
+
+[Run]
+Filename: "{code:ServerAccessUrl}"; Description: "Open the verified AuthLens backend URL"; Flags: shellexec postinstall skipifsilent; Check: ServerAccessUsable
 
 ; No [UninstallDelete] and no [InstallDelete]: data directories, certificates, logs and backups are never removed by Setup or uninstall.
 
@@ -92,27 +97,19 @@ begin
 end;
 
 function InitializeSetup(): Boolean;
-var Installed: String; InstalledVersion, ThisVersion: Int64;
 begin
+  // Product SemVer/build checks belong to the verified shared preflight, not the numeric registry version.
   Result := True;
-  if RegQueryStringValue(HKLM, '{#VersionKey}', 'FileVersion', Installed) and StrToVersion(Installed, InstalledVersion) and
-     StrToVersion('{#NumericVersion}', ThisVersion) and (ComparePackedVersion(ThisVersion, InstalledVersion) < 0) then begin
-    SuppressibleMsgBox('A newer AuthLens Server (' + Installed + ') is installed. Downgrades are not supported; nothing was changed.', mbError, MB_OK, IDOK);
-    Result := False;
-  end;
 end;
 
 function InitializeUninstall(): Boolean;
-var Names: TArrayOfString; I: Integer;
 begin
   Result := True;
-  Names := ServiceNames();
-  for I := 0 to GetArrayLength(Names) - 1 do
-    if ServiceRunsFrom(Names[I], ExpandConstant('{app}')) then begin
-      SuppressibleMsgBox('Service ' + Names[I] + ' runs from this installation. Stop and remove the service first (sc.exe delete ' + Names[I] + '); uninstall never removes a service or data.', mbError, MB_OK, IDOK);
-      Result := False;
-      Exit;
-    end;
+  // Managed services run from releases\current, outside {app}. Never infer absence from an app-path prefix.
+  if RegKeyExists(HKLM, ServicesKey + 'AuthLens') then begin
+    SuppressibleMsgBox('AuthLens service registration still exists. Review an UninstallPlan, verify a backup and remove only the proven owned service through an approved operator procedure. Setup preserves data, keys, configuration and releases.', mbError, MB_OK, IDOK);
+    Result := False;
+  end;
 end;
 
 #include "AuthLens-Server-Code.iss"

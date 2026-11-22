@@ -29,7 +29,7 @@ namespace AuthLens.Api;
 /// </list></summary>
 public static class MaintenanceCommands
 {
-    public static readonly string[] Names = ["--schema-info", "--inspect-data", "--backup-local", "--backup-verify", "--accounts-code", "--rebase-upload-paths", "--restore", "--adopt-legacy-database"];
+    public static readonly string[] Names = ["--server-preflight", "--schema-info", "--inspect-data", "--backup-local", "--backup-verify", "--accounts-code", "--rebase-upload-paths", "--restore", "--adopt-legacy-database"];
 
     public static bool Handles(string[] args) => Names.Any(args.Contains);
 
@@ -42,7 +42,13 @@ public static class MaintenanceCommands
             if (!Path.IsPathFullyQualified(data)) throw new InvalidOperationException("--data-dir must be an absolute path.");
             data = Path.GetFullPath(data);
             JsonObject result;
-            if (args.Contains("--rebase-upload-paths"))
+            if (args.Contains("--server-preflight"))
+            {
+                if (Names.Count(args.Contains) != 1 || args.Count(a => a == "--server-preflight") != 1)
+                    throw new InvalidOperationException("Server preflight accepts exactly one read-only operation.");
+                result = ServerPreflight(args.Where(a => a != "--server-preflight").ToArray());
+            }
+            else if (args.Contains("--rebase-upload-paths"))
             {
                 if (!args.Contains("--migration-copy") || Names.Count(args.Contains) != 1)
                     throw new InvalidOperationException("Upload rebasing requires --migration-copy and exactly one maintenance command.");
@@ -70,6 +76,35 @@ public static class MaintenanceCommands
             Console.Error.WriteLine($"maintenance refused: {error.Message}");
             return 3;
         }
+    }
+
+    /// <summary>Actual host policy plus read-only schema/integrity checks; never initializes data/token files, persists keys or binds a listener.</summary>
+    public static JsonObject ServerPreflight(string[] options)
+    {
+        var settings = ServerConfiguration.Parse(options, _ => null, inspection: true);
+        try
+        {
+            settings.Validate();
+            if (settings.Certificate is null) throw new InvalidOperationException("Server Setup preflight requires an explicit HTTPS certificate.");
+            var check = CertificatePolicy.Validate(settings.Certificate, settings.AllowedHosts.Append(settings.ListenAddress.ToString()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), DateTimeOffset.UtcNow);
+            if (check.Problems.Count > 0) throw new InvalidOperationException("Server preflight refused the TLS certificate: " + string.Join(" ", check.Problems));
+            var schema = SchemaInfo(settings.DataDirectory);
+            if (!(bool)schema["compatible"]!) throw new InvalidOperationException("Server preflight refused a database written by a newer schema.");
+            var exists = (bool)schema["database_exists"]!;
+            if (exists && !DatabaseMaintenance.VerifyFileAsync(Path.Combine(settings.DataDirectory, ApplicationBackups.DatabaseEntry)).GetAwaiter().GetResult().Ok)
+                throw new InvalidOperationException("Server preflight database integrity/foreign-key validation failed; source data was not modified.");
+            var backupKey = exists ? BackupKeys.Host(settings.DataDirectory) : null;
+            try
+            {
+                if (exists && backupKey is null) throw new InvalidOperationException("An existing database needs its configured host backup key before Setup can prove backup readiness. No key was generated or replaced.");
+                return new JsonObject { ["validated"] = true, ["read_only"] = true, ["data_modified"] = false, ["database_opened_read_only"] = exists, ["schema"] = schema,
+                    ["version"] = ProductIdentity.Version, ["source_sha"] = ProductIdentity.Commit, ["network_access"] = settings.NetworkAccess,
+                    ["backup_key_state"] = exists ? "existing key readable; archive verification occurs before service changes" : "not required for empty target",
+                    ["certificate_warnings"] = new JsonArray(check.Warnings.Select(w => (JsonNode?)JsonValue.Create(w)).ToArray()) };
+            }
+            finally { if (backupKey is not null) System.Security.Cryptography.CryptographicOperations.ZeroMemory(backupKey); }
+        }
+        finally { settings.Certificate?.Dispose(); }
     }
 
     /// <summary>Rebase only verified copies of application-managed uploads after a directory move. Never opens the original database.</summary>

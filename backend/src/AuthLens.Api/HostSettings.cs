@@ -162,7 +162,7 @@ public static class CertificatePolicy
     }
 
     /// <summary>Loads a PFX/PKCS#12 (Windows and Linux) or a PEM certificate with its key. The password never appears in messages.</summary>
-    public static X509Certificate2 Load(string path, string? keyPath, string? password)
+    public static X509Certificate2 Load(string path, string? keyPath, string? password, bool inspection = false)
     {
         if (!File.Exists(path)) throw new InvalidOperationException($"The certificate file '{path}' does not exist.");
         if (keyPath is not null && !File.Exists(keyPath)) throw new InvalidOperationException($"The certificate key file '{keyPath}' does not exist.");
@@ -171,9 +171,9 @@ public static class CertificatePolicy
             var extension = Path.GetExtension(path).ToLowerInvariant();
             if (extension is ".pfx" or ".p12")
                 // Windows SChannel cannot use ephemeral keys; on Linux nothing is written to a key store.
-                return X509CertificateLoader.LoadPkcs12FromFile(path, password, OperatingSystem.IsWindows() ? X509KeyStorageFlags.UserKeySet : X509KeyStorageFlags.EphemeralKeySet);
+                return X509CertificateLoader.LoadPkcs12FromFile(path, password, OperatingSystem.IsWindows() && !inspection ? X509KeyStorageFlags.UserKeySet : X509KeyStorageFlags.EphemeralKeySet);
             var pem = password is null ? X509Certificate2.CreateFromPemFile(path, keyPath) : X509Certificate2.CreateFromEncryptedPemFile(path, password, keyPath);
-            var prepared = PrepareForServer(pem);
+            var prepared = inspection ? pem : PrepareForServer(pem);
             if (!ReferenceEquals(prepared, pem)) pem.Dispose();
             return prepared;
         }

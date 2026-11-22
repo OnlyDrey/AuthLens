@@ -44,8 +44,9 @@ The canonical command also builds installers from the same clean verified releas
 powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\build-installers.ps1 -ReleasePath <release-directory> -Output C:\AuthLens-Build\installers
 ```
 
-Inno Setup 6 is required. Desktop setup is per user and never requires Server configuration. Server setup requires an explicit absolute `/CONFIGFILE`
-path and securely provisioned configuration, credentials, TLS and keys. Each installer owns its validation callbacks; shared transaction code does not
+Inno Setup 6 is required. Desktop setup is per user and never requires Server configuration. Server Setup derives its program directory from reviewed
+configuration (explicit absolute `/CONFIGFILE`, validated registered/managed discovery or the known default); ordinary upgrades need no `/DIR`.
+Fresh configuration, credentials, TLS and keys remain operator-provisioned. Each installer owns its validation callbacks; shared transaction code does not
 select a different installer's configuration path. Existing data, installation identities and recovery artifacts remain protected.
 See [installer transactions](WINDOWS_DEPLOYMENT.md#installers). Compilation does not replace native installation, upgrade, interruption and rollback checks.
 

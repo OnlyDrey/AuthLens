@@ -21,5 +21,7 @@
 Installed services run from a verified release directory selected by the deployment junction.
 
 Manual installer updates use the existing backup/deployment engine. Desktop retains the selected data profile and a private recovery journal;
-Server requires an explicit configuration. Both refuse updates with pending schema changes and preserve recovery artifacts. See
+Server uses a reviewed explicit or validated discovered configuration, resolves its program directory before staging and preserves existing settings.
+Its interactive pages review configuration; they do not yet generate certificates, provision custom service credentials or manage firewall rules.
+Both refuse updates with pending schema changes and preserve recovery artifacts. See
 [installer transactions and acceptance limits](WINDOWS_DEPLOYMENT.md#manual-installer-transaction) before any installation.
