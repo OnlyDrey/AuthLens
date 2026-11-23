@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, postConfiguration } from './support'
+import { headers, postConfiguration, goTo } from './support'
 import { layoutMatrix } from './matrix'
 let directory: string
 const roles =
@@ -33,10 +33,7 @@ test.afterEach(async ({ request }) => {
 })
 async function go(page: Page, view = 'Role Lookup') {
   await page.goto('/#session=browser-test-session')
-  await page
-    .getByRole('navigation', { name: 'Main navigation' })
-    .getByRole('link', { name: view, exact: true })
-    .click()
+  await goTo(page,view)
   if(view==='Release Roles')await page.getByRole('button',{name:'Table',exact:true}).click()
 }
 async function user(page: Page) {
@@ -378,17 +375,16 @@ for (const { theme, width } of layoutMatrix([800, 1280]))
       if (width < 1024) await page.keyboard.press('Escape')
       await expect(page.getByRole('article')).toHaveCount(1)
       const areas = page.getByRole('group', { name: 'SAP areas', exact: true })
+      if(width<1024)await page.getByRole('button',{name:/^Filters/}).click()
       await areas.getByRole('button', { name: /^MM / }).click()
       await areas.getByRole('button', { name: /^FI / }).click()
+      if(width<1024)await page.getByRole('button',{name:'Show results',exact:true}).click()
       await page.screenshot({
         animations: 'disabled',
         path: info.outputPath('catalogue.png'),
         fullPage: true,
       })
-      await page
-        .getByRole('navigation', { name: 'Main navigation' })
-        .getByRole('link', { name: 'User Access', exact: true })
-        .click()
+      await goTo(page,'User Access')
       await page.getByRole('link', { name: 'DEMO_ONE', exact: true }).click()
       await page
         .getByRole('tab', { name: 'Release Roles — ZO:*', exact: true })

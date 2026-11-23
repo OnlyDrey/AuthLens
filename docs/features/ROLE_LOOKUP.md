@@ -6,6 +6,14 @@ Multiple T-codes default to AND, with an explicit OR option. Enter creates a chi
 remove chips individually or Clear all filters. Sorting stays beside the result
 count, below the primary searches.
 
+The Filters sidebar starts with a labelled role search, then compact single-line pills showing the SAP code, readable category
+name and catalogue count. Long labels truncate within the available width; full names/counts remain available through accessible
+button names and tooltips on hover or keyboard focus. All uses the same sizing and states. Pills wrap between controls, never
+inside their text; the mobile Filters drawer uses the same controls and preserves selection.
+The keyboard-accessible search clear action restores input focus and clears only the text. Categories, transactions, saved
+filters and comparison selection keep their existing behavior. Name/code and description matching retain the existing debounce.
+Empty results are announced politely and explain that the filters combine.
+
 ## Exclude matching transactions
 
 Role Lookup and User Access share one transaction filter: a single search input, compact removable chips, the AND/OR control for

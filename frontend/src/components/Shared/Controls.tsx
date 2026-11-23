@@ -23,8 +23,8 @@ export const Input = forwardRef<
     <input {...props} ref={ref} className={`${controlClass} ${className}`} />
   )
 })
-export const SearchInput = forwardRef<HTMLInputElement,InputHTMLAttributes<HTMLInputElement> & {onClear?:()=>void}>(function SearchInput({onClear,...props},ref) {
- return <span className="ui-search" data-clearable={!!onClear}><Search size={16} aria-hidden="true"/><Input {...props} ref={ref} type={props.type || 'search'}/>{onClear&&!!props.value&&<Button variant="ghost" size="icon" aria-label={`Clear ${props['aria-label'] || 'search'}`} onClick={event=>{const input=event.currentTarget.previousElementSibling;onClear();if(input instanceof HTMLInputElement)input.focus()}}><X size={14} aria-hidden="true"/></Button>}</span>
+export const SearchInput = forwardRef<HTMLInputElement,InputHTMLAttributes<HTMLInputElement> & {onClear?:()=>void;clearLabel?:string}>(function SearchInput({onClear,clearLabel,...props},ref) {
+ return <span className="ui-search" data-clearable={!!onClear}><Search size={16} aria-hidden="true"/><Input {...props} ref={ref} type={props.type || 'search'}/>{onClear&&!!props.value&&<Button variant="ghost" size="icon" aria-label={clearLabel||`Clear ${props['aria-label'] || 'search'}`} disabled={props.disabled} onClick={event=>{const input=event.currentTarget.previousElementSibling;onClear();if(input instanceof HTMLInputElement)input.focus()}}><X size={14} aria-hidden="true"/></Button>}</span>
 })
 /** Password field with a visibility toggle. The toggle is a real button (aria-pressed) after the input, so it is reachable by keyboard and
  *  announced; the value never leaves the input. Use inside FormField so the label targets the input. */
