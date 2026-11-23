@@ -205,6 +205,35 @@ Describe 'Read-only Setup planning and guarded lifecycle operations' {
         Set-Content -LiteralPath (Join-Path $root 'app/unrelated.txt') 'sentinel'
         {Get-ALServerSetupPlan $resolved $staged Install}|Should -Throw '*populated beyond*'
     }
+    It 'accepts only hash-bound fresh Inno metadata and preserves every byte' {
+        $name=Split-Path $package -Leaf
+        $app=Join-Path $root 'app';$stage=Join-Path $app ('setup/'+$name)
+        $staged=Join-Path $stage ('payload/'+$name)
+        New-Item -ItemType Directory -Force (Join-Path $staged 'server')|Out-Null
+        Set-Content (Join-Path $staged 'server/AuthLens.Api.exe') 'synthetic package'
+        $script:PackageManifest|ConvertTo-Json|Set-Content (Join-Path $staged 'build-manifest.json')
+        foreach($file in 'unins000.exe','unins000.dat'){Set-Content (Join-Path $app $file) ('synthetic '+$file)}
+        {Get-ALServerSetupPlan $resolved $staged Install}|Should -Throw '*populated beyond*'
+        $receipt=Join-Path $stage 'setup-metadata.ini'
+        $lines=@('[AuthLensSetup]','schema=1',('manifest_sha256='+(Get-FileHash (Join-Path $staged 'build-manifest.json')).Hash.ToLowerInvariant()))
+        foreach($file in 'unins000.exe','unins000.dat'){$lines+=($file+'='+(Get-FileHash (Join-Path $app $file)).Hash.ToLowerInvariant())}
+        $lines|Set-Content $receipt -Encoding ASCII
+        $before=@(Get-ChildItem $app -Recurse -File|ForEach-Object{(Get-FileHash $_.FullName).Hash})
+        (Get-ALServerSetupPlan $resolved $staged Install $receipt).operation|Should -Be 'fresh installation'
+        (Get-ALServerSetupPlan $resolved $staged Install $receipt).read_only|Should -BeTrue
+        @(Get-ChildItem $app -Recurse -File|ForEach-Object{(Get-FileHash $_.FullName).Hash})|Should -Be $before
+        Set-Content (Join-Path $app 'unins000.dat') 'changed'
+        {Get-ALServerSetupPlan $resolved $staged Install $receipt}|Should -Throw '*metadata integrity changed*'
+        Get-Content (Join-Path $app 'unins000.dat')|Should -Be 'changed'
+        $lines[4]='unins000.dat='+(Get-FileHash (Join-Path $app 'unins000.dat')).Hash.ToLowerInvariant()
+        $lines|Set-Content $receipt -Encoding ASCII
+        Set-Content (Join-Path $stage 'operation-result.json') 'interrupted operation sentinel'
+        {Get-ALServerSetupPlan $resolved $staged Install $receipt}|Should -Throw '*populated beyond*'
+        Get-Content (Join-Path $stage 'operation-result.json')|Should -Be 'interrupted operation sentinel'
+    }
+    It 'does not trust a metadata receipt from another staging directory' {
+        {Assert-ALFreshSetupMetadata (Join-Path $root 'app') (Join-Path $root 'app/setup/current') $package (Join-Path $TestDrive 'foreign.ini')}|Should -Throw '*outside this payload*'
+    }
     It 'detects known legacy services by name without adopting or changing them' {
         Mock -ModuleName AuthLens.Deploy Get-ALService {param($Name) [pscustomobject]@{Exists=($Name-eq 'SapLens')}}
         $presence=Get-ALInstallerLegacyPresence -ServicesOnly

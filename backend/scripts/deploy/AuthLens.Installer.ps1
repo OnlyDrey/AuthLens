@@ -186,7 +186,25 @@ function Resolve-ALServerSetupConfiguration([string]$ConfigFile='',[string]$Inst
     [pscustomobject]@{Config=$config;ProgramDirectory=$program;ConfigSha256=$after.ToLowerInvariant();Registered=[bool]$registration}
 }
 
-function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto','Install','Upgrade','Repair')][string]$Operation='Auto') {
+function Assert-ALFreshSetupMetadata([string]$App,[string]$Stage,[string]$Package,[string]$Receipt) {
+    # An elevated Setup writes this create-only receipt after its empty-root preflight and extraction.
+    # Names alone are not ownership: bind the exact Inno files to this verified payload and their bytes.
+    $expected=Join-AL $Stage 'setup-metadata.ini'
+    if([IO.Path]::GetFullPath($Receipt) -ine [IO.Path]::GetFullPath($expected)){Stop-AL 'Fresh Setup metadata receipt is outside this payload; retain evidence for explicit recovery.'}
+    Test-ALPathTree $Receipt
+    $lines=@(Get-Content -LiteralPath $Receipt -Encoding UTF8)
+    if($lines.Count -ne 5 -or $lines[0] -cne '[AuthLensSetup]' -or $lines[1] -cne 'schema=1'){Stop-AL 'Fresh Setup metadata receipt is invalid; no files were adopted.'}
+    $keys=@('manifest_sha256','unins000.exe','unins000.dat')
+    for($i=0;$i -lt $keys.Count;$i++){
+        $key=$keys[$i];$match=[regex]::Match($lines[$i+2],'^'+[regex]::Escape($key)+'=([a-f0-9]{64})$')
+        if(-not $match.Success){Stop-AL 'Fresh Setup metadata receipt has an invalid inventory; no files were adopted.'}
+        $file=if($i -eq 0){Join-AL $Package 'build-manifest.json'}else{Join-AL $App $key}
+        Test-ALPathTree $file
+        if(-not(Test-Path -LiteralPath $file -PathType Leaf) -or (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ine $match.Groups[1].Value){Stop-AL 'Fresh Setup metadata integrity changed; retain all files and use explicit recovery.'}
+    }
+}
+
+function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto','Install','Upgrade','Repair')][string]$Operation='Auto',[string]$SetupMetadataFile='') {
     $config=$Resolved.Config
     Assert-ALServerSetupFingerprint $Resolved $Resolved.ConfigSha256
     # Nothing here initializes paths, locks, journals, databases, keys or services.
@@ -207,6 +225,7 @@ function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto'
     $listeners=@(Get-ALListener $config.ListenAddress ([int]$config.Port))
     if(@($listeners|Where-Object{-not $service.Exists -or $_ -ne $service.ProcessId}).Count){Stop-AL 'Configured port is owned by another process; it will never be terminated by Setup.'}
     if($kind -eq 'fresh installation' -and (Test-Path -LiteralPath (Join-AL $config.DataDirectory 'authlens.sqlite3'))){Stop-AL 'Existing database without a verified Server identity requires recovery or an explicit isolated restore; empty initialization/adoption is refused.'}
+    $manifest=if($Package){Get-ALInstallerPackage $Package}else{$null}
     if($kind -eq 'fresh installation'){
         foreach($directory in $config.DataDirectory,$config.ReleasesRoot,$config.WorkRoot){
             if((Test-Path -LiteralPath $directory) -and @(Get-ChildItem -LiteralPath $directory -Force).Count){Stop-AL 'Fresh installation found retained or unrelated data/program/deployment files. Review recovery; Setup never treats an unregistered populated directory as empty.'}
@@ -215,18 +234,24 @@ function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto'
         if((Test-Path -LiteralPath $app) -and @(Get-ChildItem -LiteralPath $app -Force).Count){
             $name=if($Package){Split-Path $Package -Leaf}else{''}
             $expected=Join-AL (Join-AL (Join-AL (Join-AL $app 'setup') $name) 'payload') $name
+            $stage=Join-AL (Join-AL $app 'setup') $name
+            $allowed=@('setup')
+            if($SetupMetadataFile){
+                Assert-ALFreshSetupMetadata $app $stage $Package $SetupMetadataFile
+                $allowed+=@('unins000.exe','unins000.dat')
+            }
             if(-not $Package -or [IO.Path]::GetFullPath($Package).TrimEnd('\','/') -ine [IO.Path]::GetFullPath($expected) -or
-                @(Get-ChildItem -LiteralPath $app -Force|Where-Object Name -ne 'setup').Count -or
-                @(Get-ChildItem -LiteralPath (Join-AL $app 'setup') -Force|Where-Object Name -ne $name).Count){Stop-AL 'Fresh program directory is populated beyond this verified Setup payload; explicit recovery is required.'}
+                @(Get-ChildItem -LiteralPath $app -Force|Where-Object Name -notin $allowed).Count -or
+                @(Get-ChildItem -LiteralPath (Join-AL $app 'setup') -Force|Where-Object Name -ne $name).Count -or
+                @(Get-ChildItem -LiteralPath $stage -Force|Where-Object Name -notin @('payload','tools','LICENSE.md','setup-metadata.ini')).Count -or
+                @(Get-ChildItem -LiteralPath (Join-AL $stage 'payload') -Force|Where-Object Name -ne $name).Count){Stop-AL 'Fresh program directory is populated beyond this verified Setup payload; explicit recovery is required.'}
         }
         if(Test-Path -LiteralPath $config.Root){
             foreach($entry in Get-ChildItem -LiteralPath $config.Root -Force){if($entry.Name -notin @('app','releases','config','tls','keys','deployment','data','backups')){Stop-AL 'Selected fresh root contains unrelated entries. Choose a dedicated installation root; no cleanup is automatic.'}}
         }
     }
     if($kind -eq 'fresh installation' -and $config.ServiceAccount -ine ('NT SERVICE\'+$config.ServiceName)){Stop-AL 'Fresh Setup supports the virtual service account only. Password-bearing and gMSA provisioning require a separate validated service-logon procedure.'}
-    $manifest=$null
     if($Package){
-        $manifest=Get-ALInstallerPackage $Package
         $network=Invoke-ALMaintenance (Join-AL $Package 'server/AuthLens.Api.exe') (@('--server-preflight')+@(Get-ALServiceArguments $config))
         if(-not $network.validated -or -not $network.read_only){Stop-AL 'The packaged Server did not prove read-only network/TLS configuration validation.'}
         if($network.version -cne $manifest.version -or $network.source_sha -cne $manifest.source_sha){Stop-AL 'Verified manifest and Server preflight runtime identity disagree; no installation was provisioned.'}

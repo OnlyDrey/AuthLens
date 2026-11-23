@@ -15,6 +15,11 @@ begin
   Result := ' -InstallRoot "' + ExpandConstant('{app}') + '" -DataDirectory "' + DesktopData('') + '"';
 end;
 
+function InstallerMetadataArguments(): String;
+begin
+  Result := '';
+end;
+
 function PrepareInstaller(): String;
 begin
   Result := '';

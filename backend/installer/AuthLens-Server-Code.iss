@@ -256,6 +256,21 @@ begin
   Result := Result + ServerFirewallArguments();
 end;
 
+function InstallerMetadataArguments(): String;
+var Receipt, Text: String;
+begin
+  Result := '';
+  if ServerValue('operation') <> 'fresh installation' then Exit;
+  Receipt := ExpandConstant('{app}\setup\{#PackageName}\setup-metadata.ini');
+  if FileExists(Receipt) then RaiseException('Setup metadata evidence already exists; it will not be overwritten. Use explicit recovery.');
+  Text := '[AuthLensSetup]' + #13#10 + 'schema=1' + #13#10 +
+    'manifest_sha256=' + Lowercase(GetSHA256OfFile(ExpandConstant('{app}\setup\{#PackageName}\payload\{#PackageName}\build-manifest.json'))) + #13#10 +
+    'unins000.exe=' + Lowercase(GetSHA256OfFile(ExpandConstant('{app}\unins000.exe'))) + #13#10 +
+    'unins000.dat=' + Lowercase(GetSHA256OfFile(ExpandConstant('{app}\unins000.dat'))) + #13#10;
+  if not SaveStringToFile(Receipt, Text, False) then RaiseException('Setup metadata evidence could not be recorded; no deployment was started.');
+  Result := ' -SetupMetadataFile "' + Receipt + '"';
+end;
+
 function PrepareInstaller(): String;
 begin
   Result := '';

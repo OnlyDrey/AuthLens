@@ -41,6 +41,7 @@ Describe 'Compiled Inno installer isolation' {
         $code | Should -Match 'RaiseException'
         $code | Should -Match ('-Mode ' + $Mode + ' -Package')
         if ($Mode -eq 'Desktop') {
+            $code | Should -Not -Match 'ComparePackedVersion\(ThisVersion, InstalledVersion\)'
             $code | Should -Not -Match 'CONFIGFILE|ConfigFile|PrepareOnly|ExtractTemporaryFiles|Server root security|ServiceRunsFrom'
             $code | Should -Match "DesktopData\(''\)"
             $code | Should -Match '-DataDirectory'
@@ -62,6 +63,10 @@ Describe 'Compiled Inno installer isolation' {
             $code | Should -Match 'ExtractTemporaryFiles'
             $code | Should -Match 'PrivilegesRequired=admin'
             $code | Should -Match 'function InitializeUninstall'
+            $code | Should -Match 'InstallerMetadataArguments'
+            $code | Should -Match "ServerValue\('operation'\) <> 'fresh installation'"
+            $code | Should -Match 'GetSHA256OfFile'
+            $code | Should -Match 'SetupMetadataFile'
         }
     }
 }

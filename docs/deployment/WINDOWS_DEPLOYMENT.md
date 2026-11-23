@@ -421,6 +421,69 @@ Pascal compiler. Recompile **both** variants with Inno Setup 6 using a newly ver
 failed build and use a new empty installer output directory. ISCC was unavailable at that earlier checkpoint; the callback isolation checks below
 now have local Inno Setup 6.7.4 compiler evidence.
 
+### Fresh Server extraction ownership and early failure evidence
+
+Build `8c6ea68` refused a first installation after extraction: its fresh `app` guard allowed only `setup`,
+but Inno had legitimately created `unins000.exe` and `unins000.dat` before `ssPostInstall`. The refusal occurred
+before release publication, service registration and deployment-journal creation; it was not an ACL failure.
+
+Fresh Server Setup now records a create-only `setup-metadata.ini` beneath the current immutable Setup stage.
+It binds the verified package manifest and the exact bytes of those two Inno files with SHA-256. Only that
+stage-bound receipt permits these names through the fresh-root guard. A name alone, another receipt path,
+changed bytes, another staged payload, unknown files or previous operation results still cause refusal.
+The private root ACL and complete package/helper integrity checks remain required. The receipt is captured
+and checked while Inno waits at `ssPostInstall`; the uninstall data may change after Setup resumes.
+Desktop does not receive this Server-only metadata argument.
+
+Operation reports distinguish `deployment_journal_expected`, `deployment_journal_exists` and
+`deployment_journal_status`. `deployment_journal` is null until a journal actually exists. An early failure
+does not imply that rollback ran: retain `operation-result.json`, `transaction-diagnostic.txt`, the Setup log,
+the staged payload/tools and configuration/TLS publication receipts. Same-payload retries never overwrite
+these files. A different package does not make an interrupted/unregistered populated root clean.
+
+Native metadata timing is tested using a uniquely identified, disposable per-user Inno probe and the actual
+read-only receipt verifier. This is not full Server/SCM acceptance. Desktop alpha-to-stable upgrade ordering
+is decided by the verified manifest's semantic product version, not the Windows file revision (`.1` to `.0`).
+
+#### Recovery of the failed production installation (manual, not automatic)
+
+For operation `ffa76a83733446358f2a708a65e27c67`, **do not rerun Setup, invoke the uninstaller, delete files,
+invent a deployment journal or use deployment recovery against a nonexistent journal**. First preserve an
+independent, access-protected copy of the complete failed root, including TLS private material/password files,
+keys, configuration, staged helpers/payload, Inno metadata and logs. Preserve the original installer/checksum.
+Verify every copied file's SHA-256 and retain a verified off-server copy before moving any path.
+
+An administrator must establish all of these facts before a fresh retry: `AuthLens` is absent from SCM;
+no AuthLens process/listener exists; no release pointer or published release exists; the configured data
+directory contains no database or retained user data; no deployment/repair/uninstall/firewall journal exists.
+Inspect advanced external data/backup directories separately. If any assertion fails, **stop** and review
+the real installation/recovery state; do not use the empty-install procedure below.
+
+After independent backup and explicit operator approval, the exact canonical failed root can be renamed
+in place (not deleted), preserving its DACL and all recovery evidence:
+
+```powershell
+# MANUAL ONLY. Run after all checks above, never against a running/previously installed Server.
+$failed = 'C:\ProgramData\AuthLens'
+$retained = 'C:\ProgramData\AuthLens.failed-ffa76a83733446358f2a708a65e27c67'
+if ((Get-Service AuthLens -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $retained)) {
+    throw 'Service exists or retained path already exists; no rename is permitted.'
+}
+if ((Get-Item -LiteralPath $failed -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    throw 'The failed root is a reparse point; review before any move.'
+}
+Rename-Item -LiteralPath $failed -NewName (Split-Path $retained -Leaf)
+```
+
+This command is **not sufficient preflight on its own**; the database, listener, directory, journal and
+independent-backup checks above are mandatory. Review any partial Add/Remove Programs and `Software\AuthLens\Server`
+registration with the installer owner before retrying; do not erase registry entries blindly. Keep the failed
+root and exported registration evidence. Use only an approved fixed installer, explicitly configure the fresh
+canonical root, and import preserved certificates through the supported wizard where appropriate. Never reuse
+an old JSON file without reviewing its absolute paths. Verify HTTPS/SCM/data readiness and administrator access.
+If retry fails before readiness, stop; preserve both roots and all new evidence. Do not restore files over a live
+service. A verified rollback of an installed service is a separate, backup-bound recovery operation.
+
 ### Desktop and Server callback isolation
 
 Each entry script includes only its own Pascal callbacks (`AuthLens-Desktop-Code.iss` or `AuthLens-Server-Code.iss`) before

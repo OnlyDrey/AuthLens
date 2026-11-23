@@ -1,5 +1,5 @@
 ; AuthLens Server (.NET) machine-wide installer. Built by scripts/build-installers.ps1 from a verified release folder (build-release.ps1):
-;   ISCC /DFullVersion=2.0.0-alpha.1 /DNumericVersion=2.0.0.1 /DReleaseDir=<release folder> AuthLens-Server.iss
+;   ISCC /DFullVersion=2.0.0 /DNumericVersion=2.0.0.0 /DReleaseDir=<release folder> AuthLens-Server.iss
 ; Stages an immutable payload under {app}\setup. The existing versioned deployment transaction owns service installation/update and readiness.
 ; The server's --data-dir is outside program files; no earlier-product service or data directory is adopted.
 ; Configuration is explicit; backup, rollback compatibility and readiness are mandatory. No process is killed.

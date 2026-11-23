@@ -7,6 +7,7 @@ begin
   Arguments := '-NoProfile -NonInteractive -File "' + ExpandConstant('{app}\setup\{#PackageName}\tools\Install-AuthLens.ps1') +
     '" -Mode {#InstallerMode} -Package "' + ExpandConstant('{app}\setup\{#PackageName}\payload\{#PackageName}') + '" -Yes';
   Arguments := Arguments + InstallerArguments();
+  Arguments := Arguments + InstallerMetadataArguments();
   Diagnostic := ExpandConstant('{app}\setup\{#PackageName}\transaction-diagnostic.txt');
   Arguments := Arguments + ' -DiagnosticFile "' + Diagnostic + '" -ResultFile "' + ExpandConstant('{app}\setup\{#PackageName}\operation-result.json') + '"';
   if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Arguments, '', SW_HIDE, ewWaitUntilTerminated, Code) then Code := 4;

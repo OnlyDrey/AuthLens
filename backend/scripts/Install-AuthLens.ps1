@@ -30,6 +30,7 @@ param(
     [string]$ResultFile='',
     [string]$ExpectedConfigSha256='',
     [string]$DiagnosticFile='',
+    [string]$SetupMetadataFile='',
     [switch]$Yes
 )
 Set-StrictMode -Version 3.0
@@ -38,6 +39,11 @@ $stage='helper verification'
 $operationId=[guid]::NewGuid().ToString('N')
 $journalPath=''
 function Write-InstallerResult($Value) {
+    $present=[bool]($journalPath -and (Test-Path -LiteralPath $journalPath -PathType Leaf))
+    $Value.deployment_journal_expected=$journalPath
+    $Value.deployment_journal_exists=$present
+    $Value.deployment_journal_status=if($present){'present'}elseif($journalPath){'not_created_or_unavailable'}else{'not_resolved'}
+    $Value.deployment_journal=if($present){$journalPath}else{$null}
     $json=$Value|ConvertTo-Json -Depth 12 -Compress
     Write-Host ('AUTHLENS-INSTALLER-RESULT: '+$json)
     if($ResultFile){
@@ -120,7 +126,7 @@ try {
             else{$stage='Server recovery transaction'; $result=Invoke-ALInstallerServer $config '' -Recover}
         }
         elseif ($PrepareOnly) {
-            $stage='Server upgrade preflight'; $plan=Get-ALServerSetupPlan $resolved $Package $Operation; $operation=$plan.operation
+            $stage='Server installation preflight'; $plan=Get-ALServerSetupPlan $resolved $Package $Operation; $operation=$plan.operation
             $stage='Server root preparation'; Initialize-ALInstallerServerRoot $config
             if($CommitNewConfiguration){
                 $stage='fresh configuration publication'
@@ -147,11 +153,13 @@ try {
         }
         else {
             if (-not $Package) { throw 'A verified package is required.' }
-            $null=Get-ALServerSetupPlan $resolved $Package $Operation
+            $stage='Server installation preflight'
+            $null=Get-ALServerSetupPlan $resolved $Package $Operation $SetupMetadataFile
             $stage='Server deployment transaction'; $result=Invoke-ALInstallerServer $config $Package
             if($firewall){$stage='Server firewall transaction'; $null=Invoke-ALInstallerFirewallChange $config $FirewallSources $FirewallProfiles -Approved:$ApproveFirewall}
         }
     } else {
+        if($SetupMetadataFile){throw 'Server lifecycle options are not Desktop options.'}
         if($CommitNewConfiguration -or $GenerateTlsDraft -or $ImportTls -or $FirewallSources -or $ApproveFirewall -or $FirewallRollback){throw 'Server lifecycle options are not Desktop options.'}
         if($ResolveOnly -or $PreflightOnly -or $PlanFile -or $Operation -ne 'Auto'){throw 'Server lifecycle options are not Desktop options.'}
         if ($PrepareOnly) { throw 'PrepareOnly applies to Server directory provisioning only.' }

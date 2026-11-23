@@ -1,5 +1,5 @@
 ; AuthLens Desktop (.NET) per-user installer. Built by scripts/build-installers.ps1 from a verified release folder (build-release.ps1):
-;   ISCC /DFullVersion=2.0.0-alpha.1 /DNumericVersion=2.0.0.1 /DReleaseDir=<release folder> AuthLens-Desktop.iss
+;   ISCC /DFullVersion=2.0.0 /DNumericVersion=2.0.0.0 /DReleaseDir=<release folder> AuthLens-Desktop.iss
 ; Its own AppId: it never upgrades, replaces or removes SAP Lens 1 or the SAP Lens Desktop (%LOCALAPPDATA%\Programs\SAP Lens, \SAP Lens Desktop and
 ; their data folders). Data lives in %LOCALAPPDATA%\AuthLens (folders of earlier products are never used) and is never deleted:
 ; updates use verified protective backups and program rollback; pending schema changes are refused. Uninstall removes only the
@@ -94,19 +94,14 @@ begin
 end;
 
 function InitializeSetup(): Boolean;
-var Installed: String; InstalledVersion, ThisVersion: Int64;
 begin
   Result := RuntimeVersion(HKCU) or RuntimeVersion(HKLM32) or RuntimeVersion(HKLM64);
   if not Result then begin
     SuppressibleMsgBox('Microsoft Edge WebView2 Runtime 86.0.622.0 or newer is required. Install the Evergreen Runtime through your approved software distribution, then run Setup again. Nothing was installed.', mbError, MB_OK, IDOK);
     Exit;
   end;
-  if RegQueryStringValue(HKCU, '{#VersionKey}', 'FileVersion', Installed) and StrToVersion(Installed, InstalledVersion) and
-     StrToVersion('{#NumericVersion}', ThisVersion) and (ComparePackedVersion(ThisVersion, InstalledVersion) < 0) then begin
-    SuppressibleMsgBox('A newer AuthLens Desktop (' + Installed + ') is installed. Downgrades are not supported; nothing was changed.', mbError, MB_OK, IDOK);
-    Result := False;
-    Exit;
-  end;
+  // Windows revision .0 (stable) sorts below alpha .1. Only the verified manifest's
+  // semantic product version may authorize replacement; the transaction adapter enforces it before replacing files.
   if RegKeyExists(HKCU, V1UninstallKey) then
     SuppressibleMsgBox('SAP Lens v1 is installed on this account. It stays installed and unchanged, with its own data; this Setup installs AuthLens Desktop (.NET) beside it.', mbInformation, MB_OK, IDOK);
 end;

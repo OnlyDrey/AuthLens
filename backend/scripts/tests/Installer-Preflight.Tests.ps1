@@ -1,8 +1,31 @@
 BeforeAll {
     . (Join-Path $PSScriptRoot 'TestHelpers.ps1')
     Import-TestDeploymentModule
+    # Exercise the adapter's actual result writer without executing its administrative entry point.
+    $tokens=$null;$errors=$null
+    $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '../Install-AuthLens.ps1'),[ref]$tokens,[ref]$errors)
+    $writer=$ast.Find({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Write-InstallerResult'},$true)
+    . ([scriptblock]::Create($writer.Extent.Text))
 }
 Describe 'Installer preparation and same-version upgrade boundaries' {
+    It 'reports a planned missing deployment journal without fabricating it and preserves existing journals' {
+        $journalPath=Join-Path $TestDrive 'deployment-journal.json';$ResultFile=Join-Path $TestDrive 'missing-result.json'
+        Write-InstallerResult @{schema=1;status='refused_or_failed'}
+        $result=Get-Content $ResultFile -Raw|ConvertFrom-Json
+        $result.deployment_journal|Should -BeNullOrEmpty
+        $result.deployment_journal_expected|Should -Be $journalPath
+        $result.deployment_journal_exists|Should -BeFalse
+        $result.deployment_journal_status|Should -Be 'not_created_or_unavailable'
+        Test-Path $journalPath|Should -BeFalse
+        Set-Content $journalPath 'retained journal sentinel'
+        $ResultFile=Join-Path $TestDrive 'existing-result.json'
+        Write-InstallerResult @{schema=1;status='refused_or_failed'}
+        $result=Get-Content $ResultFile -Raw|ConvertFrom-Json
+        $result.deployment_journal|Should -Be $journalPath
+        $result.deployment_journal_exists|Should -BeTrue
+        Get-Content $journalPath|Should -Be 'retained journal sentinel'
+        {Write-InstallerResult @{status='refused_or_failed'}}|Should -Throw
+    }
     It 'exposes why a successful standard audit does not prove installer root preparation' {
         $config=[pscustomobject]@{Root=$TestDrive;DataDirectory="$TestDrive/data";BackupRoot="$TestDrive/backups";CertificatePath="$TestDrive/tls/server.pfx";WorkRoot="$TestDrive/state";ReleasesRoot="$TestDrive/releases";ConfigFile="$TestDrive/config/deploy.json"}
         @(Get-ALAclPlan $config | Where-Object Role -eq 'installation root').Count | Should -Be 0
