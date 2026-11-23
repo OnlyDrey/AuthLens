@@ -129,7 +129,7 @@ try {
         $definition.Settings.AllowHardTerminate=$false;$definition.Settings.ExecutionTimeLimit='PT35M'
         $action=$definition.Actions.Create(0)
         $action.Path=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
-        $action.Arguments=ConvertTo-ALAdminCommandLine @('-NoProfile','-NonInteractive','-File',(Join-Path $capsule 'Invoke-AuthLensAdmin.ps1'),'-JobId',$job.task_name)
+        $action.Arguments=ConvertTo-ALAdminCommandLine (Get-ALAdminTaskArguments $capsule $job.task_name)
         $action.WorkingDirectory=$capsule
         $null=$folder.RegisterTaskDefinition($job.task_name,$definition,2,'SYSTEM',$null,5,$sddl)
         $registered+=$job.task_name

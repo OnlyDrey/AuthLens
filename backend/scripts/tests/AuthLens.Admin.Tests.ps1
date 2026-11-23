@@ -31,6 +31,7 @@ Describe 'Pinned administrative jobs have no arbitrary-command interface' {
         $args|Should -Contain '-PreflightOnly'
         $args|Should -Contain '-ExpectedConfigSha256'
         $args|Should -Contain ('b'*64)
+        ($args[0..4] -join '|')|Should -Be '-NoProfile|-NonInteractive|-ExecutionPolicy|Bypass|-File'
         $args|Should -Not -Contain '-Command'
         $args|Should -Not -Contain '-Yes'
         $job.operation='Upgrade'
@@ -107,8 +108,15 @@ Describe 'Administrative bootstrap and worker isolation contracts' {
         $bootstrap|Should -Match "Principal.UserId='SYSTEM'"
         $bootstrap|Should -Match 'Principal.RunLevel=1'
         $bootstrap|Should -Match 'O:BAG:BAD:P'
-        $bootstrap|Should -Not -Match 'Start-Process|RunAs|Triggers.Create|ExecutionPolicy.*Bypass'
+        $bootstrap|Should -Not -Match 'Start-Process|RunAs|Triggers.Create|Set-ExecutionPolicy'
+        $bootstrap|Should -Match 'Get-ALAdminTaskArguments \$capsule \$job.task_name'
         $bootstrap|Should -Match 'RegisterTaskDefinition\(\$job.task_name,\$definition,2'
+    }
+    It 'generates the fixed scheduler entrypoint with process-scoped execution policy' {
+        $args=Get-ALAdminTaskArguments 'C:\Protected capsule' ('a'*32)
+        (ConvertTo-ALAdminCommandLine $args)|Should -Be ('"-NoProfile" "-NonInteractive" "-ExecutionPolicy" "Bypass" "-File" "C:\Protected capsule\Invoke-AuthLensAdmin.ps1" "-JobId" "'+('a'*32)+'"')
+        $args|Should -Not -Contain '-Command'
+        {Get-ALAdminTaskArguments 'C:\Protected capsule' 'unapproved'}|Should -Throw
     }
     It 'contains a worker before enabling its operation and preserves interrupted-operation barriers' {
         $module=Get-Content (Join-Path $PSScriptRoot '../deploy/AuthLens.Admin.psm1') -Raw
@@ -124,6 +132,24 @@ Describe 'Administrative bootstrap and worker isolation contracts' {
     }
 }
 Describe 'Native Windows administrative process containment (no elevation or service change)' {
+    It 'starts the contained worker with Bypass even when the calling process is Restricted' {
+        if([IO.Path]::DirectorySeparatorChar -ne '\'){Set-ItResult -Skipped -Because 'Windows PowerShell process policy requires native Windows.';return}
+        $run=Join-Path $TestDrive 'native-policy';New-Item -ItemType Directory $run|Out-Null
+        $worker=Join-Path $run 'worker.ps1'
+        @'
+param($Capsule,$JobId,$Run)
+[IO.File]::WriteAllText((Join-Path $Run 'worker-policy.json'),(@{process=[string](Get-ExecutionPolicy -Scope Process);sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}|ConvertTo-Json))
+'@|Set-Content -LiteralPath $worker
+        $before=$env:PSExecutionPolicyPreference
+        try{
+            $env:PSExecutionPolicyPreference='Restricted'
+            $outcome=Invoke-ALAdminChild $worker $TestDrive ('a'*32) $run 10
+            $outcome.exit_code|Should -Be 0
+            $outcome.timed_out|Should -BeFalse
+            (Get-Content (Join-Path $run 'worker-policy.json') -Raw|ConvertFrom-Json).process|Should -Be 'Bypass'
+            Get-ExecutionPolicy -Scope Process|Should -Be 'Restricted'
+        }finally{$env:PSExecutionPolicyPreference=$before}
+    }
     It 'terminates a timed-out worker and its descendant while retaining its work directory' {
         if([IO.Path]::DirectorySeparatorChar -ne '\'){Set-ItResult -Skipped -Because 'Windows Job Objects require native Windows.';return}
         $run=Join-Path $TestDrive 'native-contained'

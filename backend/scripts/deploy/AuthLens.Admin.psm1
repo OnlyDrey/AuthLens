@@ -13,6 +13,10 @@ function Assert-ALAdminJob($Job) {
     }
 }
 function Get-ALAdminOperations { $script:AdminOperations }
+function Get-ALAdminTaskArguments([string]$Capsule,[ValidatePattern('^[a-f0-9]{32}$')][string]$JobId) {
+    # Process-only policy: SYSTEM may otherwise reject the fixed entrypoint before its integrity checks/reporting can run.
+    ,@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $Capsule 'Invoke-AuthLensAdmin.ps1'),'-JobId',$JobId)
+}
 function Assert-ALAdminProtection([string]$Path) {
     $acl=Get-Acl -LiteralPath $Path
     if($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -notin @('S-1-5-18','S-1-5-32-544')){throw 'Administrative input owner must be SYSTEM or Administrators.'}
@@ -23,7 +27,7 @@ function Assert-ALAdminProtection([string]$Path) {
 }
 function Get-ALAdminAdapterArguments($Job,[string]$Tools,[string]$ResultFile) {
     Assert-ALAdminJob $Job
-    $args=@('-NoProfile','-NonInteractive','-File',(Join-Path $Tools 'Install-AuthLens.ps1'),'-Mode','Server','-ConfigFile',$Job.configuration,'-ExpectedConfigSha256',$Job.config_sha256,'-ResultFile',$ResultFile)
+    $args=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',(Join-Path $Tools 'Install-AuthLens.ps1'),'-Mode','Server','-ConfigFile',$Job.configuration,'-ExpectedConfigSha256',$Job.config_sha256,'-ResultFile',$ResultFile)
     switch -CaseSensitive ($Job.operation) {
         'Preflight' {$args+=@('-PreflightOnly','-Package',$Job.package)}
         'Install' {$args+=@('-Operation','Install','-Package',$Job.package,'-Yes')}
@@ -93,7 +97,7 @@ function Invoke-ALAdminChild([string]$Worker,[string]$Capsule,[string]$JobId,[st
     $process=New-Object Diagnostics.Process
     try {
         $process.StartInfo.FileName=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        $process.StartInfo.Arguments=ConvertTo-ALAdminCommandLine @('-NoProfile','-NonInteractive','-File',$Worker,'-Capsule',$Capsule,'-JobId',$JobId,'-Run',$Run)
+        $process.StartInfo.Arguments=ConvertTo-ALAdminCommandLine @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$Worker,'-Capsule',$Capsule,'-JobId',$JobId,'-Run',$Run)
         $process.StartInfo.UseShellExecute=$false;$process.StartInfo.CreateNoWindow=$true
         $process.StartInfo.RedirectStandardOutput=$true;$process.StartInfo.RedirectStandardError=$true
         $process.StartInfo.EnvironmentVariables['PATH']="$env:SystemRoot\System32;$env:SystemRoot\System32\WindowsPowerShell\v1.0"

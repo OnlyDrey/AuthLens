@@ -22,6 +22,27 @@ package, configuration approval and immutable job definitions; the selected enab
 read/execute permission on the dedicated Task Scheduler folder/tasks. Task ownership is Administrators, not the operator user SID. Tasks run
 as SYSTEM with highest privileges, on demand only, with no password or automatic trigger. UAC and Windows security policy are unchanged.
 
+SYSTEM can have a restrictive PowerShell execution policy even when the interactive administrator can import the scripts.
+Without an explicit process policy, Task Scheduler may launch PowerShell successfully but script loading fails with
+`PSSecurityException` before capsule validation or report creation. New registrations launch the fixed approved entrypoint
+with `-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ...`; the contained worker and installer-adapter subprocess
+use the same process-scoped policy. No machine/user policy, trusted store, AppLocker rule or other Windows control changes.
+Execution policy is not capsule authorization: the immutable payload hashes, ACLs, approved operation/configuration,
+SYSTEM identity, containment, timeout and recovery guards still apply. Group Policy/application-control restrictions remain authoritative.
+
+Existing capsules/tasks are never patched in place. From an elevated PowerShell, invoke the bootstrap with a process-only
+policy and explicitly select `-Operations Health,Preflight -Approve` to create a new isolated read-only acceptance capsule.
+Reuse a verified release/tools directory and recovery bundle; no application/package rebuild or service restart is required
+for this administrative-launch fix. Inspect the new task action arguments and structured results before accepting startup.
+
+Focused validation: `AuthLens.Admin.Tests.ps1` verifies generated command lines, unchanged security guards, worker startup
+from a process with `Restricted` policy and native process-tree timeout containment. `AuthLens.Admin.System.Tests.ps1`
+is an opt-in Windows acceptance test: set `AUTHLENS_TEST_SYSTEM_EXECUTION=1` in an elevated Windows PowerShell and run only
+that Pester file. It creates a unique Admin/SYSTEM-protected harmless task/script directory, verifies SYSTEM entrypoint/worker
+policy and unchanged persistent policy scopes, then removes only its own task and retains its evidence directory.
+It never accesses an AuthLens database or runs Health/Preflight or any service operation. Actual Health/Preflight acceptance
+against a new approved capsule is separate; a skipped SYSTEM test is not a SYSTEM acceptance pass.
+
 There is deliberately no inbox accepting shell commands, scripts, executable paths, arbitrary arguments or newly built payloads. Each task
 selects one preapproved immutable operation ID. Supported verbs currently are Health, Preflight, Install, Upgrade, Repair, Recover, Uninstall, Start, Stop
 and Restart. Uninstall is preservation-only and must be explicitly selected at bootstrap; standalone firewall jobs are not exposed.
@@ -54,10 +75,12 @@ the capsule's administrative target paths and must not be removed.
 Start-ScheduledTask -TaskPath '\AuthLens-Development-<capsule-id>\' -TaskName '<approved-operation-id>'
 ```
 
-Current validation: focused allowlist, injection, manifest-tamper and isolation contracts pass; a native Windows test proved timeout termination
-of a synthetic worker **and descendant** while retaining evidence. Actual task registration, medium-integrity start/deny-write checks and
-installer lifecycle runs still require the one-time elevated bootstrap. These source/native containment checks do not prove unattended
-elevation, restore, upgrade or production readiness.
+Current validation: focused allowlist, injection, manifest-tamper and isolation contracts pass; native Windows tests proved worker startup
+under a Restricted parent process policy and timeout termination of a synthetic worker **and descendant** while retaining evidence.
+Windows acceptance reported that existing tasks launched as SYSTEM but script loading failed before reports because scripts were disabled.
+The process-policy correction requires a newly approved capsule; corrected SYSTEM Health/Preflight and medium-integrity start/deny-write
+checks remain pending, as do installer lifecycle runs. These source/native containment checks do not prove unattended administrative
+acceptance, restore, upgrade or production readiness.
 
 ## Example values and local configuration
 
