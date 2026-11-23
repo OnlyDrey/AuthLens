@@ -1,4 +1,5 @@
 import type { APIRequestContext, APIResponse, Locator, Page } from '@playwright/test'
+import { expect } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { existsSync } from 'node:fs'
@@ -144,9 +145,12 @@ export async function openFilters(page: Page) {
 }
 export async function closeFilters(page: Page) {
   if (page.viewportSize()!.width >= 1024) return
-  // The drawer covers the toolbar button with a backdrop; its own Close button is the reliable dismissal.
-  const close = page.getByRole('button', { name: 'Close filters', exact: true })
-  if (await close.isVisible()) await close.click()
+  // FilterLayout uses the shared Dialog close action on narrow screens.
+  const drawer = page.getByRole('dialog', { name: 'Filters', exact: true })
+  if (await drawer.isVisible()) {
+    await drawer.getByRole('button', { name: 'Close dialog', exact: true }).click()
+    await expect(drawer).toHaveCount(0)
+  }
 }
 
 /** Pick one value in a multi-select filter: open it, search, toggle the option and close the list. Selections stay independent of the search text. */

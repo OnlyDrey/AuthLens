@@ -9,7 +9,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, goTo, openFilters, closeFilters, setDescending, sortDirection, pickMulti, postConfiguration } from './support'
+import { headers, goTo, openFilters, closeFilters, setDescending, sortDirection, pickMulti, postConfiguration, selectSettingsSection } from './support'
 import { DEFAULT_THEME_ONLY } from './matrix'
 const fields =
   'Site;Name;SamAccountName;UserPrincipalName;Mail;Department;Title;Enabled;DistinguishedName;ManagerDN;ManagerName;ManagerSamAccountName;ManagerMail;ManagerDepartment;ManagerTitle;ManagerLookupStatus'.split(
@@ -458,6 +458,14 @@ for (const theme of ['light', 'dark'])
       await page
         .getByRole('button', { name: 'Assignment date filters', exact: true })
         .click()
+      const dateControls = page.getByRole('dialog', { name: 'Assignment date controls', exact: true })
+      if (width < 1024) {
+        const filters = page.getByRole('dialog', { name: 'Filters', exact: true })
+        await expect(filters.getByRole('dialog', { name: 'Assignment date controls', exact: true })).toBeVisible()
+        await dateControls.getByRole('button', { name: 'Apply date filters', exact: true }).focus()
+        await page.keyboard.press('Tab')
+        expect(await filters.evaluate(element => element.contains(document.activeElement))).toBe(true)
+      }
       await page
         .getByText('Advanced interval filtering', { exact: true })
         .click()
@@ -471,6 +479,7 @@ for (const theme of ['light', 'dark'])
         exact: true,
       })
       await expect(calendar).toBeVisible()
+      if (width < 1024) await expect(page.getByRole('dialog', { name: 'Filters', exact: true }).getByRole('dialog', { name: 'Calendar for Start date from', exact: true })).toBeVisible()
       const box = (await calendar.boundingBox())!
       expect(box.x).toBeGreaterThanOrEqual(0)
       expect(box.x + box.width).toBeLessThanOrEqual(width)
@@ -489,9 +498,7 @@ for (const theme of ['light', 'dark'])
       await page
         .getByRole('button', { name: 'Open settings', exact: true })
         .click()
-      await page
-        .getByRole('tab', { name: 'Health & Diagnostics', exact: true })
-        .click()
+      await selectSettingsSection(page, 'Health & Diagnostics')
       await shot('health-settings')
     })
 

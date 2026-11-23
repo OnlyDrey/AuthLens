@@ -53,6 +53,14 @@ Protect off-VM recovery material before a snapshot rollback. See the [production
 
 Release browser audits navigate through the responsive drawer on narrow viewports, rather than targeting the hidden
 desktop navigation. Active-route, decoration and keyboard-focus assertions still apply to the visible navigation links.
+Narrow filter audits dismiss the shared dialog through its scoped close action and verify removal before interacting
+with results; Settings audits use the section drawer below its breakpoint.
+Search-layout assertions follow the implemented shared filter sidebar/drawer and verify visual and DOM reading order.
+Release regression reproduced an assignment-date popover behind the mobile drawer backdrop. Popover and calendar
+portals now stay within their owning modal; the original 375 px interaction and Account Review light/dark checks at
+375/800/1280 px pass. This correction does not complete the full release browser or native installer gates.
+The remaining Playwright campaign was stopped at the user's request; completed results and failure traces are retained.
+Unexecuted or interrupted tests are not passes, and full browser acceptance remains outstanding before release approval.
 
 Focused Edge/Chromium checks cover light/dark layouts from 360 to 1600 px, keyboard/focus behavior, touch emulation, Settings sections, column preferences and displayed-row CSV exports. Screenshots and failed-run diagnostics remain in ignored local test artifacts. Real iOS/Android browsers, Safari and acceptance against the deployed application remain outstanding. Complex tables intentionally scroll horizontally; column configuration does not imply manual width resizing.
 

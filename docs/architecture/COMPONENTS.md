@@ -118,6 +118,9 @@ provides compact StatusCard, FilterPanel and ResultsToolbar wrappers.
 Assignment dates use the shared Popover. Combobox/calendar portals register their
 popover ownership so an inner selection does not dismiss its parent. Escape closes
 the inner popup first; the next Escape restores focus to the outer trigger. The
+Popover and calendar portal into their nearest modal dialog when present, keeping
+them above its backdrop and within its Tab focus scope; outside a modal they use the body.
+This applies to mobile filter drawers without changing theme or stacking values. The
 Component Library uses these actual components with isolated synthetic state.
 See [validation tracker](../validation/README.md) for scope and validation.
 

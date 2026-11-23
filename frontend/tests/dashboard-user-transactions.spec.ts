@@ -224,14 +224,15 @@ for (const { theme, width } of layoutMatrix([375, 800, 1280]))
         fullPage: true,
       })
       await goTo(page, 'Role Lookup')
-      // Filters live in the sidebar (wide) or drawer (narrow); the role search stays in the page body.
+      // Role search and transaction filters share the sidebar/drawer in reading order.
       const name = page.getByPlaceholder('Search roles by name or description...'),
         tcode = page.getByRole('textbox', { name: 'Filter catalogue by transaction', exact: true })
       await openFilters(page)
       await expect(tcode).toBeVisible()
       const a = (await name.boundingBox())!, b = (await tcode.boundingBox())!
       expect(Math.abs(a.height - b.height)).toBeLessThanOrEqual(2)
-      if (width >= 1024) expect(b.x + b.width).toBeLessThanOrEqual(a.x + 1) // sidebar before content, in DOM and visual order
+      expect(b.y).toBeGreaterThanOrEqual(a.y + a.height)
+      expect(await name.evaluate((element, other) => !!(element.compareDocumentPosition(other!) & Node.DOCUMENT_POSITION_FOLLOWING), await tcode.elementHandle())).toBe(true)
       await tcode.fill('MIGO')
       await tcode.press('Enter')
       await tcode.fill('ME21N')
