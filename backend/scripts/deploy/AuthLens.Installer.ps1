@@ -25,11 +25,13 @@ function Assert-ALInstallerPath([string]$Path) {
     Test-ALPathTree $full
 }
 
-function Get-ALInstallerPackage([string]$Package) {
+function Get-ALInstallerPackage([string]$Package,[switch]$PublishedServer) {
     Assert-ALInstallerPath $Package
     $null = @(Get-ALTreeFiles $Package)
     $verifier = Join-AL (Split-Path $PSScriptRoot) 'verify-release.ps1'
-    $result = Invoke-ALProcess (Get-ALShell) @('-NoProfile','-NonInteractive','-File',$verifier,'-ReleasePath',$Package) ''
+    $arguments=@('-NoProfile','-NonInteractive','-File',$verifier,'-ReleasePath',$Package)
+    if($PublishedServer){$arguments+=@('-Scope','Server')}
+    $result = Invoke-ALProcess (Get-ALShell) $arguments ''
     if ($result.ExitCode -ne 0) { Stop-AL 'Installer package integrity verification failed; no installed files were replaced.' }
     $manifest = Get-Content -LiteralPath (Join-AL $Package 'build-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($manifest.product -cne 'AuthLens' -or $manifest.target_platform -ne 'win-x64' -or $manifest.source_dirty) { Stop-AL 'Only a clean AuthLens Windows package may be installed.' }
@@ -380,7 +382,7 @@ function Invoke-ALInstallerRepairRecover($Config) {
     $current=Get-ALLink (Get-ALCurrentLink $Config)
     if($current -notin @($journal.from_release,$journal.to_release)){Stop-AL 'Repair recovery refuses an unrelated active release.' 4}
     if(-not(Test-Path -LiteralPath (Join-AL $Config.DataDirectory 'authlens.sqlite3') -PathType Leaf)){Stop-AL 'Repair recovery refuses missing application data.' 4}
-    $manifest=Get-ALInstallerPackage $journal.to_release
+    $manifest=Get-ALInstallerPackage $journal.to_release -PublishedServer
     $original=Join-AL $journal.from_release 'build-manifest.json'
     if($manifest.source_sha -cne $journal.source_sha -or $manifest.version -cne $journal.version -or -not(Test-Path -LiteralPath $original) -or (Get-FileHash -LiteralPath $original).Hash -ine (Get-FileHash -LiteralPath (Join-AL $journal.to_release 'build-manifest.json')).Hash){Stop-AL 'Repair recovery payload differs from the retained installed identity.' 4}
     $service=Get-ALService $Config.ServiceName
@@ -427,7 +429,7 @@ function Get-ALServerUninstallPlan($Resolved) {
     if(-not $identity -or $identity.config_file -ine $config.ConfigFile -or $identity.config_sha256 -cne $Resolved.ConfigSha256 -or $identity.data_directory -ine $config.DataDirectory -or $identity.service_account -ine $config.ServiceAccount){Stop-AL 'Uninstall requires a matching installed-product receipt and unchanged deployment configuration.'}
     $release=Get-ALLink (Get-ALCurrentLink $config)
     if(-not $release -or -not(Test-ALPathWithin $release $config.ReleasesRoot)){Stop-AL 'Uninstall release ownership is not verified.'}
-    $manifest=Get-ALInstallerPackage $release
+    $manifest=Get-ALInstallerPackage $release -PublishedServer
     if($identity.manifest_sha256 -cne (Get-FileHash -LiteralPath (Join-AL $release 'build-manifest.json')).Hash.ToLowerInvariant()){Stop-AL 'Uninstall installed manifest disagrees with the ownership receipt.'}
     $service=Get-ALService $config.ServiceName
     if($service.Exists -and ($service.Account -ine $config.ServiceAccount -or -not(Test-ALServiceBinary $service.PathName $config) -or @(Compare-ALServiceArguments @((Split-ALCommandLine $service.PathName)|Select-Object -Skip 1) @(Get-ALServiceArguments $config)).Count)){Stop-AL 'Uninstall refuses an unrelated service registration.'}

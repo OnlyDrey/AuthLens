@@ -965,6 +965,11 @@ No database, TLS file, key, configuration, release or recovery artifact is delet
 test data is not implemented. Uninstall of older installations without the modern receipt is refused safely; first perform
 a verified supported upgrade. Native execution and failure-interruption acceptance remain pending.
 
+Recovery and uninstall validate published Server releases with the verifier's explicit `Server` scope: Desktop/symbol
+artifacts are intentionally omitted by publication. Original manifests, checksums and the deployment declaration remain
+required and unchanged; a missing or modified Server artifact still fails verification. Initial installer payloads retain
+full-scope verification. A synthetic publish-to-lifecycle regression exercises the real verifier without SCM changes.
+
 | Requirement | Status and reason | Next action |
 | --- | --- | --- |
 | Fresh configuration and TLS | Fresh generation/selection/import and create-only bound publication implemented; no automatic trusted-store modification | Installed-certificate renewal/replacement transaction remains incomplete; native GUI, ACL/service-key access and client-trust acceptance pending |

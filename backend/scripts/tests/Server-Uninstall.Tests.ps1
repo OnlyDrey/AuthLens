@@ -31,6 +31,7 @@ Describe 'Uninstall ownership review rejects adoption and preserves external pat
         $plan.data_retention|Should -Be 'preserve all'
         $plan.preserved_paths|Should -Contain $config.CertificatePath
         $plan.firewall_rules.Count|Should -Be 0
+        Should -Invoke -ModuleName AuthLens.Deploy Get-ALInstallerPackage -Times 1 -ParameterFilter {$PublishedServer}
         $output=Join-Path $root 'plan.ini';Write-ALServerSetupPlan $output $plan
         Get-Content $output -Raw|Should -Match $resolved.ConfigSha256
     }

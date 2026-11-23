@@ -24,7 +24,8 @@ as SYSTEM with highest privileges, on demand only, with no password or automatic
 
 There is deliberately no inbox accepting shell commands, scripts, executable paths, arbitrary arguments or newly built payloads. Each task
 selects one preapproved immutable operation ID. Supported verbs currently are Health, Preflight, Install, Upgrade, Repair, Recover, Uninstall, Start, Stop
-and Restart; firewall/uninstall jobs are not advertised before their adapters exist. To approve **changed privileged code/payload/configuration**,
+and Restart. Uninstall is preservation-only and must be explicitly selected at bootstrap; standalone firewall jobs are not exposed.
+To approve **changed privileged code/payload/configuration**,
 an administrator must register a new capsule explicitly. An unprivileged build cannot update SYSTEM's inputs; unattended operation is not
 permission to approve future arbitrary code. Old capsules and recovery artifacts are retained.
 
@@ -33,7 +34,8 @@ replacement/modification during an operation. A global mutex serializes jobs. A 
 its operation gate opens. A timeout kills only that process tree and retains a global pending-operation barrier and transaction journals;
 subsequent mutations require the approved recovery operation for the same root (a safe Stop remains available but never clears the barrier).
 Task interruption also leaves that barrier. Recovery must
-prove service readiness and absence of interrupted transaction markers before clearing it. No automatic rollback success is inferred.
+prove service readiness and absence of interrupted transaction markers before clearing it. Completed uninstall instead verifies service absence
+and cleared transaction markers. No automatic rollback success is inferred.
 
 Each invocation has a unique report directory with operation/job IDs, UTC start/end, exit code and redacted diagnostic. Raw subprocess output
 and credentials are not published. Existing encrypted backups, keys, TLS, historical evidence and repository/development tools are outside

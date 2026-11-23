@@ -39,6 +39,7 @@ Describe 'Interrupted offline repair recovery is bound and fail closed' {
         Test-Path $marker|Should -BeFalse
         Test-Path $old|Should -BeTrue
         Should -Invoke -ModuleName AuthLens.Deploy Wait-ALReady -Times 1
+        Should -Invoke -ModuleName AuthLens.Deploy Get-ALInstallerPackage -Times 1 -ParameterFilter {$PublishedServer}
     }
     It 'refuses changed configuration without stopping the service' {
         Add-Content $file 'changed'
