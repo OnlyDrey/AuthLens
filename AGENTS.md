@@ -7,7 +7,7 @@
 - Validate every change with the Progressive test validation policy below (Level 1 and 2 during development). The whole .NET suite
   (`dotnet test backend/tests/AuthLens.Tests`) and the complete browser suite are explicit FULL checks, not automatic development steps. Keep
   frontend type/build checks proportional to affected code.
-- **AuthLens is the .NET implementation in `backend/` with the React frontend in `frontend/`** (product version 2.0.0-alpha.1; the product was
+- **AuthLens is the .NET implementation in `backend/` with the React frontend in `frontend/`** (development target 2.0.0, NOT APPROVED for production until release gates pass; the product was
   previously named SAP Lens and the repository keeps the name `sap-lens`; never call the current product "SAP Lens", "SAP Lens 2" or "AuthLens 2").
   Canonical identities: Windows service `AuthLens`, installation root `C:\ProgramData\AuthLens`, database `authlens.sqlite3`, server
   `AuthLens.Api.exe`, environment variables `AUTHLENS_*`. SAP Lens data reaches AuthLens only by restoring a backup into a fresh installation (or the

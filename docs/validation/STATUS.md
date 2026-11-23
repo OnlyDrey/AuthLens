@@ -59,5 +59,10 @@ Run the smallest relevant tests while developing, then the complete affected spe
 are explicit release/merge checkpoints, not automatic development checks. Record infrastructure failures separately from application failures.
 Use synthetic data and disposable test storage. Native Windows, WebView2, SCM, reboot/recovery, UNC and outside-network acceptance require the actual environment.
 
+Backup lifecycle fixtures use a nonparallel collection because the production backup/scheduler gates are process-wide.
+Their explicit simultaneous-tick checks remain concurrent within the fixture; unrelated fixtures must not consume those gates.
+Installer contracts read the canonical product version and prohibit Desktop-only callbacks/defaults in Server code, while
+allowing the implemented advanced Server `DataDirectory` setting. These test-isolation/contract corrections do not relax runtime guards.
+
 See [development](../development/README.md), [acceptance guide](README.md), [Windows deployment](../deployment/WINDOWS_DEPLOYMENT.md) and
 [backup/recovery](../operations/BACKUP_AND_RECOVERY.md). Current runtime/install state is operational evidence and is not a repository deployment configuration.

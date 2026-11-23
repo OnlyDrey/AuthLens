@@ -33,8 +33,12 @@ public sealed partial class InstallerTests
         Assert.DoesNotContain("AuthLens-Desktop-Code.iss", Server);
         Assert.DoesNotMatch("CONFIGFILE|ConfigFile|PrepareOnly|ExtractTemporaryFiles|DesktopData|#if", Transaction);
         Assert.DoesNotMatch("CONFIGFILE|ConfigFile|PrepareOnly|ExtractTemporaryFiles", DesktopCode);
-        Assert.DoesNotMatch("DesktopData|DATADIR|DataDirectory", ServerCode);
+        // Advanced Server data-directory configuration is legitimate; Desktop profile callbacks/defaults are not.
+        Assert.DoesNotMatch("DesktopData|DATADIR|localappdata", ServerCode);
+        Assert.DoesNotContain("-SetupMetadataFile", DesktopCode);
+        Assert.Contains("-SetupMetadataFile", ServerCode);
         Assert.Contains("InstallerArguments()", Transaction);
+        Assert.Contains("InstallerMetadataArguments()", Transaction);
         Assert.Contains("Result := PrepareInstaller()", Transaction);
     }
 
@@ -76,7 +80,9 @@ public sealed partial class InstallerTests
     {
         Assert.Equal("AuthLens-{#FullVersion}-Setup", Setting(Desktop, "OutputBaseFilename"));
         Assert.Equal("AuthLens-Server-{#FullVersion}-Setup", Setting(Server, "OutputBaseFilename"));
-        Assert.Equal("AuthLens-2.0.0-alpha.1-Setup", Setting(Desktop, "OutputBaseFilename").Replace("{#FullVersion}", ProductIdentity.Version));
+        var version = (string)System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(Repo, "backend", "product-version.json")))!["version"]!;
+        Assert.Equal($"AuthLens-{version}-Setup", Setting(Desktop, "OutputBaseFilename").Replace("{#FullVersion}", ProductIdentity.Version));
+        Assert.Equal($"AuthLens-Server-{version}-Setup", Setting(Server, "OutputBaseFilename").Replace("{#FullVersion}", ProductIdentity.Version));
     }
 
     [Fact]

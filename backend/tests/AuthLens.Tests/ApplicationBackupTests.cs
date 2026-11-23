@@ -12,8 +12,14 @@ using AuthLens.Persistence;
 
 namespace AuthLens.Tests;
 
+// ApplicationBackups and BackupSchedule deliberately use process-wide exclusion gates. Do not let another
+// fixture's backup make this fixture's explicit two-call concurrency test skip a legitimately busy occurrence.
+[CollectionDefinition("backup lifecycle", DisableParallelization = true)]
+public sealed class BackupLifecycleCollection;
+
 /// <summary>Application backups and restore through the v1 routes: the host key and escrow, verified encrypted archives, history, download and delete,
 /// the schedule, staged restore with validation, the restart handoff with a destination recovery backup, rollback, and the Server account boundary.</summary>
+[Collection("backup lifecycle")]
 public sealed class ApplicationBackupTests : IAsyncLifetime
 {
     private readonly string _root = Directory.CreateTempSubdirectory("saplens-backups-").FullName;
