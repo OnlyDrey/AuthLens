@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url'
 
 export const brandingDirectory = new URL('../assets/branding/', import.meta.url)
 export const branding = JSON.parse(readFileSync(new URL('manifest.json', brandingDirectory), 'utf8'))
-export const webAssets = ['logo', 'favicon', 'appleTouchIcon']
+export const webAssets = ['logo', 'favicon', 'appleTouchIcon', 'applicationImage', 'webIcon192', 'maskableIcon', 'webManifest']
+const contentType = name => name.endsWith('.webmanifest') ? 'application/manifest+json' : name.endsWith('.ico') ? 'image/x-icon' : 'image/png'
 
 // Read source bytes on every build/request: no checked-in copies or generated images.
 export function brandingPlugin() {
@@ -19,7 +20,7 @@ export function brandingPlugin() {
       server.middlewares.use((request, response, next) => {
         const name = webAssets.map(key => branding[key]).find(name => request.url?.split('?')[0] === `/${name}`)
         if (!name) return next()
-        response.setHeader('Content-Type', name.endsWith('.ico') ? 'image/x-icon' : 'image/png')
+        response.setHeader('Content-Type', contentType(name))
         response.end(readFileSync(new URL(name, brandingDirectory)))
       })
     },

@@ -22,8 +22,17 @@ Describe 'Compiled Inno installer isolation' {
         $source = Join-Path $installer "AuthLens-$Mode.iss"
         $expanded = Join-Path $repo 'expanded.iss'
         Add-Content -LiteralPath $source ('#expr SaveToFile("' + $expanded + '")')
-        & $script:Iscc '/Q' '/O-' '/DFullVersion=2.0.0-alpha.1' '/DNumericVersion=2.0.0.1' "/DReleaseDir=$payload" '/DPackageName=synthetic' "/DToolsDir=$tools" $source
+        $output=Join-Path $repo 'compiled'
+        & $script:Iscc '/Q' "/O$output" '/DFullVersion=2.0.0-alpha.1' '/DNumericVersion=2.0.0.1' "/DReleaseDir=$payload" '/DPackageName=synthetic' "/DToolsDir=$tools" $source
         $LASTEXITCODE | Should -Be 0
+        $binary=@(Get-ChildItem -LiteralPath $output -Filter '*.exe')
+        $binary.Count|Should -Be 1
+        Push-Location (Resolve-Path (Join-Path $PSScriptRoot '../../..'))
+        try{
+            # Inspect resources only: these synthetic installers must never execute.
+            & node --input-type=module -e "import {verifyExecutable} from './scripts/verify-branding.mjs'; console.log(JSON.stringify(verifyExecutable(process.argv[1])))" $binary[0].FullName
+            $LASTEXITCODE|Should -Be 0
+        }finally{Pop-Location}
         $code = Get-Content -LiteralPath $expanded -Raw
         $code | Should -Match 'This exact Setup payload already exists'
         $code | Should -Match 'ssPostInstall'

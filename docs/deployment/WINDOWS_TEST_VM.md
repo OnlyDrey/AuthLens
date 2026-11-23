@@ -78,9 +78,11 @@ Start-ScheduledTask -TaskPath '\AuthLens-Development-<capsule-id>\' -TaskName '<
 Current validation: focused allowlist, injection, manifest-tamper and isolation contracts pass; native Windows tests proved worker startup
 under a Restricted parent process policy and timeout termination of a synthetic worker **and descendant** while retaining evidence.
 Windows acceptance reported that existing tasks launched as SYSTEM but script loading failed before reports because scripts were disabled.
-The process-policy correction requires a newly approved capsule; corrected SYSTEM Health/Preflight and medium-integrity start/deny-write
-checks remain pending, as do installer lifecycle runs. These source/native containment checks do not prove unattended administrative
-acceptance, restore, upgrade or production readiness.
+On 2026-11-23 a newly approved, separate Health/Preflight-only capsule completed both actual SYSTEM tasks with scheduler exit code 0 and
+structured parent reports marked passed. Preflight also produced a successful read-only adapter report; its upgrade plan did not perform an upgrade.
+The contained worker/adapter completed without execution-policy failures. The running service identity, startup mode and PID remained unchanged;
+16 independent recovery copies and the encrypted archive were hash-verified. Private machine-specific evidence remains in ignored test artifacts.
+This verifies read-only administrative startup, not mutating installer lifecycle, restore, upgrade or production readiness.
 
 ## Example values and local configuration
 

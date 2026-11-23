@@ -13,25 +13,35 @@ All built-in branding sources live in [`assets/branding/`](../../assets/branding
 
 | File | Use |
 | --- | --- |
-| `logo.png` | Supplied transparent 256 px application/header/sign-in logo |
+| `logo.png` | Brand Assets v2 transparent 1024 px application/header/sign-in logo; existing sign-in container is 80 CSS px |
 | `app.png` | Supplied transparent 512 px README/application image |
-| `favicon.ico` | Supplied browser icon: 16, 32, 48 and 64 px |
+| `favicon.ico` | Supplied browser icon: 16, 32 and 48 px |
 | `apple-touch-icon.png` | Supplied transparent 180 px bookmark/touch icon |
 | `app.ico` | Supplied Windows icon: 16, 24, 32, 48, 64, 128 and 256 px |
+| `icon-192.png` | Supplied 192 px web application icon |
+| `icon-maskable-512.png` | Supplied 512 px maskable icon, including its approved background/safe margin |
+| `site.webmanifest` | Single application manifest; reuses `app.png` for 512 px and does not override theme/background colors |
 
 Replace these source files at the same paths to update branding; preserve valid formats and the multi-size ICO contract. No application code
-change is required. These are byte-identical selections from the approved AuthLens asset package, not conversions or redesigned artwork.
-Preserve square proportions and transparency. There is no SVG source or distinct light/dark artwork; do not rename raster bytes to SVG or invent variants.
+change is required. The seven images are byte-identical selections from Brand Assets v2: `branding/authlens-transparent-1024.png`,
+`branding/authlens-512.png`, `windows/AuthLens.ico`, and `web/favicon.ico`, `web/icon-180.png`, `web/icon-192.png`, `web/icon-maskable-512.png`.
+They supersede the previous image bytes at stable names, without aliases or duplicate copies. The transparent mask is approximate/raster-derived;
+inspect edges on both backgrounds and readability at small sizes before deployment. Preserve square proportions and transparency.
+There is no editable SVG master. Supplied dark/light background previews are not needed for the application; use the same transparent mark in both themes.
 
-The Vite branding plugin reads the manifest and serves/emits `/logo.png`, `/favicon.ico` and `/apple-touch-icon.png` directly from canonical sources for development and
+The Vite branding plugin reads the asset-role manifest and serves/emits all seven web assets directly from canonical sources for development and
 production. There are no checked-in frontend copies. The .NET API embeds the production UI for both Server and Desktop; both executable projects
 and both Inno Setup scripts consume `assets/branding/app.ico`. The Desktop window extracts that embedded executable icon. Existing custom uploaded
 header/report logos are user data and are unaffected. A configured organization logo continues to override the built-in header logo.
 Report image fixtures are synthetic validation inputs, not application branding. Desktop shortcuts inherit the Desktop EXE icon; the Server
 Service Manager shortcut explicitly uses the Server EXE icon rather than PowerShell's. The Service Manager itself is a console tool.
+PDF/DOCX rendering consumes only the frozen user-selected report logo; when none is supplied it does not substitute a built-in image.
+No report/logo settings, frozen evidence or custom uploaded images are rewritten by replacing the application assets.
 
-The supplied preview backgrounds, original concept, duplicate PNG sizes and PWA candidates stay outside the repository. The current application
-does not register a service worker or advertise PWA installation; no web manifest or maskable-icon promise is introduced. No role data is cached offline.
+The supplied preview backgrounds, original concept and duplicate PNG sizes stay outside the repository and production bundles.
+The single web manifest merges the supplied name/display/icon metadata with the application's root start URL/scope/id. Its reference colors are
+intentionally omitted: Brand Assets v2 does not change any application palette, CSS variable, light/dark behavior, navigation style, typography or spacing.
+No service worker or offline data cache is introduced; manifest metadata is not an offline-support promise. Existing authorization still applies.
 
 The former product-specific asset paths are not compatibility interfaces; no redirects or duplicate aliases are retained. An already-installed release keeps its embedded images until deliberately
 updated; changing repository branding never changes a running service. Validate with `node --test scripts/tests/branding.test.mjs`, the frontend
@@ -39,6 +49,16 @@ production build, affected .NET build/installer tests and native Inno compilatio
 also runs `scripts/verify-branding.mjs`: all seven canonical ICO frame payloads must exist in both published EXEs
 and both Setup EXEs, and canonical web images must occur byte-for-byte in both embedded UIs and in frontend output. Its report is stored at
 `build/branding-verification.json` inside the unique build directory. Single-file compression stays disabled; stale embedded images fail verification.
+
+Brand Assets v2 focused Windows verification: the frontend production build/type check, six branding Node tests, both synthetic
+Inno compilations (including PE icon-resource inspection), and the Desktop/direct-dependency build passed. Both built apphosts contain
+all seven approved ICO frames. Isolated Edge checks verify embedded web bytes/manifest MIME type and capture sign-in at 390/1280 px,
+the application header in both themes, and a light/dark icon contact sheet. Existing theme/token/style files and README logo markup
+are unchanged. Contact-sheet image URLs are separate from Edge's special favicon cache; no production cache policy is changed.
+The supplied mark retains generous internal spacing: the silhouette is visible at 16 px but fine person/shield details are limited.
+No optical small-size replacement, cropping or mask correction was invented. The inspected 64–96 px logo preserves its aspect ratio
+and has no obvious mask halo in the captured application views; this does not replace native Explorer, taskbar, shortcut or browser-tab
+GUI acceptance. No installed application was updated, and no full release package was rebuilt for this source integration.
 
 Windows Explorer, Start Menu and taskbar may retain cached icons after an upgrade. Relaunch the application, unpin/re-pin a stale shortcut or sign
 out/in if needed; do not delete icon-cache files or add cache-reset behavior to Setup. Browser tabs may need a reload/cache refresh. Native

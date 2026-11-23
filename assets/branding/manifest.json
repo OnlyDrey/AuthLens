@@ -3,5 +3,8 @@
   "favicon": "favicon.ico",
   "appleTouchIcon": "apple-touch-icon.png",
   "windowsIcon": "app.ico",
-  "applicationImage": "app.png"
+  "applicationImage": "app.png",
+  "webIcon192": "icon-192.png",
+  "maskableIcon": "icon-maskable-512.png",
+  "webManifest": "site.webmanifest"
 }
