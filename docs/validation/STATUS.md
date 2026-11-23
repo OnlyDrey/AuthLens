@@ -51,6 +51,9 @@ Protect off-VM recovery material before a snapshot rollback. See the [production
 
 ### Responsive acceptance scope
 
+Release browser audits navigate through the responsive drawer on narrow viewports, rather than targeting the hidden
+desktop navigation. Active-route, decoration and keyboard-focus assertions still apply to the visible navigation links.
+
 Focused Edge/Chromium checks cover light/dark layouts from 360 to 1600 px, keyboard/focus behavior, touch emulation, Settings sections, column preferences and displayed-row CSV exports. Screenshots and failed-run diagnostics remain in ignored local test artifacts. Real iOS/Android browsers, Safari and acceptance against the deployed application remain outstanding. Complex tables intentionally scroll horizontally; column configuration does not imply manual width resizing.
 
 ## Validation policy

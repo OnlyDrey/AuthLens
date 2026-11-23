@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { headers, backendFixture, saveConfiguration, recordClipboard, copiedText } from './support'
+import { headers, backendFixture, saveConfiguration, recordClipboard, copiedText, goTo } from './support'
 import { DEFAULT_THEME_ONLY } from './matrix'
 const fixture = backendFixture("user-access.csv");
 const catalogue =
@@ -391,8 +391,11 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1280, 600])
     await page.goto('/#session=browser-test-session')
     const nav = page.getByRole('navigation', { name: 'Main navigation' })
     for (const name of ['Release Roles', 'Role Lookup', 'User Access']) {
-      const button = nav.getByRole('link', { name, exact: true })
-      await button.click()
+      await goTo(page, name)
+      const mobile = width < 1024
+      if (mobile) await page.getByRole('button', { name: 'Open navigation', exact: true }).click()
+      const button = (mobile ? page.getByRole('dialog', { name: 'Navigation', exact: true }) : nav)
+        .getByRole('link', { name: mobile && name === 'User Access' ? 'User directory' : name, exact: true })
       await expect(button).toHaveAttribute('aria-current', 'page')
       await expect(button).toHaveCSS('box-shadow', 'none')
       await expect(button).toHaveCSS('border-bottom-width', '0px')
@@ -400,6 +403,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1280, 600])
       expect(await button.evaluate(element => ['::before', '::after'].map(pseudo => getComputedStyle(element, pseudo).content))).toEqual(['none', 'none'])
       await button.focus(); await button.press('Tab'); await page.keyboard.press('Shift+Tab')
       await expect(button).toHaveCSS('outline-style', 'solid')
+      if (mobile) await page.keyboard.press('Escape')
     }
     const row = page.getByRole('row').filter({ has: page.getByRole('link', { name: 'DEMO_ALFA', exact: true }) })
     const identifier = row.locator('.role-identifier')
@@ -424,7 +428,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1280, 600])
     await page.getByRole('button', { name: 'Back to users', exact: true }).click()
     await expect(page.getByRole('link', { name: 'DEMO_ALFA', exact: true })).toBeFocused()
     for (const code of ['FB03', 'ME23N']) {
-      await nav.getByRole('link', { name: 'Role Lookup', exact: true }).click()
+      await goTo(page, 'Role Lookup')
       await page.getByRole('button', { name: 'View details for ZC:FI:VIEW:*', exact: true }).click()
       const dialog = page.getByRole('dialog')
       const entry = dialog.locator('.single-role-entry')
@@ -478,7 +482,7 @@ test('long username code wraps within its cell and copies without navigation', a
   })
   await page.setViewportSize({ width: 600, height: 900 })
   await page.goto('/#session=browser-test-session')
-  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'User Access', exact: true }).click()
+  await goTo(page, 'User Access')
   const identifier = page.getByRole('link', { name: username, exact: true }).locator('..')
   await expect(identifier.locator('code')).toHaveText(username)
   expect(await identifier.evaluate(element => element.scrollWidth <= element.clientWidth)).toBeTruthy()
