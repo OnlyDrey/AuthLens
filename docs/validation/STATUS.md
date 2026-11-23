@@ -63,6 +63,8 @@ Backup lifecycle fixtures use a nonparallel collection because the production ba
 Their explicit simultaneous-tick checks remain concurrent within the fixture; unrelated fixtures must not consume those gates.
 Installer contracts read the canonical product version and prohibit Desktop-only callbacks/defaults in Server code, while
 allowing the implemented advanced Server `DataDirectory` setting. These test-isolation/contract corrections do not relax runtime guards.
+Accessibility audits use the shared responsive navigation/Settings helpers, preserving their original viewport,
+focus-order, accessible-name and clipping assertions instead of waiting for hidden desktop controls on mobile.
 
 See [development](../development/README.md), [acceptance guide](README.md), [Windows deployment](../deployment/WINDOWS_DEPLOYMENT.md) and
 [backup/recovery](../operations/BACKUP_AND_RECOVERY.md). Current runtime/install state is operational evidence and is not a repository deployment configuration.

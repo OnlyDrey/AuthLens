@@ -1,12 +1,11 @@
 import { test, expect, type Page } from '@playwright/test'
 import { cleanup, createPeriod, openSod, seedGovernance } from './sod-fixture'
+import { goTo, selectSettingsSection } from './support'
 
 test.setTimeout(300_000)
 let directory: string
 test.beforeEach(async ({ request }) => { directory = await seedGovernance(request) })
 test.afterEach(async ({ request }) => { await cleanup(request, directory) })
-
-const main = (page: Page) => page.getByRole('navigation', { name: 'Main navigation', exact: true })
 
 /** Static checks plus a Tab walk: names, tab order hygiene, visible and unclipped focus indicators. */
 async function audit(page: Page, name: string, stops = 60) {
@@ -75,7 +74,7 @@ const GROUPS = {
     await page.goto('/#session=browser-test-session')
     problems.push(...await audit(page, tag('dashboard')))
     for (const label of ['Role Lookup', 'User Access', 'Release Roles']) {
-      await main(page).getByRole('link', { name: label, exact: true }).click()
+      await goTo(page, label)
       problems.push(...await audit(page, tag(label)))
     }
     return problems
@@ -93,7 +92,7 @@ const GROUPS = {
     await page.goto('/#session=browser-test-session')
     await page.getByRole('button', { name: 'Open settings', exact: true }).click()
     for (const section of ['Organization & SAP System', 'Data Sources', 'SAP Modules', 'SoD Risk Configuration', 'Features', 'Runtime & Scheduling', 'Health & Diagnostics']) {
-      await page.getByRole('tab', { name: section, exact: true }).click()
+      await selectSettingsSection(page, section)
       problems.push(...await audit(page, tag('Settings ' + section), 40))
     }
     return problems
