@@ -444,6 +444,12 @@ these files. A different package does not make an interrupted/unregistered popul
 Native metadata timing is tested using a uniquely identified, disposable per-user Inno probe and the actual
 read-only receipt verifier. This is not full Server/SCM acceptance. Desktop alpha-to-stable upgrade ordering
 is decided by the verified manifest's semantic product version, not the Windows file revision (`.1` to `.0`).
+Both the wizard and Desktop transaction defer channel ordering to that semantic guard. Desktop recovery preserves
+the displaced candidate with a short unique filename; program paths whose recovery-tool inventory would exceed
+Windows PowerShell's file-path budget are refused before provisioning. No long-path policy is changed globally.
+The opt-in native Desktop adapter test accepts `AUTHLENS_INSTALLER_TEST_RELEASE` and optional
+`AUTHLENS_INSTALLER_BASELINE_RELEASE` (verified full release directories) to exercise an actual alpha-to-stable
+update and binary recovery in a disposable fixture. It does not register or test the installed GUI shortcuts/ARP entry.
 
 #### Recovery of the failed production installation (manual, not automatic)
 

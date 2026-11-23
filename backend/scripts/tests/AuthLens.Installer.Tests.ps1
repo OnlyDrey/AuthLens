@@ -21,10 +21,11 @@ Describe 'Native Desktop installer acceptance on explicitly selected synthetic f
     It 'installs, updates with an application-engine backup and recovers an interrupted checkpoint' -Skip:($env:OS -ne 'Windows_NT' -or -not $env:AUTHLENS_INSTALLER_TEST_RELEASE) {
         # Opt in with a verified full Windows release. No SCM, registry or existing data/profile is selected.
         $package=$env:AUTHLENS_INSTALLER_TEST_RELEASE
+        $initialPackage=if($env:AUTHLENS_INSTALLER_BASELINE_RELEASE){$env:AUTHLENS_INSTALLER_BASELINE_RELEASE}else{$package}
         $fixture=Join-Path $TestDrive ('native-installer-'+[Guid]::NewGuid().ToString('N'))
         New-ALInstallerPrivateDirectory $fixture
         $root=Join-Path $fixture 'program'; $data=Join-Path $fixture 'data'
-        $fresh=Invoke-ALInstallerDesktop $root $data $package
+        $fresh=Invoke-ALInstallerDesktop $root $data $initialPackage
         $fresh.installed | Should -BeTrue; $fresh.updated | Should -BeFalse
         $keys=Join-Path $fixture 'keys'; New-ALInstallerPrivateDirectory $keys
         $server=Join-Path $package 'server/AuthLens.Api.exe'
@@ -193,6 +194,7 @@ Describe 'Installer transactions on isolated program/data fixtures' {
     }
     It 'refuses downgrades through the helper independently of Setup registry checks' {
         $path=Join-Path $Fixture.Root 'build-manifest.json'; $old=Get-Content $path -Raw | ConvertFrom-Json
+        $old | Add-Member source_sha ('a'*40)
         $old | Add-Member file_version @(2,0,0,2); $old | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 $path
         $script:Manifest | Add-Member file_version @(2,0,0,1)
         { Invoke-ALInstallerDesktop $Fixture.Root $Fixture.Data $Fixture.Package } | Should -Throw '*downgrades*'
@@ -204,6 +206,21 @@ Describe 'Installer transactions on isolated program/data fixtures' {
     }
     It 'refuses overlapping data and program roots' {
         { Invoke-ALInstallerDesktop $Fixture.Root (Join-Path $Fixture.Root 'data') $Fixture.Package } | Should -Throw '*outside its program directory*'
+    }
+    It 'accepts an alpha to stable Desktop transaction despite the lower Windows revision' {
+        $file=Join-Path $Fixture.Root 'build-manifest.json'
+        $old=Get-Content $file -Raw|ConvertFrom-Json
+        $old|Add-Member version '2.0.0-alpha.1';$old|Add-Member file_version @(2,0,0,1);$old|Add-Member source_sha ('a'*40)
+        $old|ConvertTo-Json -Depth 8|Set-Content $file -Encoding UTF8
+        $script:Manifest|Add-Member version '2.0.0';$script:Manifest|Add-Member file_version @(2,0,0,0)
+        (Invoke-ALInstallerDesktop $Fixture.Root $Fixture.Data $Fixture.Package).updated|Should -BeTrue
+        [IO.File]::ReadAllText((Join-Path $Fixture.Root 'AuthLens.exe'))|Should -Be 'new'
+    }
+    It 'rejects unsupported deep Desktop program paths before maintenance or provisioning' {
+        $deep=Join-Path $TestDrive ('x'*([Math]::Max(1,210-$TestDrive.Length)))
+        {Invoke-ALInstallerDesktop $deep $Fixture.Data $Fixture.Package}|Should -Throw '*recovery path limit*'
+        Test-Path $deep|Should -BeFalse
+        Should -Invoke -ModuleName $M Invoke-ALMaintenance -Times 0
     }
     It 'refuses protected legacy paths without running any native operation' {
         { Assert-ALInstallerPath 'C:\saplens2\data' } | Should -Throw '*Protected legacy*'

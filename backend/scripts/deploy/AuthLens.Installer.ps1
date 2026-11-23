@@ -962,7 +962,8 @@ function Restore-ALInstallerDesktop([string]$Root, [string]$Data, [string]$Journ
     $next = Join-AL $Root ('restore-' + [Guid]::NewGuid().ToString('N') + '.exe')
     Copy-Item -LiteralPath $old -Destination $next
     $installed = Join-AL $Root 'AuthLens.exe'
-    if (Test-Path -LiteralPath $installed) { [IO.File]::Replace($next,$installed,(Join-AL $Journal.run ('rollback-candidate-'+[Guid]::NewGuid().ToString('N')+'.exe'))) } else { [IO.File]::Move($next,$installed) }
+    # Keep the unique preserved candidate inside its recovery run without exceeding WinPS 5.1's file-path budget.
+    if (Test-Path -LiteralPath $installed) { [IO.File]::Replace($next,$installed,(Join-AL $Journal.run ([Guid]::NewGuid().ToString('N')+'.exe'))) } else { [IO.File]::Move($next,$installed) }
     Copy-Item -LiteralPath (Join-AL $Journal.run 'previous-manifest.json') -Destination (Join-AL $Root 'build-manifest.json') -Force
     Invoke-ALDesktopProbe $installed $Data
     $Journal.phase = 'rolled_back'; Write-ALInstallerJournal $JournalPath $Journal
@@ -970,6 +971,8 @@ function Restore-ALInstallerDesktop([string]$Root, [string]$Data, [string]$Journ
 
 function Invoke-ALInstallerDesktop([string]$Root, [string]$Data, [string]$Package, [switch]$Recover) {
     foreach ($path in $Root,$Data) { Assert-ALInstallerPath $path }
+    $recoveryTool=Join-AL $Root ('.setup-state/'+('f'*32)+'/recovery-tools/deploy/AuthLens.Installer.ps1')
+    if($recoveryTool.Length -ge 260){Stop-AL 'Desktop program path exceeds the validated Windows PowerShell recovery path limit. Choose a shorter dedicated program directory; no files were changed.'}
     if (Test-ALPathOverlap $Root $Data) { Stop-AL 'Desktop data must be outside its program directory.' }
     if (Test-Path -LiteralPath $Root) { $null = @(Get-ALTreeFiles $Root) }
     $manifest = Get-ALInstallerPackage $Package
@@ -1011,8 +1014,6 @@ function Invoke-ALInstallerDesktop([string]$Root, [string]$Data, [string]$Packag
         if ($updating -and @($schema.pending).Count) { Stop-AL 'Installer update cannot prove binary rollback across pending schema migrations; nothing was replaced.' }
         if ($updating) {
             $oldManifest = Assert-ALInstalledDesktop $Root
-            if ($oldManifest.PSObject.Properties['file_version'] -and $manifest.PSObject.Properties['file_version'] -and
-                [version](@($manifest.file_version) -join '.') -lt [version](@($oldManifest.file_version) -join '.')) { Stop-AL 'Installer downgrades are not supported.' }
             if ($oldManifest.PSObject.Properties['file_version'] -and $manifest.PSObject.Properties['file_version']) { Assert-ALInstallerUpgradeIdentity $oldManifest $manifest }
         } elseif (Test-Path -LiteralPath (Join-AL $Root 'build-manifest.json')) { Stop-AL 'A manifest exists without its installed Desktop; inspect the incomplete installation before proceeding.' }
         $run = Join-AL $state ([Guid]::NewGuid().ToString('N')); New-ALInstallerPrivateDirectory $run
