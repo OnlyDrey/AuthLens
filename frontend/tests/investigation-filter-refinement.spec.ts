@@ -1,3 +1,4 @@
+import {toggleRoleCategory} from './role-category-support'
 import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -88,18 +89,18 @@ test('catalogue AND/OR is exact across mapping rows; multi-area OR combines with
   ).toHaveCount(1)
   await tx.getByRole('button', { name: 'ANY', exact: true }).click()
   await expect(page.getByRole('article')).toHaveCount(2)
-  await areas.getByRole('button', { name: /^SD / }).click()
+  await toggleRoleCategory(page, 'SD')
   await expect(page.getByRole('article')).toHaveCount(0)
-  await areas.getByRole('button', { name: /^MM / }).click()
+  await toggleRoleCategory(page, 'MM')
   await expect(page.getByRole('article')).toHaveCount(1)
-  await areas.getByRole('button', { name: /^FI / }).click()
+  await toggleRoleCategory(page, 'FI')
   await expect(page.getByRole('article')).toHaveCount(2)
-  await areas.getByRole('button', { name: /^MM / }).click()
+  await toggleRoleCategory(page, 'MM')
   await expect(page.getByRole('article')).toHaveCount(1)
-  await expect(areas.getByRole('button', { name: /^FI / })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
+  await expect(areas.getByRole('combobox')).toContainText('2 categories selected')
+  await areas.getByRole('combobox').click()
+  await expect(page.getByRole('option', { name: /^FI / })).toHaveAttribute('aria-selected', 'true')
+  await areas.getByRole('combobox').press('Escape')
   const search = page.getByPlaceholder('Search roles by name or description...')
   await search.fill('Beta')
   await expect(page.getByRole('article')).toHaveCount(1)
@@ -110,10 +111,7 @@ test('catalogue AND/OR is exact across mapping rows; multi-area OR combines with
     .click()
   await expect(page.getByRole('article')).toHaveCount(3)
   await expect(search).toHaveValue('')
-  await expect(areas.getByRole('button', { name: /^All / })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
+  await expect(areas.getByRole('combobox')).toContainText('All categories')
   await expect(
     page.getByRole('button', { name: 'Clear filters', exact: true }),
   ).toBeDisabled()
@@ -374,10 +372,9 @@ for (const { theme, width } of layoutMatrix([800, 1280]))
       await tx.getByRole('textbox').press('Enter')
       if (width < 1024) await page.keyboard.press('Escape')
       await expect(page.getByRole('article')).toHaveCount(1)
-      const areas = page.getByRole('group', { name: 'SAP areas', exact: true })
       if(width<1024)await page.getByRole('button',{name:/^Filters/}).click()
-      await areas.getByRole('button', { name: /^MM / }).click()
-      await areas.getByRole('button', { name: /^FI / }).click()
+      await toggleRoleCategory(page, 'MM')
+      await toggleRoleCategory(page, 'FI')
       if(width<1024)await page.getByRole('button',{name:'Show results',exact:true}).click()
       await page.screenshot({
         animations: 'disabled',

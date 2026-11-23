@@ -380,11 +380,6 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 .catalogue-search-controls { display:grid; grid-template-columns:minmax(0,1fr); gap:var(--space-3); }
 .catalogue-search-controls .catalogue-role-search { min-width:0; }
 .catalogue-search-controls .catalogue-role-search input { height:var(--control-height); }
-.catalogue-area-filter > .ui-tooltip-anchor { min-width:0; max-width:100%; }
-.role-category-pill { background:var(--surface2); color:var(--text2); border-color:var(--border); }
-.role-category-pill:hover:not(:disabled) { background:var(--hover); color:var(--text); }
-.role-category-pill[aria-pressed="true"] { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
-.role-category-pill[aria-pressed="true"]:hover:not(:disabled) { background:color-mix(in srgb,var(--accent) 90%,var(--surface)); }
 .notification-close:focus-visible { outline:var(--focus-width) solid var(--focus); outline-offset:var(--focus-offset); }
 .notification { color:var(--text); background:var(--surface); }
 .notification-success { color:var(--success); }

@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type SelectHTMLAttributes } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type SelectHTMLAttributes } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown } from 'lucide-react'
 import { observeAnchorLayout } from '@/lib/observeAnchorLayout'
@@ -28,10 +28,18 @@ const commit = (select: HTMLSelectElement, value: string) => {
  * Enter or Space choose, typing jumps to a matching label, Escape and Tab close it (Escape does not reach a surrounding dialog).
  * Multiple or sized selects keep the browser control. Use `Combobox` when the user needs to search or enter a value.
  */
-export function Select({ className = 'ui-control', onMouseDown, onKeyDown, onBlur, children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & {
+  /** Rich presentation preserves native option labels for keyboard search and accessible names. */
+  renderOption?: (value: string, label: string) => ReactNode
+  /** Optional compact multi-selection trigger; the caller owns toggling and the empty/all option. */
+  multiSelection?: { values: string[]; onSelect: (value: string) => void; content: ReactNode }
+}
+export function Select({ className = 'ui-control', onMouseDown, onKeyDown, onBlur, children, renderOption, multiSelection, ...props }: SelectProps) {
   const owners = usePopoverOwners()
   const uid = useId(), listId = `${uid}-list`
   const select = useRef<HTMLSelectElement>(null), popup = useRef<HTMLDivElement>(null), typed = useRef({ text: '', at: 0 })
+  const trigger = useRef<HTMLButtonElement>(null)
+  const focusControl = () => (trigger.current ?? select.current)?.focus()
   const [open, setOpen] = useState(false), [choices, setChoices] = useState<Choice[]>([]), [index, setIndex] = useState(0), [positioned, setPositioned] = useState(false)
   const [position, setPosition] = useState({ left: 0, top: 0, width: 0, maxHeight: 280 })
   const enhanced = !props.multiple && !(props.size && props.size > 1)
@@ -51,7 +59,8 @@ export function Select({ className = 'ui-control', onMouseDown, onKeyDown, onBlu
   const choose = (position: number) => {
     const choice = choices[position]
     if (!choice || choice.disabled || !select.current) return
-    close(); select.current.focus()
+    if (multiSelection) { multiSelection.onSelect(choice.value); focusControl(); return }
+    close(); focusControl()
     if (choice.value !== select.current.value) commit(select.current, choice.value)
   }
 
@@ -81,13 +90,13 @@ export function Select({ className = 'ui-control', onMouseDown, onKeyDown, onBlu
   useEffect(() => { if (open) document.getElementById(`${uid}-option-${index}`)?.scrollIntoView({ block: 'nearest' }) }, [open, index, uid])
   useEffect(() => { if (props.disabled) close() }, [props.disabled])
 
-  const keys = (event: KeyboardEvent<HTMLSelectElement>) => {
-    onKeyDown?.(event)
+  const keys = (event: KeyboardEvent<HTMLSelectElement | HTMLButtonElement>) => {
+    if (event.currentTarget instanceof HTMLSelectElement) onKeyDown?.(event as KeyboardEvent<HTMLSelectElement>)
     if (event.defaultPrevented || !enhanced) return
     const { key } = event
     if (!open) {
       // Closed: Enter, Space and Alt+Arrow open the list; a plain Arrow, Home, End and typing keep the browser's behaviour (they change the value and fire `change`).
-      if (key === 'Enter' || key === ' ' || (event.altKey && (key === 'ArrowDown' || key === 'ArrowUp'))) { event.preventDefault(); show() }
+      if (key === 'Enter' || key === ' ' || ((multiSelection || event.altKey) && (key === 'ArrowDown' || key === 'ArrowUp'))) { event.preventDefault(); show() }
       return
     }
     if (key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); return }
@@ -113,6 +122,7 @@ export function Select({ className = 'ui-control', onMouseDown, onKeyDown, onBlu
   return (
     <span className="settings-select shared-select" data-open={open || undefined}>
       <select {...props} ref={select} className={className}
+        hidden={multiSelection ? true : props.hidden} aria-hidden={multiSelection ? true : props['aria-hidden']} tabIndex={multiSelection ? -1 : props.tabIndex}
         aria-haspopup={enhanced ? 'listbox' : undefined} aria-expanded={enhanced ? open : undefined} aria-controls={enhanced && open ? listId : undefined}
         aria-activedescendant={enhanced && open && choices[index] ? optionId(index) : undefined}
         onMouseDown={event => { onMouseDown?.(event); if (enhanced && !event.defaultPrevented && event.button === 0 && !event.currentTarget.disabled) { event.preventDefault(); event.currentTarget.focus(); if (open) close(); else show() } }}
@@ -120,20 +130,27 @@ export function Select({ className = 'ui-control', onMouseDown, onKeyDown, onBlu
         onBlur={event => { onBlur?.(event); if (!popup.current?.contains(event.relatedTarget as Node)) close() }}>
         {children}
       </select>
+      {multiSelection && <button ref={trigger} type="button" role="combobox" className={`${className} flex min-w-0 items-center gap-2 text-left`}
+        disabled={props.disabled} aria-label={props['aria-label']} aria-describedby={`${uid}-selection`} aria-expanded={open} aria-haspopup="listbox" aria-controls={open ? listId : undefined}
+        aria-activedescendant={open && choices[index] ? optionId(index) : undefined}
+        onClick={() => { if (open) close(); else show() }} onKeyDown={keys}
+        onBlur={event => { if (!popup.current?.contains(event.relatedTarget as Node)) close() }}>
+        <span id={`${uid}-selection`} className="flex min-w-0 flex-1">{multiSelection.content}</span>
+      </button>}
       <ChevronDown size={16} aria-hidden="true" />
       {open && createPortal(
         <div ref={popup} data-popover-owner={owners} className="combobox-popup select-popup" style={{ position: 'fixed', ...position, visibility: positioned ? 'visible' : 'hidden' }} onMouseDown={event => event.preventDefault()}>
-          <div id={listId} role="listbox" aria-label={props['aria-label'] ?? undefined}>
+          <div id={listId} role="listbox" aria-multiselectable={multiSelection ? true : undefined} aria-label={props['aria-label'] ?? undefined}>
             {choices.map((choice, position) => {
               const heading = choice.group !== null && choice.group !== lastGroup ? choice.group : null
               lastGroup = choice.group
-              const selected = choice.value === select.current?.value
+              const selected = multiSelection ? multiSelection.values.includes(choice.value) : choice.value === select.current?.value
               return (
                 <div key={`${position}-${choice.value}`} role="presentation">
                   {heading && <p className="select-group" role="presentation">{heading}</p>}
                   <div id={optionId(position)} role="option" data-value={choice.value} aria-selected={selected} aria-disabled={choice.disabled || undefined}
                     className={`combobox-option ${position === index ? 'highlighted' : ''}`} onMouseMove={() => { if (!choice.disabled) setIndex(position) }} onClick={() => choose(position)}>
-                    <span>{choice.label}</span>{selected && <Check size={16} aria-hidden="true" />}
+                    <span className={renderOption ? 'min-w-0 flex-1' : undefined}>{renderOption ? renderOption(choice.value, choice.label) : choice.label}</span>{selected && <Check size={16} aria-hidden="true" />}
                   </div>
                 </div>
               )

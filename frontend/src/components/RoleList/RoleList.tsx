@@ -6,12 +6,13 @@ import { AccessPackagePanel } from './AccessPackagePanel'
 import { AccessPackageBar } from '@/components/Shared/AccessPackageBar'
 import { useAccessPackage } from '@/lib/accessPackage'
 import { FormField, SearchInput } from '@/components/Shared/Controls'
-import { Tooltip } from '@/components/Shared/Button'
+import { Select } from '@/components/Shared/Select'
+import { ModuleBadge } from '@/components/Modules/ModuleBadge'
 import { SavedFilters } from '@/components/Shared/SavedFilters'
 import { useApplicationData } from '@/state/ApplicationData'
 import { TransactionFilterGroups, useTransactionFilter } from '@/components/Shared/TransactionFilter'
 import { ClearFilterButton } from '@/components/Shared/ClearFilterButton'
-import { useState, useEffect, useMemo, useCallback, useId } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   GitCompare,
@@ -92,18 +93,12 @@ function applySort(roles: RoleSummary[], key: SortKey): RoleSummary[] {
   }
 }
 
-function CategoryPill({code,label,count,selected,onClick}:{code?:string;label:string;count:number;selected:boolean;onClick:()=>void}) {
-  const description=useId()
-  const displayCode=code!==label?code:undefined
-  return <Tooltip id={description} label={`${displayCode ? `${displayCode} — ` : ''}${label}: ${count} ${count===1?'role':'roles'}`}>
-    <button type="button" onClick={onClick} aria-pressed={selected} aria-describedby={description}
-      aria-label={`${displayCode ? `${displayCode} ` : ''}${label} (${count})`}
-      className="role-category-pill inline-flex h-9 min-w-0 max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 text-xs font-semibold leading-none transition-colors disabled:cursor-not-allowed disabled:opacity-50">
-      {displayCode&&<span className="shrink-0 font-bold">{displayCode}</span>}
-      <span className="min-w-0 truncate">{label}</span>
-      <span className="shrink-0 text-[11px] font-medium opacity-80">({count})</span>
-    </button>
-  </Tooltip>
+function CategoryLabel({code,label,count,expanded=false}:{code?:string;label:string;count:number;expanded?:boolean}) {
+  return <span className="flex min-w-0 flex-1 items-center gap-2" title={`${code ? `${code} — ` : ''}${label} (${count})`}>
+    {code && <span className="shrink-0"><ModuleBadge moduleId={code} variant="compact" /></span>}
+    <span className={`min-w-0 flex-1 ${expanded ? 'whitespace-normal break-words' : 'truncate'}`}>{code ? ' ' : ''}{label}</span>
+    <span className="shrink-0 text-xs text-muted"> ({count})</span>
+  </span>
 }
 
 function Skeleton() {
@@ -280,10 +275,17 @@ export function RoleList({
         </div>
         {!isLoading && !isError && (
           <FilterSection title="Role categories">
-            <div className="catalogue-area-filter flex min-w-0 flex-wrap gap-1.5 p-0.5" role="group" aria-label="SAP areas">
-              <CategoryPill label="All" count={allRolesRaw.length} selected={!activeModules.length} onClick={()=>setActiveModules([])}/>
-              {moduleGroups.map(([key,count])=><CategoryPill key={key} code={key} label={moduleNames[key]??key} count={count}
-                selected={activeModules.includes(key)} onClick={()=>setActiveModules(previous=>previous.includes(key)?previous.filter(value=>value!==key):[...previous,key])}/>)}
+            <div className="catalogue-area-filter min-w-0" role="group" aria-label="SAP areas">
+              <Select aria-label="Role categories" value={activeModules[0] ?? ''} onChange={()=>{}}
+                multiSelection={{values:activeModules.length ? activeModules : [''],
+                  onSelect:key=>setActiveModules(previous=>!key ? [] : previous.includes(key)?previous.filter(value=>value!==key):[...previous,key]),
+                  content:activeModules.length===1
+                    ? <CategoryLabel code={activeModules[0]} label={moduleNames[activeModules[0]]??activeModules[0]} count={moduleGroups.find(([key])=>key===activeModules[0])?.[1]??0}/>
+                    : <CategoryLabel label={activeModules.length ? `${activeModules.length} categories selected` : 'All categories'} count={activeModules.length ? moduleGroups.filter(([key])=>activeModules.includes(key)).reduce((sum,[,count])=>sum+count,0) : allRolesRaw.length}/>}}
+                renderOption={key=><CategoryLabel expanded code={key||undefined} label={key ? moduleNames[key]??key : 'All categories'} count={key ? moduleGroups.find(([code])=>code===key)?.[1]??0 : allRolesRaw.length}/> }>
+                <option value="">All categories ({allRolesRaw.length})</option>
+                {moduleGroups.map(([key,count])=><option key={key} value={key}>{key} {moduleNames[key]??key} ({count})</option>)}
+              </Select>
             </div>
           </FilterSection>
         )}

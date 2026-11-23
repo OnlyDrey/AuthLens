@@ -19,6 +19,9 @@
 .ui-button svg { flex-shrink:0; }
 .ui-control,.settings-control,.shared-select select,.combobox-anchor input { width:100%; min-width:0; min-height:var(--control-height); border:1px solid var(--border); border-radius:var(--radius-control); padding:var(--space-2) var(--space-3); background:var(--surface); color:var(--text); font-size:var(--font-body); }
 .ui-control[aria-invalid=true] { border-color:var(--error); }
+/* Rich select triggers reserve the same arrow space as the native select. */
+.shared-select > button[role="combobox"] { padding-right:2.75rem; }
+.ui-popover.saved-filter-popover { z-index:110; }
 .ui-control:disabled { opacity:.5; cursor:not-allowed; }
 .ui-field { display:flex; flex-direction:column; gap:var(--space-1); min-width:0; font-size:var(--font-label); }
 .ui-description { color:var(--muted); font-size:var(--font-meta); }

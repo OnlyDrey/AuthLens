@@ -217,6 +217,7 @@ export function SavedFilters({
   return (
     <div className="saved-filter-toolbar" aria-label={`${view} saved filters`}>
       <Popover
+        className="saved-filter-popover"
         onOpenChange={setMenuOpen}
         label={`${view} saved filters`}
         trigger={

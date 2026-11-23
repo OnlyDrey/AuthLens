@@ -1,15 +1,19 @@
 # Role Lookup and Role Details
 
 Search catalogue role names/descriptions alongside exact transaction codes. SAP area
-pills combine with OR; separate text/area/transaction categories combine with AND.
+selections combine with OR; separate text/area/transaction categories combine with AND.
 Multiple T-codes default to AND, with an explicit OR option. Enter creates a chip;
 remove chips individually or Clear all filters. Sorting stays beside the result
 count, below the primary searches.
 
-The Filters sidebar starts with a labelled role search, then compact single-line pills showing the SAP code, readable category
-name and catalogue count. Long labels truncate within the available width; full names/counts remain available through accessible
-button names and tooltips on hover or keyboard focus. All uses the same sizing and states. Pills wrap between controls, never
-inside their text; the mobile Filters drawer uses the same controls and preserves selection.
+The Filters sidebar starts with a labelled role search and one compact **Role categories** dropdown.
+The closed selector shows the selected category's original module icon/code, name and catalogue count.
+Options retain the configured module icons, full category names, counts and selected checkmarks. Multiple
+selections combine with OR and remain compatible with saved filters; the closed control summarizes their
+combined count. **All categories** clears only category selection. Arrow keys, Home/End and typing navigate
+the open list; Enter/Space toggles a category, Escape/Tab closes it. Long names wrap inside the viewport-bounded
+option list and truncate with full-name titles in the closed control. The same selector is used in the mobile drawer.
+The Saved Filters popup stays above the mobile drawer so saving and loading selections remain clickable.
 The keyboard-accessible search clear action restores input focus and clears only the text. Categories, transactions, saved
 filters and comparison selection keep their existing behavior. Name/code and description matching retain the existing debounce.
 Empty results are announced politely and explain that the filters combine.
