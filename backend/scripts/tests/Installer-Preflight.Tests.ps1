@@ -4,10 +4,34 @@ BeforeAll {
     # Exercise the adapter's actual result writer without executing its administrative entry point.
     $tokens=$null;$errors=$null
     $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '../Install-AuthLens.ps1'),[ref]$tokens,[ref]$errors)
-    $writer=$ast.Find({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Write-InstallerResult'},$true)
-    . ([scriptblock]::Create($writer.Extent.Text))
+    @($errors).Count|Should -Be 0
+    foreach($name in 'Get-InstallerJournalState','Write-InstallerResult'){
+        $function=$ast.Find({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name},$true)
+        . ([scriptblock]::Create($function.Extent.Text))
+    }
 }
 Describe 'Installer preparation and same-version upgrade boundaries' {
+    It 'gives actionable journal diagnostics without creating or modifying recovery evidence' {
+        $journalPath=''
+        (Get-InstallerJournalState).status|Should -Be 'not_resolved'
+        (Get-InstallerJournalState).message|Should -BeLike '*do not infer that deployment or rollback ran*'
+        $ResultFile=Join-Path $TestDrive 'unresolved-result.json'
+        Write-InstallerResult @{schema=1;status='refused_or_failed'}
+        $unresolved=Get-Content -LiteralPath $ResultFile -Raw|ConvertFrom-Json
+        $unresolved.deployment_journal_status|Should -Be 'not_resolved'
+        $unresolved.deployment_journal|Should -BeNullOrEmpty
+        $unresolved.deployment_journal_exists|Should -BeFalse
+        $journalPath=Join-Path $TestDrive 'not-created-journal.json'
+        $state=Get-InstallerJournalState
+        $state.message|Should -BeLike '*expected path alone is not recovery evidence*'
+        $state.exists|Should -BeFalse
+        Test-Path $journalPath|Should -BeFalse
+        Set-Content -LiteralPath $journalPath 'retained recovery sentinel'
+        $state=Get-InstallerJournalState
+        $state.status|Should -Be 'present'
+        $state.message|Should -BeLike '*Deployment journal exists*'
+        Get-Content -LiteralPath $journalPath|Should -Be 'retained recovery sentinel'
+    }
     It 'reports a planned missing deployment journal without fabricating it and preserves existing journals' {
         $journalPath=Join-Path $TestDrive 'deployment-journal.json';$ResultFile=Join-Path $TestDrive 'missing-result.json'
         Write-InstallerResult @{schema=1;status='refused_or_failed'}

@@ -14,7 +14,7 @@ begin
   if Code <> 0 then begin
     Detail := 'No diagnostic returned; retain the Setup log.';
     LoadStringFromFile(Diagnostic, Detail);
-    RaiseException('AuthLens transaction failed (exit ' + IntToStr(Code) + '). ' + UTF8Decode(Detail) + ' Retain the installation journal and recovery tools; no data is deleted.');
+    RaiseException('AuthLens transaction failed (exit ' + IntToStr(Code) + '). ' + UTF8Decode(Detail) + ' Retain the operation result, Setup log, staged tools and any existing journal.');
   end;
   AfterInstallerSuccess();
 end;
@@ -23,7 +23,7 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
   if DirExists(ExpandConstant('{app}\setup\{#PackageName}')) then begin
-    Result := 'This exact Setup payload already exists. It is never overwritten. Review its recovery journal or use another verified package.';
+    Result := 'This exact Setup payload already exists. It is never overwritten. Preserve it and review the operation result and any recovery journal before retrying.';
     Exit;
   end;
   Result := PrepareInstaller();

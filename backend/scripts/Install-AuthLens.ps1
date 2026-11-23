@@ -38,12 +38,24 @@ $ErrorActionPreference='Stop'
 $stage='helper verification'
 $operationId=[guid]::NewGuid().ToString('N')
 $journalPath=''
+function Get-InstallerJournalState {
+    $present=[bool]($journalPath -and (Test-Path -LiteralPath $journalPath -PathType Leaf -ErrorAction SilentlyContinue))
+    $status=if($present){'present'}elseif($journalPath){'not_created_or_unavailable'}else{'not_resolved'}
+    $message=if($present){
+        'Deployment journal exists; preserve it with the operation result and staged recovery tools.'
+    }elseif($journalPath){
+        'Deployment journal was not created or is unavailable. The expected path alone is not recovery evidence; preserve the operation result, Setup log and staged tools before recovery review.'
+    }else{
+        'Deployment journal path was not resolved. Preserve the operation result, Setup log and staged tools; do not infer that deployment or rollback ran.'
+    }
+    [pscustomobject]@{expected=$journalPath;exists=$present;status=$status;path=$(if($present){$journalPath}else{$null});message=$message}
+}
 function Write-InstallerResult($Value) {
-    $present=[bool]($journalPath -and (Test-Path -LiteralPath $journalPath -PathType Leaf))
-    $Value.deployment_journal_expected=$journalPath
-    $Value.deployment_journal_exists=$present
-    $Value.deployment_journal_status=if($present){'present'}elseif($journalPath){'not_created_or_unavailable'}else{'not_resolved'}
-    $Value.deployment_journal=if($present){$journalPath}else{$null}
+    $journal=Get-InstallerJournalState
+    $Value.deployment_journal_expected=$journal.expected
+    $Value.deployment_journal_exists=$journal.exists
+    $Value.deployment_journal_status=$journal.status
+    $Value.deployment_journal=$journal.path
     $json=$Value|ConvertTo-Json -Depth 12 -Compress
     Write-Host ('AUTHLENS-INSTALLER-RESULT: '+$json)
     if($ResultFile){
@@ -185,7 +197,7 @@ try {
     $known=@('Unknown installer operation. Use Auto, Install, Upgrade, Repair, Uninstall, Firewall, FirewallRemove or UninstallPlan.','A previous installer result exists; it will not be overwritten.','Select only one recovery, resolve, preflight or preparation mode.','Server lifecycle options are not Desktop options.','Installation requires explicit -Yes after reviewing the selected paths and configuration.','Packaged installer helper integrity manifest is missing.','Installer helper integrity verification failed.','Installer helper inventory is incomplete or unexpected.','Invalid installer helper path.','Server Setup requires an elevated operator session.','Recover and PrepareOnly cannot be combined.')
     $reason=if ($_.Exception.GetType().Name -eq 'DeployException' -or $_.Exception.Message -in $known) { $_.Exception.Message } else { 'Prerequisite/helper/configuration error ('+$_.Exception.GetType().Name+'). Review the explicit configuration and packaged helper integrity.' }
     $reason=[regex]::Replace($reason,'(?i)(password|token|secret|credential|passphrase)\s*[:=]\s*[^\s;,]+','$1=[REDACTED]')
-    $diagnostic="Stage: $stage. $reason"
+    $diagnostic="Stage: $stage. $reason "+(Get-InstallerJournalState).message
     Write-Host ('Installer refused or failed: '+$diagnostic)
     if ($DiagnosticFile) {
         try { $stream=[IO.File]::Open($DiagnosticFile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None); $writer=[IO.StreamWriter]::new($stream); try { $writer.Write($diagnostic) } finally { $writer.Dispose() } } catch { Write-Host 'Diagnostic file could not be created; existing evidence was not overwritten.' }

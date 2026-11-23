@@ -37,6 +37,9 @@ Describe 'Compiled Inno installer isolation' {
         }finally{Pop-Location}
         $code = Get-Content -LiteralPath $expanded -Raw
         $code | Should -Match 'This exact Setup payload already exists'
+        $code | Should -Match 'any existing journal'
+        $code | Should -Match 'any recovery journal before retrying'
+        $code | Should -Not -Match 'Retain the installation journal|or use another verified package'
         $code | Should -Match 'ssPostInstall'
         $code | Should -Match 'if Code <> 0 then begin'
         $code | Should -Match 'LoadStringFromFile\(Diagnostic, Detail\)'

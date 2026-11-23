@@ -36,8 +36,23 @@ metadata-timing probe. These are component evidence, not a successful full Serve
 The diagnostic build attempt from `e971147` compiled the frontend and .NET solution, then reported a
 `LanHttpsTests` failure: the startup certificate handshake self-check returned `TaskCanceledException` before host startup.
 The run was stopped when validation execution transferred to the user; no final passing test or packaging result is available
-for that attempt. Synchronization-context capture is an unconfirmed hypothesis, not an established root cause or implemented fix.
+for that attempt. The user subsequently reported a successful focused build/retest (65.3 seconds combined):
+`LanHttpsTests.Lan_https_serves_ui_enforces_token_hosts_cookies_csrf_and_persists_across_restart` passed,
+with 1 passed, 0 failed and 0 skipped. The retained local TRX at
+`build/test-artifacts/lan-https-20261123T1756177818287Z/results.trx` was inspected and confirms those counters
+(test duration 7.577 seconds). This focused pass does not complete the interrupted full regression or packaging run.
+Synchronization-context capture remains an unconfirmed hypothesis, not an established root cause or implemented fix;
+no TLS validation or timeout was weakened.
 Further builds/tests require explicit authorization or user execution under the repository's Build and Test Execution Policy.
+
+Installer journal diagnostics now distinguish present, unresolved and not-created/unavailable journals in both the structured
+result and human-readable failure message. The Setup retry message requires review of retained evidence instead of suggesting
+that another payload makes a partial installation clean. User-run Pester 5.9.1 validation passed all 48 tests in
+`Installer-Preflight.Tests.ps1`, `Server-Setup.Tests.ps1` and `InnoIsolation.Tests.ps1` (28.55 seconds, no failures or skips).
+This includes native compilation of Desktop/Server scripts for alpha and stable versions using synthetic payloads,
+journal-state diagnostics, hash-bound fresh metadata and preservation/refusal checks. The user-run documentation check
+covered 44 Markdown files with zero failures. Real fresh installation, upgrade, SCM and recovery acceptance remain pending;
+synthetic installer compilation is not production-package or installation acceptance.
 
 | Mandatory gate | Evidence boundary |
 | --- | --- |

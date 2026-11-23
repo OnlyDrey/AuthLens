@@ -436,8 +436,12 @@ and checked while Inno waits at `ssPostInstall`; the uninstall data may change a
 Desktop does not receive this Server-only metadata argument.
 
 Operation reports distinguish `deployment_journal_expected`, `deployment_journal_exists` and
-`deployment_journal_status`. `deployment_journal` is null until a journal actually exists. An early failure
-does not imply that rollback ran: retain `operation-result.json`, `transaction-diagnostic.txt`, the Setup log,
+`deployment_journal_status`. `deployment_journal` is null until a journal actually exists. The failure message
+also states the journal's status; an expected path does not prove deployment or rollback
+ran. Setup asks for the operation result, Setup log, staged tools and any existing journal, rather than promising a journal.
+User-run focused validation passed 48 tests, including native compilation of both installer scripts with synthetic payloads.
+Actual fresh/upgrade installation and recovery acceptance for a newly packaged build remain required.
+Retain `operation-result.json`, `transaction-diagnostic.txt`, the Setup log,
 the staged payload/tools and configuration/TLS publication receipts. Same-payload retries never overwrite
 these files. A different package does not make an interrupted/unregistered populated root clean.
 
