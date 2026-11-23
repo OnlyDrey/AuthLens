@@ -43,6 +43,9 @@ function Invoke-ALInstallerServer($Config, [string]$Package, [switch]$Recover) {
         $null=Assert-ALAclPlan (Get-ALAclPlan $Config) 'Server installer recovery'
         Enter-ALLock $Config
         try {
+            if(Test-Path -LiteralPath (Join-AL $Config.WorkRoot 'repair-pending.json')){
+                return Invoke-ALInstallerRepairRecover $Config
+            }
             $null=New-ALRun $Config 'installer-recover'
             Save-ALInstallerRecoveryTools $script:RunFolder
             return Invoke-ALRecover $Config
@@ -54,9 +57,45 @@ function Invoke-ALInstallerServer($Config, [string]$Package, [switch]$Recover) {
     try {
         $null = New-ALRun $Config 'installer'
         Save-ALInstallerRecoveryTools $script:RunFolder
+        $instance=Initialize-ALInstallerDataOwnership $Config
         $published = Publish-ALRelease $Config $Package $manifest
-        Invoke-ALDeploy $Config $published $manifest.source_sha -FirstInstall -RequireRollback
+        $result=Invoke-ALDeploy $Config $published $manifest.source_sha -FirstInstall -RequireRollback
+        Write-ALInstallerServerIdentity $Config $manifest $published $instance
+        $result
     } finally { Exit-ALLock }
+}
+
+function Initialize-ALInstallerDataOwnership($Config) {
+    $marker=Join-AL $Config.DataDirectory '.authlens-owned-data.json'
+    if(Test-Path -LiteralPath $marker){
+        $owned=Get-Content -LiteralPath $marker -Raw -Encoding UTF8|ConvertFrom-Json
+        if($owned.schema -ne 1 -or $owned.product -cne 'AuthLens' -or $owned.root -ine $Config.Root -or $owned.data_directory -ine $Config.DataDirectory -or $owned.instance_id -notmatch '^[a-f0-9]{32}$'){Stop-AL 'Application data ownership marker is invalid; no data was adopted.'}
+        return $owned.instance_id
+    }
+    $instance=[guid]::NewGuid().ToString('N')
+    # Existing installations receive a product receipt, never a claim that their data is disposable.
+    $fresh=-not (Get-ALService $Config.ServiceName).Exists -and -not(Test-Path -LiteralPath (Join-AL $Config.DataDirectory 'authlens.sqlite3')) -and -not(Get-ALLink (Get-ALCurrentLink $Config))
+    if($fresh){
+        if(@(Get-ChildItem -LiteralPath $Config.DataDirectory -Force).Count){Stop-AL 'Fresh ownership cannot be assigned to populated application data.'}
+        Write-ALInstallerPrivateBytes $marker ([Text.Encoding]::UTF8.GetBytes((@{schema=1;product='AuthLens';instance_id=$instance;root=$Config.Root;data_directory=$Config.DataDirectory}|ConvertTo-Json -Compress)))
+    }
+    $instance
+}
+
+function Get-ALInstallerServerIdentity($Config) {
+    $file=Join-AL (Join-AL $Config.Root 'config') 'installed-product.json'
+    if(-not(Test-Path -LiteralPath $file)){return $null}
+    $identity=Get-Content -LiteralPath $file -Raw -Encoding UTF8|ConvertFrom-Json
+    if($identity.schema -ne 1 -or $identity.product -cne 'AuthLens' -or $identity.root -ine $Config.Root -or $identity.service_name -cne $Config.ServiceName -or $identity.instance_id -notmatch '^[a-f0-9]{32}$' -or $identity.manifest_sha256 -notmatch '^[a-f0-9]{64}$'){Stop-AL 'Installed product ownership receipt is invalid; no resource was adopted.'}
+    $identity
+}
+function Write-ALInstallerServerIdentity($Config,$Manifest,[string]$Release,[string]$InstanceId='') {
+    if(-not(Test-ALPathWithin $Release $Config.ReleasesRoot)){Stop-AL 'Installed release identity is outside its approved root.'}
+    $previous=Get-ALInstallerServerIdentity $Config
+    if($previous){$InstanceId=$previous.instance_id}
+    if(-not $InstanceId){$InstanceId=[guid]::NewGuid().ToString('N')}
+    $identity=[ordered]@{schema=1;product='AuthLens';instance_id=$InstanceId;root=$Config.Root;data_directory=$Config.DataDirectory;service_name=$Config.ServiceName;service_account=$Config.ServiceAccount;config_file=$Config.ConfigFile;config_sha256=(Get-FileHash -LiteralPath $Config.ConfigFile).Hash.ToLowerInvariant();manifest_sha256=(Get-FileHash -LiteralPath (Join-AL $Release 'build-manifest.json')).Hash.ToLowerInvariant();manifest=$Manifest;release=$Release;phase='installed';updated_utc=[DateTime]::UtcNow.ToString('o')}
+    Write-ALInstallerJournal (Join-AL (Join-AL $Config.Root 'config') 'installed-product.json') $identity
 }
 
 function Assert-ALInstallerServerConfiguration($Config) {
@@ -261,15 +300,21 @@ function Get-ALServerRepairPlan($Resolved,[string]$Package) {
     $journal=Read-ALJournal $config
     if($journal -and $journal.phase -in $script:CriticalPhases){Stop-AL 'Interrupted deployment requires recovery before repair.' 4}
     $service=Get-ALService $config.ServiceName
-    if(-not $service.Exists -or $service.State -ne 'Stopped'){Stop-AL 'Offline repair requires the owned service to exist and be stopped explicitly; Setup will not stop a running installation for repair.'}
-    if($service.Account -ine $config.ServiceAccount -or -not(Test-ALServiceBinary $service.PathName $config) -or
-        @(Compare-ALServiceArguments @((Split-ALCommandLine $service.PathName)|Select-Object -Skip 1) @(Get-ALServiceArguments $config)).Count){Stop-AL 'Repair service identity or arguments disagree with the reviewed configuration.'}
+    if($service.Exists -and $service.State -ne 'Stopped'){Stop-AL 'Offline repair requires the owned service to be stopped explicitly; Setup will not stop a running installation for repair.'}
+    if($service.Exists){
+        if($service.Account -ine $config.ServiceAccount -or -not(Test-ALServiceBinary $service.PathName $config) -or
+            @(Compare-ALServiceArguments @((Split-ALCommandLine $service.PathName)|Select-Object -Skip 1) @(Get-ALServiceArguments $config)).Count){Stop-AL 'Repair service identity or arguments disagree with the reviewed configuration.'}
+    }else{
+        $identity=Get-ALInstallerServerIdentity $config
+        if(-not $identity -or $identity.service_account -ine $config.ServiceAccount -or $identity.data_directory -ine $config.DataDirectory -or $identity.config_file -ine $config.ConfigFile -or $identity.config_sha256 -cne $Resolved.ConfigSha256 -or $config.ServiceAccount -ine "NT SERVICE\$($config.ServiceName)"){Stop-AL 'Missing service repair requires a matching installed product receipt and the default virtual service account; credentials are never inferred.'}
+    }
     $previous=Get-ALLink (Get-ALCurrentLink $config)
     if(-not $previous -or -not(Test-ALPathWithin $previous $config.ReleasesRoot)){Stop-AL 'Repair requires an owned release pointer and retained installation identity.'}
     Assert-ALInstallerPath $previous
     $manifest=Get-ALInstallerPackage $Package
     $oldManifest=Join-AL $previous 'build-manifest.json'
     if(-not(Test-Path -LiteralPath $oldManifest) -or (Get-FileHash -LiteralPath $oldManifest).Hash -ine (Get-FileHash -LiteralPath (Join-AL $Package 'build-manifest.json')).Hash){Stop-AL 'Repair requires the exact installed manifest; missing or changed product identity needs manual recovery.'}
+    if(-not $service.Exists -and $identity.manifest_sha256 -cne (Get-FileHash -LiteralPath $oldManifest).Hash.ToLowerInvariant()){Stop-AL 'Missing service repair product receipt does not match the retained manifest.'}
     if(-not(Test-Path -LiteralPath (Join-AL $config.DataDirectory 'authlens.sqlite3') -PathType Leaf)){Stop-AL 'Repair refuses a missing database; empty initialization is not repair.'}
     $probe=Invoke-ALMaintenance (Join-AL $Package 'server/AuthLens.Api.exe') (@('--server-preflight')+@(Get-ALServiceArguments $config))
     if(-not $probe.validated -or -not $probe.read_only -or $probe.source_sha -cne $manifest.source_sha -or $probe.version -cne $manifest.version -or @($probe.schema.pending).Count){Stop-AL 'Repair cannot prove package/TLS/database compatibility without schema changes.'}
@@ -289,7 +334,7 @@ function Invoke-ALInstallerServerRepair($Resolved,[string]$Package) {
         $verified=Invoke-ALMaintenance $exe @('--backup-verify',$backup.file,'--data-dir',$config.DataDirectory)
         if(-not $verified.verified -or $verified.sha256 -cne $backup.sha256){Stop-AL 'Repair backup verification failed; no release pointer or service was changed.'}
         $candidate=Publish-ALRelease $config $Package $plan.manifest -RepairId ([guid]::NewGuid().ToString('N'))
-        $journal=[pscustomobject]@{operation='offline repair';phase='prepared';from_release=$plan.previous;to_release=$candidate;backup=$backup;run=$script:RunFolder}
+        $journal=[pscustomobject]@{schema=2;operation='offline repair';phase='prepared';root=$config.Root;config_file=$config.ConfigFile;config_sha256=$Resolved.ConfigSha256;service_name=$config.ServiceName;service_account=$config.ServiceAccount;source_sha=$plan.manifest.source_sha;version=$plan.manifest.version;from_release=$plan.previous;to_release=$candidate;backup=$backup;run=$script:RunFolder}
         $path=Join-AL $script:RunFolder 'repair-journal.json'
         Write-ALInstallerJournal $path $journal
         $marker=Join-AL $config.WorkRoot 'repair-pending.json'
@@ -298,10 +343,12 @@ function Invoke-ALInstallerServerRepair($Resolved,[string]$Package) {
         $activated=$false
         try{
             # Recheck immediately before the only pointer mutation; never replace damaged bytes in place.
-            if((Get-ALService $config.ServiceName).State -ne 'Stopped'){Stop-AL 'Service started during offline repair; publication was retained but not activated.'}
+            $observed=Get-ALService $config.ServiceName
+            if($observed.Exists -and $observed.State -ne 'Stopped'){Stop-AL 'Service started during offline repair; publication was retained but not activated.'}
             $journal.phase='switching';Write-ALInstallerJournal $path $journal
             Set-ALLink (Get-ALCurrentLink $config) $candidate
             $activated=$true
+            if(-not $observed.Exists){Install-ALService $config}
             Grant-ALAccess $config
             Start-ALService $config.ServiceName
             $null=Wait-ALReady $config $plan.manifest.source_sha $plan.manifest.version
@@ -315,6 +362,55 @@ function Invoke-ALInstallerServerRepair($Resolved,[string]$Package) {
             Stop-AL 'Offline repair did not verify readiness. Service stop was attempted; both payloads, verified backup and repair journal are preserved. Review recovery before restarting.' 4
         }
     }finally{Exit-ALLock}
+}
+
+function Invoke-ALInstallerRepairRecover($Config) {
+    # Caller owns the deployment lock. Legacy journals lack the bindings required for unattended recovery.
+    $marker=Join-AL $Config.WorkRoot 'repair-pending.json'
+    $path=[IO.File]::ReadAllText($marker).Trim()
+    if(-not [IO.Path]::IsPathRooted($path) -or -not(Test-ALPathWithin $path (Join-AL $Config.WorkRoot 'runs')) -or (Split-Path $path -Leaf) -cne 'repair-journal.json'){Stop-AL 'Repair recovery journal path is outside its approved evidence directory.' 4}
+    Assert-ALInstallerPath $path
+    $journal=Get-Content -LiteralPath $path -Raw -Encoding UTF8|ConvertFrom-Json
+    if($journal.schema -ne 2 -or $journal.operation -cne 'offline repair' -or $journal.root -ine $Config.Root -or $journal.config_file -ine $Config.ConfigFile -or $journal.service_name -cne $Config.ServiceName -or $journal.service_account -ine $Config.ServiceAccount -or $journal.config_sha256 -cne (Get-FileHash -LiteralPath $Config.ConfigFile).Hash.ToLowerInvariant() -or $journal.source_sha -notmatch '^[a-f0-9]{40}$' -or $journal.backup.sha256 -notmatch '^[a-f0-9]{64}$'){Stop-AL 'Repair recovery bindings are incomplete or changed; retain the journal for manual review.' 4}
+    foreach($release in $journal.from_release,$journal.to_release){
+        if(-not(Test-ALPathWithin $release $Config.ReleasesRoot)){Stop-AL 'Repair recovery release is outside the owned release root.' 4}
+        Assert-ALInstallerPath $release
+    }
+    if($journal.phase -notin @('prepared','switching','manual_recovery_required','complete')){Stop-AL 'Unsupported repair recovery checkpoint.' 4}
+    $current=Get-ALLink (Get-ALCurrentLink $Config)
+    if($current -notin @($journal.from_release,$journal.to_release)){Stop-AL 'Repair recovery refuses an unrelated active release.' 4}
+    if(-not(Test-Path -LiteralPath (Join-AL $Config.DataDirectory 'authlens.sqlite3') -PathType Leaf)){Stop-AL 'Repair recovery refuses missing application data.' 4}
+    $manifest=Get-ALInstallerPackage $journal.to_release
+    $original=Join-AL $journal.from_release 'build-manifest.json'
+    if($manifest.source_sha -cne $journal.source_sha -or $manifest.version -cne $journal.version -or -not(Test-Path -LiteralPath $original) -or (Get-FileHash -LiteralPath $original).Hash -ine (Get-FileHash -LiteralPath (Join-AL $journal.to_release 'build-manifest.json')).Hash){Stop-AL 'Repair recovery payload differs from the retained installed identity.' 4}
+    $service=Get-ALService $Config.ServiceName
+    if($service.Exists){
+        if($service.Account -ine $Config.ServiceAccount -or -not(Test-ALServiceBinary $service.PathName $Config) -or @(Compare-ALServiceArguments @((Split-ALCommandLine $service.PathName)|Select-Object -Skip 1) @(Get-ALServiceArguments $Config)).Count){Stop-AL 'Repair recovery service ownership is not verified.' 4}
+    }else{
+        $identity=Get-ALInstallerServerIdentity $Config
+        if(-not $identity -or $Config.ServiceAccount -ine "NT SERVICE\$($Config.ServiceName)" -or $identity.service_account -ine $Config.ServiceAccount -or $identity.config_file -ine $Config.ConfigFile -or $identity.data_directory -ine $Config.DataDirectory -or $identity.config_sha256 -cne $journal.config_sha256 -or $identity.manifest_sha256 -cne (Get-FileHash -LiteralPath $original).Hash.ToLowerInvariant()){Stop-AL 'Missing service recovery requires matching installed ownership and virtual identity.' 4}
+    }
+    $exe=Join-AL $journal.to_release 'server/AuthLens.Api.exe'
+    $verified=Invoke-ALMaintenance $exe @('--backup-verify',$journal.backup.file,'--data-dir',$Config.DataDirectory)
+    if(-not $verified.verified -or $verified.sha256 -cne $journal.backup.sha256){Stop-AL 'Repair recovery backup no longer verifies; no service was changed.' 4}
+    $probe=Invoke-ALMaintenance $exe (@('--server-preflight')+@(Get-ALServiceArguments $Config))
+    if(-not $probe.validated -or -not $probe.read_only -or $probe.source_sha -cne $manifest.source_sha -or $probe.version -cne $manifest.version -or @($probe.schema.pending).Count){Stop-AL 'Repair recovery cannot prove TLS/database/schema compatibility.' 4}
+    try{
+        if($service.Exists){Stop-ALService $Config.ServiceName ([int]$Config.StopTimeoutSeconds)}
+        $journal.phase='switching';Write-ALInstallerJournal $path $journal
+        Set-ALLink (Get-ALCurrentLink $Config) $journal.to_release
+        if(-not $service.Exists){Install-ALService $Config}
+        Grant-ALAccess $Config
+        Start-ALService $Config.ServiceName
+        $null=Wait-ALReady $Config $manifest.source_sha $manifest.version
+        $journal.phase='complete';Write-ALInstallerJournal $path $journal
+        Remove-Item -LiteralPath $marker -ErrorAction Stop
+        @{recovered=$true;repaired=$true;release=$journal.to_release;preserved_damaged_release=$journal.from_release;backup=$journal.backup.file;run=$journal.run}
+    }catch{
+        try{Stop-ALService $Config.ServiceName ([int]$Config.StopTimeoutSeconds)}catch{}
+        $journal.phase='manual_recovery_required';Write-ALInstallerJournal $path $journal
+        Stop-AL 'Repair recovery failed readiness; journal, backup and both payloads remain available.' 4
+    }
 }
 
 function Get-ALInstallerFirewallPlan($Config,[string]$Sources,[string]$Profiles='Private',[switch]$AllowOwnedUpdate) {

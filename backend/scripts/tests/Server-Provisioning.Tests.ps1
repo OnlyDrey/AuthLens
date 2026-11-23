@@ -114,8 +114,8 @@ Describe 'Offline component repair preserves damaged payload and recovery proof'
     BeforeEach {
         $work=Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $work|Out-Null
-        $config=[pscustomobject]@{WorkRoot=$work;ServiceName='AuthLens';StopTimeoutSeconds=10;BackupRoot=$work;DataDirectory=$work}
-        $resolved=[pscustomobject]@{Config=$config}
+        $config=[pscustomobject]@{Root=$work;ConfigFile=(Join-Path $work 'deploy.json');WorkRoot=$work;ServiceName='AuthLens';ServiceAccount='NT SERVICE\AuthLens';StopTimeoutSeconds=10;BackupRoot=$work;DataDirectory=$work}
+        $resolved=[pscustomobject]@{Config=$config;ConfigSha256=('a'*64)}
         Mock -ModuleName AuthLens.Deploy Enter-ALLock {}
         Mock -ModuleName AuthLens.Deploy Exit-ALLock {}
         Mock -ModuleName AuthLens.Deploy Get-ALServerRepairPlan {
@@ -128,11 +128,12 @@ Describe 'Offline component repair preserves damaged payload and recovery proof'
             else{[pscustomobject]@{verified=$true;sha256='verified'}}
         }
         Mock -ModuleName AuthLens.Deploy Publish-ALRelease {'new-verified-release'}
-        Mock -ModuleName AuthLens.Deploy Get-ALService {[pscustomobject]@{State='Stopped'}}
+        Mock -ModuleName AuthLens.Deploy Get-ALService {[pscustomobject]@{Exists=$true;State='Stopped'}}
         Mock -ModuleName AuthLens.Deploy Get-ALCurrentLink {'current'}
         Mock -ModuleName AuthLens.Deploy Set-ALLink {}
         Mock -ModuleName AuthLens.Deploy Grant-ALAccess {}
         Mock -ModuleName AuthLens.Deploy Start-ALService {}
+        Mock -ModuleName AuthLens.Deploy Install-ALService {}
         Mock -ModuleName AuthLens.Deploy Stop-ALService {}
         Mock -ModuleName AuthLens.Deploy Wait-ALReady {}
     }
@@ -150,6 +151,14 @@ Describe 'Offline component repair preserves damaged payload and recovery proof'
         Should -Invoke -ModuleName AuthLens.Deploy Publish-ALRelease -Times 0
         Should -Invoke -ModuleName AuthLens.Deploy Set-ALLink -Times 0
     }
+    It 'recreates missing registration only after the verified candidate is activated' {
+        Mock -ModuleName AuthLens.Deploy Get-ALService {[pscustomobject]@{Exists=$false;State='Missing'}}
+        Mock -ModuleName AuthLens.Deploy Install-ALService {
+            Should -Invoke -ModuleName AuthLens.Deploy Set-ALLink -Times 1
+        }
+        (Invoke-ALInstallerServerRepair $resolved $work).repaired|Should -BeTrue
+        Should -Invoke -ModuleName AuthLens.Deploy Install-ALService -Times 1
+    }
     It 'retains an explicit recovery barrier and attempts service stop on readiness failure' {
         Mock -ModuleName AuthLens.Deploy Wait-ALReady {throw 'synthetic readiness failure'}
         {Invoke-ALInstallerServerRepair $resolved $work}|Should -Throw '*did not verify readiness*'
@@ -160,7 +169,7 @@ Describe 'Offline component repair preserves damaged payload and recovery proof'
         Should -Invoke -ModuleName AuthLens.Deploy Stop-ALService -Times 1
     }
     It 'does not activate when a concurrent service start is detected' {
-        Mock -ModuleName AuthLens.Deploy Get-ALService {[pscustomobject]@{State='Running'}}
+        Mock -ModuleName AuthLens.Deploy Get-ALService {[pscustomobject]@{Exists=$true;State='Running'}}
         {Invoke-ALInstallerServerRepair $resolved $work}|Should -Throw '*did not verify readiness*'
         Should -Invoke -ModuleName AuthLens.Deploy Set-ALLink -Times 0
         Should -Invoke -ModuleName AuthLens.Deploy Stop-ALService -Times 0
@@ -197,9 +206,36 @@ Describe 'Offline repair preflight refuses unsafe entry states' {
         {Get-ALServerRepairPlan $resolved $package}|Should -Throw '*exact installed manifest*'
         (Get-Content (Join-Path $previous 'build-manifest.json') -Raw)|Should -Match 'changed identity'
     }
+    It 'refuses missing registration without a bound product ownership receipt' {
+        Mock -ModuleName AuthLens.Deploy Get-ALService {[pscustomobject]@{Exists=$false;State='Missing'}}
+        {Get-ALServerRepairPlan $resolved $package}|Should -Throw '*matching installed product receipt*'
+        Should -Invoke -ModuleName AuthLens.Deploy Get-ALInstallerPackage -Times 0
+    }
     It 'refuses a missing database instead of initializing empty storage' {
         {Get-ALServerRepairPlan $resolved $package}|Should -Throw '*missing database*'
         Test-Path (Join-Path $config.DataDirectory 'authlens.sqlite3')|Should -BeFalse
+    }
+    It 'allows missing virtual-account registration with exact retained receipt and compatible database' {
+        $config|Add-Member ConfigFile (Join-Path $root 'deploy.json')
+        $config|Add-Member BackupRoot (Join-Path $root 'backups')
+        $config|Add-Member ListenAddress '127.0.0.1'
+        $config|Add-Member Port 18795
+        $config|Add-Member CertificatePath (Join-Path $root 'server.pfx')
+        $config|Add-Member AllowedHosts @()
+        $config|Add-Member ProxyHosts @()
+        $config|Add-Member TrustedProxies @()
+        $resolved|Add-Member ProgramDirectory $previous
+        Set-Content (Join-Path $config.DataDirectory 'authlens.sqlite3') 'synthetic database'
+        Mock -ModuleName AuthLens.Deploy Get-ALService {[pscustomobject]@{Exists=$false;State='Missing'}}
+        Mock -ModuleName AuthLens.Deploy Get-ALInstallerServerIdentity {
+            [pscustomobject]@{service_account=$config.ServiceAccount;data_directory=$config.DataDirectory;config_file=$config.ConfigFile;config_sha256='reviewed';manifest_sha256=(Get-FileHash (Join-Path $previous 'build-manifest.json')).Hash.ToLowerInvariant()}
+        }
+        Mock -ModuleName AuthLens.Deploy Invoke-ALMaintenance {
+            [pscustomobject]@{validated=$true;read_only=$true;source_sha=('a'*40);version='2.0.0-alpha.1';schema=[pscustomobject]@{pending=@()}}
+        }
+        (Get-ALServerRepairPlan $resolved $package).operation|Should -Be 'offline repair'
+        $config.ServiceAccount='LAB\dedicated'
+        {Get-ALServerRepairPlan $resolved $package}|Should -Throw '*default virtual service account*'
     }
     It 'honors a pending repair marker before evaluating service or package ownership' {
         New-Item -ItemType Directory -Path $config.WorkRoot|Out-Null

@@ -920,7 +920,7 @@ Use the packaged `installer-tools-<id>/Install-AuthLens.ps1`, not an unverified 
 | `-PreflightOnly -Package <verified full release>` | Read-only installation, network/TLS/database/schema/key, path/ACL/address/port/storage checks |
 | `-Operation Auto` | Detect fresh install or upgrade; never adopt unrelated service/data |
 | `-Operation Install` / `Upgrade` | Explicitly require the matching detected state; `-Package` and `-Yes` required to apply |
-| `-Operation Repair -Package ... -Yes` | Offline component repair: owned service must already be stopped; exact installed manifest and existing database required. Verifies an encrypted backup, publishes an immutable replacement, switches the pointer and checks service readiness. Retains damaged payload and recovery evidence |
+| `-Operation Repair -Package ... -Yes` | Offline component repair: owned service must already be stopped; exact installed manifest and existing database required. Missing registration can be recreated only for the default virtual account with a matching installed-product receipt and unchanged configuration. Verifies an encrypted backup, publishes an immutable replacement, switches the pointer and checks service readiness. Retains damaged payload and recovery evidence |
 | `-Operation UninstallPlan` | Read-only resource/ownership review; all data and the service remain untouched |
 | `-Recover -Yes` | Existing journal-driven recovery; retain exact configuration and recovery tools |
 | `-ResultFile <new absolute path>` | Immutable JSON envelope, schema/operation ID/status/exit/stage/journal location; no overwrite |
@@ -942,12 +942,25 @@ host recovery-key provisioning/escrow; external proxy/DNS/firewall/client trust 
 
 #### Explicit remaining lifecycle limits
 
+Successful Server deployment now records `config/installed-product.json`, binding the instance, configuration hash,
+service identity and verified release manifest. Fresh, initially empty data directories additionally receive an ownership
+marker; upgrades never retroactively mark existing databases as disposable. Matching fresh-install retries reuse the marker.
+Advanced storage paths are created with protected ACLs without changing existing shared parent permissions.
+New services receive their identity while still Manual, before automatic startup is enabled. Existing SCM passwords are
+preserved when the identity is unchanged; changing an existing identity requires a separate credential transaction.
+
+Schema-2 offline repair journals support explicit `-Recover -Yes`: recovery validates configuration/service bindings,
+both retained manifest identities, the complete replacement package, encrypted backup and read-only TLS/database/schema
+preflight before service changes. It completes the approved replacement and clears the barrier only after readiness.
+It never restores older database content or claims the damaged payload is a working rollback. Legacy unbound repair
+journals require manual review. Source tests cover these guards; native SCM interruption/recovery acceptance remains pending.
+
 | Requirement | Status and reason | Next action |
 | --- | --- | --- |
 | Fresh configuration and TLS | Fresh generation/selection/import and create-only bound publication implemented; no automatic trusted-store modification | Installed-certificate renewal/replacement transaction remains incomplete; native GUI, ACL/service-key access and client-trust acceptance pending |
 | Dedicated account / gMSA creation | Blocked: existing SCM adapter has no secure password transport, account-logon-right or managed-password validation contract | Add validated credential/logon provisioning; preserve existing identities meanwhile |
 | Automatic firewall configuration | Source implementation covers approved creation, ownership-verified update/removal, retained transition journals and explicit completion/rollback recovery; loopback/wildcards/Public/Any refused | Native elevated rule/policy acceptance and uninstall integration remain pending |
-| Repair missing/corrupt components/service | Partial: real offline payload replacement implemented through the CLI, without overwriting damaged files; exact retained manifest, stopped owned service and verified backup required | Missing service registration or installed manifest still requires manual recovery; GUI repair selection and native recovery rehearsal remain unimplemented |
+| Repair missing/corrupt components/service | Partial: CLI payload replacement, receipt-bound missing virtual-account registration and schema-2 interrupted-repair recovery implemented; damaged files retained | Older installations without receipts, missing manifests and password-backed missing accounts require manual review; GUI selection and native interruption/recovery rehearsal remain pending |
 | Automatic/destructive uninstall | Partial: canonical service registration blocks Inno uninstall; data always preserved | Review service removal separately; add explicit ownership inventory before offering any deletion, especially external storage |
 | Downgrade in Setup | Refused safely; schema compatibility alone does not prove safe data/version rollback | Use separately authorized verified rollback/recovery; no `allow downgrade` bypass |
 | Legacy migration wizard | Partial: known service/root presence is reported read-only and protected paths are refused; supported backup conversion remains explicit | Rehearse supported preview/run/activate or fresh restore separately; never auto-adopt/modify/delete legacy resources |

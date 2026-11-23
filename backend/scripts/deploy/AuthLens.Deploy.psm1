@@ -529,8 +529,15 @@ function Set-ALServiceEntry($Config, [string]$Binary, [bool]$Exists, [string]$St
     $displayName = if ($Config.ServiceName -ceq $script:ServiceName) { 'AuthLens' } else { $Config.ServiceName }   # isolated test services keep their own name
     if (-not $Exists) {
         New-Service -Name $Config.ServiceName -DisplayName $displayName -BinaryPathName $Binary -StartupType Manual -Description 'AuthLens (.NET) server' | Out-Null
+        # Assign identity while the new service is still Manual. A failed identity setup must never leave Auto/LocalSystem behind.
+        $identity=Invoke-ALProcess 'sc.exe' @('config',$Config.ServiceName,'obj=',$Config.ServiceAccount) ''
+        if($identity.ExitCode -ne 0){Stop-AL 'Service identity preparation failed; the new service remains Manual and was not started.' 1}
+    }else{
+        $observed=Get-ALService $Config.ServiceName
+        if(-not $observed.Exists -or $observed.Account -ine $Config.ServiceAccount){Stop-AL 'Existing service identity differs; a separate validated credential transaction is required.'}
+        # Do not reset a stored SCM password when preserving an existing account.
     }
-    foreach ($arguments in @(@('config', $Config.ServiceName, 'binPath=', $Binary, 'start=', $StartMode, 'DisplayName=', $displayName), @('config', $Config.ServiceName, 'obj=', $Config.ServiceAccount),
+    foreach ($arguments in @(@('config', $Config.ServiceName, 'binPath=', $Binary, 'start=', $StartMode, 'DisplayName=', $displayName),
             @('failure', $Config.ServiceName, 'reset=', '86400', 'actions=', 'restart/60000/restart/60000//'))) {
         $result = Invoke-ALProcess 'sc.exe' $arguments ''     # virtual account: no password
         if ($result.ExitCode -ne 0) { Stop-AL "sc.exe $($arguments[0]) $($Config.ServiceName) failed ($(($result.Output | Select-Object -Last 1)))." 1 }
@@ -844,6 +851,14 @@ function Initialize-ALInstallation($Config) {
     }
     foreach ($folder in $layout.ReleasesRoot, $layout.DataDirectory, $layout.ConfigRoot, $layout.TlsRoot, $layout.KeyRoot, $layout.BackupRoot, $layout.WorkRoot) {
         if ((Test-ALPathOverlap $folder $root) -and -not (Test-Path -LiteralPath $folder)) { New-Item -ItemType Directory -Path $folder | Out-Null }
+    }
+    foreach($folder in @($Config.DataDirectory,$Config.ReleasesRoot,$Config.BackupRoot,$Config.WorkRoot)|Select-Object -Unique){
+        if(Test-Path -LiteralPath $folder){continue}
+        # Advanced storage may be outside Root. Never change an existing shared parent's ACL.
+        $boundary=$folder
+        while(-not(Test-Path -LiteralPath (Split-Path $boundary))){$boundary=Split-Path $boundary}
+        Assert-ALInstallerPath $boundary
+        New-ALSecureDirectory $folder @($boundary)
     }
 }
 

@@ -221,6 +221,8 @@ Describe 'Installer transactions on isolated program/data fixtures' {
         Mock -ModuleName $M New-ALRun { }
         Mock -ModuleName $M Publish-ALRelease { $script:Fixture.Package }
         Mock -ModuleName $M Invoke-ALDeploy { }
+        Mock -ModuleName $M Initialize-ALInstallerDataOwnership { 'a'*32 }
+        Mock -ModuleName $M Write-ALInstallerServerIdentity { }
         Invoke-ALInstallerServer ([pscustomobject]@{}) $Fixture.Package
         Should -Invoke -ModuleName $M Invoke-ALDeploy -Times 1 -ParameterFilter { $FirstInstall -and $RequireRollback }
         Should -Invoke -ModuleName $M Exit-ALLock -Times 1
@@ -233,7 +235,7 @@ Describe 'Installer transactions on isolated program/data fixtures' {
         Mock -ModuleName $M New-ALRun { }
         Mock -ModuleName $M Initialize-ALInstallerServerRoot { throw 'Recovery must not initialize directories.' }
         Mock -ModuleName $M Invoke-ALRecover { [pscustomobject]@{recovered=$true} }
-        (Invoke-ALInstallerServer ([pscustomobject]@{}) '' -Recover).recovered | Should -BeTrue
+        (Invoke-ALInstallerServer ([pscustomobject]@{WorkRoot=$Fixture.Root}) '' -Recover).recovered | Should -BeTrue
         Should -Invoke -ModuleName $M Get-ALInstallerPackage -Times 0
         Should -Invoke -ModuleName $M Invoke-ALRecover -Times 1
         Should -Invoke -ModuleName $M Exit-ALLock -Times 1
