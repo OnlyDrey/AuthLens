@@ -33,6 +33,12 @@ from installer targets; move a verified copy off-VM before any Proxmox disk-snap
 missing-journal diagnostics have focused PowerShell tests, native Inno compilation and an actual disposable Inno
 metadata-timing probe. These are component evidence, not a successful full Server installation.
 
+The diagnostic build attempt from `e971147` compiled the frontend and .NET solution, then reported a
+`LanHttpsTests` failure: the startup certificate handshake self-check returned `TaskCanceledException` before host startup.
+The run was stopped when validation execution transferred to the user; no final passing test or packaging result is available
+for that attempt. Synchronization-context capture is an unconfirmed hypothesis, not an established root cause or implemented fix.
+Further builds/tests require explicit authorization or user execution under the repository's Build and Test Execution Policy.
+
 | Mandatory gate | Evidence boundary |
 | --- | --- |
 | Source/build identity | Clean SHA, version `2.0.0`, channel `stable`, file version `2.0.0.0`, manifests/checksums and secret scan must agree |

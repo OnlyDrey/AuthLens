@@ -4,7 +4,7 @@
 - Each cloud task is isolated. Use the existing checkout; do not create a Git worktree unless requested.
 - SAP role exports, local settings, logs, .env files and credentials must not be committed or included in release artifacts.
 - The .NET Desktop binds only to 127.0.0.1 on an OS-assigned port. Do not weaken local host/origin checks, expose the API to a LAN, or cache role data in a service worker.
-- Validate every change with the Progressive test validation policy below (Level 1 and 2 during development). The whole .NET suite
+- Plan validation for every change with the Progressive test validation policy below (Level 1 and 2 during development), subject to the user-execution policy below. The whole .NET suite
   (`dotnet test backend/tests/AuthLens.Tests`) and the complete browser suite are explicit FULL checks, not automatic development steps. Keep
   frontend type/build checks proportional to affected code.
 - **AuthLens is the .NET implementation in `backend/` with the React frontend in `frontend/`** (development target 2.0.0, NOT APPROVED for production until release gates pass; the product was
@@ -21,6 +21,52 @@
   operations or user-facing behavior must include corresponding documentation updates in the same development task. A development task is
   not complete until its relevant documentation is accurate and updated. Describe only what is implemented, and state whether it is verified,
   awaiting Windows acceptance, partial or planned.
+
+## Build and Test Execution Policy
+
+For AuthLens development, the user is responsible for executing builds and tests locally.
+
+These execution restrictions take precedence over instructions elsewhere in this file to automatically run validation,
+builds or repeated development cycles. Validation levels define the recommended scope, not standing authorization to execute.
+
+### Codex responsibilities
+
+- Analyze, implement and review code changes.
+- Identify the minimum necessary validation.
+- Provide exact PowerShell commands, including the correct working directory.
+- Explain what each validation command checks.
+- Analyze test results and logs supplied by the user.
+- Fix identified issues and provide updated commands when needed.
+
+### Execution restrictions
+
+- Do not execute builds, test suites, installer builds or long-running validation tasks unless explicitly authorized.
+- Do not automatically run full regression tests after code changes.
+- Do not run repeated validation cycles unnecessarily.
+- Do not trigger CI workflows.
+- Lightweight source inspection and Git status/diff commands are allowed.
+
+### Validation workflow
+
+1. Implement the requested changes.
+2. Perform lightweight code review.
+3. Provide focused test commands for the user.
+4. Wait for the user to execute them and return results.
+5. Analyze failures and implement corrections.
+6. Provide final release/build commands when appropriate.
+
+### Reporting
+Clearly distinguish:
+
+- Implemented changes
+- Validation performed by Codex
+- Validation pending user execution
+- Known issues and blockers
+
+Never claim that tests or builds passed unless supported by actual results.
+
+### Exceptions
+Codex may execute builds or tests only when the user explicitly requests or authorizes it.
 
 ## Stack and conventions
 
@@ -138,8 +184,9 @@ the same development task.
 
 ## Progressive test validation (mandatory default for every change)
 
-Applies to every change: features, fixes, refactoring, UI, backend and test infrastructure. Agents apply it automatically; nobody
-has to ask for it. The normal loop is *change -> relevant tests -> fix -> affected tests -> continue*; broad regression happens at
+Applies to every change: features, fixes, refactoring, UI, backend and test infrastructure. Agents select the relevant scope automatically,
+but the user executes it unless explicitly authorizing Codex under the Build and Test Execution Policy above.
+The normal loop is *change -> user runs relevant tests -> fix -> user runs affected tests -> continue*; broad regression happens at
 planned checkpoints, never after every correction. Commands: [development](docs/development/README.md).
 
 1. **Level 1, direct (seconds to minutes, always):** run only the tests of the changed code plus the matching static checks
