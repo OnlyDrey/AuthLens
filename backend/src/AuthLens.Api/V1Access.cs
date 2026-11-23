@@ -25,6 +25,17 @@ public static class V1Access
     private static IEnumerable<Assignment> AuditAssignments(SapUser user, bool showExpired, string status, DateOnly today) =>
         user.Assignments.Where(a => showExpired || status == "expired" || SapDates.IntervalStatus(a.ValidFrom, a.ValidTo, today) != "expired");
 
+    // User matching and exported association scope are separate. Evidence also includes transaction/group predicates;
+    // it must not be reused as the selected-role scope or unrelated roles would leak (or selected roles would disappear).
+    private static HashSet<int>? ExportRoleScope(UserDirectory users, UserLookupQuery query)
+    {
+        var roles = new[] { query.Role }.Concat(query.Roles ?? []).Where(role => role.Length > 0).ToList();
+        return roles.Count == 0 ? null : roles.SelectMany(role => UserLookup.MatchingEntries(users, role)).Select(a => a.Id).ToHashSet();
+    }
+
+    private static IEnumerable<Assignment> ExportAssignments(SapUser user, bool showExpired, string status, DateOnly today, HashSet<int>? roleScope) =>
+        AuditAssignments(user, showExpired, status, today).Where(a => roleScope is null || roleScope.Contains(a.Id));
+
     /// <summary>routers/access.directory_filters: the shared filter set of the user listing, the selection and the export.</summary>
     private static (IResult? Error, (UserLookupQuery Query, bool ShowExpired, string Status) Value) Parse(HttpContext http)
     {
@@ -77,7 +88,8 @@ public static class V1Access
                     },
                 });
             }
-            var exportAssignments = result.Sum(u => AuditAssignments(snapshot.Users.Users[u.UserKey], showExpired, status, today).Count());
+            var roleScope = ExportRoleScope(snapshot.Users, query);
+            var exportAssignments = result.Sum(u => ExportAssignments(snapshot.Users.Users[u.UserKey], showExpired, status, today, roleScope).Count());
             var groups = snapshot.Users.Users.Values.SelectMany(u => u.Groups).Where(g => g.Length > 0).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
             return Results.Ok(new
             {
@@ -100,18 +112,37 @@ public static class V1Access
             return Results.Ok(new { total = result.Count, usernames = result.Take(cap).Select(u => u.Username).ToList(), truncated = result.Count > cap, limit = cap, data_revision = Revision(snapshot) });
         });
 
-        // csv_exports.assignment_response for the filtered users: every retained assignment (expired ones only when shown or filtered), MATCHED_FILTER per row.
-        api.MapGet("/access/exports/users", async (HttpContext http, SnapshotService snapshots, CancellationToken ct) =>
+        // GET retains all matching users; POST intersects them with an explicit selected-user list (up to the selection cap).
+        // Both use the same role scope and preserve the CSV contract and MATCHED_FILTER evidence flag.
+        api.MapMethods("/access/exports/users", ["GET", "POST"], async (HttpContext http, SnapshotService snapshots, CancellationToken ct) =>
         {
             if (Parse(http) is { Error: { } error }) return error;
             var (query, showExpired, status) = Parse(http).Value;
+            HashSet<string>? selected = null;
+            if (HttpMethods.IsPost(http.Request.Method))
+            {
+                JsonObject? body;
+                try { body = await JsonNode.ParseAsync(http.Request.Body, cancellationToken: ct) as JsonObject; }
+                catch (System.Text.Json.JsonException) { return Detail(422, "Expected selected_usernames as a non-empty list of at most 5000 usernames."); }
+                if (body is null || body.Count != 1 || body["selected_usernames"] is not JsonArray names || names.Count is < 1 or > 5000)
+                    return Detail(422, "Expected selected_usernames as a non-empty list of at most 5000 usernames.");
+                selected = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var name in names)
+                {
+                    if (name is not JsonValue value || !value.TryGetValue<string>(out var text) || string.IsNullOrWhiteSpace(text) || text.Length > 128)
+                        return Detail(422, "Selected usernames must be non-empty strings of at most 128 characters.");
+                    selected.Add(RoleNames.NormalizeUsername(text));
+                }
+            }
             var snapshot = await snapshots.GetAsync(ct);
             if (snapshot.Ids.Users is null) return Detail(409, "No validated User Access dataset is loaded.");
             var today = Today();
             var org = await OrganizationAsync(http, snapshot, ct);
             var (found, evidence) = UserLookup.FindWithEvidence(snapshot.Users, snapshot.Catalogue.Roles.Count > 0, query, today, org.DirectoryFields);
             var result = org.Filter(found);
-            var rows = result.SelectMany(u => AuditAssignments(snapshot.Users.Users[u.UserKey], showExpired, status, today)
+            if (selected is not null) result = result.Where(user => selected.Contains(user.UserKey)).ToList();
+            var roleScope = ExportRoleScope(snapshot.Users, query);
+            var rows = result.SelectMany(u => ExportAssignments(snapshot.Users.Users[u.UserKey], showExpired, status, today, roleScope)
                 .Select(a => (Assignment: a, Identity: u, Matched: evidence.TryGetValue(u.UserKey, out var hit) && hit.Any(e => e.Id == a.Id)))).ToList();
             var csv = new System.Text.StringBuilder("\ufeff");
             V1Csv.Line(csv, AssignmentColumns, cells: false);

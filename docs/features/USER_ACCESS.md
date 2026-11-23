@@ -90,16 +90,33 @@ independent of assignment filters.
 The transaction filter has an **Exclude matching transactions** checkbox shared with Role Lookup (see
 [Role Lookup](ROLE_LOOKUP.md#exclude-matching-transactions)); the export follows the same selection.
 
-**Export CSV** beside the result count exports every imported assignment for every
-user matching the current directory filters, across all pages. User search, SAP
-User Group, role search, selected transactions, AND/OR mode and assignment-validity
-settings select the users using the same logic as the directory. The export then
-includes their other assignments and future intervals too. Expired assignments are excluded while
+**Export CSV** beside the result count first selects users using every current directory filter, across all pages.
+User search, exact usernames, SAP User Group, Functional Groups, manager, selected roles, missing roles, transaction AND/OR
+and assignment-validity filters keep the same user-matching semantics. Multiple selected roles combine with OR; AND/OR
+continues to control transaction matching across the user's eligible selected-role evidence.
+
+When a role filter is active, only associations matching those roles are exported. Exact normalized names, resolved catalogue
+role identities and the existing anchored literal-prefix `*` wildcard syntax share the same matcher used by the directory.
+Concrete assigned role names remain in the CSV. Extra unrelated access is never included just because its user matched.
+With no role filter, the original full-access behavior is retained, including other roles and future intervals.
+Expired assignments are excluded while
 **Show expired assignments** is off (the result count and the exported row count follow the same rule); turn it on, or
 filter by expired status, to include them. `MATCHED_FILTER`
 is Yes only for assignment evidence contributing to the active selection; No
 does not imply invalid or unauthorized access. AND transaction matching retains
-the directory's existing aggregate role-evidence semantics.
+the directory's existing aggregate role-evidence semantics. `MATCHED_FILTER` is an evidence flag, never permission to broaden
+the exported role scope. Other user-level criteria (for example SAP User Group) select users; they do not replace that role scope.
+
+The existing **Export scope** disclosure now contains **Assignment CSV users**: **All matching users** (default, all pages)
+or **Selected users**. Selected-user exports intersect the explicit selection with all current filters. Empty or nonmatching
+selection never falls back to everyone. Clearing selection while selected scope is active disables Export until users are
+selected again or All matching users is chosen. Selection/filter/source changes cancel an in-flight download.
+The server accepts the existing GET for all matching users and a CSRF-protected read-only POST with `selected_usernames`
+for up to 5,000 selected users, avoiding a large username query string; the existing request-body limit remains enforced.
+
+The separate Columns CSV exports only displayed directory rows and chosen columns (or explicitly all columns), not role
+associations or other pages; it follows the displayed user filters. A user's detail CSV follows that detail's own role-view,
+date and transaction filters, not an implicit copy of the parent directory filter. These exports keep their existing formats.
 
 Columns include SAP identity, exact assigned role, assignment dates/status and
 release metadata where applicable. Distinct validity intervals are retained. The
@@ -118,7 +135,7 @@ if this limit is reached.
 
 - **Pasting a list:** paste several usernames into *Search users* (one per line, from Excel, or separated by commas, semicolons or tabs), or type them in *Exact usernames* and choose *Apply list*. A paste converts only when it has at least two entries and every entry is a single token without spaces or an at-sign; typed text and phrases such as "Jane Doe, John Smith" stay an ordinary text search. Matching is exact and case-insensitive, duplicates are removed (up to 500 names), and users keep their original SAP spelling. A line under the toolbar reports requested, matched, not found, invalid, duplicates removed and users hidden by other filters; *Show details* lists them. The list appears as an *Exact usernames* chip, is stored in Saved Filters and follows the same selection used by the CSV export.
 - **Selection:** the header checkbox selects the current page; *Select all N matching* selects every user matching the filters (names are fetched from `users-selection`, capped at 5,000); *Clear selection* clears only the selection. The selection survives paging and sorting and is cleared when the result set changes (any filter or the username list), so no invisible user can be affected. The toolbar shows `N matching · M selected`.
-- **Export CSV** always covers all matching users and ignores the selection.
+- **Export CSV** defaults to all matching users; choose **Selected users** under **Export scope** to use the explicit row selection. Role-filtered exports never include unrelated roles in either scope.
 - **Assign group** opens the bulk dialog for the explicit selected usernames (see [Functional Groups](FUNCTIONAL_GROUPS.md)); the dialog states the number of users, shows current assignments, requires confirmation before replacing and reports applied, unchanged and failed users, retrying only the failed ones.
 
 ## Table presentation and exports

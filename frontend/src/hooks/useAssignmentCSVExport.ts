@@ -1,10 +1,10 @@
 import {useEffect,useRef,useState} from 'react'
-import {applicationToken} from '@/api/client'
+import {applicationHeaders} from '@/api/client'
 import { announceExport } from '@/lib/exportNotice'
 type Filters=Record<string,string|number|boolean|string[]>
 /** The server owns selection and one snapshot/day. The browser owns cancellation/save. */
-export function useAssignmentCSVExport(view:'users'|'releases'|'release-roles',filters:Filters,revision?:string,asOf?:string) {
- const key=JSON.stringify([view,filters,revision,asOf]),current=useRef(key),controller=useRef<AbortController|null>(null)
+export function useAssignmentCSVExport(view:'users'|'releases'|'release-roles',filters:Filters,revision?:string,asOf?:string,selectedUsernames?:string[]) {
+ const key=JSON.stringify([view,filters,revision,asOf,selectedUsernames]),current=useRef(key),controller=useRef<AbortController|null>(null)
  current.current=key
  const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[failed,setFailed]=useState(false)
  useEffect(()=>{setMessage('');return()=>controller.current?.abort()},[key])
@@ -13,7 +13,8 @@ export function useAssignmentCSVExport(view:'users'|'releases'|'release-roles',f
   const active=new AbortController(),started=key;controller.current=active;setBusy(true);setMessage('');setFailed(false)
   try {
    const query=new URLSearchParams(Object.entries(filters).flatMap(([name,value])=>Array.isArray(value)?value.map(item=>[name,item]):[[name,String(value)]]))
-   const response=await fetch(`/api/access/exports/${view}?${query}`,{headers:{'X-SAP-Lens':applicationToken()},cache:'no-store',signal:active.signal})
+   if(selectedUsernames!==undefined&&(view!=='users'||!selectedUsernames.length))throw Error('Select at least one user or choose all matching users before exporting.')
+   const response=await fetch(`/api/access/exports/${view}?${query}`,{method:selectedUsernames!==undefined?'POST':'GET',headers:{...applicationHeaders(),...(selectedUsernames!==undefined?{'Content-Type':'application/json'}:{})},body:selectedUsernames!==undefined?JSON.stringify({selected_usernames:selectedUsernames}):undefined,cache:'no-store',signal:active.signal})
    if(!response.ok)throw Error('Assignment export could not be created. Refresh the view and check source availability.')
    if(revision&&response.headers.get('X-SAP-Lens-Data-Revision')!==revision)throw Error('Source data changed. Refresh before exporting.')
    if(asOf&&response.headers.get('X-SAP-Lens-As-Of')!==asOf)throw Error('Assignment validity date changed. Refresh before exporting.')

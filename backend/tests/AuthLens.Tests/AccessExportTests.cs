@@ -50,7 +50,7 @@ public sealed class AccessExportTests : IAsyncLifetime
         : [$"{p.Key}={Uri.EscapeDataString(Value(p.Value!))}"]));
 
     [Fact]
-    public async Task Selection_and_assignment_export_equal_python_v1()
+    public async Task Selection_and_unfiltered_assignment_export_equal_python_v1()
     {
         var expected = JsonNode.Parse(File.ReadAllText(Fixture("access", "expected.python.json")))!.AsObject();
         var failures = new List<string>();
@@ -67,6 +67,16 @@ public sealed class AccessExportTests : IAsyncLifetime
             var response = await _client.GetAsync("/api/access/exports/users?" + query);
             var bytes = await response.Content.ReadAsByteArrayAsync();
             var text = Encoding.UTF8.GetString(bytes);
+            if (spec["roles"] is JsonArray roleFilters && roleFilters.Count > 0)
+            {
+                // User selection remains compatible. The current contract intentionally narrows role-filtered CSVs,
+                // unlike the historical full-access reference; never rewrite that historical fixture to hide the change.
+                var rows = AuthLens.Domain.Csv.CsvReader.Read(new StringReader(text.TrimStart('\ufeff')), ';').Skip(1).ToList();
+                Assert.Equal(want["usernames"]!.AsArray().Select(n => (string)n!).Order(), rows.Select(row => row[0]).Distinct().Order());
+                Assert.All(rows, row => Assert.Contains(row[5], roleFilters.Select(n => (string)n!)));
+                Assert.Equal(rows.Count.ToString(), response.Headers.GetValues("X-SAP-Lens-Assignment-Count").Single());
+                continue;
+            }
             if (Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text))) != (string)want["csv_sha256"]!)
                 failures.Add($"{name}: CSV differs; head {string.Join(" | ", text.Split("\r\n").Take(3))} vs {string.Join(" | ", want["csv_head"]!.AsArray().Select(v => (string)v!))}");
             if (response.Headers.GetValues("X-SAP-Lens-Assignment-Count").Single() != ((int)want["count"]!).ToString()) failures.Add($"{name}: count header differs");

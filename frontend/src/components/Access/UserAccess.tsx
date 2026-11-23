@@ -123,6 +123,7 @@ export function UserAccess({
   const [usernames, setUsernames] = useState(''), [usernameDraft, setUsernameDraft] = useState('');
   const [selectionBusy, setSelectionBusy] = useState(false), [selectionNote, setSelectionNote] = useState('');
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [exportUserScope,setExportUserScope] = useState<'matching'|'selected'>('matching');
   useEffect(() => {
     const t = setTimeout(() => setTerm(search), 250);
     return () => clearTimeout(t);
@@ -165,7 +166,7 @@ export function UserAccess({
     const last = Math.max(0, Math.floor((result.data.total - 1) / limit) * limit);
     if (offset > last) setOffset(last);
   }, [result.data, result.isFetching, offset]);
-  const assignmentExport=useAssignmentCSVExport('users',filters,result.data?.data_revision,result.data?.as_of)
+  const assignmentExport=useAssignmentCSVExport('users',filters,result.data?.data_revision,result.data?.as_of,exportUserScope==='selected'?[...picked].sort():undefined)
   const previousSelected = useRef(selected);
   useLayoutEffect(() => {
     if (!selected && previousSelected.current) restoreList.current = true;
@@ -305,13 +306,19 @@ export function UserAccess({
                 finally{setSelectionBusy(false)}}}>Select all {result.data.total.toLocaleString()} matching</Button>}
               {picked.size>0&&<Button variant="primary" onClick={()=>setAssignOpen(true)}><UsersRound size={16} aria-hidden="true"/>Assign group</Button>}
               {picked.size>0&&<Button variant="outline" onClick={()=>setPicked(new Set())}><X size={16} aria-hidden="true"/>Clear selection</Button>}
-              <ExportCSVButton loading={assignmentExport.busy} disabled={dataLoading||result.isFetching||search!==term||directoryTransaction.settling||!result.data.export_assignments} title="Exports every imported assignment for all matching users, across pages. MATCHED_FILTER marks assignments contributing to the active filters; expired and other assignments remain included." onClick={()=>void assignmentExport.download()}/>
+              <ExportCSVButton loading={assignmentExport.busy} disabled={dataLoading||result.isFetching||search!==term||directoryTransaction.settling||!result.data.export_assignments||(exportUserScope==='selected'&&!picked.size)} title="Export assignments for the chosen user scope, across pages. Active role filters restrict exported roles; MATCHED_FILTER marks filter evidence. See Export scope." onClick={()=>void assignmentExport.download()}/>
             </div>
           </div>
           <UsernameFeedback feedback={result.data.username_filter}/>
           {assignOpen&&<BulkAssignDialog usernames={[...picked].sort()} onClose={()=>setAssignOpen(false)} onChanged={()=>undefined}/>}
           {selectionNote&&<p role="status" className="ui-description">{selectionNote}</p>}
-          <details className="ui-evidence-disclosure"><summary>Export scope</summary><div><p className="ui-description">Exports all {result.data.export_assignments?.toLocaleString()??'available'} imported assignments for matching users, including other roles{expired?' and expired assignments':'; expired assignments are excluded while Show expired assignments is off'}. MATCHED_FILTER identifies assignment-level matches. Export covers all matching users and does not depend on the selection. Role-derived transactions are evidence, not proof of effective SAP authorization.</p></div></details>
+          <details className="ui-evidence-disclosure"><summary>Export scope</summary><div className="grid gap-2">
+            <label className="grid gap-1 text-sm">Assignment CSV users<Select aria-label="Assignment CSV users" value={exportUserScope} onChange={event=>setExportUserScope(event.target.value as 'matching'|'selected')}>
+              <option value="matching">All matching users ({result.data.total.toLocaleString()})</option>
+              <option value="selected" disabled={!picked.size}>Selected users ({picked.size.toLocaleString()})</option>
+            </Select></label>
+            <p className="ui-description">{roles.length?'Exports only assignments matching the selected role filters.':'No role filter is active: exports all imported assignments for the chosen users.'} {expired?'Expired assignments are included.':'Expired assignments are excluded while Show expired assignments is off.'} All active user filters still apply, including when exporting selected users. All matching users covers every page. MATCHED_FILTER identifies contributing evidence; it does not expand the exported role scope. Role-derived transactions do not prove effective SAP authorization.</p>
+          </div></details>
 
           <div className="access-table user-directory-table" tabIndex={0} role="region" aria-label="User directory table">
             <ConfigurableTable aria-label="User directory">
@@ -343,7 +350,7 @@ export function UserAccess({
                     {<td className="ud-cell" data-col="name"><span className="ud-ellipsis" title={full||undefined}>{full||"—"}</span></td>}
                     {<td className="ud-cell" data-col="title"><DirectoryValue value={user.job_title} status={user.directory_status}/></td>}
                     {<td className="ud-cell" data-col="department"><DirectoryValue value={user.department} status={user.directory_status}/></td>}
-                    {<td className="ud-cell" data-col="fg">{user.functional_groups?.length ? <FunctionalGroupPills groups={user.functional_groups} username={user.username}/> : <span className="text-muted">Unassigned</span>}{user.classification_status === "Needs review" && <> <ClassificationPill status="Needs review"/></>}</td>}
+                    {<td className="ud-cell" data-col="fg"><div className="flex min-w-0 flex-col items-start gap-1">{user.functional_groups?.length ? <FunctionalGroupPills groups={user.functional_groups} username={user.username}/> : <span className="text-muted">Unassigned</span>}{user.classification_status === "Needs review" && <ClassificationPill status="Needs review"/>}</div></td>}
                     {<td className="ud-cell" data-col="group"><span className="ud-ellipsis" title={group}>{group}</span></td>}
                     {<td className="ud-cell" data-col="email"><span className="ud-ellipsis" title={user.email||undefined}>{user.email || "—"}</span></td>}
                     <td aria-label="Account validity">

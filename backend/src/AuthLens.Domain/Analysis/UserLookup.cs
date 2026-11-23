@@ -27,7 +27,10 @@ public static class UserLookup
         if (role.Length > 0)
         {
             var key = RoleNames.Normalize(role);
-            return state.Assignments.Where(a => RoleNames.Normalize(a.RoleName) == key || (a.CatalogueRoles.Any(n => RoleNames.Normalize(n) == key) && a.Resolved));
+            var pattern = new RoleMatcher([role]);
+            return state.Assignments.Where(a => RoleNames.Normalize(a.RoleName) == key
+                || (a.CatalogueRoles.Any(n => RoleNames.Normalize(n) == key) && a.Resolved)
+                || pattern.Match(a.RoleName).Resolved);
         }
         return state.Assignments;
     }

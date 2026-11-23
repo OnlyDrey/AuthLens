@@ -1494,15 +1494,16 @@ summary:focus-visible,div[tabindex="0"]:focus-visible,a.role-identifier-link:foc
 .user-directory-table { overflow-x:auto; overscroll-behavior-x:contain; }
 .user-directory-table table { min-width:72rem; width:100%; }
 .user-directory-table th,.user-directory-table td { white-space:nowrap; }
+.user-directory-table tbody td { vertical-align:middle; }
 .user-directory-table .ud-cell { max-width:16rem; min-width:8rem; }
 .user-directory-table .ud-cell[data-col="email"] { min-width:12rem; max-width:20rem; }
+.user-directory-table .ud-cell[data-col="fg"] { min-width:18rem; max-width:20rem; padding-right:var(--space-5); vertical-align:middle; }
 .user-directory-table .ud-ellipsis { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.fg-chips { display:inline-flex; align-items:center; gap:var(--space-1); max-width:100%; min-width:0; }
-.fg-chips > [role="listitem"] { min-width:0; }
-.fg-chip { display:inline-block; max-width:9rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle; padding:1px var(--space-2); border:1px solid var(--border); border-radius:999px; background:var(--surface2); color:var(--text); font-size:var(--text-xs,0.75rem); line-height:1.5; }
-.fg-chip-more { cursor:pointer; font-weight:600; }
-.fg-chip-more:hover { border-color:var(--accent2); }
-.fg-chip-more:focus-visible { outline:var(--focus-width) solid var(--focus); outline-offset:var(--focus-offset); }
+.fg-chips { display:inline-flex; align-items:center; gap:var(--space-2); width:17rem; max-width:100%; min-width:0; white-space:normal; }
+.fg-chip-stack { display:grid; flex:1; min-width:0; gap:var(--space-1); }
+.fg-chip { display:block; width:100%; height:1.75rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 var(--space-2); border:1px solid var(--border); border-radius:999px; background:var(--surface2); color:var(--text); font-size:var(--text-xs,0.75rem); line-height:calc(1.75rem - 2px); }
+.fg-group-action { flex:none; }
+.fg-group-action > .ui-button { width:5.5rem; min-height:1.75rem; height:1.75rem; padding:0 var(--space-1); white-space:nowrap; }
 .user-directory-table .ud-sticky-1,.user-directory-table .ud-sticky-2 { position:sticky; z-index:1; background:var(--surface); }
 .user-directory-table thead .ud-sticky-1,.user-directory-table thead .ud-sticky-2 { background:var(--surface2); z-index:2; }
 .user-directory-table .ud-sticky-1 { left:0; width:2.75rem; min-width:2.75rem; max-width:2.75rem; padding-left:var(--space-3); padding-right:var(--space-3); }
@@ -1615,7 +1616,5 @@ table[data-nowrap] [data-wrap="groups"] { white-space:normal; min-width:12rem; m
 .table-column-options label { display:flex; flex:1; align-items:center; gap:var(--space-2); min-width:0; min-height:44px; }
 .table-column-options label span { overflow-wrap:anywhere; }
 .table-column-options .ui-button { flex-shrink:0; }
-.fg-chips { max-width:20rem; white-space:normal; }
-.fg-chip { display:inline-block; max-width:14rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle; }
 
 .mobile-navigation details.primary-nav-group > summary.primary-nav-button::before { display:none; }

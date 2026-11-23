@@ -388,6 +388,9 @@ public sealed class AccountsTests : IDisposable
         Assert.Equal(HttpStatusCode.Forbidden, (await server.Post("/api/configuration", new { })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await server.Post("/api/saved-filters", new { name = "Viewer", view = "roles", filters = new { } })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await server.Post("/api/roles/package/preview", new { items = Array.Empty<object>() })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await server.Post("/api/access/exports/users", new { selected_usernames = new[] { "SYNTHETIC" } }, csrf: false)).StatusCode);
+        // Export is a read available to viewers, but the POST selection still requires the existing CSRF proof.
+        Assert.Equal(HttpStatusCode.Conflict, (await server.Post("/api/access/exports/users", new { selected_usernames = new[] { "SYNTHETIC" } })).StatusCode); // no dataset loaded
         var runtime = JsonNode.Parse(await server.Client.GetStringAsync("/api/runtime"))!;
         Assert.Equal(("viewer", "viewer"), ((string)runtime["username"]!, (string)runtime["role"]!));
         Assert.Equal(HttpStatusCode.OK, (await server.Post("/api/auth/password", new { current_password = Password, new_password = Password + " new" })).StatusCode);

@@ -271,11 +271,11 @@ test('User Access shows Directory job title and department, group chips with ove
   await expect(table.getByRole('columnheader', { name: 'Job title', exact: true })).toBeVisible()
   await expect(row.locator('[data-col="title"]')).toHaveText('Buyer')
   await expect(row.locator('[data-col="department"]')).toHaveText('Finance')
-  // Two chips and one "+2" control that names the rest; the table row keeps a single line.
+  // Two readable badges and a single-line "+2 more" action; full membership stays available in the dialog/export.
   const chips = row.getByRole('list', { name: 'Functional Groups of DEMO_FG', exact: true })
   await expect(chips.locator('.fg-chip:not(.fg-chip-more)')).toHaveCount(2)
   const more = chips.getByRole('button', { name: 'Show all 4 Functional Groups of DEMO_FG' })
-  await expect(more).toHaveText('+2')
+  await expect(more).toHaveText('+2 more')
   await more.click()
   const groupDialog=page.getByRole('dialog',{name:'Functional Groups of DEMO_FG',exact:true})
   for(const name of names)await expect(groupDialog).toContainText(name)

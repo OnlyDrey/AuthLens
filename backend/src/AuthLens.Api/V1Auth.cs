@@ -36,7 +36,7 @@ public static partial class V1Auth
         "/api/retention", "/api/backups", "/api/import", "/api/sod/configuration", "/api/sod/reference", "/api/sod/periods", "/api/saved-filters", "/api/functional-groups",
         "/api/user-import", "/api/employees", "/api/data/cancel", "/api/refresh-schedule", "/api/sod/catalogue", "/api/sod/reports/branding"];
     private static readonly HashSet<string> ReadOnlyPosts = ["/api/sod/reports/preview", "/api/sod/reports/pdf", "/api/sod/reports/docx", "/api/sod/reports/remediation/preview",
-        "/api/sod/reports/remediation/pdf", "/api/sod/reports/remediation/csv", "/api/sod/simulate"];
+        "/api/sod/reports/remediation/pdf", "/api/sod/reports/remediation/csv", "/api/sod/simulate", "/api/access/exports/users"];
     private static readonly HashSet<string> ReviewerPosts = ["/api/sod/decisions/activity", "/api/sod/decisions/assignment", "/api/sod/decisions/assignment/bulk",
         "/api/sod/decisions/acceptance", "/api/sod/decisions/risk", "/api/sod/remediation/actions"];
 
