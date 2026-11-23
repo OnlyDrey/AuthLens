@@ -26,3 +26,13 @@ test('version grammar and Windows numeric bounds fail closed', () => fixture(roo
  writeFileSync(path.join(root,'backend/product-version.json'),JSON.stringify({version}));assert.throws(()=>readProduct(root),/Invalid product/)
  }
 }))
+
+test('stable product versions retain identity and synchronize both frontend mirrors', () => fixture(root => {
+ writeFileSync(path.join(root,'backend/product-version.json'),JSON.stringify({product:'AuthLens',version:'2.0.0'}))
+ assert.equal(synchronize(root,true),'2.0.0')
+ assert.deepEqual(buildIdentity(root,{AUTHLENS_SOURCE_SHA:'a'.repeat(40)}),{product:'AuthLens',version:'2.0.0',base_version:'2.0.0',mode:'dotnet',source_sha:'a'.repeat(40)})
+ for(const name of ['package.json','package-lock.json']) {
+  const mirror=JSON.parse(readFileSync(path.join(root,'frontend',name),'utf8'))
+  assert.equal(mirror.version,'2.0.0');assert.equal(mirror.packages[''].version,'2.0.0')
+ }
+}))

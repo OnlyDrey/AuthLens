@@ -1,5 +1,12 @@
 # Backup and recovery
 
+For the `2.0.0` target, approval requires a fresh independent backup and an actual restore/rollback rehearsal with
+matching business/security record and immutable-evidence fingerprints. A stable-looking version or successful backup
+verification alone is insufficient. See the [production checklist](../deployment/DESKTOP_SERVER_DEPLOYMENT.md#production-installation-checklist).
+Supported SAP Lens backup conversion remains part of restore staging/validation; preview and verify source metadata,
+recovery-key compatibility, converted counts and history before activation. Never adopt a legacy installation or
+silently initialize an empty database after a failed restore. Existing protected source archives/keys remain unchanged.
+
 How AuthLens protects its data: encrypted application backups, the host recovery key, automatic backups, retention, restore, and the upgrade
 confirmation that releases migration backups. Implementation: `backend/src/AuthLens.Application/Backups` and `backend/src/AuthLens.Api/V1Backups.cs`;
 storage model: [database design](../architecture/DATABASE_DESIGN.md#backups-and-retention).

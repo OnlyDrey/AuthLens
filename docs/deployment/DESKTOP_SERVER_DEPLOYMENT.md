@@ -2,17 +2,63 @@
 
 AuthLens has one shared .NET backend and React frontend, packaged for Windows Desktop and Server.
 
+The development target is `2.0.0`; it is **NOT APPROVED for production** until the [release gates](../architecture/VERSIONING.md#200-target-notes-and-approval-gates)
+and [native acceptance](../validation/STATUS.md#200-release-gates) are complete. An unsigned diagnostic build is not a production candidate.
+
 ## Desktop
 
 Desktop is a per-user WinForms/WebView2 application. It launches the shared API on `127.0.0.1` with an OS-assigned port and private launch capability.
 Its default installation is `%LOCALAPPDATA%\Programs\AuthLens Desktop`; mutable data is isolated under `%LOCALAPPDATA%\AuthLens\data`.
 Network binding, extra hostnames, TLS/proxy options and server-account sign-in are refused in Desktop mode. Never expose its API to the LAN.
 
+The supported alpha-to-stable upgrade preserves the existing data directory, compares semantic versions from verified
+manifests, creates a protective encrypted backup and validates rollback compatibility. Windows `2.0.0.0` is the stable
+file version even though alpha used `2.0.0.1`; numeric revision ordering must not reject that product upgrade. Close Desktop
+first and escrow its backup key. These safeguards are implemented; native GUI upgrade and WebView2 acceptance remain required.
+
 ## Server
 
 Server runs as a console process or the `AuthLens` Windows service. The canonical machine root is `C:\ProgramData\AuthLens`; the virtual service
 identity is `NT SERVICE\AuthLens`. Network access needs explicit HTTPS, listen IP, hosts, credentials and dedicated storage. The frontend is served
 by the same process. See [network/security](SERVER_NETWORK_ACCESS.md) and [Windows deployment](WINDOWS_DEPLOYMENT.md).
+
+## Production installation checklist
+
+1. Require a release approval for the exact clean source SHA, not merely version `2.0.0`. Verify all mandatory
+   [acceptance gates](../validation/STATUS.md#200-release-gates), package manifests/checksums, signing or an approved
+   controlled-distribution exception, and the complete backend/frontend regression evidence.
+2. Classify the destination as genuinely empty or a verified owned upgrade. Stop on an unregistered populated root,
+   unexpected files, a foreign service/listener, unknown schema, stale transaction or missing rollback proof.
+3. Preserve and independently verify current business and security databases, accounts, encryption/recovery keys,
+   TLS private material/password files, configuration and immutable evidence. Rehearse restore in separate storage.
+   Keep an off-machine copy; do not treat a hypervisor snapshot as application-consistent backup.
+4. For direct HTTPS, select the specific private listen IP and port. Include the intended FQDN and IP in the backend
+   certificate SAN and direct Allowed Hosts where used. Clients must trust the certificate issuer and validate the name.
+   With no proxy, leave Trusted Proxies and Proxy Hosts empty. A reverse proxy is optional, not a prerequisite.
+   See [network and certificate rules](SERVER_NETWORK_ACCESS.md#1-hosting-boundary). Never bypass TLS checks.
+5. Use the supported wizard (or an explicit reviewed configuration for silent deployment), dedicated directories and
+   default `NT SERVICE\AuthLens`. Approve only necessary restricted firewall sources/profiles; no inbound exception for loopback.
+6. Verify the service name/display name `AuthLens`, virtual identity, Automatic startup, TLS readiness, effective
+   version/SHA, `authlens.sqlite3` location and schema, SQLite integrity/foreign keys, administrator access, accounts,
+   record/evidence fingerprints and disabled refresh. Verify graceful restart and persistence, and Desktop independently.
+7. Keep the old release, deployment journals, immutable payload/tools and verified backups until recovery acceptance
+   is complete. The installer completion screen is not sufficient release approval. Use the [failed-install procedure](WINDOWS_DEPLOYMENT.md#recovery-of-the-failed-production-installation-manual-not-automatic)
+   for the known failed alpha fresh installation; do not run normal upgrade/rollback against an uninstalled service.
+
+### Rollback and recovery boundaries
+
+For an interrupted installed Server transaction, retain the original configuration and use the supported
+`Install-AuthLens.ps1 -Mode Server -ConfigFile <same-configuration> -Recover -Yes` with verified retained helpers.
+Recovery must bind the original journal, release and backup and prove schema compatibility before switching binaries.
+A completed update uses the explicit, reviewed deployment `Rollback` operation; `Recover` is not a generic downgrade.
+If binary rollback is refused, restore the verified pre-update backup into a separate clean environment with the
+compatible previous release and verify it before a cutover. Do not copy live SQLite files or overwrite newer data.
+Desktop uses its private `.setup-state` recovery journal and retained previous executable/manifest; close the app
+and use its supported `-Mode Desktop ... -Recover -Yes` adapter with the same explicit program/data paths.
+
+Preservation-only uninstall removes owned resources after verified backup; it is not a recovery strategy and does
+not erase the data, keys, certificates or backup artifacts. Restore/rollback must actually be exercised; instructions
+and unit tests alone do not prove success. See [backup/recovery](../operations/BACKUP_AND_RECOVERY.md).
 
 ## Build and release folder
 

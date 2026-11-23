@@ -4,10 +4,12 @@ BeforeAll {
 }
 
 Describe 'Compiled Inno installer isolation' {
-    It 'compiles <Mode> with only its own validation and transaction arguments' -ForEach @(@{Mode='Desktop'},@{Mode='Server'}) {
+    It 'compiles <Mode> <Version> with only its own validation and transaction arguments' -ForEach @(
+        @{Mode='Desktop';Version='2.0.0-alpha.1';Numeric='2.0.0.1'},@{Mode='Server';Version='2.0.0-alpha.1';Numeric='2.0.0.1'},
+        @{Mode='Desktop';Version='2.0.0';Numeric='2.0.0.0'},@{Mode='Server';Version='2.0.0';Numeric='2.0.0.0'}) {
         if (-not $script:Iscc) { Set-ItResult -Skipped -Because 'Inno Setup 6 unavailable; compile and execute both installers on the Windows acceptance machine.'; return }
         # Compile real scripts with synthetic bytes, never launch Setup or touch installed state.
-        $repo = Join-Path $TestDrive $Mode
+        $repo = Join-Path $TestDrive ($Mode+'-'+$Version)
         $installer = Join-Path $repo 'backend/installer'
         $payload = Join-Path $repo 'payload'; $tools = Join-Path $repo 'tools'
         foreach ($dir in $installer,(Join-Path $repo 'assets/branding'),(Join-Path $payload 'desktop'),(Join-Path $payload 'server'),$tools) {
@@ -23,7 +25,7 @@ Describe 'Compiled Inno installer isolation' {
         $expanded = Join-Path $repo 'expanded.iss'
         Add-Content -LiteralPath $source ('#expr SaveToFile("' + $expanded + '")')
         $output=Join-Path $repo 'compiled'
-        & $script:Iscc '/Q' "/O$output" '/DFullVersion=2.0.0-alpha.1' '/DNumericVersion=2.0.0.1' "/DReleaseDir=$payload" '/DPackageName=synthetic' "/DToolsDir=$tools" $source
+        & $script:Iscc '/Q' "/O$output" "/DFullVersion=$Version" "/DNumericVersion=$Numeric" "/DReleaseDir=$payload" '/DPackageName=synthetic' "/DToolsDir=$tools" $source
         $LASTEXITCODE | Should -Be 0
         $binary=@(Get-ChildItem -LiteralPath $output -Filter '*.exe')
         $binary.Count|Should -Be 1

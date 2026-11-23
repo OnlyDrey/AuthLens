@@ -1,6 +1,6 @@
 # Current validation status
 
-AuthLens `2.0.0-alpha.1` is under private acceptance. This page records current verification boundaries, not a release history.
+AuthLens development targets `2.0.0`. **Release status: NOT APPROVED / NO-GO** until all mandatory acceptance gates pass. Existing alpha installation evidence below does not approve the new target. This page records current verification boundaries, not a release history.
 
 | Area | Current result |
 | --- | --- |
@@ -27,7 +27,29 @@ terminated for the persistence check; this proves neither graceful SCM restart n
 archive hash remained unchanged. Private raw evidence and failed harness runs are retained outside Git. The on-VM recovery directory is separate
 from installer targets; move a verified copy off-VM before any Proxmox disk-snapshot rollback, which would discard files created after that snapshot.
 
-## Responsive acceptance scope
+## 2.0.0 release gates
+
+**NOT APPROVED.** The version target does not change the approval status. Fresh Server extraction ownership and
+missing-journal diagnostics have focused PowerShell tests, native Inno compilation and an actual disposable Inno
+metadata-timing probe. These are component evidence, not a successful full Server installation.
+
+| Mandatory gate | Evidence boundary |
+| --- | --- |
+| Source/build identity | Clean SHA, version `2.0.0`, channel `stable`, file version `2.0.0.0`, manifests/checksums and secret scan must agree |
+| Backend/frontend regression | Matching-source full relevant regression and retained reports required; focused results alone do not approve release |
+| Desktop | Real clean installation, alpha upgrade, launch/shutdown, loopback isolation, dropdown/icons and saved filters required |
+| Server | Real clean GUI/silent install and independent alpha upgrade, canonical SCM identity/Automatic startup, restart and preservation required |
+| Direct HTTPS | IP and FQDN SAN/name/trust validation without bypass, with no proxy dependency, required |
+| Recovery | Independent current backup including security/TLS/keys/configuration; actual restore and rollback with record/evidence/account fingerprints required |
+| Uninstall | Owned service/firewall cleanup with data preserved and tested recovery required |
+| Distribution | Unsigned unless independently signed; approved signing/transport policy and matching payload verification required |
+
+Do not run destructive tests against production. VM 130 is the designated development VM; initial administrator
+bootstrap, current independent recovery verification and confirmation of the retained Proxmox snapshot are prerequisites
+before replacing its existing service. A disk snapshot without QEMU Guest Agent is not proof of application consistency.
+Protect off-VM recovery material before a snapshot rollback. See the [production checklist](../deployment/DESKTOP_SERVER_DEPLOYMENT.md#production-installation-checklist).
+
+### Responsive acceptance scope
 
 Focused Edge/Chromium checks cover light/dark layouts from 360 to 1600 px, keyboard/focus behavior, touch emulation, Settings sections, column preferences and displayed-row CSV exports. Screenshots and failed-run diagnostics remain in ignored local test artifacts. Real iOS/Android browsers, Safari and acceptance against the deployed application remain outstanding. Complex tables intentionally scroll horizontally; column configuration does not imply manual width resizing.
 

@@ -34,7 +34,7 @@ service is required.
 
 The implementation is an ASP.NET Core (.NET 10) backend in [`backend/`](backend) serving the React/Vite frontend in [`frontend/`](frontend),
 as a Windows service or console **Server** (browser access over HTTPS) and a WebView2 **Desktop** for one user.
-Product version `2.0.0-alpha.1` (pre-release; [versioning](docs/architecture/VERSIONING.md)).
+Development target `2.0.0` - **NOT APPROVED for production**; see [versioning and release gates](docs/architecture/VERSIONING.md).
 
 | Area | Status |
 | --- | --- |

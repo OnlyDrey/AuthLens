@@ -631,7 +631,7 @@ Get-ChildItem $release.FullName\server, $release.FullName\desktop | Select-Objec
 ```
 
 Pass: `Release verified` for win-x64; `server\AuthLens.Api.exe` and `desktop\AuthLens.exe` exist; manifest product `AuthLens`, version
-`2.0.0-alpha.1`; `AuthLens-2.0.0-alpha.1-Setup.exe` and `AuthLens-Server-2.0.0-alpha.1-Setup.exe` are produced.
+`2.0.0`; `AuthLens-2.0.0-Setup.exe` and `AuthLens-Server-2.0.0-Setup.exe` are produced.
 
 ### 2. Native test suites
 
