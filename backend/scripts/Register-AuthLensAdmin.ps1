@@ -12,7 +12,7 @@ param(
     [Parameter(Mandatory=$true)][string]$ConfigFile,
     [Parameter(Mandatory=$true)][string]$RecoveryBundle,
     [string]$OperatorSid=([Security.Principal.WindowsIdentity]::GetCurrent().User.Value),
-    [ValidateSet('Health','Preflight','Install','Upgrade','Repair','Recover','Start','Stop','Restart')][string[]]$Operations=@('Health','Preflight'),
+    [ValidateSet('Health','Preflight','Install','Upgrade','Repair','Recover','Uninstall','Start','Stop','Restart')][string[]]$Operations=@('Health','Preflight'),
     [ValidateRange(10,1800)][int]$TimeoutSeconds=1200,
     [switch]$Approve
 )

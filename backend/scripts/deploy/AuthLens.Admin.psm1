@@ -1,7 +1,7 @@
 # Restricted development-VM administration. No action occurs on import.
 Set-StrictMode -Version 3
 $ErrorActionPreference='Stop'
-$script:AdminOperations=@('Health','Preflight','Install','Upgrade','Repair','Recover','Start','Stop','Restart')
+$script:AdminOperations=@('Health','Preflight','Install','Upgrade','Repair','Recover','Uninstall','Start','Stop','Restart')
 function Assert-ALAdminJob($Job) {
     $fields=@('schema','product','operation_id','operation','configuration','config_sha256','package','root','timeout_seconds')
     if(@($Job.PSObject.Properties.Name|Where-Object{$_ -notin $fields}).Count -or @($fields|Where-Object{$_ -notin $Job.PSObject.Properties.Name}).Count){throw 'Unexpected administrative job fields.'}
@@ -29,6 +29,7 @@ function Get-ALAdminAdapterArguments($Job,[string]$Tools,[string]$ResultFile) {
         'Install' {$args+=@('-Operation','Install','-Package',$Job.package,'-Yes')}
         'Upgrade' {$args+=@('-Operation','Upgrade','-Package',$Job.package,'-Yes')}
         'Repair' {$args+=@('-Operation','Repair','-Package',$Job.package,'-Yes')}
+        'Uninstall' {$args+=@('-Operation','Uninstall','-Yes')}
         'Recover' {$args+=@('-Recover','-Yes')}
         default {throw 'This administrative operation is not an installer invocation.'}
     }

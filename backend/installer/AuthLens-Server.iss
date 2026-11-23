@@ -3,7 +3,7 @@
 ; Stages an immutable payload under {app}\setup. The existing versioned deployment transaction owns service installation/update and readiness.
 ; The server's --data-dir is outside program files; no earlier-product service or data directory is adopted.
 ; Configuration is explicit; backup, rollback compatibility and readiness are mandatory. No process is killed.
-; Uninstall is refused while a service still runs from {app}.
+; Uninstall verifies ownership and an encrypted backup, then removes only the owned service/firewall rules; data is retained.
 ; Silent: AuthLens-Server-<version>-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART [/LOG=<file>]
 #ifndef FullVersion
   #error FullVersion is required
@@ -102,14 +102,51 @@ begin
   Result := True;
 end;
 
+var
+  UninstallConfig, UninstallConfigHash, UninstallPlan, UninstallDiagnostic: String;
+
+function RunServerUninstall(Planning: Boolean): Boolean;
+var Arguments: String; Code: Integer; Detail: AnsiString;
+begin
+  Arguments := '-NoProfile -NonInteractive -File "' + ExpandConstant('{app}\setup\{#PackageName}\tools\Install-AuthLens.ps1') + '" -Mode Server -ConfigFile "' + UninstallConfig + '" -InstallRoot "' + ExpandConstant('{app}') + '"';
+  if Planning then Arguments := Arguments + ' -Operation UninstallPlan -PlanFile "' + UninstallPlan + '"'
+  else Arguments := Arguments + ' -Operation Uninstall -Yes -ExpectedConfigSha256 ' + UninstallConfigHash;
+  Arguments := Arguments + ' -DiagnosticFile "' + UninstallDiagnostic + '"';
+  Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Arguments, '', SW_HIDE, ewWaitUntilTerminated, Code);
+  if not Result then Code := 4;
+  Result := Code = 0;
+  if not Result then begin
+    Detail := 'Retain the uninstall/deployment journal and verified recovery tools.';
+    LoadStringFromFile(UninstallDiagnostic, Detail);
+    SuppressibleMsgBox('AuthLens uninstall refused (exit ' + IntToStr(Code) + '). ' + UTF8Decode(Detail) + ' Persistent data, configuration, TLS and recovery material are preserved.', mbError, MB_OK, IDOK);
+  end;
+end;
+
 function InitializeUninstall(): Boolean;
 begin
-  Result := True;
-  // Managed services run from releases\current, outside {app}. Never infer absence from an app-path prefix.
-  if RegKeyExists(HKLM, ServicesKey + 'AuthLens') then begin
-    SuppressibleMsgBox('AuthLens service registration still exists. Review an UninstallPlan, verify a backup and remove only the proven owned service through an approved operator procedure. Setup preserves data, keys, configuration and releases.', mbError, MB_OK, IDOK);
-    Result := False;
+  Result := False;
+  if not RegQueryStringValue(HKLM, '{#VersionKey}', 'ConfigFile', UninstallConfig) then begin
+    // Without a service, an older staging-only installation can be removed without touching persistent state.
+    Result := not RegKeyExists(HKLM, ServicesKey + 'AuthLens');
+    if not Result then SuppressibleMsgBox('AuthLens service ownership configuration is unavailable. Preserve this installation and complete a verified upgrade/recovery before uninstalling.', mbError, MB_OK, IDOK);
+    Exit;
   end;
+  if (Pos('"', UninstallConfig) > 0) or (Pos(#13, UninstallConfig) > 0) or (Pos(#10, UninstallConfig) > 0) then Exit;
+  UninstallPlan := ExpandConstant('{tmp}\AuthLens-uninstall-') + GetDateTimeString('yyyymmddhhnnsszzz', '', '') + '.ini';
+  UninstallDiagnostic := UninstallPlan + '.diagnostic';
+  Result := RunServerUninstall(True);
+  if Result then begin
+    UninstallConfigHash := GetIniString('AuthLens', 'config_sha256', '', UninstallPlan);
+    Result := Length(UninstallConfigHash) = 64;
+  end;
+  if Result and not UninstallSilent then
+    Result := SuppressibleMsgBox('Remove the verified AuthLens service and installer-owned firewall rules? All databases, accounts, history, settings, certificates, keys, backups and recovery evidence will be preserved.', mbConfirmation, MB_YESNO, IDNO) = IDYES;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if (CurUninstallStep = usUninstall) and (UninstallConfig <> '') then
+    if not RunServerUninstall(False) then RaiseException('AuthLens service uninstall did not verify. File removal has been stopped; retain all recovery evidence.');
 end;
 
 #include "AuthLens-Server-Code.iss"

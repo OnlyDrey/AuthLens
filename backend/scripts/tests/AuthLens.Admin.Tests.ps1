@@ -42,6 +42,14 @@ Describe 'Pinned administrative jobs have no arbitrary-command interface' {
         $job.operation='Start'
         {Get-ALAdminAdapterArguments $job $TestDrive (Join-Path $TestDrive 'result.json')}|Should -Throw '*not an installer invocation*'
     }
+    It 'pins uninstall to preservation without arbitrary paths or deletion flags' {
+        $job.operation='Uninstall'
+        $args=Get-ALAdminAdapterArguments $job $TestDrive (Join-Path $TestDrive 'result.json')
+        $args|Should -Contain 'Uninstall'
+        $args|Should -Contain '-Yes'
+        $args|Should -Not -Contain '-Package'
+        $args|Should -Not -Contain '-RemoveData'
+    }
     It 'quotes paths including trailing backslashes without shell evaluation' {
         (ConvertTo-ALAdminCommandLine @('C:\a b\','-File','C:\a.ps1'))|Should -Be '"C:\a b\\" "-File" "C:\a.ps1"'
         {ConvertTo-ALAdminCommandLine @("x`r`nwhoami")}|Should -Throw '*delimiter*'

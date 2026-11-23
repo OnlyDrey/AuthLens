@@ -24,8 +24,7 @@ Manual installer updates use the existing backup/deployment engine. Desktop reta
 Server uses a reviewed explicit or validated discovered configuration, resolves its program directory before staging and preserves existing settings.
 Interactive Setup can author fresh path/network/proxy configuration, generate local self-signed TLS or import an existing PFX, and explicitly
 approve a restricted firewall rule. Certificate trust is never installed automatically. Upgrades preserve configuration. Installed-certificate
-renewal/replacement, custom credential provisioning and
-safe automatic uninstall remain incomplete. CLI offline repair can publish verified replacement components while retaining damaged payloads;
-owned-rule updates/removal/recovery now verify the native definition and preserve administrator changes. Native lifecycle/recovery acceptance is still pending.
+renewal/replacement, custom credential provisioning and optional test-data removal remain incomplete. CLI offline repair can publish verified replacement components while retaining damaged payloads;
+owned-rule updates/removal/recovery now verify the native definition and preserve administrator changes. Server uninstall verifies recovery and removes owned service/rules while preserving all persistent data. Native lifecycle/recovery acceptance is still pending.
 Both refuse updates with pending schema changes and preserve recovery artifacts. See
 [installer transactions and acceptance limits](WINDOWS_DEPLOYMENT.md#manual-installer-transaction) before any installation.

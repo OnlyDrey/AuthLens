@@ -283,7 +283,7 @@ function Write-ALServerSetupPlan([string]$Path,$Plan) {
     # GUI uses a private INI bridge; automation consumes the same JSON plan on stdout.
     $lines=@('[AuthLens]')
     foreach($name in @('operation_id','operation','root','program_directory','config_file','config_sha256','data_directory','backup_directory','listen_address','port','service_name','service_account','certificate','allowed_hosts','proxy_hosts','trusted_proxies')){
-        $value=@($Plan.$name) -join ', '
+        $value=if($Plan.PSObject.Properties[$name]){@($Plan.$name) -join ', '}else{''}
         if($value.IndexOfAny([char[]]"`r`n`0") -ge 0){Stop-AL 'Setup plan contains invalid line delimiters.'}
         $lines+=($name+'='+$value)
     }
@@ -411,6 +411,64 @@ function Invoke-ALInstallerRepairRecover($Config) {
         $journal.phase='manual_recovery_required';Write-ALInstallerJournal $path $journal
         Stop-AL 'Repair recovery failed readiness; journal, backup and both payloads remain available.' 4
     }
+}
+
+function Get-ALServerUninstallPlan($Resolved) {
+    $config=$Resolved.Config
+    Assert-ALServerSetupFingerprint $Resolved $Resolved.ConfigSha256
+    Assert-ALInstallerServerConfiguration $config
+    $null=Assert-ALAclPlan (Get-ALAclPlan $config) 'Server uninstall'
+    foreach($name in 'repair-pending.json','firewall-pending.json'){
+        if(Test-Path -LiteralPath (Join-AL $config.WorkRoot $name)){Stop-AL 'Pending repair/firewall recovery must finish before uninstall.' 4}
+    }
+    $deployment=Read-ALJournal $config
+    if($deployment -and $deployment.phase -in $script:CriticalPhases){Stop-AL 'Pending deployment recovery must finish before uninstall.' 4}
+    $identity=Get-ALInstallerServerIdentity $config
+    if(-not $identity -or $identity.config_file -ine $config.ConfigFile -or $identity.config_sha256 -cne $Resolved.ConfigSha256 -or $identity.data_directory -ine $config.DataDirectory -or $identity.service_account -ine $config.ServiceAccount){Stop-AL 'Uninstall requires a matching installed-product receipt and unchanged deployment configuration.'}
+    $release=Get-ALLink (Get-ALCurrentLink $config)
+    if(-not $release -or -not(Test-ALPathWithin $release $config.ReleasesRoot)){Stop-AL 'Uninstall release ownership is not verified.'}
+    $manifest=Get-ALInstallerPackage $release
+    if($identity.manifest_sha256 -cne (Get-FileHash -LiteralPath (Join-AL $release 'build-manifest.json')).Hash.ToLowerInvariant()){Stop-AL 'Uninstall installed manifest disagrees with the ownership receipt.'}
+    $service=Get-ALService $config.ServiceName
+    if($service.Exists -and ($service.Account -ine $config.ServiceAccount -or -not(Test-ALServiceBinary $service.PathName $config) -or @(Compare-ALServiceArguments @((Split-ALCommandLine $service.PathName)|Select-Object -Skip 1) @(Get-ALServiceArguments $config)).Count)){Stop-AL 'Uninstall refuses an unrelated service registration.'}
+    if(-not(Test-Path -LiteralPath (Join-AL $config.DataDirectory 'authlens.sqlite3') -PathType Leaf)){Stop-AL 'Uninstall cannot verify a recovery backup for missing application data.'}
+    $rules=@(Get-ALOwnedFirewallReceipts $config)
+    [pscustomobject]@{operation='uninstall';read_only=$true;root=$config.Root;program_directory=$Resolved.ProgramDirectory;config_file=$config.ConfigFile;config_sha256=$Resolved.ConfigSha256;instance_id=$identity.instance_id;release=$release;manifest=$manifest;service=$service;firewall_rules=@($rules|ForEach-Object{$_.name});data_retention='preserve all';preserved_paths=@($config.DataDirectory,$config.BackupRoot,$config.ReleasesRoot,$config.WorkRoot,$config.ConfigFile,$config.CertificatePath,$config.CertificatePasswordFile,(Join-AL $config.Root 'keys'))}
+}
+
+function Invoke-ALInstallerServerUninstall($Resolved) {
+    $config=$Resolved.Config
+    Enter-ALLock $config
+    try{
+        $plan=Get-ALServerUninstallPlan $Resolved
+        $pending=Join-AL $config.WorkRoot 'uninstall-pending.json'
+        $exe=Join-AL $plan.release 'server/AuthLens.Api.exe'
+        if(Test-Path -LiteralPath $pending){
+            $journal=Get-Content -LiteralPath $pending -Raw -Encoding UTF8|ConvertFrom-Json
+            if($journal.schema -ne 1 -or $journal.operation -cne 'uninstall' -or $journal.root -ine $config.Root -or $journal.config_sha256 -cne $Resolved.ConfigSha256 -or $journal.instance_id -cne $plan.instance_id -or $journal.release -ine $plan.release -or $journal.backup.sha256 -notmatch '^[a-f0-9]{64}$' -or -not(Test-ALPathWithin $journal.run (Join-AL $config.WorkRoot 'runs'))){Stop-AL 'Uninstall recovery bindings changed; preserve the journal for manual review.' 4}
+        }else{
+            $null=New-ALRun $config 'installer-uninstall'
+            Save-ALInstallerRecoveryTools $script:RunFolder
+            $backup=Invoke-ALMaintenance $exe @('--backup-local',$config.BackupRoot,'--data-dir',$config.DataDirectory)
+            $journal=[pscustomobject]@{schema=1;operation='uninstall';phase='backup';root=$config.Root;instance_id=$plan.instance_id;config_sha256=$Resolved.ConfigSha256;release=$plan.release;backup=$backup;run=$script:RunFolder;data_retention='preserve all'}
+            Write-ALInstallerJournal $pending $journal
+        }
+        $verified=Invoke-ALMaintenance $exe @('--backup-verify',$journal.backup.file,'--data-dir',$config.DataDirectory)
+        if(-not $verified.verified -or $verified.sha256 -cne $journal.backup.sha256){Stop-AL 'Uninstall backup verification failed; no service or firewall was changed.' 4}
+        # All persistent files, certificates, keys, payloads and recovery evidence remain in place.
+        $journal.phase='removing-service';Write-ALInstallerJournal $pending $journal
+        if($plan.service.Exists){Stop-ALService $config.ServiceName ([int]$config.StopTimeoutSeconds)}
+        $null=Invoke-ALInstallerFirewallChange $config '' -Remove -Approved -LockHeld
+        $observed=Get-ALService $config.ServiceName
+        if($observed.Exists){
+            if($observed.State -ne 'Stopped' -or $observed.Account -ine $config.ServiceAccount -or -not(Test-ALServiceBinary $observed.PathName $config)){Stop-AL 'Uninstall service changed or did not stop; registration was preserved.' 4}
+            $removed=Invoke-ALProcess 'sc.exe' @('delete',$config.ServiceName) ''
+            if($removed.ExitCode -ne 0 -or (Get-ALService $config.ServiceName).Exists){Stop-AL 'Service removal has not verified; retain the uninstall journal and retry explicit recovery after handles close.' 4}
+        }
+        $journal.phase='complete';Write-ALInstallerJournal (Join-AL $journal.run 'uninstall-journal.json') $journal
+        Remove-Item -LiteralPath $pending -ErrorAction Stop
+        @{uninstalled=$true;service_removed=$true;data_retention='preserve all';preserved_paths=$plan.preserved_paths;backup=$journal.backup.file;run=$journal.run}
+    }finally{Exit-ALLock}
 }
 
 function Get-ALInstallerFirewallPlan($Config,[string]$Sources,[string]$Profiles='Private',[switch]$AllowOwnedUpdate) {
@@ -546,9 +604,9 @@ function Test-ALInstallerFirewallRecoveryNeeded($Config) {
     }
     $false
 }
-function Invoke-ALInstallerFirewallChange($Config,[string]$Sources,[string]$Profiles='Private',[switch]$Remove,[switch]$Approved) {
+function Invoke-ALInstallerFirewallChange($Config,[string]$Sources,[string]$Profiles='Private',[switch]$Remove,[switch]$Approved,[switch]$LockHeld) {
     if(-not $Approved){Stop-AL 'Firewall changes require explicit security approval.'}
-    Enter-ALLock $Config
+    if(-not $LockHeld){Enter-ALLock $Config}
     try{
         $pending=Join-AL $Config.WorkRoot 'firewall-pending.json'
         if(Test-Path -LiteralPath $pending){Stop-AL 'Interrupted firewall transaction requires recovery.' 4}
@@ -587,7 +645,7 @@ function Invoke-ALInstallerFirewallChange($Config,[string]$Sources,[string]$Prof
             Write-ALInstallerJournal $pending $journal
             Stop-AL 'Firewall transition did not complete. Retained receipts/journal require explicit recovery; no administrator rule was adopted or replaced.' 4
         }
-    }finally{Exit-ALLock}
+    }finally{if(-not $LockHeld){Exit-ALLock}}
 }
 function Invoke-ALInstallerFirewallRecover($Config,[switch]$Rollback) {
     Enter-ALLock $Config

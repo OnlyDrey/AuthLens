@@ -921,7 +921,8 @@ Use the packaged `installer-tools-<id>/Install-AuthLens.ps1`, not an unverified 
 | `-Operation Auto` | Detect fresh install or upgrade; never adopt unrelated service/data |
 | `-Operation Install` / `Upgrade` | Explicitly require the matching detected state; `-Package` and `-Yes` required to apply |
 | `-Operation Repair -Package ... -Yes` | Offline component repair: owned service must already be stopped; exact installed manifest and existing database required. Missing registration can be recreated only for the default virtual account with a matching installed-product receipt and unchanged configuration. Verifies an encrypted backup, publishes an immutable replacement, switches the pointer and checks service readiness. Retains damaged payload and recovery evidence |
-| `-Operation UninstallPlan` | Read-only resource/ownership review; all data and the service remain untouched |
+| `-Operation UninstallPlan` | Read-only receipt/configuration/release/service/firewall ownership verification; all resources remain untouched |
+| `-Operation Uninstall -Yes` | Verify encrypted backup, stop/remove only the proven owned service and installer-owned firewall rules; preserve all persistent data, configuration, certificates, keys, releases and recovery evidence |
 | `-Recover -Yes` | Existing journal-driven recovery; retain exact configuration and recovery tools |
 | `-ResultFile <new absolute path>` | Immutable JSON envelope, schema/operation ID/status/exit/stage/journal location; no overwrite |
 | `-PlanFile <new path>` | Private Unicode INI bridge for resolve/preflight results used by Inno; not a configuration file |
@@ -955,13 +956,22 @@ preflight before service changes. It completes the approved replacement and clea
 It never restores older database content or claims the damaged payload is a working rollback. Legacy unbound repair
 journals require manual review. Source tests cover these guards; native SCM interruption/recovery acceptance remains pending.
 
+Server uninstall now has a receipt-bound, preservation-only transaction. Inno performs a read-only ownership plan and
+an explicit interactive confirmation before file removal; silent uninstall preserves data by default. The helper verifies
+an encrypted backup before stopping the service, removes only matching installer-owned firewall rules and the matching
+service registration, then verifies absence. A pending SCM deletion, failed verification or interruption leaves
+`deployment/uninstall-pending.json`; explicit `-Recover -Yes` revalidates bindings and backup before completing it.
+No database, TLS file, key, configuration, release or recovery artifact is deleted. Optional deletion of installer-owned
+test data is not implemented. Uninstall of older installations without the modern receipt is refused safely; first perform
+a verified supported upgrade. Native execution and failure-interruption acceptance remain pending.
+
 | Requirement | Status and reason | Next action |
 | --- | --- | --- |
 | Fresh configuration and TLS | Fresh generation/selection/import and create-only bound publication implemented; no automatic trusted-store modification | Installed-certificate renewal/replacement transaction remains incomplete; native GUI, ACL/service-key access and client-trust acceptance pending |
 | Dedicated account / gMSA creation | Blocked: existing SCM adapter has no secure password transport, account-logon-right or managed-password validation contract | Add validated credential/logon provisioning; preserve existing identities meanwhile |
 | Automatic firewall configuration | Source implementation covers approved creation, ownership-verified update/removal, retained transition journals and explicit completion/rollback recovery; loopback/wildcards/Public/Any refused | Native elevated rule/policy acceptance and uninstall integration remain pending |
 | Repair missing/corrupt components/service | Partial: CLI payload replacement, receipt-bound missing virtual-account registration and schema-2 interrupted-repair recovery implemented; damaged files retained | Older installations without receipts, missing manifests and password-backed missing accounts require manual review; GUI selection and native interruption/recovery rehearsal remain pending |
-| Automatic/destructive uninstall | Partial: canonical service registration blocks Inno uninstall; data always preserved | Review service removal separately; add explicit ownership inventory before offering any deletion, especially external storage |
+| Uninstall | Source implementation supports CLI and Inno service/owned-firewall removal, verified encrypted backup, retained journal and explicit recovery; all persistent data preserved | Native lifecycle acceptance and optional independently verified test-data deletion remain pending; older installations need a modern ownership receipt |
 | Downgrade in Setup | Refused safely; schema compatibility alone does not prove safe data/version rollback | Use separately authorized verified rollback/recovery; no `allow downgrade` bypass |
 | Legacy migration wizard | Partial: known service/root presence is reported read-only and protected paths are refused; supported backup conversion remains explicit | Rehearse supported preview/run/activate or fresh restore separately; never auto-adopt/modify/delete legacy resources |
 | Native lifecycle acceptance | Not performed by source/unit/compiler checks | Execute the isolated Windows matrix below with separate authorization; preserve production |

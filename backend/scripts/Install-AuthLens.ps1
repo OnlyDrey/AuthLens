@@ -47,7 +47,7 @@ function Write-InstallerResult($Value) {
     }
 }
 try {
-    if($Operation -notin @('Auto','Install','Upgrade','Repair','UninstallPlan','Firewall','FirewallRemove')){$stage='argument validation';throw 'Unknown installer operation. Use Auto, Install, Upgrade, Repair, Firewall, FirewallRemove or UninstallPlan.'}
+    if($Operation -notin @('Auto','Install','Upgrade','Repair','Uninstall','UninstallPlan','Firewall','FirewallRemove')){$stage='argument validation';throw 'Unknown installer operation. Use Auto, Install, Upgrade, Repair, Uninstall, Firewall, FirewallRemove or UninstallPlan.'}
     if($ResultFile -and (Test-Path -LiteralPath $ResultFile)){throw 'A previous installer result exists; it will not be overwritten.'}
     if (-not $Yes -and -not ($ResolveOnly -or $PreflightOnly -or $Operation -eq 'UninstallPlan')) { throw 'Installation requires explicit -Yes after reviewing the selected paths and configuration.' }
     # Inno embeds these tools separately from the unchanged release manifest. Verify every helper before importing executable code.
@@ -101,14 +101,14 @@ try {
             $result=[pscustomobject]@{operation_id=$operationId;operation='configuration selected; preflight pending';root=$config.Root;program_directory=$InstallRoot;config_file=$config.ConfigFile;config_sha256=$resolved.ConfigSha256;data_directory=$config.DataDirectory;backup_directory=$config.BackupRoot;listen_address=$config.ListenAddress;port=$config.Port;service_name=$config.ServiceName;service_account=$config.ServiceAccount;certificate=$config.CertificatePath;allowed_hosts=@($config.AllowedHosts);proxy_hosts=@($config.ProxyHosts);trusted_proxies=@($config.TrustedProxies)}
         }
         elseif($PreflightOnly -or $Operation -eq 'UninstallPlan'){
-            if($Operation -eq 'Repair'){$result=Get-ALServerRepairPlan $resolved $Package}
+            if($Operation -in @('Uninstall','UninstallPlan')){$result=Get-ALServerUninstallPlan $resolved}
+            elseif($Operation -eq 'Repair'){$result=Get-ALServerRepairPlan $resolved $Package}
             elseif($Operation -in @('Firewall','FirewallRemove')){
                 $result=Get-ALServerSetupPlan $resolved '' Auto
                 $result.operation='firewall scope/ownership review'
                 $result|Add-Member -NotePropertyName firewall -NotePropertyValue $firewall
             }
             else{$result=Get-ALServerSetupPlan $resolved $Package $(if($Operation -eq 'UninstallPlan'){'Auto'}else{$Operation})}
-            if($Operation -eq 'UninstallPlan'){$result.operation='uninstall planning; all data preserved; service removal requires a separately reviewed procedure'}
         }
         elseif ($Recover) {
             if(Test-ALInstallerFirewallRecoveryNeeded $config){
@@ -116,6 +116,7 @@ try {
                 $null=Assert-ALAclPlan (Get-ALAclPlan $config) 'Firewall recovery'
                 $result=Invoke-ALInstallerFirewallRecover $config -Rollback:$FirewallRollback
             }elseif($FirewallRollback){Stop-AL 'No firewall recovery journal exists; nothing was rolled back.'}
+            elseif(Test-Path -LiteralPath (Join-AL $config.WorkRoot 'uninstall-pending.json')){$stage='Server uninstall recovery';$result=Invoke-ALInstallerServerUninstall $resolved}
             else{$stage='Server recovery transaction'; $result=Invoke-ALInstallerServer $config '' -Recover}
         }
         elseif ($PrepareOnly) {
@@ -129,6 +130,9 @@ try {
                 $plan.certificate=$config.CertificatePath
             }
             $result=$plan
+        }
+        elseif($Operation -eq 'Uninstall'){
+            $stage='Server uninstall transaction';$result=Invoke-ALInstallerServerUninstall $resolved
         }
         elseif($Operation -eq 'Repair'){
             if(-not $Package){Stop-AL 'Repair requires the identical verified release package.'}
@@ -170,7 +174,7 @@ try {
     exit 0
 } catch {
     # Never include invocation text, configuration content, stack dumps or arbitrary parser errors.
-    $known=@('Unknown installer operation. Use Auto, Install, Upgrade, Repair, Firewall, FirewallRemove or UninstallPlan.','A previous installer result exists; it will not be overwritten.','Select only one recovery, resolve, preflight or preparation mode.','Server lifecycle options are not Desktop options.','Installation requires explicit -Yes after reviewing the selected paths and configuration.','Packaged installer helper integrity manifest is missing.','Installer helper integrity verification failed.','Installer helper inventory is incomplete or unexpected.','Invalid installer helper path.','Server Setup requires an elevated operator session.','Recover and PrepareOnly cannot be combined.')
+    $known=@('Unknown installer operation. Use Auto, Install, Upgrade, Repair, Uninstall, Firewall, FirewallRemove or UninstallPlan.','A previous installer result exists; it will not be overwritten.','Select only one recovery, resolve, preflight or preparation mode.','Server lifecycle options are not Desktop options.','Installation requires explicit -Yes after reviewing the selected paths and configuration.','Packaged installer helper integrity manifest is missing.','Installer helper integrity verification failed.','Installer helper inventory is incomplete or unexpected.','Invalid installer helper path.','Server Setup requires an elevated operator session.','Recover and PrepareOnly cannot be combined.')
     $reason=if ($_.Exception.GetType().Name -eq 'DeployException' -or $_.Exception.Message -in $known) { $_.Exception.Message } else { 'Prerequisite/helper/configuration error ('+$_.Exception.GetType().Name+'). Review the explicit configuration and packaged helper integrity.' }
     $reason=[regex]::Replace($reason,'(?i)(password|token|secret|credential|passphrase)\s*[:=]\s*[^\s;,]+','$1=[REDACTED]')
     $diagnostic="Stage: $stage. $reason"

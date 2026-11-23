@@ -23,7 +23,7 @@ read/execute permission on the dedicated Task Scheduler folder/tasks. Task owner
 as SYSTEM with highest privileges, on demand only, with no password or automatic trigger. UAC and Windows security policy are unchanged.
 
 There is deliberately no inbox accepting shell commands, scripts, executable paths, arbitrary arguments or newly built payloads. Each task
-selects one preapproved immutable operation ID. Supported verbs currently are Health, Preflight, Install, Upgrade, Repair, Recover, Start, Stop
+selects one preapproved immutable operation ID. Supported verbs currently are Health, Preflight, Install, Upgrade, Repair, Recover, Uninstall, Start, Stop
 and Restart; firewall/uninstall jobs are not advertised before their adapters exist. To approve **changed privileged code/payload/configuration**,
 an administrator must register a new capsule explicitly. An unprivileged build cannot update SYSTEM's inputs; unattended operation is not
 permission to approve future arbitrary code. Old capsules and recovery artifacts are retained.

@@ -34,6 +34,7 @@ function Join-AL([string]$Path, [string]$Child) { [System.IO.Path]::Combine($Pat
 function Stop-AL([string]$Message, [int]$Code = 2) { throw [DeployException]::new($Message, $Code) }
 
 function Assert-ALNoPendingRepair($Config) {
+    if(Test-Path -LiteralPath (Join-AL $Config.WorkRoot 'uninstall-pending.json')){Stop-AL 'A pending uninstall requires explicit recovery; application data and evidence remain preserved.' 4}
     if(Test-Path -LiteralPath (Join-AL $Config.WorkRoot 'repair-pending.json')){Stop-AL 'A pending offline repair requires explicit recovery review; its marker and journal were preserved.' 4}
     if(Test-Path -LiteralPath (Join-AL $Config.WorkRoot 'firewall-pending.json')){Stop-AL 'A pending firewall transition requires explicit recovery; its journal was preserved.' 4}
 }

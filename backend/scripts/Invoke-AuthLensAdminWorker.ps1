@@ -39,6 +39,13 @@ try {
     $arguments=Get-ALAdminAdapterArguments $job (Join-Path $Capsule 'tools') (Join-Path $Run 'adapter-result.json')
     $outcome=Invoke-ALProcess (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') $arguments ''
     if($outcome.ExitCode -ne 0){exit $outcome.ExitCode}
+    $adapter=Get-Content -LiteralPath (Join-Path $Run 'adapter-result.json') -Raw -Encoding UTF8|ConvertFrom-Json
+    if($adapter.status -cne 'completed' -or $adapter.exit_code -ne 0){throw 'Administrative adapter did not report verified completion.'}
+    if($adapter.result.PSObject.Properties['uninstalled'] -and $adapter.result.uninstalled){
+        if($job.operation -notin @('Uninstall','Recover') -or (Get-ALService 'AuthLens').Exists){throw 'Administrative uninstall did not verify service absence.'}
+        Assert-ALNoPendingRepair $config
+        exit 0
+    }
     if($job.operation -eq 'Recover'){
         Assert-ALNoPendingRepair $config
         $journal=Read-ALJournal $config
