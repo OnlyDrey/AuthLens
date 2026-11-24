@@ -30,6 +30,56 @@ and investigate and review potential Segregation of Duties conflicts with frozen
 is investigation evidence, not proof of effective authorization or license consumption. No direct SAP connection or third-party data-upload
 service is required.
 
+## Getting Started
+
+Build on Windows with **Windows PowerShell 5.1**, **Git**, **.NET SDK 10**, **Node.js 24 or 25 with npm**,
+**Python 3** (available as `python`) and **Inno Setup 6** (`ISCC.exe`). Git, .NET, Node, npm and Python must
+be available on `PATH`. Dependency restore needs access to NuGet/npm feeds or populated local caches.
+Inno Setup is detected in its standard installation locations; use `-Iscc 'C:\Tools\Inno Setup 6\ISCC.exe'`
+if installed elsewhere.
+
+Run all commands **from the repository root**, containing [build.ps1](build.ps1). The working tree must
+be clean, including untracked files: `git status --short` must print nothing. Commit reviewed changes
+before building; the build refuses dirty sources. `-ExecutionPolicy Bypass` applies to the launched
+PowerShell process and does not change the saved user or machine execution policy.
+
+**Standard Windows build:**
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
+```
+
+**Build without regression tests:**
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -SkipTests
+```
+
+`-SkipTests` skips the release builder's .NET test execution, including publish tests. It still builds the
+frontend and .NET solution, publishes both products, scans the release for secrets, verifies build identity
+and release checksums, compiles both installers, and verifies installer hashes and branding. Neither command
+launches the separate browser or Pester suites. Skipped tests do not satisfy release acceptance.
+
+Both commands produce **Server and Desktop release artifacts and installers**. The default output root
+is `C:\AuthLens`; choose another with `-OutputRoot`:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -OutputRoot 'C:\AuthLens-Builds'
+```
+
+Each run creates a new `<UTC-timestamp>-<short-sha>` directory under that output root:
+
+| Location within the run directory | Contents |
+| --- | --- |
+| `build-summary.json`, `build.log` | Build/test status, tool versions, verification results, artifact hashes and console log |
+| `build\AuthLens-<version>-<timestamp>-<sha>-win-x64\` | `server\AuthLens.Api.exe`, `desktop\AuthLens.exe`, symbols, `build-manifest.json` and `SHA256SUMS` |
+| `installer\` | Both Setup executables, `installer-manifest.json`, `installers-SHA256SUMS` and packaged helpers |
+| `build\branding-verification.json` | Executable, installer and frontend branding checks |
+
+Building does **not install AuthLens or modify Windows services**. For detailed switches, output layout
+and failure handling, see the [canonical Windows build guide](docs/deployment/WINDOWS_DEPLOYMENT.md#canonical-windows-build).
+Production approval remains subject to the [release gates](docs/validation/STATUS.md).
+
 ## Implementation
 
 The implementation is an ASP.NET Core (.NET 10) backend in [`backend/`](backend) serving the React/Vite frontend in [`frontend/`](frontend),

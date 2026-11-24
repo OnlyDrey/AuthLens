@@ -1031,7 +1031,7 @@ C:\AuthLens\<UTC-timestamp>-<short-sha>\
   .build-claim
 ```
 
-The build directory also contains `branding-verification.json`. Canonical packaging checks the actual PE icon resources of Desktop, Server
+The run's `build` subdirectory also contains `branding-verification.json`. Canonical packaging checks the actual PE icon resources of Desktop, Server
 and both installers against the canonical multi-size ICO, plus exact web-image bytes in each embedded UI and frontend output. A mismatch fails
 the build even with `-SkipTests`; see [branding sources](../architecture/DESIGN_SYSTEM.md#branding-source-assets).
 
