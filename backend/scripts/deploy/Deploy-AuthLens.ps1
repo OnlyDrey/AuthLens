@@ -20,7 +20,8 @@
     Build           Build, test and verify a commit and publish it under releases\ (no service change).
     InstallService  Creates (or with -Reconfigure updates) the AuthLens service from the configuration. Needs -Yes.
     Rollback        Returns to the previous release (or -ToRelease), only when it can open the current data. Needs -Yes.
-    Recover         Completes an interrupted deployment (Ctrl+C, a dropped SSH session): returns to the previous release. Needs -Yes.
+    Recover         Revalidates an owned fresh candidate or recovers an interrupted update. -RecoveryAction VerifyCandidate, Resume,
+                    Rollback or Cancel selects an explicit supported action; rollback needs verified prerequisites. Needs -Yes.
     AuditAcl        Read-only NTFS audit (by well-known SID) of private state, releases and configuration; exit 2 when anything is unsafe.
     ProtectAcl      Explicit remediation of what AuditAcl reports, after verified ACL inventories in -AclBackupRoot. Needs -Yes and -ApprovedAclRoot.
     RestoreAcl      Restores the ACLs saved by ProtectAcl (-AclBackup <folder>). Needs -Yes and -ApprovedAclRoot.
@@ -58,6 +59,7 @@ param(
     [switch]$DryRun,
     [switch]$FirstInstall,
     [switch]$Reconfigure,
+    [ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto',
     [switch]$AdoptService,
     [switch]$Yes
 )
@@ -78,6 +80,7 @@ function Test-Elevated {
 }
 
 try {
+    if($RecoveryAction -ne 'Auto' -and $Action -ne 'Recover'){Stop-AL 'RecoveryAction requires Action Recover.'}
     $changing = $Action -in @('Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ProtectAcl', 'RestoreAcl') -and -not $DryRun
     if ($changing -and -not $Yes) { Stop-AL "$Action changes the service or its permissions; repeat with -Yes after reviewing -Action Status or -Action AuditAcl (or -DryRun)." }
     $config = Read-AuthLensSettings $ConfigFile
@@ -136,7 +139,7 @@ try {
         'InstallService' { Install-ALService $config -Reconfigure:$Reconfigure; Write-Result (Get-ALStatus $config) 0 }
         'Restore' { Write-Result (Invoke-ALRestore $config $Backup $KeyFile) 0 }
         'Rollback' { Write-Result (Invoke-ALRollback $config $ToRelease) 0 }
-        'Recover' { Write-Result (Invoke-ALRecover $config) 0 }
+        'Recover' { Write-Result (Invoke-ALRecover $config -RecoveryAction $RecoveryAction) 0 }
         'ProtectAcl' {
             if (-not $ConfigFile) { Stop-AL 'ProtectAcl requires an explicit -ConfigFile.' }
             $backupRoot = if ($AclBackupRoot) { $AclBackupRoot } else { Join-AL $config.WorkRoot 'acl-backups' }

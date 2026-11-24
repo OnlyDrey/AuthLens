@@ -38,7 +38,7 @@ function Get-ALInstallerPackage([string]$Package,[switch]$PublishedServer) {
     $manifest
 }
 
-function Invoke-ALInstallerServer($Config, [string]$Package, [switch]$Recover) {
+function Invoke-ALInstallerServer($Config, [string]$Package, [switch]$Recover,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto') {
     # All SCM calls remain in the existing state machine. Explicit configuration is required, even on first install.
     if ($Recover) {
         Assert-ALInstallerServerConfiguration $Config
@@ -50,7 +50,12 @@ function Invoke-ALInstallerServer($Config, [string]$Package, [switch]$Recover) {
             }
             $null=New-ALRun $Config 'installer-recover'
             Save-ALInstallerRecoveryTools $script:RunFolder
-            return Invoke-ALRecover $Config
+            $result=Invoke-ALRecover $Config -RecoveryAction $RecoveryAction
+            if($result -and $result.recovered -and $result.PSObject.Properties['phase'] -and $result.phase -eq 'complete' -and $result.PSObject.Properties['instance_id'] -and $result.instance_id){
+                $manifest=Get-Content -LiteralPath (Join-AL $result.release 'build-manifest.json') -Raw -Encoding UTF8|ConvertFrom-Json
+                Write-ALInstallerServerIdentity $Config $manifest $result.release $result.instance_id
+            }
+            return $result
         } finally { Exit-ALLock }
     }
     $manifest = Get-ALInstallerPackage $Package

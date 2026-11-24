@@ -1057,7 +1057,38 @@ remains explicitly incomplete until a successful supported Setup retry. Native s
 after quarantine is awaiting acceptance; it is not yet certified to eliminate every manual registration
 review. Existing populated installations and unproved historical remnants are never forced through this path.
 
-### Access-mode planning
+### State-aware deployment recovery
+
+`manual_recovery_required` is now a recovery barrier for status, Setup, repair, uninstall and subsequent
+deployment. It is not a successful terminal state. Recovery instructions record the observed service state
+and distinguish an absent backup/previous release from a retained but still-to-be-reverified prerequisite.
+They no longer claim a running service was stopped or suggest moving live data for an unproved rollback.
+
+Use `Deploy-AuthLens.ps1 -Action Recover -RecoveryAction <choice> -ConfigFile <reviewed-config> -Yes`, or
+the same `-RecoveryAction` with `Install-AuthLens.ps1 -Mode Server -Recover -Yes`:
+
+| Choice | Supported boundary |
+| --- | --- |
+| `VerifyCandidate` | Revalidates an already running owned candidate and the original transaction identity; no service start or data restore |
+| `Resume` | Same checks, with explicit permission to start an existing stopped owned candidate |
+| `Rollback` | Requires a retained verified previous package, unchanged verified encrypted backup, and current-schema compatibility |
+| `Cancel` | Only at prepared/backup checkpoints with unchanged service/release identity; retains all data and evidence |
+| `Auto` | Preserves interrupted-update recovery; a fresh interrupted candidate must prove fix-forward invariants rather than inventing a previous release |
+
+Candidate validation proves the unchanged configuration/arguments, private ACL plan, exact published package
+and pointer, original version/SHA, retained fresh-data ownership marker, read-only TLS/key/database/schema
+preflight with no pending migrations, listener PID and exact HTTPS runtime identity. Configuration is compared
+again before completion. Failed checks retain the manual-recovery barrier. A successful fresh installer
+revalidation writes its installed-product receipt from the existing instance identity. It does not fabricate
+an Inno success callback, rotate keys, restore data or silently repair partial registry entries.
+
+An absent service, missing/invalid data marker, changed package, incompatible schema, absent rollback backup
+or ambiguous identity remains a refusal. Fix-forward of older packages still requires the configured host
+key for read-only preflight; administrator key readability alone is not proof of service key usability.
+Recovery-key provisioning and native service backup/restore acceptance are separate mandatory gates. Native
+SCM and Inno recovery acceptance are pending; the live failed installation has not been modified.
+
+### Access-mode details
 
 Deployment configuration accepts `AccessMode`: `Local`, `Corporate`, `ReverseProxy`, or compatibility
 default `Auto` when omitted. Local requires loopback binding and loopback-only host values without proxy

@@ -20,8 +20,8 @@ $script:ConfigDefaults = @('C:\ProgramData\AuthLens\config\deploy.json')
 $script:FocusedTests = @('StartupTests', 'ApiTests', 'NetworkTests', 'ReverseProxyTests', 'SessionTests', 'AccountsTests', 'AccountCompatibilityTests',
     'PersistenceTests', 'ApplicationBackupTests', 'LegacyRestoreTests', 'MaintenanceCommandsTests', 'V1CompatibilityTests', 'VersioningTests', 'V1DataMigrationTests')
 # Phases after which the running service may already be stopped or switched; an interrupted run in one of them needs recovery.
-$script:CriticalPhases = @('stopping', 'switched', 'starting', 'verifying')
-$script:FinalPhases = @('complete', 'rolled_back', 'aborted', 'manual_recovery_required')
+$script:CriticalPhases = @('stopping', 'switched', 'starting', 'verifying', 'manual_recovery_required')
+$script:FinalPhases = @('complete', 'rolled_back', 'aborted')
 
 class DeployException : System.Exception {
     [int]$ExitCode
@@ -710,7 +710,15 @@ function Wait-ALReady($Config, [string]$Commit, [string]$Version) {
         $listeners = @(Get-ALListener $Config.ListenAddress ([int]$Config.Port))
         if ($service.State -eq 'Running' -and $service.ProcessId -gt 0 -and $listeners -contains $service.ProcessId) {
             $ready = Invoke-ALConfiguredHttp $Config '/health/ready'
-            if($ready.Status -in @(400,401,403,404,421) -or ($ready.PSObject.Properties['Error'] -and $ready.Error -in @('TrustFailure','SecureChannelFailure','ResponseTooLarge'))){Stop-AL "Permanent readiness policy/TLS failure (HTTP $($ready.Status)); review access mode, authority and certificate. No timeout retry is appropriate." 1}
+            if($ready.Status -in @(400,401,403,404,421) -or ($ready.PSObject.Properties['Error'] -and $ready.Error -in @('TrustFailure','SecureChannelFailure','ResponseTooLarge'))){
+                switch($ready.Status){
+                    421 {Stop-AL 'Permanent readiness policy/TLS failure (HTTP 421): local authority rejected; review access mode and allowed hosts.' 1}
+                    403 {Stop-AL 'Permanent readiness policy/TLS failure (HTTP 403): HTTPS or request policy refused the probe.' 1}
+                    404 {Stop-AL 'Permanent readiness policy/TLS failure (HTTP 404): expected readiness endpoint is missing.' 1}
+                    401 {Stop-AL 'Permanent readiness policy/TLS failure (HTTP 401): readiness must not require application credentials.' 1}
+                    default {Stop-AL 'Permanent readiness policy/TLS failure: verify the configured certificate identity and local request policy.' 1}
+                }
+            }
             if ($ready.Status -eq 200) {
                 $identityResponse = Invoke-ALConfiguredHttp $Config '/product-version.json'
                 if ($identityResponse.Status -ne 200) { Stop-AL 'Release identity could not be verified.' 1 }
@@ -743,22 +751,29 @@ function Test-ALRollbackSafe($Config, [string]$ReleaseFolder, $AppliedBefore, [s
 }
 
 function Write-ALRecoveryInstructions($Config, $Journal, [string]$Reason) {
-    $backup = if ($Journal.PSObject.Properties['backup'] -and $Journal.backup) { "$($Journal.backup.file) (SHA-256 $($Journal.backup.sha256))" } else { 'none was taken in this run (no database existed, or this is a manual rollback); use the newest verified backup' }
+    $service=Get-ALService $Config.ServiceName
+    $backup = if ($Journal.PSObject.Properties['backup'] -and $Journal.backup) { "$($Journal.backup.file) (recorded SHA-256 $($Journal.backup.sha256); revalidation required)" } else { 'none recorded; no rollback/restore prerequisite may be inferred' }
+    $rollback=if($Journal.from_release){'Rollback is conditional: the supported recovery action must revalidate the previous package, backup and current schema. No file-copy rollback is authorized.'}else{'Rollback unavailable: this transaction has no previous release. Preserve the newly created data and running service state.'}
     $text = @"
 AuthLens deployment $($Journal.run) needs a manual decision. Nothing further was changed automatically.
 
 Reason: $Reason
-Service: $($Config.ServiceName) is stopped. Linked release: $(Get-ALLink (Get-ALCurrentLink $Config))
+Observed service: $($Config.ServiceName), state $($service.State). This note does not stop or start it.
+Linked release: $(Get-ALLink (Get-ALCurrentLink $Config))
 Previous release: $($Journal.from_release)
-Pre-deployment backup (encrypted, verified): $backup
+Pre-deployment backup evidence: $backup
 
-Choose one:
-1. Fix forward: correct the cause (see $script:RunFolder and $($Config.DataDirectory)\logs), then start the service on the new release:
-     Start-Service $($Config.ServiceName)
-2. Return to the previous release with the data as it was before the deployment (this discards changes made since the backup):
-     a. Keep the current data aside: move $($Config.DataDirectory) to a new name (do not delete it).
-     b. Restore the backup into a new data directory with the previous release (Settings, Backup and restore, or a support procedure),
-        then relink: Deploy-AuthLens.ps1 -Action Rollback -ToRelease "$($Journal.from_release)" -Yes
+$rollback
+
+Supported choices after correcting the cause and reviewing evidence:
+- VerifyCandidate: revalidate an already running owned candidate; success requires package/configuration,
+  TLS/read-only preflight, schema, listener PID and exact runtime version/SHA proof.
+- Resume: the same validation, with explicit permission to start an existing stopped owned service.
+- Rollback: available only with a verified retained previous release and unchanged verified backup evidence.
+- Cancel: only before release/service mutation (prepared or backup checkpoint). It never deletes data.
+Use Deploy-AuthLens.ps1 -Action Recover -RecoveryAction <choice> -ConfigFile <reviewed configuration> -Yes.
+Keep this journal, the run folder, staged tools, databases, keys, certificates and backups. Never mark the
+journal complete manually, move a live data directory, erase registration or invent a rollback backup.
 "@
     $path = Join-AL $script:RunFolder 'RECOVERY-REQUIRED.txt'
     [System.IO.File]::WriteAllText($path, $text)
@@ -892,12 +907,75 @@ function Invoke-ALDeploy($Config, [string]$ReleaseFolder, [string]$Commit, [swit
     }
 }
 
-function Invoke-ALRecover($Config) {
+function Confirm-ALCandidateRecovery($Config,$Journal,[switch]$StartStoppedService) {
+    Assert-ALInstallerServerConfiguration $Config
+    $fingerprint=(Get-FileHash -LiteralPath $Config.ConfigFile -Algorithm SHA256).Hash
+    $stored=Read-AuthLensSettings $Config.ConfigFile -Packaged
+    foreach($field in @('Root','DataDirectory','ReleasesRoot','BackupRoot','WorkRoot','ServiceName','ServiceAccount')){if($stored.$field -ine $Config.$field){Stop-AL 'Recovery configuration changed after selection; repeat inspection.' 4}}
+    if(@(Compare-ALServiceArguments @(Get-ALServiceArguments $stored) @(Get-ALServiceArguments $Config)).Count){Stop-AL 'Recovery service arguments changed after configuration selection.' 4}
+    $null=Assert-ALAclPlan (Get-ALAclPlan $Config) 'Candidate recovery'
+    $candidate=[IO.Path]::GetFullPath($Journal.to_release)
+    Assert-ALInstallerPath $candidate
+    if(-not(Test-ALPathWithin $candidate $Config.ReleasesRoot) -or (Get-ALLink (Get-ALCurrentLink $Config)) -ine $candidate -or -not(Test-ALPublishedRelease $candidate).Verified){Stop-AL 'Candidate recovery requires the unchanged verified owned release pointer.' 4}
+    $manifest=Get-Content -LiteralPath (Join-AL $candidate 'build-manifest.json') -Raw -Encoding UTF8|ConvertFrom-Json
+    if($manifest.product -cne 'AuthLens' -or $manifest.source_sha -cne $Journal.commit -or $manifest.version -cne $Journal.version){Stop-AL 'Candidate recovery manifest and original transaction identity disagree.' 4}
+    $service=Get-ALService $Config.ServiceName
+    if(-not $service.Exists -or $service.Account -ine $Config.ServiceAccount -or -not(Test-ALServiceBinary $service.PathName $Config)){Stop-AL 'Candidate recovery requires the original owned service identity and matching configuration.' 4}
+    $instance=''
+    if(-not $Journal.from_release){
+        $marker=Join-AL $Config.DataDirectory '.authlens-owned-data.json'
+        if(-not(Test-Path -LiteralPath $marker -PathType Leaf)){Stop-AL 'Fresh recovery requires retained application-data ownership evidence; data is never adopted.' 4}
+        $owned=Get-Content -LiteralPath $marker -Raw -Encoding UTF8|ConvertFrom-Json
+        if($owned.schema -ne 1 -or $owned.product -cne 'AuthLens' -or $owned.root -ine $Config.Root -or $owned.data_directory -ine $Config.DataDirectory -or $owned.instance_id -notmatch '^[a-f0-9]{32}$'){Stop-AL 'Fresh recovery data ownership evidence is invalid.' 4}
+        $instance=$owned.instance_id
+    }else{
+        Assert-ALRecoveryBackup $Config $Journal
+    }
+    $exe=Join-AL $candidate 'server/AuthLens.Api.exe'
+    $probe=Invoke-ALMaintenance $exe (@('--server-preflight')+@(Get-ALServiceArguments $Config))
+    if(-not $probe.validated -or -not $probe.read_only -or $probe.data_modified -ne $false -or $probe.source_sha -cne $Journal.commit -or $probe.version -cne $Journal.version -or -not $probe.schema.compatible -or @($probe.schema.pending).Count){Stop-AL 'Candidate recovery could not prove read-only TLS, key and database/schema compatibility.' 4}
+    if($service.State -eq 'Stopped' -and $StartStoppedService){Start-ALService $Config.ServiceName}
+    elseif($service.State -ne 'Running'){Stop-AL 'Candidate is not running; explicit Resume is required to start an existing stopped service.' 4}
+    $ready=Wait-ALReady $Config $Journal.commit $Journal.version
+    if((Get-FileHash -LiteralPath $Config.ConfigFile -Algorithm SHA256).Hash -ine $fingerprint){Stop-AL 'Recovery configuration changed during candidate verification; completion was refused.' 4}
+    Set-ALPhase $Config $Journal 'complete'
+    [pscustomobject]@{recovered=$true;phase='complete';release=$candidate;identity=$ready.identity;instance_id=$instance;action='candidate revalidated';data_restored=$false}
+}
+
+function Assert-ALRecoveryBackup($Config,$Journal) {
+    if(-not $Journal.backup -or -not(Test-ALPathWithin $Journal.backup.file $Config.BackupRoot) -or $Journal.backup.sha256 -notmatch '^[a-f0-9]{64}$'){Stop-AL 'Recovery requires original verified backup evidence; no backup was inferred.' 4}
+    Test-ALPathTree $Journal.backup.file
+    if((Get-FileHash -LiteralPath $Journal.backup.file -Algorithm SHA256).Hash -ine $Journal.backup.sha256){Stop-AL 'Recorded recovery backup integrity changed.' 4}
+    $current=Get-ALLink (Get-ALCurrentLink $Config)
+    $proof=Invoke-ALMaintenance (Join-AL $current 'server/AuthLens.Api.exe') @('--backup-verify',$Journal.backup.file,'--data-dir',$Config.DataDirectory)
+    if(-not $proof.verified -or $proof.sha256 -ine $Journal.backup.sha256){Stop-AL 'Recovery backup could not be verified with the retained key.' 4}
+}
+
+function Invoke-ALRecover($Config,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto') {
     Assert-ALNoPendingRepair $Config
     $journal = Read-ALJournal $Config
     if (-not $journal) { Write-ALLog 'no deployment journal: nothing to recover'; return [pscustomobject]@{ recovered = $false; reason = 'no journal' } }
+    $adopted=$journal.PSObject.Properties['service_binary_before'] -and $journal.service_binary_before
+    if($RecoveryAction -eq 'Cancel' -and $journal.phase -notin @('prepared','backup')){Stop-AL 'Recovery cancellation is unavailable after a release or service may have changed; evidence was preserved.' 4}
+    if($RecoveryAction -in @('VerifyCandidate','Resume') -or ($RecoveryAction -eq 'Auto' -and -not $journal.from_release -and -not $adopted -and $journal.phase -in $script:CriticalPhases)){
+        try{return Confirm-ALCandidateRecovery $Config $journal -StartStoppedService:($RecoveryAction -eq 'Resume')}
+        catch{Set-ALPhase $Config $journal 'manual_recovery_required';Write-ALRecoveryInstructions $Config $journal 'Candidate verification refused; review the latest sanitized operation result.';throw}
+    }
+    if($journal.phase -eq 'manual_recovery_required' -and $RecoveryAction -ne 'Rollback'){Stop-AL 'Manual recovery requires an explicit VerifyCandidate, Resume or verified Rollback decision.' 4}
+    if($RecoveryAction -eq 'Rollback'){
+        if(-not $journal.from_release -or -not(Test-ALPathWithin $journal.from_release $Config.ReleasesRoot) -or -not(Test-ALPublishedRelease $journal.from_release).Verified){Stop-AL 'Rollback is unavailable without a verified previous release.' 4}
+        Assert-ALRecoveryBackup $Config $journal
+        Invoke-ALRollbackCore $Config $journal $journal.from_release
+        return [pscustomobject]@{recovered=$true;phase='rolled_back';release=$journal.from_release}
+    }
     if ($journal.phase -in $script:FinalPhases) { Write-ALLog "last deployment $($journal.run) ended in '$($journal.phase)': nothing to recover"; return [pscustomobject]@{ recovered = $false; phase = $journal.phase } }
     if ($journal.phase -in @('prepared', 'backup')) {
+        if($RecoveryAction -eq 'Cancel'){
+            $observed=Get-ALService $Config.ServiceName
+            if((Get-ALLink (Get-ALCurrentLink $Config)) -ine $journal.from_release -or
+                ($observed.Exists -and $journal.service_state_before -eq 'Missing') -or
+                ($observed.Exists -and -not(Test-ALServiceBinary $observed.PathName $Config) -and (-not $adopted -or $observed.PathName -ine $journal.service_binary_before))){Stop-AL 'Cancellation found changed service or release identity; explicit recovery review is required.' 4}
+        }
         Set-ALPhase $Config $journal 'aborted'
         $service = Get-ALService $Config.ServiceName
         if ($service.Exists -and $service.State -eq 'Stopped' -and $journal.service_state_before -eq 'Running') { Start-ALService $Config.ServiceName }
