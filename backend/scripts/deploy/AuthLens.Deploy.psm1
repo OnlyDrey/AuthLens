@@ -71,7 +71,7 @@ function Read-AuthLensSettings([string]$Path, [switch]$Packaged) {
     $config = [ordered]@{
         Root = $root; RepositoryPath = ''; Remote = 'origin'; Branch = 'experiment/dotnet-backend'; WorkRoot = $layout.WorkRoot; ReleasesRoot = $layout.ReleasesRoot
         BackupRoot = $layout.BackupRoot; ServiceName = $script:ServiceName; ServiceAccount = ''; ListenAddress = ''; Port = 0
-        AllowedHosts = @(); ProxyHosts = @(); TrustedProxies = @(); DataDirectory = $layout.DataDirectory; CertificatePath = (Join-AL $layout.TlsRoot 'server.pfx')
+        AccessMode = 'Auto'; AllowedHosts = @(); ProxyHosts = @(); TrustedProxies = @(); DataDirectory = $layout.DataDirectory; CertificatePath = (Join-AL $layout.TlsRoot 'server.pfx')
         CertificatePasswordFile = (Join-AL $layout.TlsRoot 'cert-password'); ReadyTimeoutSeconds = 120; StopTimeoutSeconds = 90
     }
     foreach ($p in $raw.PSObject.Properties) {
@@ -96,10 +96,11 @@ function Read-AuthLensSettings([string]$Path, [switch]$Packaged) {
 
 # The service command line, rebuilt from the configuration. No secret is on it: the server reads the password file itself.
 function Get-ALServiceArguments($Config) {
+    $access=Get-ALServerAccessPlan $Config
     $arguments = @('--data-dir', $Config.DataDirectory)
     $address=$null
     if(-not [Net.IPAddress]::TryParse($Config.ListenAddress,[ref]$address)){Stop-AL 'ListenAddress must be an explicit IP address.'}
-    if(-not [Net.IPAddress]::IsLoopback($address)){$arguments+='--network'}
+    if($access.network_access){$arguments+='--network'}
     $arguments+=@('--listen', $Config.ListenAddress, '--port', [string]$Config.Port)
     $hosts=($Config.AllowedHosts -join ',').Trim()
     if($hosts){$arguments+=@('--allowed-hosts',$hosts)}
@@ -107,6 +108,44 @@ function Get-ALServiceArguments($Config) {
     if (@($Config.TrustedProxies).Count -gt 0) { $arguments += @('--trusted-proxies', ($Config.TrustedProxies -join ',')) }
     if ($Config.PSObject.Properties['ProxyHosts'] -and @($Config.ProxyHosts).Count -gt 0) { $arguments += @('--proxy-hosts', ($Config.ProxyHosts -join ',')) }
     $arguments
+}
+
+function Test-ALPrivateAddress([Net.IPAddress]$Address) {
+    if($Address.IsIPv4MappedToIPv6){$Address=$Address.MapToIPv4()}
+    $b=$Address.GetAddressBytes()
+    if($b.Length -eq 4){return ($b[0] -eq 10 -or ($b[0] -eq 172 -and $b[1] -ge 16 -and $b[1] -le 31) -or ($b[0] -eq 192 -and $b[1] -eq 168) -or ($b[0] -eq 169 -and $b[1] -eq 254))}
+    (($b[0] -band 254) -eq 252 -or $Address.IsIPv6LinkLocal)
+}
+
+function Get-ALServerAccessPlan($Config) {
+    $mode=if($Config.PSObject.Properties['AccessMode']){[string]$Config.AccessMode}else{'Auto'}
+    if($mode -cnotin @('Auto','Local','Corporate','ReverseProxy')){Stop-AL 'AccessMode must be Auto, Local, Corporate or ReverseProxy.'}
+    $address=$null
+    if(-not [Net.IPAddress]::TryParse($Config.ListenAddress,[ref]$address)){Stop-AL 'ListenAddress must be an explicit IP address.'}
+    if($address.Equals([Net.IPAddress]::Any) -or $address.Equals([Net.IPAddress]::IPv6Any)){Stop-AL 'Wildcard binding is not supported by the current runtime; choose one private interface.'}
+    $network=-not [Net.IPAddress]::IsLoopback($address)
+    $hosts=@();$proxyHosts=@();$proxies=@()
+    if($Config.PSObject.Properties['AllowedHosts']){$hosts=@($Config.AllowedHosts)}
+    if($Config.PSObject.Properties['ProxyHosts']){$proxyHosts=@($Config.ProxyHosts)}
+    if($Config.PSObject.Properties['TrustedProxies']){$proxies=@($Config.TrustedProxies)}
+    if($mode -ne 'Auto' -and $network -and -not(Test-ALPrivateAddress $address)){Stop-AL 'Network access requires a specific private LAN address.'}
+    if($mode -eq 'Local' -and ($network -or $proxies.Count -or $proxyHosts.Count -or @($hosts|Where-Object{$_ -notin @('localhost','127.0.0.1','::1','[::1]')}).Count)){Stop-AL 'Local access requires loopback binding and loopback hosts without proxy trust.'}
+    if($mode -eq 'Corporate' -and (-not $network -or -not $hosts.Count -or $proxies.Count -or $proxyHosts.Count)){Stop-AL 'Corporate access requires a private interface and explicit allowed hosts without proxy trust.'}
+    if($mode -eq 'ReverseProxy' -and (-not $network -or -not $hosts.Count -or -not $proxies.Count -or -not $proxyHosts.Count)){Stop-AL 'Reverse proxy access requires a private backend interface, backend hosts, public proxy hosts and explicit trusted peers.'}
+    [pscustomobject]@{access_mode=$mode;network_access=$network;listen_address=$Config.ListenAddress;allowed_hosts=$hosts;wildcard_supported=$false;probe_authority=$(if($network){$hosts|Select-Object -First 1}else{$Config.ListenAddress})}
+}
+
+function Get-ALServerNetworkSuggestions {
+    $properties=[Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties()
+    $names=@($properties.HostName)
+    if($properties.DomainName){$names+=($properties.HostName+'.'+$properties.DomainName)}
+    $addresses=@(@(foreach($adapter in [Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()){
+        if($adapter.OperationalStatus -ne 'Up' -or $adapter.NetworkInterfaceType -eq 'Loopback'){continue}
+        foreach($entry in $adapter.GetIPProperties().UnicastAddresses){if(Test-ALPrivateAddress $entry.Address){$entry.Address.ToString()}}
+    })|Sort-Object -Unique)
+    $preferred=@($addresses|Where-Object{$_ -notlike '*:*' -and $_ -notlike '169.254.*'})|Select-Object -First 1
+    if(-not $preferred){$preferred=$addresses|Select-Object -First 1}
+    [pscustomobject]@{operation='network suggestions';listen_address=[string]$preferred;allowed_hosts=@($names|Where-Object{$_}|Select-Object -Unique);interfaces=$addresses;access_mode='Corporate';wildcard_supported=$false;read_only=$true}
 }
 
 # The executable and the arguments of a service command line ("C:\path\AuthLens.Api.exe" --a b "--c" "d e"), quotes removed.

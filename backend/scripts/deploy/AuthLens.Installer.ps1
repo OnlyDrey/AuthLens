@@ -284,6 +284,7 @@ function Assert-ALFailedPreflightEvidence($Resolved,[string]$Package,[string]$Re
 
 function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto','Install','Upgrade','Repair')][string]$Operation='Auto',[string]$SetupMetadataFile='',[string]$FailedPreflightReceipt='') {
     $config=$Resolved.Config
+    $access=Get-ALServerAccessPlan $config
     Assert-ALServerSetupFingerprint $Resolved $Resolved.ConfigSha256
     # Nothing here initializes paths, locks, journals, databases, keys or services.
     $kind=Assert-ALInstallerServerPreflight $config
@@ -362,7 +363,7 @@ function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto'
         }
         foreach($drive in $needed.Keys){if((Get-ALInstallerFreeBytes $drive) -lt $needed[$drive]){Stop-AL 'Insufficient free storage for immutable staging/publication and a verified backup; nothing was provisioned.'}}
     }
-    [pscustomobject]@{schema=1;operation_id=[guid]::NewGuid().ToString('N');operation=$(if($Operation-eq 'Repair'){'repair'}else{$kind});read_only=$true;package_network_database_verified=[bool]$Package;root=$config.Root;program_directory=$Resolved.ProgramDirectory;config_file=$config.ConfigFile;config_sha256=$Resolved.ConfigSha256;data_directory=$config.DataDirectory;backup_directory=$config.BackupRoot;listen_address=$config.ListenAddress;port=$config.Port;service_name=$config.ServiceName;service_account=$config.ServiceAccount;certificate=$config.CertificatePath;allowed_hosts=@($config.AllowedHosts);proxy_hosts=@($config.ProxyHosts);trusted_proxies=@($config.TrustedProxies);firewall='unchanged; no automatic rule creation';version=$(if($manifest){$manifest.version}else{''});source_sha=$(if($manifest){$manifest.source_sha}else{''});limitations=@('Service-identity key access, encrypted backup verification and final Windows TLS/readiness are mandatory transaction checks.','Custom-account provisioning, automatic firewall changes, destructive uninstall and legacy restore remain separate explicit operations.')}
+    [pscustomobject]@{schema=1;operation_id=[guid]::NewGuid().ToString('N');operation=$(if($Operation-eq 'Repair'){'repair'}else{$kind});read_only=$true;package_network_database_verified=[bool]$Package;root=$config.Root;program_directory=$Resolved.ProgramDirectory;config_file=$config.ConfigFile;config_sha256=$Resolved.ConfigSha256;data_directory=$config.DataDirectory;backup_directory=$config.BackupRoot;listen_address=$config.ListenAddress;port=$config.Port;service_name=$config.ServiceName;service_account=$config.ServiceAccount;certificate=$config.CertificatePath;allowed_hosts=@($config.AllowedHosts);proxy_hosts=@($config.ProxyHosts);trusted_proxies=@($config.TrustedProxies);firewall='unchanged; no automatic rule creation';access_mode=$access.access_mode;network_access=$access.network_access;version=$(if($manifest){$manifest.version}else{''});source_sha=$(if($manifest){$manifest.source_sha}else{''});limitations=@('Service-identity key access, encrypted backup verification and final Windows TLS/readiness are mandatory transaction checks.','Custom-account provisioning, automatic firewall changes, destructive uninstall and legacy restore remain separate explicit operations.')}
 }
 
 function Get-ALInstallerFreeBytes([string]$Drive){([IO.DriveInfo]::new($Drive)).AvailableFreeSpace}
@@ -393,7 +394,7 @@ function Get-ALInstallerLegacyPresence([switch]$ServicesOnly){
 function Write-ALServerSetupPlan([string]$Path,$Plan) {
     # GUI uses a private INI bridge; automation consumes the same JSON plan on stdout.
     $lines=@('[AuthLens]')
-    foreach($name in @('operation_id','operation','root','program_directory','config_file','config_sha256','data_directory','backup_directory','listen_address','port','service_name','service_account','certificate','allowed_hosts','proxy_hosts','trusted_proxies')){
+    foreach($name in @('operation_id','operation','root','program_directory','config_file','config_sha256','data_directory','backup_directory','listen_address','port','service_name','service_account','certificate','allowed_hosts','proxy_hosts','trusted_proxies','access_mode','network_access','interfaces','wildcard_supported')){
         $value=if($Plan.PSObject.Properties[$name]){@($Plan.$name) -join ', '}else{''}
         if($value.IndexOfAny([char[]]"`r`n`0") -ge 0){Stop-AL 'Setup plan contains invalid line delimiters.'}
         $lines+=($name+'='+$value)

@@ -18,6 +18,7 @@ param(
     [switch]$PrepareOnly,
     [switch]$ResolveOnly,
     [switch]$PreflightOnly,
+    [switch]$NetworkSuggestions,
     [switch]$CommitNewConfiguration,
     [switch]$GenerateTlsDraft,
     [switch]$ImportTls,
@@ -93,7 +94,7 @@ try {
     if($FailedPreflightReceipt -and (-not $PreflightOnly -or $Mode -ne 'Server' -or $PrepareOnly -or $Recover -or $Operation -notin @('Auto','Install'))){throw 'Failure evidence retry is read-only fresh Server preflight only.'}
     if($Operation -notin @('Auto','Install','Upgrade','Repair','Uninstall','UninstallPlan','Firewall','FirewallRemove')){$stage='argument validation';throw 'Unknown installer operation. Use Auto, Install, Upgrade, Repair, Uninstall, Firewall, FirewallRemove or UninstallPlan.'}
     if($ResultFile -and (Test-Path -LiteralPath $ResultFile)){throw 'A previous installer result exists; it will not be overwritten.'}
-    if (-not $Yes -and -not ($ResolveOnly -or $PreflightOnly -or $Operation -eq 'UninstallPlan')) { throw 'Installation requires explicit -Yes after reviewing the selected paths and configuration.' }
+    if (-not $Yes -and -not ($ResolveOnly -or $PreflightOnly -or $NetworkSuggestions -or $Operation -eq 'UninstallPlan')) { throw 'Installation requires explicit -Yes after reviewing the selected paths and configuration.' }
     # Inno embeds these tools separately from the unchanged release manifest. Verify every helper before importing executable code.
     $proof = Join-Path $PSScriptRoot 'installer-tools.json'
     if (Test-Path -LiteralPath $proof) {
@@ -108,6 +109,13 @@ try {
     } else { throw 'Packaged installer helper integrity manifest is missing.' }
     Import-Module (Join-Path $PSScriptRoot 'deploy\AuthLens.Deploy.psm1') -Force
     $installerPublicErrors=@(Get-ALInstallerPublicErrors)
+    if($NetworkSuggestions){
+        if($Mode -ne 'Server' -or $ResolveOnly -or $PreflightOnly -or $PrepareOnly -or $Recover -or $Package -or $Operation -ne 'Auto'){throw 'Network suggestions require a standalone read-only Server request.'}
+        $stage='network discovery';$result=Get-ALServerNetworkSuggestions
+        if($PlanFile){Write-ALServerSetupPlan $PlanFile $result}
+        Write-InstallerResult @{schema=1;operation_id=$operationId;status='completed';exit_code=0;result=$result}
+        exit 0
+    }
     $stage='configuration and prerequisites'
     if ($Mode -eq 'Server') {
         if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Server Setup requires an elevated operator session.' }

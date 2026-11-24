@@ -5,18 +5,18 @@ BeforeAll {
 Describe 'Loopback HTTPS readiness preserves the default host boundary' {
     It 'uses the loopback address when no extra hosts are configured' {
         Mock -ModuleName AuthLens.Deploy Invoke-ALHttp {[pscustomobject]@{Status=200}}
-        $config=[pscustomobject]@{ListenAddress='127.0.0.1';Port=18795;AllowedHosts=@()}
+        $config=[pscustomobject]@{ListenAddress='127.0.0.1';Port=18795;AllowedHosts=@();CertificatePath='synthetic.pfx';CertificatePasswordFile='synthetic-password-file'}
         (Invoke-ALConfiguredHttp $config '/health/ready').Status|Should -Be 200
         Should -Invoke -ModuleName AuthLens.Deploy Invoke-ALHttp -Times 1 -ParameterFilter {$Url -eq 'https://127.0.0.1:18795/health/ready' -and $HostHeader -eq '127.0.0.1:18795'}
     }
     It 'brackets IPv6 loopback in both URL and Host' {
         Mock -ModuleName AuthLens.Deploy Invoke-ALHttp {[pscustomobject]@{Status=200}}
-        $config=[pscustomobject]@{ListenAddress='::1';Port=18795;AllowedHosts=@()}
+        $config=[pscustomobject]@{ListenAddress='::1';Port=18795;AllowedHosts=@();CertificatePath='synthetic.pfx';CertificatePasswordFile='synthetic-password-file'}
         $null=Invoke-ALConfiguredHttp $config '/health/ready'
         Should -Invoke -ModuleName AuthLens.Deploy Invoke-ALHttp -Times 1 -ParameterFilter {$Url -eq 'https://[::1]:18795/health/ready' -and $HostHeader -eq '[::1]:18795'}
     }
     It 'still refuses a LAN listener without explicit hosts' {
-        $config=[pscustomobject]@{ListenAddress='10.0.7.50';Port=18795;AllowedHosts=@()}
+        $config=[pscustomobject]@{ListenAddress='10.0.7.50';Port=18795;AllowedHosts=@();CertificatePath='synthetic.pfx';CertificatePasswordFile='synthetic-password-file'}
         {Invoke-ALConfiguredHttp $config '/health/ready'}|Should -Throw '*allowed host*'
     }
 }

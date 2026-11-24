@@ -1018,6 +1018,29 @@ Focused PowerShell coverage exercises the reported local/corporate-host mismatch
 wildcard refusal, immediate policy failure and exact/changed/expired certificate identity. Native HTTPS and
 installer acceptance are pending; this change has not been applied to the live server or packaged in a new release.
 
+### Explicit Server access modes
+
+Deployment configuration accepts `AccessMode`: `Local`, `Corporate`, `ReverseProxy`, or compatibility
+default `Auto` when omitted. Local requires loopback binding and loopback-only host values without proxy
+trust. Corporate requires one specific private interface and explicit backend hosts without proxy fields;
+it is the recommended choice for a shared Server, subject to explicit exposure/firewall review. ReverseProxy
+requires a private backend interface, backend hosts, public proxy hosts and explicit trusted peers. All modes
+use HTTPS in the installer. The packaged host remains the authority for TLS SAN/expiry/private-key checks,
+proxy network/hop policy, schema and integrity. `Auto` preserves existing configuration semantics; it does
+not add network access to loopback. Existing service command-line comparison remains semantic and unchanged.
+
+`Install-AuthLens.ps1 -Mode Server -NetworkSuggestions` is read-only and requires no configuration or
+package. It suggests local hostname/FQDN and active private interfaces, preferring a non-link-local IPv4
+address. Suggestions do not prove DNS resolution or client trust and are not automatically approved.
+Corporate DNS, client trust and reachability must be checked independently. The wizard bridge can request
+the same suggestions through its private INI plan. Corporate exposure never implies a wildcard firewall
+scope; literal reviewed source addresses/subnets remain mandatory.
+
+**Runtime constraint:** the current server intentionally rejects all-interface binds and loopback network/
+trusted-proxy mode. These inputs are refused, not silently mapped to a different interface. Offering an
+all-IPv4 option or a loopback proxy backend remains blocked on an explicit runtime security design decision;
+no host, Origin, forwarded-header or Desktop restriction was relaxed.
+
 From a clean committed checkout, run `.\build.ps1`. Windows PowerShell 5.1 or PowerShell 7,
 Git, .NET SDK 10, Node 24/25, npm, Python 3 and Inno Setup 6 are required. Use `-Iscc <absolute ISCC.exe>` for a nonstandard installation.
 The entry point orchestrates the existing release builder, verifier, release secret scan and installer builder. It never installs software or

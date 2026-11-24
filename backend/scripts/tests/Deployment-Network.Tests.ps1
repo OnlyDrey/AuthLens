@@ -52,3 +52,37 @@ Describe 'Exact certificate identity is required for local readiness' {
         }finally{if($certificate){$certificate.Dispose()};if($other){$other.Dispose()};$key.Dispose()}
     }
 }
+Describe 'Explicit Server access modes preserve the runtime contract' {
+    BeforeEach {
+        $config=[pscustomobject]@{AccessMode='Local';ListenAddress='127.0.0.1';AllowedHosts=@('localhost');ProxyHosts=@();TrustedProxies=@();Port=18795;DataDirectory='synthetic';CertificatePath='synthetic.pfx';CertificatePasswordFile='synthetic-password-file'}
+    }
+    It 'keeps local access loopback-only without network service arguments' {
+        Set-StrictMode -Version Latest
+        (Get-ALServerAccessPlan $config).network_access|Should -BeFalse
+        @(Get-ALServiceArguments $config)|Should -Not -Contain '--network'
+        $config.AllowedHosts=@('server.example.invalid')
+        {Get-ALServerAccessPlan $config}|Should -Throw '*Local access requires*'
+    }
+    It 'enables corporate mode only for an explicit private interface and host policy' {
+        $config.AccessMode='Corporate';$config.ListenAddress='10.0.7.50';$config.AllowedHosts=@('server.example.invalid')
+        @(Get-ALServiceArguments $config)|Should -Contain '--network'
+        $config.TrustedProxies=@('10.0.7.1')
+        {Get-ALServerAccessPlan $config}|Should -Throw '*Corporate access requires*'
+    }
+    It 'requires complete reverse-proxy policy on a private backend interface' {
+        $config.AccessMode='ReverseProxy'
+        {Get-ALServerAccessPlan $config}|Should -Throw '*Reverse proxy access requires*'
+        $config.ListenAddress='10.0.7.50';$config.AllowedHosts=@('backend.example.invalid');$config.TrustedProxies=@('10.0.7.10');$config.ProxyHosts=@('public.example.invalid')
+        (Get-ALServerAccessPlan $config).network_access|Should -BeTrue
+        @(Get-ALServiceArguments $config)|Should -Contain '--proxy-hosts'
+    }
+    It 'preserves old loopback configurations without an explicit mode' {
+        $config.PSObject.Properties.Remove('AccessMode');$config.AllowedHosts=@('server.example.invalid')
+        (Get-ALServerAccessPlan $config).access_mode|Should -Be 'Auto'
+        @(Get-ALServiceArguments $config)|Should -Not -Contain '--network'
+    }
+    It 'refuses unsafe listener <Address> before service configuration' -ForEach @(@{Address='0.0.0.0'},@{Address='::'},@{Address='8.8.8.8'}) {
+        $config.ListenAddress=$Address
+        {Get-ALServiceArguments $config}|Should -Throw
+    }
+}
