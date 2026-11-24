@@ -1018,7 +1018,46 @@ Focused PowerShell coverage exercises the reported local/corporate-host mismatch
 wildcard refusal, immediate policy failure and exact/changed/expired certificate identity. Native HTTPS and
 installer acceptance are pending; this change has not been applied to the live server or packaged in a new release.
 
-### Explicit Server access modes
+### Installation state and program quarantine
+
+The read-only `Install-AuthLens.ps1 -Mode Server -Operation InspectState` classifies the selected normalized
+configuration as a clean program target, an owned installation still requiring readiness verification,
+an actual interrupted deployment, protected application data, verified failed Setup artifacts, or unknown/
+ambiguous state. Legacy presence is reported separately without adoption or changes. An expected journal
+path alone never establishes a transaction. Unknown state and protected data have no cleanup action.
+
+For a **verified pre-deployment failure only**, inspection may advertise `quarantine_program`. Supply the
+original Package, SetupMetadataFile and FailedPreflightReceipt to inspection; exact package, metadata,
+helper, ownership and diagnostic hashes must pass the existing Setup planner. Old failures without a valid
+receipt, changed uninstall data, running services/listeners, actual deployment journals or populated data/
+release/work storage refuse quarantine. A post-start failure such as the reported running service/database
+case requires recovery, never program cleanup.
+
+After reviewing the exact source and destination on a disposable acceptance VM, the supported CLI action is:
+
+```powershell
+# Replace every placeholder with the reviewed paths. Inspect first; -Yes explicitly authorizes the move.
+powershell.exe -NoProfile -NonInteractive -File '<reviewed-tools>\Install-AuthLens.ps1' `
+  -Mode Server -Operation QuarantineFailedSetup -ConfigFile '<selected-config.json>' `
+  -Package '<original-staged-package>' -SetupMetadataFile '<original-setup-metadata.ini>' `
+  -FailedPreflightReceipt '<original-preflight-failure.json>' `
+  -EvidenceDirectory 'C:\AuthLens-Recovery\NEW-OPERATION' -Yes
+```
+
+The evidence directory must be new, separate, on the same volume and beneath an existing administrator-only
+parent. The host deployment mutex serializes the action without populating a fresh WorkRoot. Before the
+atomic `Root\app` move, a private intent record saves every program-file hash. The fixed source and target
+are validated as disjoint from data, backups, configuration, certificates and keys. Nothing is deleted or
+merged. Interrupted intent can resume with the same evidence directory; completed intent is idempotent
+only while every retained hash and the unchanged configuration still verify. Unknown/tampered evidence
+refuses. Program files are re-inventoried after the move and the source must remain absent.
+
+Registry entries are **not deleted**. A retained pending-verification Inno entry is recovery evidence and
+remains explicitly incomplete until a successful supported Setup retry. Native same-AppId retry behavior
+after quarantine is awaiting acceptance; it is not yet certified to eliminate every manual registration
+review. Existing populated installations and unproved historical remnants are never forced through this path.
+
+### Access-mode planning
 
 Deployment configuration accepts `AccessMode`: `Local`, `Corporate`, `ReverseProxy`, or compatibility
 default `Auto` when omitted. Local requires loopback binding and loopback-only host values without proxy

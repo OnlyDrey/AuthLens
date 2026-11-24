@@ -461,12 +461,13 @@ function Set-ALPhase($Config, $Journal, [string]$Phase) {
 }
 
 # One deployment operation at a time per host: an exclusive handle, released by Windows when the process ends (also after Ctrl+C or a dropped SSH session).
-function Enter-ALLock($Config) {
+function Enter-ALLock($Config,[switch]$MutexOnly) {
     # Serialize across source AND target WorkRoot during directory migration.
     $script:HostLock = [Threading.Mutex]::new($false, 'Global\AuthLens.Deployment')
     $acquired = $false
     try { $acquired = $script:HostLock.WaitOne(0) } catch [Threading.AbandonedMutexException] { $acquired = $true }
     if (-not $acquired) { $script:HostLock.Dispose(); $script:HostLock = $null; Stop-AL 'Another deployment operation is running on this host.' }
+    if($MutexOnly){return} # pre-deployment quarantine must not populate the fresh WorkRoot
     New-Item -ItemType Directory -Force $Config.WorkRoot | Out-Null
     $path = Join-AL $Config.WorkRoot 'deployment.lock'
     try { $script:Lock = [System.IO.File]::Open($path, 'OpenOrCreate', 'ReadWrite', 'None') }

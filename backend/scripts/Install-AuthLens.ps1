@@ -33,6 +33,7 @@ param(
     [string]$DiagnosticFile='',
     [string]$SetupMetadataFile='',
     [string]$FailedPreflightReceipt='',
+    [string]$EvidenceDirectory='',
     [switch]$Yes
 )
 Set-StrictMode -Version 3.0
@@ -91,10 +92,10 @@ function Write-InstallerResult($Value) {
     }
 }
 try {
-    if($FailedPreflightReceipt -and (-not $PreflightOnly -or $Mode -ne 'Server' -or $PrepareOnly -or $Recover -or $Operation -notin @('Auto','Install'))){throw 'Failure evidence retry is read-only fresh Server preflight only.'}
-    if($Operation -notin @('Auto','Install','Upgrade','Repair','Uninstall','UninstallPlan','Firewall','FirewallRemove')){$stage='argument validation';throw 'Unknown installer operation. Use Auto, Install, Upgrade, Repair, Uninstall, Firewall, FirewallRemove or UninstallPlan.'}
+    if($FailedPreflightReceipt -and $Operation -notin @('InspectState','QuarantineFailedSetup') -and (-not $PreflightOnly -or $Mode -ne 'Server' -or $PrepareOnly -or $Recover -or $Operation -notin @('Auto','Install'))){throw 'Failure evidence retry is read-only fresh Server preflight only.'}
+    if($Operation -notin @('Auto','Install','Upgrade','Repair','Uninstall','UninstallPlan','Firewall','FirewallRemove','InspectState','QuarantineFailedSetup')){$stage='argument validation';throw 'Unknown installer operation. Use Auto, Install, Upgrade, Repair, Uninstall, Firewall, FirewallRemove, UninstallPlan, InspectState or QuarantineFailedSetup.'}
     if($ResultFile -and (Test-Path -LiteralPath $ResultFile)){throw 'A previous installer result exists; it will not be overwritten.'}
-    if (-not $Yes -and -not ($ResolveOnly -or $PreflightOnly -or $NetworkSuggestions -or $Operation -eq 'UninstallPlan')) { throw 'Installation requires explicit -Yes after reviewing the selected paths and configuration.' }
+    if (-not $Yes -and -not ($ResolveOnly -or $PreflightOnly -or $NetworkSuggestions -or $Operation -in @('UninstallPlan','InspectState'))) { throw 'Installation requires explicit -Yes after reviewing the selected paths and configuration.' }
     # Inno embeds these tools separately from the unchanged release manifest. Verify every helper before importing executable code.
     $proof = Join-Path $PSScriptRoot 'installer-tools.json'
     if (Test-Path -LiteralPath $proof) {
@@ -125,7 +126,7 @@ try {
         if($FirewallRollback -and -not($Recover -and $ApproveFirewall)){Stop-AL 'Firewall rollback requires explicit recovery and security approval.'}
         $resolved=Resolve-ALServerSetupConfiguration $ConfigFile $InstallRoot
         $config=$resolved.Config; $InstallRoot=$resolved.ProgramDirectory
-        if($Package -and -not $Recover){
+        if($Package -and -not $Recover -and $Operation -ne 'QuarantineFailedSetup'){
             $stage='package verification'
             $verifiedBuild=Get-ALInstallerPackage $Package
             $buildIdentity='AuthLens '+$verifiedBuild.version+'; source_sha='+$verifiedBuild.source_sha+'; target=win-x64 (verified manifest)'
@@ -156,7 +157,16 @@ try {
             $probe=Invoke-ALMaintenance (Join-AL $Package 'server/AuthLens.Api.exe') (@('--server-preflight')+@(Get-ALServiceArguments $config))
             if(-not $probe.validated -or -not $probe.read_only -or $probe.source_sha -cne $manifest.source_sha){Stop-AL 'Generated TLS material did not pass the packaged host policy. Protected drafts were retained; no installation was changed.'}
         }
-        if($ResolveOnly -or $GenerateTlsDraft){
+        if($Operation -in @('InspectState','QuarantineFailedSetup')){
+            if($PrepareOnly -or $Recover -or $PreflightOnly -or $ResolveOnly -or $GenerateTlsDraft -or $ImportTls -or $ApproveFirewall -or $CommitNewConfiguration){Stop-AL 'State inspection and program quarantine are standalone operations.'}
+            if($Operation -eq 'InspectState'){$stage='installation state inspection';$result=Get-ALServerInstallationState $resolved $Package $SetupMetadataFile $FailedPreflightReceipt}
+            else{
+                $stage='verified program quarantine transaction'
+                if(-not $EvidenceDirectory){Stop-AL 'Program quarantine requires a new explicit evidence directory on the same volume.'}
+                $result=Move-ALFailedSetupProgramToEvidence $resolved $Package $SetupMetadataFile $FailedPreflightReceipt $EvidenceDirectory -Approved:$Yes
+            }
+        }
+        elseif($ResolveOnly -or $GenerateTlsDraft){
             $result=[pscustomobject]@{operation_id=$operationId;operation='configuration selected; preflight pending';root=$config.Root;program_directory=$InstallRoot;config_file=$config.ConfigFile;config_sha256=$resolved.ConfigSha256;data_directory=$config.DataDirectory;backup_directory=$config.BackupRoot;listen_address=$config.ListenAddress;port=$config.Port;service_name=$config.ServiceName;service_account=$config.ServiceAccount;certificate=$config.CertificatePath;allowed_hosts=@($config.AllowedHosts);proxy_hosts=@($config.ProxyHosts);trusted_proxies=@($config.TrustedProxies)}
         }
         elseif($PreflightOnly -or $Operation -eq 'UninstallPlan'){
@@ -237,7 +247,7 @@ try {
 } catch {
     $failure=$_
     $technical=Get-InstallerTechnicalDiagnostic $failure
-    $known=@('Unknown installer operation. Use Auto, Install, Upgrade, Repair, Uninstall, Firewall, FirewallRemove or UninstallPlan.','A previous installer result exists; it will not be overwritten.','Select only one recovery, resolve, preflight or preparation mode.','Server lifecycle options are not Desktop options.','Installation requires explicit -Yes after reviewing the selected paths and configuration.','Packaged installer helper integrity manifest is missing.','Installer helper integrity verification failed.','Installer helper inventory is incomplete or unexpected.','Invalid installer helper path.','Server Setup requires an elevated operator session.','Recover and PrepareOnly cannot be combined.')
+    $known=@('Unknown installer operation. Use Auto, Install, Upgrade, Repair, Uninstall, Firewall, FirewallRemove, UninstallPlan, InspectState or QuarantineFailedSetup.','A previous installer result exists; it will not be overwritten.','Select only one recovery, resolve, preflight or preparation mode.','Server lifecycle options are not Desktop options.','Installation requires explicit -Yes after reviewing the selected paths and configuration.','Packaged installer helper integrity manifest is missing.','Installer helper integrity verification failed.','Installer helper inventory is incomplete or unexpected.','Invalid installer helper path.','Server Setup requires an elevated operator session.','Recover and PrepareOnly cannot be combined.')
     $reason=if ($failure.Exception.Message -in $known -or $failure.Exception.Message -in $installerPublicErrors) { $failure.Exception.Message } else { 'Prerequisite/helper/configuration error ('+$failure.Exception.GetType().Name+'). Review the explicit configuration and packaged helper integrity.' }
     $reason=[regex]::Replace($reason,'(?i)(password|token|secret|credential|passphrase)\s*[:=]\s*[^\s;,]+','$1=[REDACTED]')
     $summary="Stage: $stage. $reason "+(Get-InstallerJournalState).message

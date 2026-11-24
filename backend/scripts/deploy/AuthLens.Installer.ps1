@@ -368,6 +368,106 @@ function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto'
 
 function Get-ALInstallerFreeBytes([string]$Drive){([IO.DriveInfo]::new($Drive)).AvailableFreeSpace}
 
+function Get-ALServerInstallationState($Resolved,[string]$Package='',[string]$Metadata='',[string]$FailureReceipt='') {
+    $config=$Resolved.Config
+    Assert-ALInstallerServerConfiguration $config
+    $service=Get-ALService $config.ServiceName
+    $journalPath=Get-ALJournalPath $config
+    $journalExists=Test-Path -LiteralPath $journalPath
+    $state='unknown_or_ambiguous';$actions=@('inspect_evidence');$reason='Ownership or transaction prerequisites need review.'
+    if($journalExists){
+        $journal=Read-ALJournal $config
+        if($journal -and $journal.phase -in @('stopping','switched','starting','verifying','manual_recovery_required')){
+            $state='interrupted_deployment';$actions=@('inspect_evidence','recover');$reason='An actual nonterminal or manual-recovery journal exists; program cleanup is unavailable.'
+        }elseif($service.Exists -and (Test-ALServiceBinary $service.PathName $config)){
+            $state='owned_installation';$reason='Owned service with terminal deployment evidence; readiness and package identity still require validation.'
+        }
+    }elseif($service.Exists){
+        $reason='A service exists without a complete verified transaction history; no artifact is adopted.'
+    }elseif((Test-Path -LiteralPath $config.DataDirectory) -and @(Get-ChildItem -LiteralPath $config.DataDirectory -Force).Count){
+        $state='protected_application_data';$reason='Retained application data requires isolated restore or recovery; cleanup is unavailable.'
+    }elseif(@(foreach($directory in @($config.ReleasesRoot,$config.WorkRoot)){if((Test-Path -LiteralPath $directory) -and @(Get-ChildItem -LiteralPath $directory -Force).Count){$directory}}).Count){
+        $reason='Retained release or deployment artifacts exist without a verified transaction; preserve them for review.'
+    }else{
+        $app=Join-AL $config.Root 'app'
+        if(-not(Test-Path -LiteralPath $app) -or -not @(Get-ChildItem -LiteralPath $app -Force).Count){
+            $state='clean_program_target';$actions=@('review_fresh_install');$reason='No service, deployment journal or populated program/data directory was found. Configuration, TLS, keys and backups remain protected.'
+        }elseif($Package -and $Metadata -and $FailureReceipt){
+            try{
+                $null=Get-ALServerSetupPlan $Resolved $Package Install $Metadata $FailureReceipt
+                $state='verified_failed_setup';$actions=@('read_only_retry','quarantine_program');$reason='Exact package, metadata and failure-receipt checks passed; only program artifacts may be quarantined after explicit approval.'
+            }catch{$reason='Failed Setup artifact integrity or ownership is unverified; preserve every artifact.'}
+        }
+    }
+    [pscustomobject]@{read_only=$true;state=$state;reason=$reason;available_actions=$actions;program_directory=(Join-AL $config.Root 'app');deployment_journal_exists=[bool]$journalExists;service_state=$service.State;legacy=(Get-ALInstallerLegacyPresence -ServicesOnly);persistent_data_action='preserve; never delete or adopt'}
+}
+
+function Assert-ALProgramQuarantineInventory([string]$Directory,$Files) {
+    Test-ALPathTree $Directory
+    $actual=@(Get-ALTreeFiles $Directory)
+    $seen=@{}
+    if($actual.Count -ne @($Files).Count){Stop-AL 'Program quarantine inventory changed; preserve all evidence.'}
+    foreach($entry in $Files){
+        if($entry.relative -match '(^[\\/]|:|(^|[\\/])\.\.([\\/]|$))' -or $entry.sha256 -notmatch '^[a-f0-9]{64}$'){Stop-AL 'Invalid program quarantine inventory.'}
+        $path=[IO.Path]::GetFullPath((Join-AL $Directory $entry.relative))
+        if($seen.ContainsKey($path)){Stop-AL 'Duplicate program quarantine inventory path.'};$seen[$path]=$true
+        if(-not(Test-ALPathWithin $path $Directory) -or -not(Test-Path -LiteralPath $path -PathType Leaf) -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ine $entry.sha256){Stop-AL 'Program quarantine integrity changed; preserve all evidence.'}
+    }
+}
+
+function Move-ALFailedSetupProgramToEvidence($Resolved,[string]$Package,[string]$Metadata,[string]$FailureReceipt,[string]$EvidenceDirectory,[switch]$Approved) {
+    if(-not $Approved){Stop-AL 'Program quarantine requires explicit approval after inspecting the exact program directory and evidence destination.'}
+    $config=$Resolved.Config;$app=[IO.Path]::GetFullPath((Join-AL $config.Root 'app'))
+    Assert-ALInstallerServerConfiguration $config
+    Assert-ALInstallerPath $EvidenceDirectory
+    $destination=[IO.Path]::GetFullPath($EvidenceDirectory)
+    foreach($protected in @($config.Root,$config.DataDirectory,$config.BackupRoot,$config.ReleasesRoot,$config.WorkRoot,(Split-Path $config.CertificatePath),(Split-Path $config.ConfigFile))){
+        if(Test-ALPathOverlap $destination $protected){Stop-AL 'Quarantine storage overlaps protected installation or persistent storage.'}
+    }
+    if([IO.Path]::GetPathRoot($app) -ine [IO.Path]::GetPathRoot($destination)){Stop-AL 'Program quarantine requires the same volume for an atomic directory move.'}
+    foreach($protected in @($config.DataDirectory,$config.BackupRoot,$config.ReleasesRoot,$config.WorkRoot,$config.ConfigFile,$config.CertificatePath,$config.CertificatePasswordFile,(Join-AL $config.Root 'keys'))){
+        if(Test-ALPathOverlap $app $protected){Stop-AL 'Protected storage overlaps the program quarantine boundary.'}
+    }
+    $target=Join-AL $destination 'app';$recordFile=Join-AL $destination 'program-quarantine.json'
+    Enter-ALLock $config -MutexOnly
+    try{
+        Assert-ALServerSetupFingerprint $Resolved $Resolved.ConfigSha256
+        if((Get-ALService $config.ServiceName).Exists -or (Test-Path -LiteralPath (Get-ALJournalPath $config)) -or @(Get-ALListener $config.ListenAddress ([int]$config.Port)).Count){Stop-AL 'A service, listener or deployment journal exists; program cleanup is unavailable.'}
+        foreach($directory in @($config.DataDirectory,$config.ReleasesRoot,$config.WorkRoot)){
+            if((Test-Path -LiteralPath $directory) -and @(Get-ChildItem -LiteralPath $directory -Force).Count){Stop-AL 'Retained data or deployment state forbids program quarantine.'}
+        }
+        if(Test-Path -LiteralPath $destination){
+            Assert-ALFailedPreflightOwner $destination
+            Assert-ALFailedPreflightOwner $recordFile
+            $record=Get-Content -LiteralPath $recordFile -Raw -Encoding UTF8|ConvertFrom-Json
+            if($record.schema -ne 1 -or $record.product -cne 'AuthLens' -or $record.source -ine $app -or $record.target -ine $target -or $record.config_sha256 -cne $Resolved.ConfigSha256 -or $record.phase -notin @('prepared','complete') -or -not @($record.files).Count){Stop-AL 'Quarantine evidence does not belong to this reviewed operation.'}
+        }else{
+            $null=Get-ALServerSetupPlan $Resolved $Package Install $Metadata $FailureReceipt
+            if(-not $FailureReceipt){Stop-AL 'Program quarantine requires a verified failed-preflight receipt.'}
+            $null=Assert-ALAclPlan @([pscustomobject]@{Path=$app;Class='private';Role='program quarantine';Recurse=$true}) 'Program quarantine'
+            foreach($item in @(Get-ALAclItems $app)){Assert-ALFailedPreflightOwner $item.FullName}
+            $files=@(Get-ALTreeFiles $app|ForEach-Object{@{relative=$_.FullName.Substring($app.Length+1);sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}})
+            if(-not $files.Count){Stop-AL 'An empty directory is not failed Setup evidence.'}
+            $record=[pscustomobject]@{schema=1;product='AuthLens';operation_id=[guid]::NewGuid().ToString('N');phase='prepared';source=$app;target=$target;config_sha256=$Resolved.ConfigSha256;files=$files}
+            Assert-ALFailedPreflightOwner (Split-Path $destination)
+            New-ALDirectoryWithAcl $destination (New-ALProtectedDirectorySecurity)
+            Write-ALInstallerPrivateBytes $recordFile ([Text.Encoding]::UTF8.GetBytes(($record|ConvertTo-Json -Depth 6)))
+        }
+        $null=Assert-ALAclPlan @([pscustomobject]@{Path=$destination;Class='private';Role='quarantine evidence';Recurse=$true}) 'Program quarantine evidence'
+        if(Test-Path -LiteralPath $app){
+            if(Test-Path -LiteralPath $target){Stop-AL 'Both original and quarantined program directories exist; no move is safe.'}
+            Assert-ALProgramQuarantineInventory $app $record.files
+            # Both absolute endpoints are fixed above: Root\app and the new, separate EvidenceDirectory\app.
+            # Same-volume Directory.Move is atomic, refuses an existing target and never merges or deletes files.
+            [IO.Directory]::Move($app,$target)
+        }
+        Assert-ALProgramQuarantineInventory $target $record.files
+        if($record.phase -ne 'complete'){$record.phase='complete';Write-ALInstallerJournal $recordFile $record}
+        if(Test-Path -LiteralPath $app){Stop-AL 'Program target reappeared during cleanup; review concurrent activity.'}
+        [pscustomobject]@{quarantined=$true;program_directory=$app;evidence_directory=$destination;operation_id=$record.operation_id;phase='complete';data_deleted=$false;registration='retained; pending verification until successful Setup';next='review a fresh Setup retry; persistent configuration and data were not moved'}
+    }finally{Exit-ALLock}
+}
+
 function Assert-ALServerSetupFingerprint($Resolved,[string]$Expected){
     if($Expected -and (Get-FileHash -LiteralPath $Resolved.Config.ConfigFile -Algorithm SHA256).Hash -ine $Expected){Stop-AL 'Deployment configuration changed after review; repeat detection and preflight before installation.'}
 }
