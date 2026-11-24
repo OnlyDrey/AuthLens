@@ -7,6 +7,7 @@ import { AssignmentStatus } from '@/components/Shared/InvestigationNavigation'
 import { FilterChip } from '@/components/Shared/FilterChip'
 import { Button, IconButton } from '@/components/Shared/Button'
 import { SAPUserSelector } from '@/components/Shared/SAPUserSelector'
+import {OrganizationFilter} from '@/components/Shared/OrganizationFilter'
 import { RoleIdentifier } from '@/components/Shared/RoleIdentifier'
 import { RoleModuleBadge } from '@/components/Shared/RoleModuleBadge'
 import { RoleEntry } from '@/components/Shared/RoleEntry'
@@ -61,11 +62,13 @@ function UserSelector({
   value,
   other,
   onChange,
+  functionalGroups,
 }: {
   label: string
   value: string
   other: string
   onChange: (s: string) => void
+  functionalGroups:string[]
 }) {
   const [search, setSearch] = useState(''),
     [term, setTerm] = useState('')
@@ -74,9 +77,9 @@ function UserSelector({
     return () => clearTimeout(timer)
   }, [search])
   const result = useQuery({
-    queryKey: ['compare-users', term],
+    queryKey: ['compare-users', term, functionalGroups],
     queryFn: () =>
-      accessQuery<Page<UserRow>>('users', { search: term, limit: 25 }),
+      accessQuery<Page<UserRow>>('users', { search: term, functional_groups:functionalGroups, limit: 25 }),
   })
   const rows =
     search === term
@@ -223,6 +226,7 @@ export function UserComparison({
   onRole: (s: string) => void
   onTransaction: (s: string) => void
 }) {
+  const [functionalGroups,setFunctionalGroups]=useState<string[]>([])
   const [a, setA] = useState(initialUser || context?.a || ''),
     [b, setB] = useState(context?.b || ''),
     [validity, setValidity] = useState(context?.validity || 'active'),
@@ -479,6 +483,7 @@ export function UserComparison({
         access; account status and lock state are separate.
       </EvidenceDisclosure>
       <div className="comparison-user-panels">
+        <div className="col-span-full"><FormField label="Functional Group"><OrganizationFilter kind="functional_group" values={functionalGroups} onChange={setFunctionalGroups}/></FormField><p className="ui-description">Narrows user-selection choices only. The two explicitly selected accounts and their complete comparison and exports remain unchanged.</p></div>
         {[
           { label: 'User A', value: a, other: b, change: setA },
           { label: 'User B', value: b, other: a, change: setB },
@@ -493,6 +498,7 @@ export function UserComparison({
                     value={side.value}
                     other={side.other}
                     onChange={side.change}
+                    functionalGroups={functionalGroups}
                   />
                 </div>
                 {user && (

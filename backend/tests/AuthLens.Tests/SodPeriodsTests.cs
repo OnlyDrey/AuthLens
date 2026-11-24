@@ -156,6 +156,38 @@ public sealed class SodPeriodsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Conflict, refused.Status);
         Assert.Equal(HttpStatusCode.Conflict, (await Post($"/api/sod/periods/{id}/recapture", new JsonObject { ["expected_revision"] = await Revision(), ["confirm"] = true })).Status);
         Assert.Equal(HttpStatusCode.Conflict, (await Transition(id, "In review")).Status);
+        var originalDetails = await Get($"/api/sod/periods/{id}?limit=100");
+        var originalChecksum = (string)originalDetails["checksum"]!;
+        var subject = (string)originalDetails["snapshot"]!["analysis"]!["users"]![0]!["subject"]!;
+        var filteredDetails = await Get($"/api/sod/periods/{id}?usernames={Uri.EscapeDataString(subject.ToLowerInvariant())}&limit=100");
+        Assert.All(filteredDetails["snapshot"]!["reviews"]!["items"]!.AsArray(), row => Assert.Equal(subject, (string)row!["finding"]!["subject"]!));
+        Assert.Equal(originalChecksum, (string)filteredDetails["checksum"]!);
+        var afterFiltering = await Get($"/api/sod/periods/{id}?limit=100");
+        Assert.True(JsonNode.DeepEquals(originalDetails["snapshot"], afterFiltering["snapshot"]));
+        var filteredReport = await Post("/api/sod/reports/remediation/preview", new JsonObject
+        {
+            ["context"] = id, ["filters"] = new JsonObject { ["usernames"] = new JsonArray(subject) },
+            ["options"] = new JsonObject { ["report_date"] = "2026-07-01" },
+        });
+        Assert.True(filteredReport.Status == HttpStatusCode.OK, filteredReport.Body?.ToJsonString());
+        Assert.Equal("current_membership", (string)filteredReport.Body!["organizational_filter_basis"]!);
+        Assert.Equal(subject, (string)filteredReport.Body["population_filters"]!["usernames"]![0]!);
+        Assert.Equal(originalChecksum, (string)(await Get($"/api/sod/periods/{id}?limit=100"))["checksum"]!);
+        var group = await Post("/api/functional-groups", new JsonObject { ["name"] = "After approval " + id, ["description"] = "Synthetic current membership" });
+        Assert.Equal(HttpStatusCode.OK, group.Status);
+        var groupId = (string)group.Body!["id"]!;
+        var classification = await Get($"/api/functional-groups/users/{Uri.EscapeDataString(subject)}");
+        var membership = await Post("/api/functional-groups/memberships", new JsonObject
+        {
+            ["username"] = subject, ["group_id"] = groupId, ["expected_revision"] = classification["classification"]!["revision"]!.DeepClone(),
+        });
+        Assert.Equal(HttpStatusCode.OK, membership.Status);
+        var organizationView = await Get($"/api/sod/periods/{id}?functional_groups={groupId}&limit=100");
+        Assert.True((int)organizationView["total"]! > 0);
+        Assert.Equal(originalChecksum, (string)organizationView["checksum"]!);
+        var unknownOrganization = await Get($"/api/sod/periods/{id}?functional_groups=fg_missing&limit=100");
+        Assert.Equal(0, (int)unknownOrganization["total"]!);
+        Assert.Equal(originalChecksum, (string)unknownOrganization["checksum"]!);
 
         // Compare with a later period: same evidence, nothing changed; the decisions of the new open period differ.
         var later = await Create("Q3 2026");

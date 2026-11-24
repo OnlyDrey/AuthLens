@@ -50,6 +50,25 @@ public sealed class AccessExportTests : IAsyncLifetime
         : [$"{p.Key}={Uri.EscapeDataString(Value(p.Value!))}"]));
 
     [Fact]
+    public async Task Release_subject_filters_apply_before_paging_and_match_assignment_exports()
+    {
+        var all = JsonNode.Parse(await _client.GetStringAsync("/api/access/release-assignments?status=all&limit=1"))!;
+        Assert.True((int)all["total"]! > 0);
+        var username = (string)all["items"]![0]!["username"]!;
+        var scope = "status=all&usernames=" + Uri.EscapeDataString(username.ToLowerInvariant());
+        var selected = JsonNode.Parse(await _client.GetStringAsync("/api/access/release-assignments?" + scope + "&limit=1"))!;
+        Assert.Equal(1, (int)selected["distinct_users"]!);
+        var csv = await _client.GetStringAsync("/api/access/exports/releases?" + scope);
+        var rows = AuthLens.Domain.Csv.CsvReader.Read(new StringReader(csv.TrimStart('\ufeff')), ';').Skip(1).ToList();
+        Assert.Equal((int)selected["total"]!, rows.Count);
+        Assert.All(rows, row => Assert.Equal(username, row[0], ignoreCase: true));
+        var absent = JsonNode.Parse(await _client.GetStringAsync("/api/access/releases?status=all&functional_groups=fg_missing"))!;
+        Assert.Equal(0, (int)absent["total"]!);
+        var empty = await _client.GetStringAsync("/api/access/exports/releases?status=all&functional_groups=fg_missing");
+        Assert.Single(AuthLens.Domain.Csv.CsvReader.Read(new StringReader(empty.TrimStart('\ufeff')), ';'));
+    }
+
+    [Fact]
     public async Task Selection_and_unfiltered_assignment_export_equal_python_v1()
     {
         var expected = JsonNode.Parse(File.ReadAllText(Fixture("access", "expected.python.json")))!.AsObject();

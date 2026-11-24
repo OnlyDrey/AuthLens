@@ -142,6 +142,15 @@ public sealed class EmployeeDirectoryTests : IAsyncLifetime
         Assert.Equal(("healthy", "ready", 3), ((string)enabled["status"]!, (string)enabled["operational_status"]!, (int)enabled["coverage_total"]!));
         Assert.Equal(2, (int)enabled["coverage"]!["matched"]!);
         Assert.Equal(1, (int)enabled["coverage"]!["missing_email"]!);
+        var exact = JsonNode.Parse(await _client.GetStringAsync("/api/employees?usernames=user0001&usernames=USER0001&managers=boss%40example.invalid&limit=1"))!;
+        Assert.Equal(1, (int)exact["total"]!);
+        Assert.Equal("Ada", (string)exact["items"]![0]!["name"]!);
+        var combinedManagers = JsonNode.Parse(await _client.GetStringAsync("/api/employees?managers=none&managers=boss%40example.invalid&usernames=USER0001&usernames=USER0002&limit=1"))!;
+        Assert.Equal(2, (int)combinedManagers["total"]!);
+        Assert.Single(combinedManagers["items"]!.AsArray());
+        var missing = JsonNode.Parse(await _client.GetStringAsync("/api/employees?usernames=USER0003"))!;
+        Assert.Equal(0, (int)missing["total"]!); // No email link is never treated as an identity match.
+        Assert.Equal(2, (int)JsonNode.Parse(await _client.GetStringAsync("/api/employees"))!["total"]!); // Clearing filters restores the complete directory.
 
         var list = JsonNode.Parse(await _client.GetStringAsync("/api/employees?search=ada"))!;
         Assert.Equal(1, (int)list["total"]!);

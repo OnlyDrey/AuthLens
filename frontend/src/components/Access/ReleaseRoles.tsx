@@ -1,4 +1,5 @@
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
+import {SubjectFilters,type SubjectFiltersValue} from '@/components/Shared/OrganizationFilter'
 import {SAPUserLink} from '@/components/Shared/SAPUserLink'
 import {ExportCSVButton} from '@/components/Shared/ExportCSVButton'
 import {useAssignmentCSVExport} from '@/hooks/useAssignmentCSVExport'
@@ -23,7 +24,7 @@ import { List, Grid3X3, Plus, Check, Copy, Download } from 'lucide-react';
 import { useRecordNavigation, type RecordNavigationState } from "@/hooks/useRecordNavigation";
 import { DetailNavigation, AssignmentStatus, DetailButton } from "@/components/Shared/InvestigationNavigation";
 import { ReleaseFilter, ReleaseMultiFilter } from "./ReleaseFilter";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type SetStateAction } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   accessQuery,
@@ -89,9 +90,14 @@ export function ReleaseRoles({
     [compareGroups, setCompareGroups] = useState(false),
     [offset, setOffset] = useState(0),
     [pageSize, setPageSize] = useState(20),
-    [drill, setDrill] = useHistoryValue('release'),
+    [drill, setDrillState] = useHistoryValue('release'),
     [usersOf, setUsersOf] = useState('');
   const [query, setQuery] = useState({ username: "", role: "" });
+  const [initialPopulation,setInitialPopulation]=useHistoryValue('accessSubjectFilters')
+  const [subjectFilters,setSubjectFilters]=useState<SubjectFiltersValue>(initialPopulation||{functional_groups:[],managers:[],usernames:[]})
+  const subjectKey=JSON.stringify(subjectFilters)
+  useEffect(()=>{if(initialPopulation)setInitialPopulation(undefined)},[initialPopulation,setInitialPopulation])
+  const setDrill=(value:SetStateAction<ReleaseDrill|null>)=>setDrillState(previous=>{const next=typeof value==='function'?value(previous):value;return next?{...next,...subjectFilters}:null})
   useEffect(() => {
     const t = setTimeout(() => setQuery(previous => previous.username === username && previous.role === role ? previous : { username, role }), 250);
     return () => clearTimeout(t);
@@ -100,16 +106,16 @@ export function ReleaseRoles({
   useEffect(() => {
     setOffset(0);
     setMatrixOffset(0);
-  }, [userGroups.join('|'), kind, areaKey, groupKey, strategyKey, query, status, sort, descending, compareGroups, dateKey, pageSize]);
+  }, [userGroups.join('|'), kind, areaKey, groupKey, strategyKey, query, status, sort, descending, compareGroups, dateKey, pageSize,subjectKey]);
   // Release Groups outside the selected areas can no longer match; drop them so the filter never hides a contradiction.
   const changeAreas = (areas: string[]) => {
     setReleaseAreas(areas);
     if (areas.length) setReleaseGroups(previous => { const kept = previous.filter(value => areas.includes(releaseAreaOf(value) || '')); return kept.length === previous.length ? previous : kept });
   };
-  const filters = { ...dateParams(assignmentDates), user_groups: userGroups, document_type: kind, release_areas: releaseAreas, release_groups: releaseGroups, strategies, ...query, status, group_by_user_group: compareGroups, sort, descending };
+  const filters = { ...dateParams(assignmentDates), ...subjectFilters, user_groups: userGroups, document_type: kind, release_areas: releaseAreas, release_groups: releaseGroups, strategies, ...query, status, group_by_user_group: compareGroups, sort, descending };
   const navigation = useRecordNavigation('releases', { ...filters, status: drill?.status || status }, drill?.role || '', name => setDrill(previous => previous ? { ...previous, role: name } : previous));
   const result = useQuery({
-    queryKey: ["release-roles", assignmentDates, userGroups, kind, areaKey, groupKey, strategyKey, query, status, compareGroups, sort, descending, offset, matrixOffset, matrix, pageSize],
+    queryKey: ["release-roles", subjectKey, assignmentDates, userGroups, kind, areaKey, groupKey, strategyKey, query, status, compareGroups, sort, descending, offset, matrixOffset, matrix, pageSize],
     queryFn: () =>
       accessQuery<ReleasePage>("releases", { ...filters, offset: matrix ? 0 : offset, limit: pageSize, matrix_offset: matrixOffset, matrix_complete:matrix, list_complete:false }),
   });
@@ -149,8 +155,8 @@ export function ReleaseRoles({
     try { await navigator.clipboard.writeText(roles.map(item => item.role_name).join('\n')); announceExport({ kind: 'success', message: `Copied ${roles.length.toLocaleString()} release role ${roles.length === 1 ? 'name' : 'names'}.` }) }
     catch { announceExport({ kind: 'error', message: 'Copy failed. Export the role list instead.' }) }
   })
-  const activeFilterCount = [kind, username, role].filter(Boolean).length + (userGroups.length ? 1 : 0) + (strategies.length ? 1 : 0) + (releaseAreas.length ? 1 : 0) + (releaseGroups.length ? 1 : 0) + (status !== 'active' ? 1 : 0) + (datesActive(assignmentDates) ? 1 : 0);
-  const clearAll = () => { setUserGroups([]); setKind(''); setReleaseAreas([]); setReleaseGroups([]); setStrategies([]); setUsername(''); setRole(''); setStatus('active'); setSort('role_name'); setDescending(false); setAssignmentDates({ ...emptyDates }) };
+  const activeFilterCount = Object.values(subjectFilters).filter(values=>values.length).length + [kind, username, role].filter(Boolean).length + (userGroups.length ? 1 : 0) + (strategies.length ? 1 : 0) + (releaseAreas.length ? 1 : 0) + (releaseGroups.length ? 1 : 0) + (status !== 'active' ? 1 : 0) + (datesActive(assignmentDates) ? 1 : 0);
+  const clearAll = () => { setSubjectFilters({functional_groups:[],managers:[],usernames:[]});setUserGroups([]); setKind(''); setReleaseAreas([]); setReleaseGroups([]); setStrategies([]); setUsername(''); setRole(''); setStatus('active'); setSort('role_name'); setDescending(false); setAssignmentDates({ ...emptyDates }) };
   if (drill)
     return (
       <ReleaseDetail
@@ -190,8 +196,8 @@ export function ReleaseRoles({
         </PageToolbar>}
         sidebar={<div className="grid min-w-0 gap-3" role="search" aria-label="Release role filters">
           <FilterSection title="Saved Filters">
-            <SavedFilters showClear={false} view="release" state={{userGroups,kind,releaseAreas,releaseGroups,strategies,username,role,status,sort,descending,...assignmentDates}}
-              apply={s=>{
+            <SavedFilters showClear={false} view="release" state={{...subjectFilters,userGroups,kind,releaseAreas,releaseGroups,strategies,username,role,status,sort,descending,...assignmentDates}}
+              apply={s=>{setSubjectFilters({functional_groups:Array.isArray(s.functional_groups)?textList(s.functional_groups):[],managers:Array.isArray(s.managers)?textList(s.managers):[],usernames:Array.isArray(s.usernames)?s.usernames:[]});
                 // Filters saved before multi-select stored one SAP User Group string.
                 setUserGroups(Array.isArray(s.userGroups)?textList(s.userGroups):typeof s.group==='string'&&s.group?[s.group]:[]);if(typeof s.kind==='string')setKind(s.kind);if(Array.isArray(s.strategies))setStrategies(s.strategies.filter((v:unknown):v is string=>typeof v==='string'));else if(typeof s.strategy==='string'&&s.strategy)setStrategies([s.strategy]);
                 if(typeof s.username==='string')setUsername(s.username);if(typeof s.role==='string')setRole(s.role);
@@ -203,7 +209,7 @@ export function ReleaseRoles({
                 setAssignmentDates(previous=>Object.fromEntries(Object.entries(previous).map(([k,v])=>[k,typeof s[k]===typeof v?s[k]:v])) as typeof previous)}}
               clear={clearAll}/>
           </FilterSection>
-          <FilterSection title="Release classification">
+          <FilterSection title="Population"><SubjectFilters value={subjectFilters} onChange={setSubjectFilters} compact/></FilterSection><FilterSection title="Release classification">
             <ReleaseMultiFilter field="group" label="Release SAP User Group" values={userGroups} onChange={setUserGroups} context={context}/>
             <ReleaseFilter field="document_type" label="PR/PO" value={kind} onChange={setKind} context={{ ...context, user_groups:userGroups }}/>
             <ReleaseMultiFilter field="release_area" label="Release Area" values={releaseAreas} onChange={changeAreas} context={{ ...context, user_groups:userGroups, document_type:kind }}/>
@@ -608,7 +614,7 @@ function ReleaseDetail({
 /** Users holding one release role, within the list's validity scope and filters. Names are shown only when the user source carries them. */
 function ReleaseRoleUsersPanel({ role, filters, status, dates, onUser, onClose }: { role: string; filters: Record<string, unknown>; status: string; dates: AssignmentDates; onUser: (name: string) => void; onClose: () => void }) {
   const [offset, setOffset] = useState(0)
-  const scope = Object.fromEntries(Object.entries({ group: filters.group, user_groups: filters.user_groups, username: filters.username, document_type: filters.document_type, strategies: filters.strategies, status }).filter(([, value]) => value !== undefined && value !== '' && !(Array.isArray(value) && !value.length)))
+  const scope = Object.fromEntries(Object.entries({ functional_groups:filters.functional_groups,managers:filters.managers,usernames:filters.usernames,group: filters.group, user_groups: filters.user_groups, username: filters.username, document_type: filters.document_type, strategies: filters.strategies, status }).filter(([, value]) => value !== undefined && value !== '' && !(Array.isArray(value) && !value.length)))
   const result = useQuery({
     queryKey: ['release-role-users', role, scope, dates, offset],
     queryFn: () => accessQuery<Page<Assignment & { display_name?: string }> & { distinct_users: number }>('release-assignments', { ...(scope as Record<string, string>), ...dateParams(dates), role, offset } as Record<string, string | number | boolean>),

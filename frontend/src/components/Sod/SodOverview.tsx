@@ -2,14 +2,14 @@ import type { ReactNode } from 'react'
 import {Permission} from '@/components/Auth/Authentication'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, CircleDashed, ClipboardCheck, Grid3x3, ListChecks, ShieldAlert, ShieldCheck, ShieldX, UserMinus, UsersRound, Wrench } from 'lucide-react'
-import { sod, type Filters } from '@/api/sod'
+import { sod, scopeParams, type Filters } from '@/api/sod'
 import { useHistoryValue, useViewHistory, type SodView } from '@/hooks/useViewHistory'
 import { Card, ErrorState, LoadingState, SectionHeader, StatusBadge, Toolbar } from '@/components/Shared/Presentation'
 import { InfoList, InfoRow } from '@/components/Shared/InfoList'
 import { Button } from '@/components/Shared/Button'
 import { formatDate, formatTimestamp } from '@/lib/dateFormat'
 import { kpiTone } from '@/lib/kpiTone'
-import { AlertNote, PAGE_FIELDS, readFilters, writeFilters } from './SodShared'
+import { AlertNote, PAGE_FIELDS, readFilters, writeFilters, SodFilters, useSodFilters } from './SodShared'
 
 interface Governance {
   available: boolean; reason?: string | null
@@ -32,7 +32,9 @@ interface Overview {
 }
 
 export function SodOverview() {
-  const result = useQuery({ queryKey: ['sod-overview'], queryFn: () => sod<Overview>('/api/sod/overview') }),
+  const [filters,setFilters]=useSodFilters('overview',['functional_group','manager','username'])
+  const parameters=scopeParams('current',filters)
+  const result = useQuery({ queryKey: ['sod-overview',parameters.toString()], queryFn: () => sod<Overview>('/api/sod/overview',parameters) }),
     { change } = useViewHistory(),
     [stored] = useHistoryValue('sodFilters')
   if (result.isError) return <ErrorState error={result.error} onRetry={() => void result.refetch()} title="The SoD overview could not be loaded" />
@@ -47,6 +49,8 @@ export function SodOverview() {
   const activities = g.activities || {}, acceptance = g.acceptance || {}
   return (
     <section className="grid min-w-0 gap-4" aria-label="SoD overview">
+      <SodFilters view="sod_overview" filters={filters} setFilters={setFilters} fields={['functional_group','manager','username']} searchLabel="Search SAP users">
+      <p className="ui-description">User findings and review metrics follow the selected current population. Risk definitions, source quality, change detection and period history describe the complete evidence and remain global.</p>
       {!g.available && <Card><AlertNote>Conflict analysis is unavailable ({g.reason === 'sod_disabled' ? 'SoD is turned off in Features' : g.reason === 'mapping_disabled' ? 'User–Role Mapping is disabled' : 'a supported SoD matrix, validated role catalogue and User–Role Mapping data are required'}). Missing evidence is not proof that no conflict exists.</AlertNote>
         <Permission permission="admin"><Toolbar><Button onClick={() => change({ settings: true, settingsTarget: g.reason === 'mapping_disabled' || g.reason === 'sod_disabled' ? 'features' : 'sod' })}>Review configuration</Button></Toolbar></Permission></Card>}
       {g.available&&g.review_coverage&&<Card aria-label="Access review completion"><p>{Object.values(g.review_coverage).reduce((sum,item)=>sum+item.reviewed,0)} / {Object.values(g.review_coverage).reduce((sum,item)=>sum+item.total,0)} access-review items covered across the current context</p><p className="ui-description">Manual and derived coverage count once. Formal risk acceptance and evidence-verified remediation remain separate.</p></Card>}
@@ -108,9 +112,10 @@ export function SodOverview() {
             <div><dt>Catalogue coverage</dt><dd>{coverage.status === 'available' ? `${coverage.mapped_assignment_records ?? 0} of ${coverage.eligible_assignment_records ?? 0} eligible assignment records matched (${coverage.unmapped_assignment_records ?? 0} unmatched)` : 'Incomplete'}</dd></div>
           </dl>
           <p className="ui-description">Potential transaction-derived conflicts, not effective authorization. Review decisions never change what is detected. Criticality labels keep their source values. Risk definitions are maintained in Settings.</p>
-          <Toolbar><Button onClick={() => change({ settings: true, settingsTarget: 'sod' })}>Configure risks in Settings</Button></Toolbar>
+          <Permission permission="admin"><Toolbar><Button onClick={() => change({ settings: true, settingsTarget: 'sod' })}>Configure risks in Settings</Button></Toolbar></Permission>
         </Card>
       </div>
+      </SodFilters>
     </section>
   )
 }

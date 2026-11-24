@@ -15,7 +15,7 @@ public static class V1SavedFilters
 {
     public const int MaxItems = 250, MaxBytes = 1_000_000;
 
-    public static readonly string[] Views = ["users", "roles", "release", "review", "comparison", "sod_users", "sod_roles", "sod_risk_matrix", "sod_activity_matrix", "sod_explorer", "sod_queue"];
+    public static readonly string[] Views = ["users", "roles", "release", "review", "comparison", "sod_users", "sod_roles", "sod_overview", "sod_risk_matrix", "sod_activity_matrix", "sod_explorer", "sod_queue"];
 
     public static readonly IReadOnlyDictionary<string, HashSet<string>> Allowed = BuildAllowed();
 
@@ -33,12 +33,13 @@ public static class V1SavedFilters
             allowed[view] = ["search", "usernames", "risks", "criticalities", "categories", "groups", "tcodes", "risk", "criticality", "risk_type", "category", "username", "group", "composite_role", "single_role", "tcode", "account_status", "sort", "descending", "validity", "as_of", "selected_roles"];
         string[] matrix = ["search", "risk", "criticality", "risk_type", "category", "username", "usernames", "role_suffixes", "risks", "activities", "groups", "roles", "tcodes", "categories", "criticalities", "group", "composite_role", "single_role", "tcode", "role", "role_suffix", "activity", "account_status", "multiple_risks", "tracking",
             "activity_decision", "assignment_decision", "review_status", "acceptance", "validity", "as_of", "sort", "descending", "group_by", "table", "kind", "status", "queue_sort", "role_match", "assignment_scope", "role_families", "role_exact"];
-        foreach (var view in new[] { "sod_risk_matrix", "sod_activity_matrix", "sod_explorer", "sod_queue" }) allowed[view] = [.. matrix];
+        foreach (var view in new[] { "sod_overview", "sod_risk_matrix", "sod_activity_matrix", "sod_explorer", "sod_queue" }) allowed[view] = [.. matrix];
         // Organizational filters: Functional Group and Manager (Account Review keeps its own `groups` key).
-        foreach (var view in new[] { "users", "review", "sod_users", "sod_roles", "sod_risk_matrix", "sod_activity_matrix", "sod_explorer", "sod_queue" })
+        foreach (var view in new[] { "users", "release", "review", "sod_users", "sod_roles", "sod_overview", "sod_risk_matrix", "sod_activity_matrix", "sod_explorer", "sod_queue" })
         {
             allowed[view].UnionWith(["functional_groups", "managers", "functional_group", "manager"]);
-            if (view == "review") allowed[view].UnionWith(["groups", "includeCompleted"]);
+            if (view == "review") allowed[view].UnionWith(["groups", "includeCompleted", "usernames"]);
+            if (view == "release") allowed[view].Add("usernames");
         }
         return allowed;
     }

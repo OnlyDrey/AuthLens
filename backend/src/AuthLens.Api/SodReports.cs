@@ -587,10 +587,29 @@ public static class SodReports
             await CurrentReportLogoAsync(services, ct)), o);
     }
 
-    public static async Task<JsonObject> BuildRemediationAsync(IServiceProvider services, string context, RemediationOptions o, CancellationToken ct)
+    public static async Task<JsonObject> BuildRemediationAsync(IServiceProvider services, string context, RemediationOptions o, CancellationToken ct, JsonObject? filters = null)
     {
         var b = await SodScope.LoadAsync(services, context, "active", null, ct);
         var view = SodScope.ReviewModel(b);
+        var scopedFilters = new JsonObject();
+        if (filters is not null)
+        {
+            var lists = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (var (name, value) in filters)
+            {
+                if (name is not ("functional_groups" or "managers" or "usernames") || value is not JsonArray array || array.Count > (name == "usernames" ? 100 : 50)
+                    || array.Any(v => v is not JsonValue j || !j.TryGetValue<string>(out var text) || text.Length is 0 or > 512))
+                    throw new ReportException(422, "Invalid remediation population filters.");
+                lists[name] = array.Select(v => (string)v!).Distinct(StringComparer.Ordinal).ToList();
+                if (array.Count > 0) scopedFilters[name] = value.DeepClone();
+            }
+            if (scopedFilters.Count > 0)
+            {
+                var query = await SodScope.OrganizationalAsync(services, new SodQuery { Context = context, Lists = lists, ReviewPopulation = true }, ct);
+                var scoped = await SodScope.ScopedAsync(services, query, ct);
+                b = scoped.Bundle; view = scoped.View;
+            }
+        }
         var state = await SodScope.StatesAsync(services, b, view, ct);
         var actions = await SodScope.ActionsAsync(services, b, ct);
         Func<string, string, string> verify;
@@ -605,8 +624,17 @@ public static class SodReports
             described = new JsonObject { ["basis"] = "current", ["risks"] = lookup["risks"]!.DeepClone(), ["activities"] = lookup["activities"]!.DeepClone() };
         }
         var period = b.Period ?? new JsonObject { ["id"] = "current", ["name"] = "Current evidence", ["start"] = b.AsOf, ["end"] = b.AsOf, ["state"] = "Current", ["history"] = new JsonArray() };
-        return RemediationModel(new RemediationInputs(period, b.Period is not null, b.Generation, view, state, actions, verify, described, settings["organization"],
+        var model = RemediationModel(new RemediationInputs(period, b.Period is not null, b.Generation, view, state, actions, verify, described, settings["organization"],
             await CurrentReportLogoAsync(services, ct) ?? (settings["logo_id"] is JsonValue lv ? lv.ToString() : null)), o);
+        if (scopedFilters.Count > 0)
+        {
+            model.Remove("model_checksum");
+            model["population_filters"] = scopedFilters;
+            model["organizational_filter_basis"] = "current_membership";
+            model["sections"]![0]!["paragraphs"]!.AsArray().Insert(0, "Filtered operational view: Functional Group and Manager selections use current organizational membership, not historical membership. Exact usernames narrow the captured evidence. The approved period population and evidence remain unchanged. Population filters: " + scopedFilters.ToJsonString());
+            Seal(model);
+        }
+        return model;
     }
 
     /// <summary>report_logo: the frozen logo; a referenced logo that is missing or altered stops the export (409) rather than silently dropping it.</summary>
@@ -653,7 +681,8 @@ public static class SodReports
     private static (string PeriodId, string? Expected, JsonNode? Options, IResult? Error) RequestBody(JsonObject body, bool remediation)
     {
         var errors = new List<object>();
-        V1Validation.Extra(body, remediation ? ["context", "expected_model", "options"] : ["period_id", "expected_model", "options"], errors);
+        V1Validation.Extra(body, remediation ? ["context", "expected_model", "options", "filters"] : ["period_id", "expected_model", "options"], errors);
+        if (remediation && body.ContainsKey("filters") && body["filters"] is not JsonObject) errors.Add(V1Validation.Error("object_type", "filters", "Use a population filter object."));
         var id = remediation ? (body["context"] is JsonValue cv && cv.TryGetValue<string>(out var c) ? c : "current") : V1Validation.Text(body, "period_id", 32, 32, true, errors) ?? "";
         if (remediation ? !SodDecisionStore.ContextPattern().IsMatch(id) : !Regex.IsMatch(id, "^[a-f0-9]{32}$"))
             errors.Add(V1Validation.Error("string_pattern_mismatch", remediation ? "context" : "period_id", "Choose a valid review context."));
@@ -690,7 +719,7 @@ public static class SodReports
             if (error is not null) return error;
             var (options, errors) = ParseRemediationOptions(node);
             if (options is null) return Results.Json(new { detail = errors }, statusCode: 422);
-            var model = await BuildRemediationAsync(http.RequestServices, context, options, ct);
+            var model = await BuildRemediationAsync(http.RequestServices, context, options, ct, raw!["filters"] as JsonObject);
             var count = model["rows"]!.AsArray().Count;
             model.Remove("rows");
             model["row_count"] = count;
@@ -705,7 +734,7 @@ public static class SodReports
             if (error is not null) return error;
             var (options, errors) = ParseRemediationOptions(node);
             if (options is null) return Results.Json(new { detail = errors }, statusCode: 422);
-            var model = await BuildRemediationAsync(http.RequestServices, context, options, ct);
+            var model = await BuildRemediationAsync(http.RequestServices, context, options, ct, raw!["filters"] as JsonObject);
             if (expected is not null && expected != S(model["model_checksum"])) throw new ReportException(409, "Remediation evidence changed. Preview again before exporting.");
             var payload = kind == "csv" ? null : Render(http.RequestServices, model, kind);
             if (context != "current") await LogAsync(http, context, "remediation-" + kind, model, null, ct);

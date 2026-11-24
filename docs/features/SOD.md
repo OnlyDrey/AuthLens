@@ -576,3 +576,24 @@ not equivalent to verified server accounts. Profile/name changes affect future
 actions; prior events retain their UUID/name/provenance snapshots. Completing an
 activity or role review never automatically grants formal risk acceptance or
 period approval. Explicit approval confirmation and evidence/revision gates remain.
+
+### Population filter consistency
+
+User-level SoD views share Functional Group, direct Manager and exact-username selection, including pasted
+lists. OR applies within a dimension and AND between dimensions and general search. Existing searchable
+username choices and saved filters remain supported. Counts, pages and CSV exports use the same backend
+scope. See the [cross-application coverage matrix](USER_ACCESS.md#cross-application-filter-coverage-200-remediation)
+for implemented screens, explicit exclusions and validation boundaries.
+
+Historical organizational selections use **current membership**, clearly labelled, because historical group
+and manager membership was not frozen in these snapshots. Filtering narrows a read-only view and never
+changes captured populations, decisions, evidence fingerprints or approvals. Filtered operational remediation
+reports record their scope in the report text and model checksum; formal approved reports keep their complete
+approved scope. Windows Server acceptance and real restored-period acceptance remain separate release gates.
+
+Future evidence recommendation (not implemented): capture a versioned organizational evidence cut with
+stable Functional Group IDs and labels, resolved direct-manager relationships, relevant organizational
+attributes, source identities and capture time. Bind it to the frozen population and evidence checksum.
+This requires coordinated snapshot, backup/restore and report-reader version support before adoption.
+Existing periods must remain readable and unchanged; never backfill historical organization from current
+membership. Older snapshots must continue to identify organizational filtering as current membership.

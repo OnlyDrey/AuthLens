@@ -1,4 +1,5 @@
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
+import {SubjectFilters,subjectFilterParams,type SubjectFiltersValue} from '@/components/Shared/OrganizationFilter'
 import { sentenceCase } from '@/lib/labels'
 import { Toggle, SearchInput } from '@/components/Shared/Controls'
 import { Button } from '@/components/Shared/Button'
@@ -403,6 +404,9 @@ export function FeatureSettings({
 }
 
 export function EmployeeBrowser() {
+  const [subjectFilters,setSubjectFilters]=useState<SubjectFiltersValue>({functional_groups:[],managers:[],usernames:[]})
+  const subjectParameters=subjectFilterParams(subjectFilters).toString()
+  useEffect(()=>{setOffset(0);setSelected(null)},[subjectParameters])
   const [search, setSearch] = useState(''),
     [term, setTerm] = useState(''),
     [offset, setOffset] = useState(0),
@@ -419,10 +423,10 @@ export function EmployeeBrowser() {
     return () => clearTimeout(timer)
   }, [search])
   const query = useQuery({
-    queryKey: ['employees', term, offset],
+    queryKey: ['employees', term, offset, subjectParameters],
     queryFn: () =>
       apiRequest<{ items: Employee[]; total: number; generation: string }>(
-        `/api/employees?search=${encodeURIComponent(term)}&offset=${offset}`,
+        `/api/employees?search=${encodeURIComponent(term)}&offset=${offset}&${subjectParameters}`,
       ),
   })
   useEffect(() => {
@@ -442,6 +446,8 @@ export function EmployeeBrowser() {
   })
   return (
     <section className="space-y-3" aria-label="Employee search">
+      <SubjectFilters value={subjectFilters} onChange={setSubjectFilters}/>
+      <p className="ui-description">Organizational and exact SAP username filters show only reliably linked SAP identities. Unlinked or ambiguous Directory records remain available when these filters are cleared. Manager selection uses direct reports.</p>
       <SearchInput aria-label="Search employees by name, email, department, job title, site or manager" placeholder="Search employees…" value={search} onChange={e=>setSearch(e.target.value)} onClear={()=>setSearch('')} autoComplete="off"/>
 
       {query.isLoading && <p role="status">Loading employees…</p>}

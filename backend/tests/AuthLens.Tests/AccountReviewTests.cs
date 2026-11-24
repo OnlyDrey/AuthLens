@@ -111,6 +111,10 @@ public sealed class AccountReviewTests : IAsyncLifetime
         Assert.Equal(3, (int)page["summary"]!["total"]!);
         Assert.Equal(["technical"], Row(page, "SVC0001")["findings"]!.AsArray().Select(f => (string)f!));
         Assert.Equal(1, (int)page["summary"]!["requiring_review"]!);
+        var exact = await reviewer.Get("/api/account-review?include_completed=true&usernames=user0002&limit=1");
+        Assert.Equal(1, (int)exact["total"]!);
+        Assert.Equal(1, (int)exact["summary"]!["total"]!);
+        Assert.Equal("USER0002", (string)exact["items"]![0]!["username"]!);
         var row = Row(page, "USER0002");
         var evidence = (string)row["evidence_version"]!;
 

@@ -1,4 +1,5 @@
 import { rememberedReviewer } from '@/lib/reviewer'
+import {SubjectFilters,type SubjectFiltersValue} from '@/components/Shared/OrganizationFilter'
 import { useState } from 'react'
 import { Eye, FileDown, FileText, Wrench } from 'lucide-react'
 import { announceExport } from '@/lib/exportNotice'
@@ -126,17 +127,18 @@ function FormalReport({ items }: { items: PeriodItem[] }) {
 }
 
 function RemediationReport({ items }: { items: PeriodItem[] }) {
+  const [filters,setFilters]=useState<SubjectFiltersValue>({functional_groups:[],managers:[],usernames:[]})
   const [context, setContext] = useState('current'), [prepared, setPrepared] = useState(''), [version, setVersion] = useState('1.0'), [date, setDate] = useState(todayText),
     [title, setTitle] = useState('Access Remediation Report'), [recommended, setRecommended] = useState(groups), [preview, setPreview] = useState<Preview | null>(null), [previewKey, setPreviewKey] = useState('')
   const exporter = useExport()
   const options = { title, prepared_by: prepared, document_version: version, report_date: parseNorwegianDate(date), recommended }
-  const key = JSON.stringify({ context, options }), active = previewKey === key ? preview : null
+  const key = JSON.stringify({ context, options,filters }), active = previewKey === key ? preview : null
   const showPreview = async () => {
     exporter.setBusy(true)
     exporter.setMessage('')
     try {
       if (!options.report_date) throw Error('Use DD.MM.YYYY for report date.')
-      setPreview(await sodPost<Preview>('/api/sod/reports/remediation/preview', { context, options }))
+      setPreview(await sodPost<Preview>('/api/sod/reports/remediation/preview', { context, options,filters }))
       setPreviewKey(key)
     } catch (error) {
       exporter.setMessage(error instanceof Error ? error.message : 'Report preview failed.')
@@ -147,6 +149,8 @@ function RemediationReport({ items }: { items: PeriodItem[] }) {
   return (
     <div className="grid min-w-0 gap-3">
       <p className="ui-description">An operational list of what should happen to each access, separate from the formal approval document. A proposed removal is not completed remediation, and verification reflects later source evidence only.</p>
+      <SubjectFilters value={filters} onChange={setFilters} maxUsernames={100}/>
+      <p className="ui-description">Organizational filters use current membership, including for historical contexts. Filtered remediation exports record that scope; they never change the approved population. Formal review reports always retain their complete approved scope.</p>
       <Card>
         <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <FormField label="Evidence context"><Select value={context} onChange={(event) => setContext(event.target.value)}><option value="current">Current evidence</option>{items.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.state}</option>)}</Select></FormField>
@@ -162,8 +166,8 @@ function RemediationReport({ items }: { items: PeriodItem[] }) {
         </details>
         <Toolbar>
           <Button loading={exporter.busy} disabled={!recommended.length} onClick={() => void showPreview()}><Eye size={16} aria-hidden="true" />Preview report</Button>
-          <Button disabled={exporter.busy || !active} onClick={() => void exporter.run('/api/sod/reports/remediation/csv', { context, options, expected_model: active!.model_checksum }, 'csv', 'CSV')}>Export CSV</Button>
-          {(['docx', 'pdf'] as const).map((kind) => <Button key={kind} disabled={exporter.busy || !active} onClick={() => void exporter.run(`/api/sod/reports/remediation/${kind}`, { context, options, expected_model: active!.model_checksum }, 'document', kind.toUpperCase())}>{kind === 'pdf' ? <FileDown size={16} aria-hidden="true" /> : <FileText size={16} aria-hidden="true" />}Export {kind.toUpperCase()}</Button>)}
+          <Button disabled={exporter.busy || !active} onClick={() => void exporter.run('/api/sod/reports/remediation/csv', { context, options, filters, expected_model: active!.model_checksum }, 'csv', 'CSV')}>Export CSV</Button>
+          {(['docx', 'pdf'] as const).map((kind) => <Button key={kind} disabled={exporter.busy || !active} onClick={() => void exporter.run(`/api/sod/reports/remediation/${kind}`, { context, options, filters, expected_model: active!.model_checksum }, 'document', kind.toUpperCase())}>{kind === 'pdf' ? <FileDown size={16} aria-hidden="true" /> : <FileText size={16} aria-hidden="true" />}Export {kind.toUpperCase()}</Button>)}
         </Toolbar>
       </Card>
       {exporter.message && <p role="status" className="break-all">{exporter.message}</p>}

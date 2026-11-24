@@ -339,7 +339,7 @@ public static class V1Access
     private static readonly System.Text.RegularExpressions.Regex ValidUsername = new("^[^\\s@,;<>\"\\x00-\\x1f]{1,40}$");
 
     /// <summary>username_filter.parse_usernames: exact names (first spelling, de-duplicated, in input order), duplicates and invalid entries.</summary>
-    private static (List<string> Requested, int Duplicates, List<string> Invalid) ParseUsernames(string text)
+    internal static (List<string> Requested, int Duplicates, List<string> Invalid) ParseUsernames(string text)
     {
         var (requested, invalid, seen) = (new List<string>(), new List<string>(), new HashSet<string>());
         var duplicates = 0;

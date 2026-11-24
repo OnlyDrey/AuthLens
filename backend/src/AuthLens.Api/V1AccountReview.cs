@@ -161,7 +161,6 @@ public static class V1AccountReview
     }
 
     /// <summary>v1 filters Account Review by the sole membership's group (`functional_group`), else "unassigned".</summary>
-    private static string FunctionalGroupId(Dictionary<string, object?> row) => (string?)(row["functional_group"] as System.Text.Json.Nodes.JsonNode)?["id"] ?? "unassigned";
 
     private static string ManagerKey(Dictionary<string, object?> row) =>
         row["manager"] is Dictionary<string, object?> m && EmployeeDirectory.Normalized((string?)m["email"]) is { Length: > 0 } email ? email : "none";
@@ -229,25 +228,34 @@ public static class V1AccountReview
                 || wanted.Count > 32 || functionalGroups.Count > 50 || managers.Count > 50) return Detail(422, "Invalid account review query.");
             if (wanted.Any(w => !FilterNames.Contains(w))) return Detail(422, "Unknown review finding.");
             var (state, directory, items, generation, _) = await CurrentAsync(services, ct);
+            var (selectedNames, selectionError) = await SubjectSelection.ResolveAsync(services, q, ct);
+            if (selectionError is not null) return selectionError;
             var loaded = state.Ids.Users is not null;
+            var term = search.Trim();
+            bool MatchesIdentity(Dictionary<string, object?> row)
+            {
+                string[] fields = [(string)row["username"]!, (string)row["name"]!, .. (List<string>)row["groups"]!];
+                return term.Length == 0 || (term.Contains('*') ? fields.Any(f => TextMatching.TextMatches(f, term)) : TextMatching.TextMatches(string.Join(' ', fields), term));
+            }
+            var population = items.Where(row => MatchesIdentity(row) && (selectedNames is null || selectedNames.Contains(SubjectSelection.Key((string)row["username"]!)))).ToList();
             Dictionary<string, object?> summary = loaded ? new()
             {
-                ["total"] = items.Count, ["outdated"] = items.Count(r => (bool)r["stale"]!), ["matched"] = directory is null ? null : items.Count(r => (string)r["match_status"]! == "matched"),
-                ["missing"] = directory is null ? null : items.Count(r => ((List<string>)r["findings"]!).Contains("directory_match")),
-                ["mismatch"] = items.Count(r => ((List<string>)r["findings"]!).Contains("ad_disabled_open")), ["requiring_review"] = items.Count(r => (bool)r["needs_review"]!),
-                ["position_changes"] = items.Count(r => r["position_change"] is Dictionary<string, object?> pc && (bool)pc["open"]!), ["unlicensed"] = items.Count(r => (bool)r["unlicensed"]!), ["reviewed"] = items.Count(r => Has(r, "reviewed")),
-                ["completed"] = items.Count(r => (string)r["workflow_status"]! == "completed"), ["pending"] = items.Count(r => Has(r, "pending")),
+                ["total"] = population.Count, ["outdated"] = population.Count(r => (bool)r["stale"]!), ["matched"] = directory is null ? null : population.Count(r => (string)r["match_status"]! == "matched"),
+                ["missing"] = directory is null ? null : population.Count(r => ((List<string>)r["findings"]!).Contains("directory_match")),
+                ["mismatch"] = population.Count(r => ((List<string>)r["findings"]!).Contains("ad_disabled_open")), ["requiring_review"] = population.Count(r => (bool)r["needs_review"]!),
+                ["position_changes"] = population.Count(r => r["position_change"] is Dictionary<string, object?> pc && (bool)pc["open"]!), ["unlicensed"] = population.Count(r => (bool)r["unlicensed"]!), ["reviewed"] = population.Count(r => Has(r, "reviewed")),
+                ["completed"] = population.Count(r => (string)r["workflow_status"]! == "completed"), ["pending"] = population.Count(r => Has(r, "pending")),
             } : new[] { "total", "outdated", "matched", "missing", "mismatch", "requiring_review", "position_changes", "unlicensed", "reviewed", "completed", "pending" }.ToDictionary(k => k, _ => (object?)null);
-            var term = search.Trim();
+
             var licenseFilter = licenses.Count == 1 ? licenses : [];
             var showCompleted = includeCompleted || states.Contains("No action required") || wanted.Contains("reviewed");
-            var matching = items.Where(r =>
+            var matching = population.Where(r =>
             {
                 string[] fields = [(string)r["username"]!, (string)r["name"]!, .. (List<string>)r["groups"]!];
                 if (term.Length > 0 && !(term.Contains('*') ? fields.Any(f => TextMatching.TextMatches(f, term)) : TextMatching.TextMatches(string.Join(' ', fields), term))) return false;
                 return (wanted.Count == 0 || wanted.Any(w => Has(r, w))) && (licenseFilter.Count == 0 || (bool)r["unlicensed"]! == licenseFilter.Contains("classified"))
-                    && (states.Count == 0 || states.Contains((string)r["review_state"]!)) && (functionalGroups.Count == 0 || functionalGroups.Contains(FunctionalGroupId(r)))
-                    && (managers.Count == 0 || managers.Contains(ManagerKey(r)));
+                    && (states.Count == 0 || states.Contains((string)r["review_state"]!))
+                    && (selectedNames is null || selectedNames.Contains(SubjectSelection.Key((string)r["username"]!)));
             }).ToList();
             var hidden = showCompleted ? 0 : matching.Count(r => (string)r["workflow_status"]! == "completed");
             var visible = showCompleted ? matching : matching.Where(r => (string)r["workflow_status"]! != "completed").ToList();

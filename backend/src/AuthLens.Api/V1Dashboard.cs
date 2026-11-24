@@ -13,10 +13,13 @@ public static class V1Dashboard
 
     public static void Map(RouteGroupBuilder api)
     {
-        api.MapGet("/dashboard", async (SnapshotService snapshots, V1Settings store, IServiceProvider services, CancellationToken ct) =>
+        api.MapGet("/dashboard", async (HttpContext http, SnapshotService snapshots, V1Settings store, IServiceProvider services, CancellationToken ct) =>
         {
             var state = await snapshots.GetAsync(ct);
             var settings = await store.GetAsync(ct);
+            var (selectedNames, selectionError) = await SubjectSelection.ResolveAsync(services, http.Request.Query, ct);
+            if (selectionError is not null) return selectionError;
+            var people = state.Users.Users.Values.Where(u => selectedNames is null || selectedNames.Contains(SubjectSelection.Key(u.Username))).ToList();
             var today = DateOnly.FromDateTime(DateTime.Now);
             var catalogue = state.Ids.Roles is not null;
             var mappingEnabled = (bool?)settings["features"]?["user_role_mapping"] ?? true;
@@ -31,8 +34,8 @@ public static class V1Dashboard
                 .Select(k => V1Compatibility.ModuleEnabled(k, settings["module_overrides"] as System.Text.Json.Nodes.JsonObject) ? 1 : 0).Sum() : null, "roles", "Open Role Lookup and its SAP area filters.");
             Add("mappings", "Role/T-code mappings", catalogue ? state.Catalogue.Ordered.Sum(r => r.TcodeCount) : null, "roles", "Distinct role/code pairs; open Role Lookup.");
             var reason = mappingEnabled ? "User Access CSV not loaded" : "User–Role Mapping disabled";
-            var assignments = state.Users.Assignments;
-            Add("users", "SAP users", mapping ? state.Users.Users.Count : null, "users", "Open all SAP users.", reason);
+            var assignments = state.Users.Assignments.Where(a => selectedNames is null || selectedNames.Contains(SubjectSelection.Key(a.Username))).ToList();
+            Add("users", "SAP users", mapping ? people.Count : null, "users", "Open SAP users in the selected population.", reason);
             Add("assignments", "Role assignment records", mapping ? assignments.Count : null, "users", "All imported intervals, including technical roles; open all users.", reason);
             Add("assigned_users", "Users with assignments", mapping ? assignments.Select(a => a.UserKey).Distinct(StringComparer.Ordinal).Count() : null, "users",
                 "Any imported assignment; open all users, including users without assignments.", reason);
@@ -47,6 +50,17 @@ public static class V1Dashboard
             var coverage = (Dictionary<string, int>)directory["coverage"]!;
             var coverageTotal = (int)directory["coverage_total"]!;
             var coverageReason = (string)directory["coverage_reason"]!;
+            if (selectedNames is not null && mapping && directoryEnabled && state.Directory is { } employeeDirectory)
+            {
+                var owners = AuthLens.Domain.Directory.EmployeeDirectory.SapEmailOwners(state.Users.Users.Values);
+                coverage = coverage.Keys.ToDictionary(key => key, _ => 0);
+                foreach (var person in people)
+                {
+                    var match = employeeDirectory.MatchSapIdentity(person, owners).Status;
+                    coverage[match] = coverage.GetValueOrDefault(match) + 1;
+                }
+                coverageTotal = people.Count;
+            }
             int? Coverage(Func<Dictionary<string, int>, int> value) => coverageTotal > 0 ? value(coverage) : null;
             Add("employees", "Employee Directory records", directoryEnabled && (bool)directory["loaded"]! ? state.Directory!.Rows.Count : null, "employees", "Open directory import and data quality.",
                 directoryEnabled ? "Import directory records first" : "Employee Directory disabled");
@@ -59,7 +73,7 @@ public static class V1Dashboard
                 "Includes missing SAP email, unmatched and ambiguous evidence; open data quality.", coverageReason);
             if (mapping)
             {
-                var rows = (await V1AccountReview.CurrentAsync(services, ct)).Rows;
+                var rows = (await V1AccountReview.CurrentAsync(services, ct)).Rows.Where(r => selectedNames is null || selectedNames.Contains(SubjectSelection.Key((string)r["username"]!))).ToList();
                 Add("account_review", "Accounts requiring review", rows.Count(r => (bool)r["needs_review"]!), "review",
                     "Review supported account evidence and stale annotations, not effective authorization or license savings.");
                 var reviewed = rows.Count(r => V1AccountReview.Has(r, "reviewed"));
@@ -87,7 +101,7 @@ public static class V1Dashboard
             if (mapping)
             {
                 assignmentDistribution = Bands.ToDictionary(b => b, _ => 0);
-                foreach (var user in state.Users.Users.Values)
+                foreach (var user in people)
                 {
                     var current = user.Assignments.Where(a => a.Scope is "business" or "release" && SapDates.IntervalStatus(a.ValidFrom, a.ValidTo, today) == "active")
                         .Select(a => RoleNames.Normalize(a.RoleName)).Distinct(StringComparer.Ordinal).Count();
@@ -105,7 +119,8 @@ public static class V1Dashboard
             return Results.Ok(new
             {
                 metrics,
-                review_population = mapping ? state.Users.Users.Count : (int?)null,
+                review_population = mapping ? people.Count : (int?)null,
+                scope = new { user_filters_applied = selectedNames is not null, organizational_basis = "current", global_metrics = new[] { "roles", "areas", "mappings", "employees" } },
                 role_distribution = roleDistribution,
                 assignment_distribution = assignmentDistribution,
                 last_successful_refresh = (string?)lifecycle?["last_successful_refresh"],

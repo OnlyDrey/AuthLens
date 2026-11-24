@@ -1,4 +1,5 @@
 import {FunctionalGroupPills} from '@/components/Shared/FunctionalGroupPills'
+import {parseUsernameList,looksLikeUsernameList} from '@/lib/usernameList'
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import { BulkAssignDialog } from './BulkAssignDialog'
 import {SAPUserLink} from '@/components/Shared/SAPUserLink'
@@ -81,6 +82,7 @@ export function UserAccess({
   const assignmentBand=comparisonView.assignmentBand||'';
   const setAssignmentBand=(value:string)=>changeComparison({assignmentBand:value},true);
   const comparisonContext=comparisonView.userComparison;
+  useEffect(()=>{if(comparisonView.accessSubjectFilters)changeComparison({accessSubjectFilters:undefined},true)},[comparisonView.accessSubjectFilters,changeComparison])
   const setComparisonContext=(state:ComparisonContext)=>changeComparison({userComparison:state},true);
   const [compareInitial,setCompareInitial]=useState('');
   const [accessMode,setAccessMode]=useHistoryValue('accessMode');
@@ -95,8 +97,8 @@ export function UserAccess({
     [descending, setDescending] = useState(false);
   const organizationLabel = useOrganizationLabel()
   const [groups, setGroups] = useState<string[]>([]),
-    [functionalGroups, setFunctionalGroups] = useState<string[]>([]),
-    [managers, setManagers] = useState<string[]>([]),
+    [functionalGroups, setFunctionalGroups] = useState<string[]>(comparisonView.accessSubjectFilters?.functional_groups||[]),
+    [managers, setManagers] = useState<string[]>(comparisonView.accessSubjectFilters?.managers||[]),
     [offset, setOffset] = useState(0),
     [selected, setSelected] = useHistoryValue('user');
   const { change: changeView } = useViewHistory();
@@ -120,7 +122,7 @@ export function UserAccess({
   const clearEvidence = () => {setRoles([]); directoryTransaction.clear(); setTransactionMode('and'); excludeTransaction.clear(); setExcludeMode('any'); setMissingRoles([]); setMissingMode('any')}
   const [term, setTerm] = useState("");
   const [assignOpen, setAssignOpen] = useState(false);
-  const [usernames, setUsernames] = useState(''), [usernameDraft, setUsernameDraft] = useState('');
+  const [usernames, setUsernames] = useState((comparisonView.accessSubjectFilters?.usernames||[]).join('\n')), [usernameDraft, setUsernameDraft] = useState((comparisonView.accessSubjectFilters?.usernames||[]).join('\n'));
   const [selectionBusy, setSelectionBusy] = useState(false), [selectionNote, setSelectionNote] = useState('');
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [exportUserScope,setExportUserScope] = useState<'matching'|'selected'>('matching');
@@ -609,13 +611,7 @@ function AssignmentRow({
 }
 
 
-const USERNAME_TOKEN = /^[^\s@,;<>"]{1,40}$/
-export const parseUsernameList = (text: string) => [...new Set(text.split(/[\s,;]+/).map(item => item.trim()).filter(Boolean).map(item => item.toLocaleUpperCase()))]
-/** A pasted block is an exact-username list only when it has at least two entries separated by a line break, tab, comma or semicolon and every entry is a single token without spaces or an at-sign. "Jane Doe, John Smith" and one ordinary term stay a text search. */
-export function looksLikeUsernameList(text: string): boolean {
-  const entries = text.split(/[\n\r\t,;]+/).map(item => item.trim()).filter(Boolean)
-  return entries.length >= 2 && entries.every(entry => USERNAME_TOKEN.test(entry))
-}
+export {parseUsernameList,looksLikeUsernameList} from '@/lib/usernameList'
 
 type UsernameFeedbackData = { requested: number; duplicates: number; invalid: string[]; found: number; matched: number; filtered_out: string[]; unmatched: string[]; limit: number; exceeds_limit: boolean } | null | undefined
 function UsernameFeedback({ feedback }: { feedback: UsernameFeedbackData }) {

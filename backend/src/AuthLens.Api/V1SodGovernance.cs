@@ -530,7 +530,7 @@ public static class V1SodGovernance
     }
 
     /// <summary>governance_overview: actionable SoD 2.0 summary; counts distinguish users, findings, activities and assignments.</summary>
-    private static async Task<JsonObject> GovernanceOverviewAsync(IServiceProvider services, CancellationToken ct)
+    private static async Task<JsonObject> GovernanceOverviewAsync(IServiceProvider services, CancellationToken ct, HashSet<string>? selectedNames = null)
     {
         var b = await SodScope.LoadAsync(services, "current", "active", null, ct);
         if ((string?)b.Coverage["status"] != "available")
@@ -538,6 +538,11 @@ public static class V1SodGovernance
         var conflicts = SodScope.Model(b);
         var change = await SodScope.ObserveAsync(services, b, conflicts, ct);
         var model = SodScope.ReviewModel(b);
+        if (selectedNames is not null)
+        {
+            conflicts = conflicts.Where(p => selectedNames.Contains(SubjectSelection.Key(p.Key))).ToDictionary(p => p.Key, p => p.Value, Ordinal);
+            model = model.Where(p => selectedNames.Contains(SubjectSelection.Key(p.Key))).ToDictionary(p => p.Key, p => p.Value, Ordinal);
+        }
         var state = await SodScope.StatesAsync(services, b, model, ct);
         JsonObject Tally(string kind)
         {
@@ -546,6 +551,7 @@ public static class V1SodGovernance
             return result;
         }
         var actions = await SodScope.ActionsAsync(services, b, ct);
+        if (selectedNames is not null) actions = actions.Where(a => selectedNames.Contains(SubjectSelection.Key((string?)a["user"] ?? ""))).ToList();
         var today = DateOnly.FromDateTime(DateTime.Now).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var open = actions.Where(a => (string?)a["status"] is "Open" or "In progress").ToList();
         var (verify, reference) = await SodScope.VerifierAsync(services, null, ct);
@@ -590,13 +596,23 @@ public static class V1SodGovernance
     {
         var services = http.RequestServices;
         var (b, reviews) = await ReviewDataAsync(services, ct);
+        var (selectedNames, selectionError) = await SubjectSelection.ResolveAsync(services, http.Request.Query, ct, includeSearch: true);
+        if (selectionError is not null) return selectionError;
+        var findings = b.Findings.Where(f => selectedNames is null || selectedNames.Contains(SubjectSelection.Key((string?)f["subject"] ?? ""))).ToList();
+        if (selectedNames is not null)
+        {
+            var selectedRows = new JsonArray([.. reviews["items"]!.AsArray().OfType<JsonObject>()
+                .Where(r => selectedNames.Contains(SubjectSelection.Key((string?)r["finding"]?["subject"] ?? ""))).Select(r => (JsonNode?)r.DeepClone())]);
+            reviews["items"] = selectedRows;
+            reviews["summary"] = SodReviewStore.Summary(selectedRows, SodReviewStore.Lifecycles);
+        }
         var c = await V1SodCatalogue.ContextAsync(services, ct);
         var catalogue = V1SodCatalogue.Catalogue(c);
         var summary = catalogue["summary"]!.AsObject();
         var available = (string?)b.Coverage["status"] == "available";
         var reviewSummary = reviews["summary"]!.AsObject();
         var criticality = new JsonObject();
-        foreach (var row in b.Findings) { var level = (string)row["criticality"]!; criticality[level] = ((int?)criticality[level] ?? 0) + 1; }
+        foreach (var row in findings) { var level = (string)row["criticality"]!; criticality[level] = ((int?)criticality[level] ?? 0) + 1; }
         var roleFindings = (bool?)b.Coverage["roles_available"] ?? false;
         int? roles = null;
         if (roleFindings)
@@ -607,13 +623,14 @@ public static class V1SodGovernance
         var counts = new JsonObject
         {
             ["defined"] = summary["current"]?.DeepClone(), ["enabled"] = summary["enabled"]?.DeepClone(), ["new"] = summary["new"]?.DeepClone(),
-            ["needs_description_review"] = summary["needs_description_review"]?.DeepClone(), ["user_findings"] = available ? b.Findings.Count : null, ["role_findings"] = roles,
+            ["needs_description_review"] = summary["needs_description_review"]?.DeepClone(), ["user_findings"] = available ? findings.Count : null, ["role_findings"] = roles,
             ["reviewed"] = (int?)reviewSummary["Reviewed"] ?? 0, ["pending"] = available ? (int?)reviewSummary["Pending"] ?? 0 : null, ["outdated"] = (int?)reviewSummary["Outdated"] ?? 0,
         };
         return Json(new JsonObject
         {
             ["counts"] = counts, ["criticality"] = criticality, ["source"] = catalogue["source"]?.DeepClone(), ["coverage"] = b.Coverage.DeepClone(),
-            ["governance"] = await GovernanceOverviewAsync(services, ct),
+            ["governance"] = await GovernanceOverviewAsync(services, ct, selectedNames),
+            ["organizational_basis"] = "current",
         });
     }
 

@@ -180,7 +180,19 @@ public sealed class FunctionalGroupTests : IAsyncLifetime
         var all = JsonNode.Parse(await _client.GetStringAsync("/api/access/users?limit=1"))!;
         Assert.Equal((int)all["total"]! - 3, (int)unassigned["total"]!);
         var review = JsonNode.Parse(await _client.GetStringAsync($"/api/account-review?functional_groups={gid}&include_completed=true&limit=100"))!;
-        Assert.Equal(2, (int)review["total"]!);                                                 // v1 filters by the sole membership's group
+        Assert.Equal(3, (int)review["total"]!); // Every membership participates; a multi-group user is counted once.
+        Assert.Equal(3, (int)review["summary"]!["total"]!);
+        Assert.Contains(review["items"]!.AsArray(), item => ((string)item!["username"]!).Equals("USER00152", StringComparison.OrdinalIgnoreCase));
+        var combined = JsonNode.Parse(await _client.GetStringAsync($"/api/account-review?functional_groups={gid}&functional_groups={bid}&managers=none&usernames=user00152&usernames=USER00152&include_completed=true&limit=1"))!;
+        Assert.Equal(1, (int)combined["total"]!);
+        Assert.Equal(1, (int)combined["summary"]!["total"]!);
+        Assert.Single(combined["items"]!.AsArray());
+        var absent = JsonNode.Parse(await _client.GetStringAsync("/api/account-review?functional_groups=fg_missing&include_completed=true"))!;
+        Assert.Equal(0, (int)absent["total"]!);
+        var dashboard = JsonNode.Parse(await _client.GetStringAsync($"/api/dashboard?functional_groups={gid}&functional_groups={bid}"))!;
+        Assert.Equal(3, (int)dashboard["review_population"]!);
+        Assert.Equal(3, (int)dashboard["metrics"]!.AsArray().Single(m => (string?)m!["id"] == "users")!["value"]!);
+        Assert.Equal(3, dashboard["assignment_distribution"]!.AsObject().Sum(p => (int)p.Value!));
         Assert.Contains(review["functional_group_options"]!.AsArray(), o => (string)o!["value"]! == gid);
 
         // Rules: duplicate refused; a group is deleted only when archived and with the confirmed member count (permanent deletion: see below).

@@ -147,3 +147,46 @@ opens a read-only list of every group, including archived labels, without openin
 The primary table export uses selected columns in their current order; **Export all columns** is an explicit alternative. These exports contain
 only displayed rows, not other result pages. Existing full assignment/evidence exports retain their documented all-matching scope and revision checks.
 CSV escaping protects spreadsheet fields and table projections enforce the 32 MiB limit. Source observations and historical decisions are not changed.
+
+## Cross-application filter coverage (2.0.0 remediation)
+
+Functional Groups use the existing classification store and stable group IDs. Multiple memberships match
+with OR and each SAP user is counted once. Selected groups, direct managers and exact usernames combine
+with AND. Empty selections do not restrict results. Deleted or unavailable group IDs remain selected and
+match no users; loading a saved filter never silently drops them and broadens the population. Renaming a
+group changes its display label, not its identity. No recursive manager hierarchy is introduced.
+
+Exact usernames share the User Access parser: whitespace, newline, comma and semicolon separators,
+existing case normalization and deduplication. SoD supports 100 names per request; other population views
+support 500. Exact lists are separate from general search. Existing saved username search remains labelled
+as legacy search until explicitly replaced or cleared. Existing searchable username selection remains available.
+
+Filtering occurs in the backend before paging, aggregation and all-matching exports. User-interface controls
+do not authorize data access. The existing request boundary and permissions still apply; filter option lists
+use the same authorized source population as before. Filtering does not save classification, decisions,
+annotations, matrix definitions or period state.
+
+| Screen / feature | Functional Groups | Manager | Exact usernames | Backend / exports | Historical basis and focused coverage |
+| --- | --- | --- | --- | --- | --- |
+| Dashboard | New | New | New | User counts, assignment distribution and review counts follow selection; drill-down carries population. Catalogue/source totals remain explicitly global. | Current membership; FunctionalGroupTests and filter-consistency browser cases |
+| User Access | Existing | Existing | Existing shared parser | Backend selection and assignment exports across all matching pages; displayed-column CSV retains displayed-page scope | Current membership; AccessTests, UserRoleExportScopeTests and existing directory browser cases |
+| Account Review | Existing, corrected for every membership | Existing | New | Shared selector; table pagination and displayed-row exports follow selection. Progress/tiles cover the selected organization/name/search population including completed reviews; finding/classification/decision/completion filters narrow the work table. | Current membership; FunctionalGroupTests, AccountReviewTests and browser cases |
+| Compare users | New, for candidate selection | Not a comparison dimension | Two explicitly selected names | Group filter narrows candidate choices. Complete comparison and exports of the selected pair remain unchanged. | Current candidates; a fixed pair is never silently reduced by a population filter |
+| Employee Directory browser | New | New | New | Filter before paging; only reliably linked SAP identities participate when population filters are active. Identity ambiguity is resolved against the complete SAP dataset. Clear filters includes unlinked Directory rows again. | Current direct relationships; EmployeeDirectoryTests and browser visibility cases |
+| Release Roles, matrix and assignment details | New | New | New | Same selected assignment set for matrix, counters, role lists, detail panels and all-matching CSV exports; saved filters retain selection | Current membership; AccessExportTests and browser cases |
+| SoD Overview | New | New | New | User findings, criticality and review metrics are scoped. Risk definitions, source coverage, baseline change detection and period history stay explicitly global. | Current membership; source observer always sees complete evidence |
+| SoD Risk Matrix / risk review | Shared controls exposed consistently | Shared controls exposed consistently | Existing selector plus new paste entry | Shared backend scope, counts, paging and exports | Historical contexts label current organization explicitly; frozen evidence remains unchanged |
+| SoD Activity Matrix / activity review | Shared controls exposed consistently | Shared controls exposed consistently | Existing selector plus new paste entry | Same scope contract | Same historical limitation; SodRoutesTests and shared-filter browser cases |
+| SoD Explorer, work queue and remediation | Shared controls exposed consistently | Shared controls exposed consistently | Existing selector plus new paste entry | Shared scope applies before paging, summaries and CSV export; saved filters retained | Current organizational membership applied to captured evidence where a period is selected |
+| SoD Periods / review details | In risk/activity context and legacy detail table | Same | Same | Detail table is a view; captured totals, checksums and summaries remain full-period facts | Current organization is labelled; SodPeriodsTests verify snapshot/checksum preservation |
+| Operational remediation reports | New | New | New | Preview and CSV/DOCX/PDF bind the explicit population filter into the model checksum and report text | Current organization; exact names narrow captured evidence. Export never approves or redefines a period. |
+| Formal approved SoD reports | Intentionally excluded | Intentionally excluded | Intentionally excluded | Always the complete approved report scope; no hidden population reduction | Frozen evidence and approval contract preserved |
+| Role Lookup catalogue / risk definitions | Intentionally excluded | Intentionally excluded | Not a subject dimension | Definitions exist independently of user membership. User assignment investigations use User Access. | No implied user population |
+| Data Health and import validation | Intentionally excluded | Intentionally excluded | Intentionally excluded | Complete source integrity and validation findings remain visible; individual investigations link to user views | Filtering must not hide an invalid input or imply that a partial source was validated |
+| Period index and fixed-subject investigation dialogs | Intentionally excluded | Intentionally excluded | Explicit period/subject selection | Period definitions and one selected subject are not mutable population queries | Use filtered matrices or detail tables to select a subject; captured populations remain intact |
+
+The Python comparison basis is historical `604f21e` and the committed access/SoD reference fixtures.
+The historical Account Review sole-membership filter is intentionally corrected: current requirements include
+every membership. No parallel group definition or historical-membership reconstruction is introduced.
+Historical group and manager membership was not captured with these periods; current organization must
+never be presented as organization at the review date. Native deployed Server acceptance remains outstanding.

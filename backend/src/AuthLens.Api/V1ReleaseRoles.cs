@@ -78,7 +78,18 @@ public static class V1ReleaseRoles
     private static int Ordinal(string? a, string? b) => string.CompareOrdinal(a, b);
 
     private sealed record Filters(DateFilter Dates, HashSet<string> UserGroups, string DocumentType, string ReleaseGroup, HashSet<string> Areas, HashSet<string> Groups,
-        string Strategy, HashSet<string> Strategies, string Username, string Role, string Status, string Sort, bool Descending);
+        string Strategy, HashSet<string> Strategies, string Username, string Role, string Status, string Sort, bool Descending)
+    {
+        public HashSet<string>? Subjects { get; init; }
+    }
+
+    private static async Task<(Filters? Value, IResult? Error)> ParseAsync(HttpContext http, CancellationToken ct)
+    {
+        var (filters, error) = Parse(http.Request.Query);
+        if (error is not null) return (null, error);
+        var (names, selectionError) = await SubjectSelection.ResolveAsync(http.RequestServices, http.Request.Query, ct);
+        return selectionError is null ? (filters! with { Subjects = names }, null) : (null, selectionError);
+    }
 
     private static bool TooLong(IQueryCollection q, string name, int max) => (q[name].FirstOrDefault()?.Length ?? 0) > max;
 
@@ -105,6 +116,7 @@ public static class V1ReleaseRoles
         var strategies = Bounded(f.Strategies);
         foreach (var a in users.Assignments)
         {
+            if (f.Subjects is not null && !f.Subjects.Contains(SubjectSelection.Key(a.Username))) continue;
             if (a.Scope != "release" || !f.Dates.Within(a)) continue;
             var r = a.Release ?? new ReleaseRole(false, null, null, null);
             if (f.UserGroups.Count > 0 && !f.UserGroups.Contains(a.UserGroup)) continue;
@@ -216,7 +228,7 @@ public static class V1ReleaseRoles
 
         api.MapGet("/access/release-roles", async (HttpContext http, SnapshotService snapshots, CancellationToken ct) =>
         {
-            var (filters, error) = Parse(http.Request.Query);
+            var (filters, error) = await ParseAsync(http, ct);
             if (error is not null) return error;
             var snapshot = await snapshots.GetAsync(ct);
             if (snapshot.Ids.Users is null) return Detail(409, "No validated User Access dataset is loaded.");
@@ -226,7 +238,7 @@ public static class V1ReleaseRoles
 
         api.MapGet("/access/exports/release-roles", async (HttpContext http, SnapshotService snapshots, CancellationToken ct) =>
         {
-            var (filters, error) = Parse(http.Request.Query);
+            var (filters, error) = await ParseAsync(http, ct);
             if (error is not null) return error;
             var snapshot = await snapshots.GetAsync(ct);
             if (snapshot.Ids.Users is null) return Detail(409, "No validated User Access dataset is loaded.");
@@ -242,7 +254,7 @@ public static class V1ReleaseRoles
 
         api.MapGet("/access/exports/releases", async (HttpContext http, SnapshotService snapshots, CancellationToken ct) =>
         {
-            var (filters, error) = Parse(http.Request.Query);
+            var (filters, error) = await ParseAsync(http, ct);
             if (error is not null) return error;
             var snapshot = await snapshots.GetAsync(ct);
             if (snapshot.Ids.Users is null) return Detail(409, "No validated User Access dataset is loaded.");
@@ -275,7 +287,7 @@ public static class V1ReleaseRoles
         api.MapGet("/access/releases", async (HttpContext http, SnapshotService snapshots, CancellationToken ct) =>
         {
             var q = http.Request.Query;
-            var (filters, error) = Parse(q);
+            var (filters, error) = await ParseAsync(http, ct);
             if (error is not null) return error;
             if (!V1Access.Paging(q, 50, out var offset, out var limit) || !int.TryParse(q["matrix_offset"].FirstOrDefault() ?? "0", out var matrixOffset) || matrixOffset < 0
                 || TooLong(q, "anchor", 512))
@@ -382,8 +394,11 @@ public static class V1ReleaseRoles
             var snapshot = await snapshots.GetAsync(ct);
             var today = V1Access.Today();
             var wantedRole = RoleNames.Normalize(role);
+            var (selectedNames, selectionError) = await SubjectSelection.ResolveAsync(http.RequestServices, q, ct);
+            if (selectionError is not null) return selectionError;
             var entries = snapshot.Users.Assignments.Where(a =>
             {
+                if (selectedNames is not null && !selectedNames.Contains(SubjectSelection.Key(a.Username))) return false;
                 if (a.Scope != "release" || !dates!.Within(a)) return false;
                 var r = a.Release ?? new ReleaseRole(false, null, null, null);
                 if (username.Length > 0 && !TextMatchesAny(a.Username, username)) return false;

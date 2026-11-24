@@ -1,4 +1,5 @@
 import { OrganizationFilter } from '@/components/Shared/OrganizationFilter'
+import {ExactUsernameFilter} from '@/components/Shared/ExactUsernameFilter'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { keepPreviousData, useQuery, type QueryClient } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, FilterX, CircleDot, History, Lock, RefreshCw, Search, ShieldCheck, ShieldX, Trash2, Clock3 } from 'lucide-react'
@@ -76,7 +77,8 @@ export const PAGE_FIELDS: Record<string, FilterField[]> = {
   riskMatrix: SCOPE_FIELDS, activityMatrix: SCOPE_FIELDS, explorer: SCOPE_FIELDS, queue: SCOPE_FIELDS, remediation: SCOPE_FIELDS, roles: ['risk', 'tcode', 'category'],
 }
 const SHARED_KEYS = Object.values(SHARED_DIMENSIONS).flat()
-const sharedPairs = (fields: FilterField[]) => fields.flatMap((field) => (SHARED_DIMENSIONS[field] ? [SHARED_DIMENSIONS[field]!] : []))
+export const subjectFilterFields=(fields:FilterField[]):FilterField[]=>fields.includes('username')?[...new Set<FilterField>(['functional_group','manager',...fields])]:fields
+const sharedPairs = (fields: FilterField[]) => subjectFilterFields(fields).flatMap((field) => (SHARED_DIMENSIONS[field] ? [SHARED_DIMENSIONS[field]!] : []))
 
 /** A page's filters: its own slot plus the shared dimensions it supports. */
 export function readFilters(stored: Record<string, SodFilterState> | undefined, name: string, fields: FilterField[] = PAGE_FIELDS[name] ?? [], base: Filters = emptyFilters): Filters {
@@ -176,7 +178,7 @@ const FIELD_LABELS: Record<string, [string, number]> = {
   composite_role: ['Catalogue role', 512], single_role: ['Single role', 512],
 }
 const FIELD_SECTIONS: { title: string; fields: FilterField[] }[] = [
-  { title: 'Subject', fields: ['group', 'username', 'account_status', 'multiple_risks'] },
+  { title: 'Subject', fields: ['functional_group', 'manager', 'group', 'username', 'account_status', 'multiple_risks'] },
   { title: 'Risk and activity', fields: ['risk', 'activity', 'tcode', 'category', 'criticality', 'risk_type'] },
   { title: 'Roles and assignments', fields: ['role', 'role_suffix', 'composite_role', 'single_role', 'validity'] },
   { title: 'Review status', fields: ['review_status', 'activity_decision', 'assignment_decision', 'acceptance'] },
@@ -234,7 +236,8 @@ export function SodFilters({ view, filters, setFilters, fields, sorts, actions, 
   const text = (name: string) => (typeof filters[name] === 'string' ? (filters[name] as string) : '')
   const update = (name: string, value: string | boolean) => setFilters({ ...filters, [name]: value })
   const clear = () => { onReset?.(); setFilters({ ...defaults }) }
-  const shown = new Set<string>(fields), [anyStored, clearEverywhere] = useClearAllSodFilters()
+  const shown = new Set<string>(subjectFilterFields(fields)), [anyStored, clearEverywhere] = useClearAllSodFilters()
+  const [context]=useSodContext()
   const apply = (value: Record<string, unknown>) => {
     onReset?.()
     const next = { ...defaults, ...value } as Filters
@@ -297,6 +300,7 @@ export function SodFilters({ view, filters, setFilters, fields, sorts, actions, 
       </FormField>
     )
     if (name === 'functional_group' || name === 'manager') return <FormField key={name} label={name === 'manager' ? 'Manager' : 'Functional Group'}><OrganizationFilter kind={name} values={list(MULTI[name])} onChange={values => setFilters({ ...filters, [MULTI[name]]: values })} /></FormField>
+    if(name==='username')return <div key={name} className="grid min-w-0 gap-2"><MultiOptionField field="username" listName="usernames" label="SAP username" values={list('usernames')} filters={filters} onChange={values=>setFilters({...filters,username:'',usernames:values})}/><ExactUsernameFilter values={list('usernames')} onChange={values=>setFilters({...filters,username:'',usernames:values})}/>{text('username')&&<p className="ui-description">Legacy username search: {text('username')}. <Button variant="ghost" size="compact" onClick={()=>update('username','')}>Clear legacy username search</Button></p>}</div>
     const [label, max] = FIELD_LABELS[name]
     if (MULTI[name]) return <MultiOptionField key={name} field={name} listName={MULTI[name]} label={label} values={name==='role'?[...new Set([...list('roles'),...list('role_families'),...list('role_exact')])]:list(MULTI[name])} onChange={(values,families=[]) => {
       if(name!=='role')return setFilters({...filters,[name]:'',[MULTI[name]]:values})
@@ -319,6 +323,7 @@ export function SodFilters({ view, filters, setFilters, fields, sorts, actions, 
       })}
       {extra}
       <FilterSection title="Shared SoD filters">
+        {context!=='current'&&shown.has('functional_group')&&<p role="note" className="ui-description">Functional Group and Manager filters use current organizational membership, not membership at the historical review date. They narrow this view only; the captured population and evidence remain unchanged.</p>}
         <p className="ui-description">SAP User Group, SAP username, risk, activity, transaction code, business area and assigned role stay selected on the other SoD pages that offer them. Clear page filters empties this page's filters and its shared selections only; the review context is never changed.</p>
         <Button size="compact" variant="outline" disabled={!anyStored} onClick={clearEverywhere}><FilterX size={14} aria-hidden="true" />Clear all SoD filters</Button>
       </FilterSection>

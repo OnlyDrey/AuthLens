@@ -1,4 +1,5 @@
 import {FunctionalGroupPills} from '@/components/Shared/FunctionalGroupPills'
+import {ExactUsernameFilter} from '@/components/Shared/ExactUsernameFilter'
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {useReviewerName} from '@/hooks/useReviewerIdentity'
 import { Dialog } from '@/components/Shared/Dialog'
@@ -127,12 +128,13 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
     [licenses, setLicenses] = useState<string[]>(retained?.licenses||[]),
     [states, setStates] = useState<string[]>(retained?.states||[]),
     [includeCompleted, setIncludeCompleted] = useState(false),
-    [groupFilter, setGroupFilter] = useState<string[]>([]),
-    [managerFilter, setManagerFilter] = useState<string[]>([]),
+    [groupFilter, setGroupFilter] = useState<string[]>(retained?.groups||[]),
+    [managerFilter, setManagerFilter] = useState<string[]>(retained?.managers||[]),
+    [usernames, setUsernames] = useState<string[]>(retained?.usernames||[]),
     [sort, setSort] = useState(retained?.sort||'username'),
     [descending, setDescending] = useState(retained?.descending||false),
     [offset, setOffset] = useState(0)
-  useEffect(()=>change({accountReviewFilters:{search,licenses,states,sort,descending}},true),[search,licenses,states,sort,descending,change])
+  useEffect(()=>change({accountReviewFilters:{search,licenses,states,sort,descending,groups:groupFilter,managers:managerFilter,usernames}},true),[search,licenses,states,sort,descending,groupFilter,managerFilter,usernames,change])
   const [term, setTerm] = useState(''),
     [feedback, setFeedback] = useState(''),
     [busy, setBusy] = useState(false),
@@ -155,7 +157,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
   }, [search])
   useEffect(
     () => setOffset(0),
-    [term, findings.join('|'), licenses.join('|'), states.join('|'), groupFilter.join('|'), managerFilter.join('|'), includeCompleted, sort, descending],
+    [term, findings.join('|'), licenses.join('|'), states.join('|'), groupFilter.join('|'), managerFilter.join('|'), usernames.join('|'), includeCompleted, sort, descending],
   )
   const params = new URLSearchParams({
     search: term,
@@ -168,6 +170,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
   if (includeCompleted) params.set('include_completed', 'true')
   groupFilter.forEach(value => params.append('functional_groups', value))
   managerFilter.forEach(value => params.append('managers', value))
+  usernames.forEach(value=>params.append('usernames',value))
   const generation = useRef(0)
   useEffect(() => {
     generation.current++
@@ -216,7 +219,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
         <section aria-label="Account review progress" className="review-progress" data-primary="true">
           <div className="review-progress-head">
             <h2>Account review progress</h2>
-            <InfoTip label="About account review progress">Completed and pending partition all SAP users, so no account is counted twice. Outdated reviews count as pending until they are reviewed again.</InfoTip>
+            <InfoTip label="About account review progress">Completed and pending partition the selected population, so no account is counted twice. Finding and completion filters narrow the work table; outdated reviews count as pending until reviewed again.</InfoTip>
           </div>
           {known && <p className="progress-summary"><strong className="progress-summary-value">{percent.toFixed(1)}%</strong><span className="progress-summary-caption">{reviewed!.toLocaleString()} of {total!.toLocaleString()} SAP users reviewed</span></p>}
           {known ? <StackedBar inline label="Account review progress" total={total!} segments={[
@@ -237,7 +240,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
   }
   const findingOptions = ['any', 'matched', 'directory_missing', 'directory_ambiguous', 'reviewed', 'pending', 'position_change', 'manager_change', 'functional_group_review', ...Object.keys(data?.finding_labels || {}), 'stale']
   const findingLabel = (key: string) => FINDING_NAMES[key] || data?.finding_labels[key] || key
-  const clearAll = () => { setOffset(0); setSearch(''); setTerm(''); setFindings([]); setLicenses([]); setStates([]); setGroupFilter([]); setManagerFilter([]); setIncludeCompleted(false); setSort('username'); setDescending(false) }
+  const clearAll = () => { setOffset(0); setSearch(''); setTerm(''); setFindings([]); setLicenses([]); setStates([]); setGroupFilter([]); setManagerFilter([]); setUsernames([]); setIncludeCompleted(false); setSort('username'); setDescending(false) }
   const queueParams = 'finding=position_change&sort=priority&limit=25'
   const queue = useQuery({
     queryKey: ['account-review', 'position-queue'],
@@ -431,7 +434,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
         </PageToolbar>}
         sidebar={<div className="grid min-w-0 gap-3" role="search" aria-label="Review filters">
           <FilterSection title="Saved Filters">
-            <SavedFilters showClear={false} view="review" state={{search,findings,licenses,states,groups:groupFilter,managers:managerFilter,includeCompleted,sort,descending}} apply={s=>{setIncludeCompleted(s.includeCompleted===true);if(Array.isArray(s.groups))setGroupFilter(s.groups.filter((item:string)=>(data?.functional_group_options||[]).some(o=>o.value===item)));if(Array.isArray(s.managers))setManagerFilter(s.managers.filter((item:string)=>(data?.manager_options||[]).some(o=>o.value===item)));if(typeof s.search==='string')setSearch(s.search);if(Array.isArray(s.findings))setFindings(s.findings.filter(item=>findingOptions.includes(item)));if(Array.isArray(s.licenses))setLicenses(s.licenses.filter(item=>['classified','exclude'].includes(item)));if(Array.isArray(s.states))setStates(s.states.filter(item=>(data?.review_states||[]).includes(item)));if(['username','name','sap_validity','lock_status','ad_status','review_state'].includes(String(s.sort)))setSort(String(s.sort));if(typeof s.descending==='boolean')setDescending(s.descending)}} clear={()=>{setSearch('');setFindings([]);setLicenses([]);setStates([]);setSort('username');setDescending(false)}}/>
+            <SavedFilters showClear={false} view="review" state={{search,findings,licenses,states,groups:groupFilter,managers:managerFilter,usernames,includeCompleted,sort,descending}} apply={s=>{if(Array.isArray(s.usernames))setUsernames(s.usernames);setIncludeCompleted(s.includeCompleted===true);if(Array.isArray(s.groups))setGroupFilter(s.groups.filter((item:string)=>typeof item==='string'));if(Array.isArray(s.managers))setManagerFilter(s.managers.filter((item:string)=>typeof item==='string'));if(typeof s.search==='string')setSearch(s.search);if(Array.isArray(s.findings))setFindings(s.findings.filter(item=>findingOptions.includes(item)));if(Array.isArray(s.licenses))setLicenses(s.licenses.filter(item=>['classified','exclude'].includes(item)));if(Array.isArray(s.states))setStates(s.states.filter(item=>(data?.review_states||[]).includes(item)));if(['username','name','sap_validity','lock_status','ad_status','review_state'].includes(String(s.sort)))setSort(String(s.sort));if(typeof s.descending==='boolean')setDescending(s.descending)}} clear={()=>{setSearch('');setFindings([]);setLicenses([]);setStates([]);setSort('username');setDescending(false)}}/>
           </FilterSection>
           <FilterSection title="Search">
             <SearchInput className={inputClass} aria-label="Search account reviews" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} onClear={() => setSearch('')} />
@@ -449,6 +452,8 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
             <Checkbox checked={includeCompleted} onChange={event => setIncludeCompleted(event.target.checked)}>Include completed reviews</Checkbox>
           </FilterSection>
           <FilterSection title="Organization">
+            <p className="ui-description">Progress and tiles cover the selected population, including completed reviews. Finding, classification, decision and completion filters narrow the work table.</p>
+            <ExactUsernameFilter values={usernames} onChange={setUsernames} max={500}/>
             <FormField label="Functional Group">
               <MultiSelectFilter label="Functional Group" values={groupFilter} options={(data?.functional_group_options || []).map(o => o.value)} optionLabel={value => data?.functional_group_options.find(o => o.value === value)?.label ?? value} onChange={setGroupFilter} placeholder="All Functional Groups" />
             </FormField>
@@ -457,13 +462,14 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
             </FormField>
           </FilterSection>
         </div>}>
-      {(findings.length > 0 || licenses.length > 0 || states.length > 0 || groupFilter.length > 0 || managerFilter.length > 0 || search) && <div className="active-filter-row" aria-label="Active review filters">
+      {(findings.length > 0 || licenses.length > 0 || states.length > 0 || groupFilter.length > 0 || managerFilter.length > 0 || usernames.length > 0 || search) && <div className="active-filter-row" aria-label="Active review filters">
         {findings.map(value => <FilterChip key={`finding-${value}`} removeLabel={`Remove review finding ${findingLabel(value)}`} onRemove={() => setFindings(findings.filter(item => item !== value))}>Finding: {findingLabel(value)}</FilterChip>)}
         {licenses.map(value => <FilterChip key={`license-${value}`} removeLabel={`Remove license classification ${value === 'classified' ? 'Configured unlicensed groups' : 'Exclude unlicensed groups'}`} onRemove={() => setLicenses(licenses.filter(item => item !== value))}>{value === 'classified' ? 'Configured unlicensed groups' : 'Excluding unlicensed groups'}</FilterChip>)}
         {states.map(value => <FilterChip key={`state-${value}`} removeLabel={`Remove review decision ${value}`} onRemove={() => setStates(states.filter(item => item !== value))}>Decision: {value}</FilterChip>)}
         {groupFilter.map(value => <FilterChip key={`group-${value}`} removeLabel={`Remove Functional Group ${data?.functional_group_options.find(o => o.value === value)?.label ?? value}`} onRemove={() => setGroupFilter(groupFilter.filter(item => item !== value))}>Functional Group: {data?.functional_group_options.find(o => o.value === value)?.label ?? value}</FilterChip>)}
         {managerFilter.map(value => <FilterChip key={`manager-${value}`} removeLabel={`Remove manager ${data?.manager_options.find(o => o.value === value)?.label ?? value}`} onRemove={() => setManagerFilter(managerFilter.filter(item => item !== value))}>Manager: {data?.manager_options.find(o => o.value === value)?.label ?? value}</FilterChip>)}
         {search && <FilterChip removeLabel="Remove account search filter" onRemove={() => { setSearch(''); setTerm('') }}>Search: {search}</FilterChip>}
+        {!!usernames.length&&<FilterChip removeLabel="Remove exact username filter" onRemove={()=>setUsernames([])}>Exact usernames: {usernames.length}</FilterChip>}
       </div>}
       <div className="results-toolbar ui-toolbar"><strong>{data?.total.toLocaleString() ?? '…'} accounts</strong>{!!data?.completed_hidden && <span className="ui-description" role="status"> · {data.completed_hidden.toLocaleString()} completed review{data.completed_hidden === 1 ? '' : 's'} hidden · <Button size="compact" variant="ghost" onClick={() => setIncludeCompleted(true)}>Show reviewed</Button></span>}</div>
       <QueryState

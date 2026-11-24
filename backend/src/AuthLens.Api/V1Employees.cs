@@ -163,11 +163,23 @@ public static class V1Employees
             var offset = int.TryParse(q["offset"].FirstOrDefault() ?? "0", out var o) ? o : -1;
             var limit = int.TryParse(q["limit"].FirstOrDefault() ?? "25", out var l) ? l : -1;
             if (search.Length > 256 || offset < 0 || limit is < 1 or > 100) return Detail(422, "Invalid search or paging parameters.");
-            var directory = Available(await snapshots.GetAsync(ct), await store.GetAsync(ct));
+            var snapshot = await snapshots.GetAsync(ct);
+            var directory = Available(snapshot, await store.GetAsync(ct));
             if (directory is null) return Json(new { items = Array.Empty<object>(), total = 0, offset, limit });
+            var (selectedNames, selectionError) = await SubjectSelection.ResolveAsync(http.RequestServices, q, ct);
+            if (selectionError is not null) return selectionError;
+            HashSet<string>? selectedEmployees = null;
+            if (selectedNames is not null)
+            {
+                var owners = EmployeeDirectory.SapEmailOwners(snapshot.Users.Users.Values);
+                selectedEmployees = snapshot.Users.Users.Values.Where(u => selectedNames.Contains(SubjectSelection.Key(u.Username)))
+                    .Select(u => directory.MatchSapIdentity(u, owners)).Where(m => m.Status == "matched" && m.Employee is not null)
+                    .Select(m => (string)m.Employee!["id"]!).ToHashSet(StringComparer.Ordinal);
+            }
             var term = search.Trim();
             string[] fields = ["Name", "Mail", "Department", "Title", "Site", "ManagerName", "ManagerMail"];
-            var ids = Enumerable.Range(0, directory.Rows.Count).Where(id => term.Length == 0 || fields.Any(f => TextMatching.TextMatches(directory.Rows[id][f], term)))
+            var ids = Enumerable.Range(0, directory.Rows.Count).Where(id => (selectedEmployees is null || selectedEmployees.Contains(id.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+                    && (term.Length == 0 || fields.Any(f => TextMatching.TextMatches(directory.Rows[id][f], term))))
                 .OrderBy(id => EmployeeDirectory.Normalized(directory.Rows[id]["Name"]), StringComparer.Ordinal)
                 .ThenBy(id => EmployeeDirectory.Normalized(directory.Rows[id]["Mail"]), StringComparer.Ordinal).ThenBy(id => id).ToList();
             return Json(new { items = ids.Skip(offset).Take(limit).Select(directory.View).ToList(), total = ids.Count, offset, limit, generation = directory.Digest });

@@ -894,7 +894,20 @@ public static class SodPeriods
             saved.Remove("decisions");
             var users = saved["analysis"]!["users"]!.AsArray();
             var rows = saved["reviews"]!["items"]!.AsArray();
-            data["total"] = users.Count;
+            var capturedPopulation = users.Count;
+            var (query, queryError) = SodScope.Parse(q);
+            if (queryError is not null) return queryError;
+            var filtered = new[] { "functional_groups", "managers", "usernames" }.Any(name => query!.L(name).Count > 0);
+            if (filtered)
+            {
+                query = await SodScope.OrganizationalAsync(http.RequestServices, query! with { Context = id }, ct);
+                var names = query.L("usernames").Select(name => SodViews.Fold(name.Trim())).ToHashSet(StringComparer.Ordinal);
+                users = new JsonArray([.. users.OfType<JsonObject>().Where(f => names.Contains(SodViews.Fold((string?)f["subject"] ?? ""))).Select(f => (JsonNode?)f.DeepClone())]);
+                rows = new JsonArray([.. rows.OfType<JsonObject>().Where(r => names.Contains(SodViews.Fold((string?)r["finding"]?["subject"] ?? ""))).Select(r => (JsonNode?)r.DeepClone())]);
+            }
+            data["captured_population"] = capturedPopulation;
+            data["population_filter_basis"] = "current_organization_and_captured_exact_usernames";
+            data["total"] = filtered ? rows.Count : users.Count;
             saved["analysis"]!["users"] = new JsonArray([.. users.Skip(offset).Take(limit).Select(u => u!.DeepClone())]);
             saved["analysis"]!["roles"] = new JsonArray();
             saved["reviews"]!["items"] = new JsonArray([.. rows.Skip(offset).Take(limit).Select(r => r!.DeepClone())]);
