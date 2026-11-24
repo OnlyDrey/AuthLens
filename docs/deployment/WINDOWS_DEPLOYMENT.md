@@ -402,6 +402,11 @@ access mode, firewall, identity, data, accounts and keys are not changed, and no
 remains an administrator decision. Changing the listener, hosts or access mode after installation is not part of this action (edit the reviewed
 configuration and use `-Action InstallService -Reconfigure` under change control).
 
+`-Action Status` additionally reports `certificate_replacement_pending` (an interrupted replacement awaits restoration) and
+`backup_key_service_access`: `not_configured`, `readable`, `not_readable` (no explicit Allow read for the configured service identity, or a Deny),
+`missing`, `identity_unresolved` or `unknown` (the key's DACL is not readable by this session; run elevated). It reads the key file's DACL only and
+never opens the key. Status: Pester-tested on synthetic files (`Server-Diagnostics.Tests.ps1`).
+
 ## Logs and artifacts
 
 | Where | What |

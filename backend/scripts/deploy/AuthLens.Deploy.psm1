@@ -727,7 +727,29 @@ function Get-ALStatus($Config) {
         current_release = $current; current_commit = $(if ($manifest) { $manifest.source_sha } else { $null }); current_version = $(if ($manifest) { $manifest.version } else { $null })
         listeners = $listeners; ready = $ready; running_identity = $identity
         journal_phase = $(if ($journal) { $journal.phase } else { $null }); recovery_needed = ($journal -and $journal.phase -in $script:CriticalPhases)
+        certificate_replacement_pending = (Test-Path -LiteralPath (Get-ALCertificatePendingPath $Config)); backup_key_service_access = (Get-ALKeyServiceAccess $Config)
     }
+}
+
+# Whether the configured service identity can read the configured host backup key, from the key file's DACL (read-only; the key is never opened):
+# not_configured, readable, not_readable (no explicit Allow read or a Deny read), unknown (the DACL is not readable by this session, run elevated),
+# identity_unresolved or missing. Group membership is not evaluated; provisioning creates an explicit grant (Grant-ALAccess, Service Manager).
+function Get-ALKeyServiceAccess($Config) {
+    $pointer = Join-AL $Config.DataDirectory 'backup-key-location.json'
+    if (-not [IO.File]::Exists($pointer)) { return 'not_configured' }
+    try { $key = [string]([IO.File]::ReadAllText($pointer) | ConvertFrom-Json).path } catch { return 'unknown' }
+    if (-not $key -or -not [IO.File]::Exists($key)) { return 'missing' }
+    try { $sid = ([Security.Principal.NTAccount]::new($Config.ServiceAccount)).Translate([Security.Principal.SecurityIdentifier]) } catch { return 'identity_unresolved' }
+    if ($sid.Value -eq 'S-1-5-18') { return 'readable' }
+    try {
+        $info = [IO.FileInfo]::new($key)
+        $acl = if ($PSVersionTable.PSEdition -eq 'Core') { [IO.FileSystemAclExtensions]::GetAccessControl($info, [Security.AccessControl.AccessControlSections]::Access) } else { $info.GetAccessControl([Security.AccessControl.AccessControlSections]::Access) }
+        $rules = @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]) | Where-Object { $_.IdentityReference.Value -eq $sid.Value })
+    } catch { return 'unknown' }
+    $read = [Security.AccessControl.FileSystemRights]::ReadData
+    if (@($rules | Where-Object { $_.AccessControlType -eq 'Deny' -and ($_.FileSystemRights -band $read) }).Count) { return 'not_readable' }
+    if (@($rules | Where-Object { $_.AccessControlType -eq 'Allow' -and ($_.FileSystemRights -band $read) -eq $read }).Count) { return 'readable' }
+    'not_readable'
 }
 
 # ---- deployment state machine
