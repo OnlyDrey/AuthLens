@@ -18,8 +18,10 @@ import { stateTone } from '@/lib/kpiTone'
 import { RemediationView } from './SodRemediation'
 
 
-export function SodReviews() {
+/** With `tab` (Reviews workspace) the page is rendered directly: the workspace's secondary navigation selects it. Without it, legacy tabs are shown. */
+export function SodReviews({ tab: fixed }: { tab?: 'queue' | 'bulk' | 'remediation' } = {}) {
   const [tab, setTab] = useHistoryValue('sodReviews')
+  if (fixed) return fixed === 'queue' ? <Queue /> : fixed === 'bulk' ? <BulkReviewPage /> : <RemediationView />
   return (
     <ContentTabs label="Review areas" value={tab || 'queue'} onChange={(value) => setTab(value as 'queue' | 'bulk' | 'remediation')} items={[{ value: 'queue', label: 'Work queue', icon: <ListChecks size={16} aria-hidden="true" /> }, { value:'bulk',label:'Bulk Review',icon:<ClipboardCheck size={16} aria-hidden="true"/> }, { value: 'remediation', label: 'Remediation', icon: <Wrench size={16} aria-hidden="true" /> }]}>
       {(tab || 'queue') === 'queue' ? <Queue /> : tab==='bulk'?<BulkReviewPage/>:<RemediationView />}

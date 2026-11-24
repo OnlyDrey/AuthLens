@@ -310,3 +310,28 @@ also live inside Filters. Their existing normalization, matching, deferred queri
 On desktop the panel is a collapsible sidebar; on narrow screens it is a modal drawer using the shared focus/scroll owner. **Show results** closes
 it without resetting filters. Escape/backdrop close it and return focus; widening to desktop dismisses the mobile drawer and does not reopen it on
 return. Only one instance of the filter form is mounted at a time, avoiding duplicate field/help IDs. Active filter summaries remain available with results.
+
+## Organizational and exact-username filter coverage
+
+Status from source inspection of the shared components (`OrganizationFilter`, `SubjectFilters`, `ExactUsernameFilter`, SoD `subjectFilterFields`)
+and the focused `filter-consistency.spec.ts`. Semantics: OR within a dimension, AND between dimensions, applied server-side before paging;
+Manager uses direct reports only (no recursion); exact usernames are normalized, de-duplicated and matched exactly.
+
+| Screen | Functional Groups | Manager | Exact usernames | Notes |
+| --- | --- | --- | --- | --- |
+| Dashboard | Yes | Yes | Yes | User metrics only; catalogue and source integrity stay global |
+| User Access directory | Yes | Yes | Yes | **Open in Reviews** carries all three |
+| Account Review | Yes | Yes | Yes | **Open access reviews** carries all three |
+| Compare users | Yes | Yes | n/a | Candidate selection; two named users are compared |
+| Release Roles | Yes | Yes | Yes | Existing comma-separated username syntax retained |
+| Employee Directory (Settings) | Yes | Yes | Yes | Only reliably linked SAP identities when filtered |
+| SoD Overview | Yes | Yes | Yes | |
+| SoD Risk/Activity Matrix, Access Explorer | Yes | Yes | Yes | Via `subjectFilterFields` (pages with a username field) |
+| Reviews Work Queue, Bulk Review, Remediation | Yes | Yes | Yes | Shared SoD filter slot; Reviews Overview counters follow Work Queue filters |
+| Review Periods, Reports and Evidence | Yes | Yes | Yes | Current membership, labeled; frozen evidence is not changed |
+| Role Lookup | No (intentional) | No | No | Role catalogue has no user population; **Review assigned users** opens the queue by exact role |
+| Data Health | No (intentional) | No | No | Source integrity is global |
+
+Historical periods: organizational filters use current membership, not membership at the review date; see the
+[snapshot enrichment recommendation](REVIEWS.md#historical-organizational-evidence-recommendation-not-implemented). Coverage of every screen
+by a browser test is not complete; `filter-consistency.spec.ts` covers the shared controls, SoD views and export constraints.

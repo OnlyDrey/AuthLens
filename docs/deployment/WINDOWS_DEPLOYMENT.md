@@ -965,6 +965,32 @@ Uninstall removes tracked Setup payloads, shortcuts and registry entries; Deskto
 all persistent data remain for separate reviewed cleanup. Do not use uninstall as rollback. Compiled Setup execution, native SCM and interactive
 WebView2 acceptance remain pending until the operator records those results.
 
+### 8. Server sources, recovery-key service access and Reviews (2.0.0 remediation)
+
+Run on a disposable installation from step 3, never on DASH1. Use synthetic CSVs (`backend/tests/AuthLens.Tests` fixtures or the CSV schemas)
+in a dedicated export folder such as `C:\AuthLens-Acceptance\sources` and, for UNC, a share on the same server
+(`\\<host>\authlens-src`) and one on a second server. Grant the actual service identity (`NT SERVICE\AuthLens`, or for remote shares the
+computer account `DOMAIN\HOST$`; for custom/managed service accounts that account) **read** on the share and NTFS folder only. Record
+dataset counts/fingerprints and SoD period checksums before every failure step.
+
+| # | Scenario | Procedure | Expected | Evidence |
+| --- | --- | --- | --- | --- |
+| 8.1 | Source authority folder | After install: `icacls (Join-Path (Split-Path C:\ProgramData\AuthLens\data) '.authlens-source-policy-*')` | Protected; SYSTEM, Administrators and service identity Modify only; no data inside the backup set | `08-authority-acl.txt` |
+| 8.2 | Local file, each source, Static and Dynamic | Settings → Data Sources → source → **Local server file** → path → authorize checkbox → **Test connection and validate source** → **Activate validated source** | Validation reports record count without activating; activation imports; status `Authorization: … exact file` | Screenshot + `/api/server/sources/<src>` JSON |
+| 8.3 | Same-server and remote UNC | As 8.2 with **Network file (UNC)** and both shares; no mapped drive, no interactive session | Reads succeed as the service identity; `\\host\c$\…` and `\\host@SSL\…` are refused before any SMB traffic | Packet capture or SMB server audit showing no request for refused targets |
+| 8.4 | Dynamic and Global Refresh | Change the CSV, run individual refresh, then Global Refresh | Changes appear only after validation; Static sources are skipped | Refresh history export |
+| 8.5 | Denied and unavailable | Remove the service identity's NTFS read; then disconnect the share; then make the CSV empty/malformed | Each refresh fails with `access_denied` / `missing` or `network_unavailable` / validation error; snapshot counts unchanged | Refresh history + counts before/after |
+| 8.6 | Revocation | **Revoke authorization**, then refresh | `policy_prohibited`; path, mode and snapshot retained; status `required` | `/api/server/sources/<src>` JSON |
+| 8.7 | Restart and reboot | `Restart-Service AuthLens`; then reboot | Dynamic configuration and exact authority persist; refresh succeeds without browser uploads | Status JSON after each |
+| 8.8 | Restore to a fresh instance | Encrypted backup → restore into a second disposable instance | Paths, modes and snapshots restored; status `required` until re-authorized on the destination; nothing read before that | Status JSON + refresh history |
+| 8.9 | Recovery key under the service identity | `Service-Manager.ps1` → Status as administrator, then create a key as administrator **without** granting the service identity | Backup Overview shows **Configured but inaccessible** (`state: inaccessible`), not "Not configured"; key material and path absent from API/logs | `/api/backups` `key_provider` JSON, log grep |
+| 8.10 | Recovery key provisioning | Grant only read on the key file to the service identity (no broad ACL); restart; verify recovery copy | `state: usable`, then `escrow_verified: true`; upgrade/repair keep the key and ACL | `icacls` of key file before/after upgrade |
+| 8.11 | Reviews navigation | Sign in as Administrator and as Reviewer; open Reviews, each page, legacy `#/sod/reviews`, `#/sod/periods`, `#/sod/reports` bookmarks | Reviews visible for both; Bulk Review entry only with `review`; admin period operations hidden for Reviewer; legacy links land on Reviews | Screenshots light/dark at 375/1280 px |
+| 8.12 | Filtering and evidence integrity | Filter by Functional Group, Manager and exact usernames on Dashboard, User Access, Reviews and a frozen period; open **Open in Reviews** | Same scope at destination; frozen period checksum (`/api/sod/periods/<id>`) unchanged | Checksums before/after |
+
+Failure in 8.3, 8.5, 8.8, 8.9 or 8.10 is a release blocker. Recovery: restore the pre-step backup of the disposable instance; never edit the
+authority file by hand (it is HMAC-bound to the host token and data path and fails closed when modified).
+
 ## Post-installation infrastructure verification
 
 Active tooling resolves the current checkout under `backend/`; only the historical

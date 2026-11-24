@@ -8,14 +8,12 @@ import { fetchConfiguration } from '@/api/configuration'
 import { SodOverview } from './SodOverview'
 import { ActivityMatrix, RiskMatrix } from './SodMatrices'
 import { SodExplorer } from './SodExplorer'
-import { SodReviews } from './SodReviews'
-import { SodPeriods } from './SodPeriods'
-import { SodReports } from './SodReports'
 import { ContextBar } from './SodShared'
 import { SOD_VIEWS } from '@/lib/navigationItems'
 import { SodGroupHeatmap } from './SodGroupHeatmap'
 
 
+/** SoD risk and activity analysis. Review workflows (queue, bulk review, remediation, periods, reports) are in the Reviews workspace. */
 export function SodWorkspace() {
   const configuration = useQuery({ queryKey: ['configuration'], queryFn: fetchConfiguration }),
     { change: navigate } = useViewHistory()
@@ -42,8 +40,7 @@ function SodWorkspaceContent() {
       <SecondaryNavigation label="SoD views" items={SOD_VIEWS.map(({ value, label, icon }) => ({ value, label, icon, href: sodHref(value), active: view === value, onSelect: () => change({ sodView: value }) }))} />
       <ContextBar />
       <SodGroupHeatmap />
-      {view === 'overview' ? <SodOverview /> : view === 'risk-matrix' ? <RiskMatrix /> : view === 'activity-matrix' ? <ActivityMatrix /> : view === 'explorer' ? <SodExplorer />
-        : view === 'reviews' ? <SodReviews /> : view === 'periods' ? <SodPeriods /> : <SodReports />}
+      {view === 'risk-matrix' ? <RiskMatrix /> : view === 'activity-matrix' ? <ActivityMatrix /> : view === 'explorer' ? <SodExplorer /> : <SodOverview />}
     </section>
   )
 }

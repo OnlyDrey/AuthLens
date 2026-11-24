@@ -4,7 +4,7 @@ AuthLens is a local-first SAP investigation and access-review application, with 
 
 | Topic | Guides |
 | --- | --- |
-| Features | [Feature guide](features/README.md), [Dashboard](features/DASHBOARD.md), [Role Lookup](features/ROLE_LOOKUP.md), [User Access](features/USER_ACCESS.md), [SoD](features/SOD.md) |
+| Features | [Feature guide](features/README.md), [Dashboard](features/DASHBOARD.md), [Role Lookup](features/ROLE_LOOKUP.md), [User Access](features/USER_ACCESS.md), [SoD](features/SOD.md), [Reviews](features/REVIEWS.md) |
 | Data | [Data and CSV formats](data/README.md), [imports and refresh](data/IMPORT_AND_REFRESH.md), [Employee Directory](data/EMPLOYEE_DIRECTORY.md) |
 | Architecture | [Architecture index](architecture/README.md), [database](architecture/DATABASE_DESIGN.md), [UI integration](architecture/UI_INTEGRATION.md) |
 | UI design | [Design system](architecture/DESIGN_SYSTEM.md), [components](architecture/COMPONENTS.md), [navigation](architecture/NAVIGATION.md) |
@@ -12,7 +12,7 @@ AuthLens is a local-first SAP investigation and access-review application, with 
 | Security and network | [HTTPS, authentication, Origin, CSRF and proxies](deployment/SERVER_NETWORK_ACCESS.md) |
 | Recovery | [Backup and recovery](operations/BACKUP_AND_RECOVERY.md) |
 | Development | [Commands and validation](development/README.md), [CI policy](development/CI.md) |
-| Acceptance | [Acceptance guide](validation/README.md), [current status](validation/STATUS.md) |
+| Acceptance | [Acceptance guide](validation/README.md), [current status](validation/STATUS.md), [2.0.0 work packages](validation/WORK_PACKAGES.md) |
 
 ## Quick start
 

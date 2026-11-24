@@ -37,7 +37,7 @@ test('Remediation awaiting action opens the filtered list and the Overview no lo
   await openSod(page)
   await expect(group(page, 'Remediation').getByRole('button', { name: 'Remediation awaiting action' })).toContainText('1')
   await group(page, 'Remediation').getByRole('button', { name: 'Remediation awaiting action' }).click()
-  await expect(page).toHaveURL(/#\/sod\/reviews/)
+  await expect(page).toHaveURL(/#\/reviews\/remediation/) // SoD Overview tiles open the Reviews workspace
   const tracking = page.getByRole('toolbar', { name: 'Remediation tracking' }).or(page.getByLabel('Remediation tracking'))
   await expect(tracking.getByRole('button', { name: 'Awaiting action' })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('table', { name: 'Access remediation rows' })).toContainText('ROLE_A2')

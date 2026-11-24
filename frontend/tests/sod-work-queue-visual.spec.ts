@@ -22,7 +22,7 @@ for (const { theme, width } of layoutMatrix([375,800,1280,1600]))test(`Work Queu
  const bounds=await panel.boundingBox();expect(bounds!.x).toBeGreaterThanOrEqual(0);expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(width)
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy()
  await page.screenshot({path:info.outputPath(`queue-bulk-${theme}-${width}.png`)})
- await page.getByRole('tab',{name:'Work queue',exact:true}).click();await expect(panel).toBeHidden();await expect(trigger).toBeVisible()
+ await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Work Queue',exact:true}).click();await expect(panel).toBeHidden();await expect(trigger).toBeVisible()
 })
 
 test('Dashboard and Work Queue agree after bulk role assessment without formal risk acceptance',async({page,request})=>{

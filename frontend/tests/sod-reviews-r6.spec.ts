@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { cleanup, createPeriod, decide, headers, names, openSod, seedGovernance } from './sod-fixture'
-import { pickMulti } from './support'
+import { goTo, pickMulti } from './support'
 
 let directory = ''
 test.beforeEach(async ({ request }) => { directory = await seedGovernance(request, 'static') })
@@ -8,8 +8,8 @@ test.afterEach(async ({ request }) => { await cleanup(request, directory) })
 test.setTimeout(90_000)
 
 const goto = (page: Page, link: string) => page.getByRole('link', { name: link, exact: true }).click()
-const workQueue = async (page: Page) => { await goto(page, 'Reviews'); await page.getByRole('tab', { name: 'Work queue', exact: true }).click() }
-const remediation = async (page: Page) => { await goto(page, 'Reviews'); await page.getByRole('tab', { name: 'Remediation', exact: true }).click() }
+const workQueue = async (page: Page) => { await goto(page, 'Reviews'); await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Work Queue',exact:true}).click() }
+const remediation = async (page: Page) => { await goto(page, 'Reviews'); await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Remediation',exact:true}).click() }
 const look = (tile: ReturnType<Page['locator']>) => tile.evaluate((element) => { const style = getComputedStyle(element); return { height: Math.round(element.getBoundingClientRect().height), radius: style.borderTopLeftRadius, padding: style.padding, fontSize: style.fontSize, border: style.borderTopWidth, cursor: style.cursor } })
 
 test('Work Queue and Remediation filter tiles are the same shared KPI control with the same states', async ({ page, request }) => {
@@ -63,7 +63,7 @@ for (const width of [375, 800, 1280]) test(`the Active period badge sits 8px aft
   await page.setViewportSize({ width, height: 900 })
   await openSod(page, 'Risk Matrix')
   await page.getByRole('combobox', { name: 'Review context', exact: true }).selectOption(id)
-  await goto(page, 'Review Periods')
+  await goTo(page, 'Reviews'); await page.getByRole('navigation', { name: 'Review views', exact: true }).getByRole('link', { name: 'Review Periods', exact: true }).click()
   const title = page.locator('.sod-period-title', { has: page.getByText('Active period', { exact: true }) })
   await expect(title).toBeVisible()
   const [name, badge] = [(await title.locator('strong').boundingBox())!, (await title.getByText('Active period', { exact: true }).boundingBox())!]

@@ -14,6 +14,7 @@ test('the main link opens the module page and a separate chevron opens its subme
   // chevrons only where submenus exist
   await expect(main(page).getByRole('button', { name: 'User Access pages' })).toBeVisible()
   await expect(main(page).getByRole('button', { name: 'SoD pages' })).toBeVisible()
+  await expect(main(page).getByRole('button', { name: 'Reviews pages' })).toBeVisible()
   for (const name of ['Dashboard', 'Role Lookup', 'Release Roles']) await expect(main(page).getByRole('button', { name: `${name} pages` })).toHaveCount(0)
   // opening the submenu does not navigate
   const url = page.url()
@@ -37,23 +38,30 @@ test('the main link opens the module page and a separate chevron opens its subme
   await expect(page).toHaveURL(/#\/user-access$/)
 })
 
-test('submenu and module links keep their real hrefs, and the SoD submenu lists every SoD page', async ({ page, context }) => {
+test('submenu and module links keep their real hrefs, and the SoD and Reviews submenus list their pages', async ({ page, context }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openSod(page)
   await main(page).getByRole('button', { name: 'SoD pages' }).click()
   const menu = page.getByRole('dialog', { name: 'SoD pages' })
-  await expect(menu.getByRole('link')).toHaveText(['Overview', 'Risk Matrix', 'Activity Matrix', 'Access Explorer', 'Reviews', 'Review Periods', 'Reports'])
+  await expect(menu.getByRole('link')).toHaveText(['Overview', 'Risk Matrix', 'Activity Matrix', 'Access Explorer'])
   await expect(menu.getByRole('link', { name: 'Risk Matrix' })).toHaveAttribute('href', '#/sod/risk-matrix')
   await expect(menu.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
   // a modified click opens a new tab and leaves this page where it is
   const before = page.url()
   const opened = context.waitForEvent('page', { timeout: 3000 }).catch(() => null)
-  await menu.getByRole('link', { name: 'Reports' }).click({ modifiers: ['Control'] })
+  await menu.getByRole('link', { name: 'Access Explorer' }).click({ modifiers: ['Control'] })
   expect(page.url()).toBe(before)
   void opened
-  await menu.getByRole('link', { name: 'Reviews' }).click()
-  await expect(page).toHaveURL(/#\/sod\/reviews/)
+  await menu.getByRole('link', { name: 'Access Explorer' }).click()
+  await expect(page).toHaveURL(/#\/sod\/explorer/)
   await expect(main(page).getByRole('link', { name: 'SoD', exact: true })).toHaveAttribute('aria-current', 'page')
+  await main(page).getByRole('button', { name: 'Reviews pages' }).click()
+  const reviews = page.getByRole('dialog', { name: 'Reviews pages' })
+  await expect(reviews.getByRole('link')).toHaveText(['Overview', 'Work Queue', 'Bulk Review', 'Remediation', 'Review Periods', 'Reports and Evidence'])
+  await expect(reviews.getByRole('link', { name: 'Review Periods' })).toHaveAttribute('href', '#/reviews/periods')
+  await reviews.getByRole('link', { name: 'Work Queue' }).click()
+  await expect(page).toHaveURL(/#\/reviews\/queue/)
+  await expect(main(page).getByRole('link', { name: 'Reviews', exact: true })).toHaveAttribute('aria-current', 'page')
 })
 
 test('the mobile drawer is keyboard operable and the nav stays usable at 375 px', { tag: '@a11y' }, async ({ page }) => {
@@ -62,6 +70,8 @@ test('the mobile drawer is keyboard operable and the nav stays usable at 375 px'
   const trigger = page.getByRole('button', { name: 'Open navigation',exact:true })
   await trigger.focus(); await page.keyboard.press('Enter')
   await expect(page.getByRole('dialog', { name: 'Navigation',exact:true })).toBeVisible()
+  // inactive module groups start collapsed in the drawer (only the active module is expanded)
+  await page.getByRole('dialog', { name: 'Navigation',exact:true }).locator('summary').filter({ hasText: 'User Access' }).click()
   await page.getByRole('dialog', { name: 'Navigation',exact:true }).getByRole('link', { name: 'Compare users' }).focus()
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/#\/user-access\/compare/)
@@ -71,10 +81,12 @@ test('the mobile drawer is keyboard operable and the nav stays usable at 375 px'
 test('secondary navigation, explorer and SoD settings actions carry icons and real buttons', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await openSod(page, 'Reviews')
-  for (const name of ['Work queue', 'Remediation']) await expect(page.getByRole('tab', { name, exact: true }).locator('svg')).toHaveCount(1)
-  await page.getByRole('link', { name: 'Reports', exact: true }).click()
+  const reviewViews = page.getByRole('navigation', { name: 'Review views', exact: true })
+  for (const name of ['Work Queue', 'Remediation']) await expect(reviewViews.getByRole('link', { name, exact: true }).locator('svg')).toHaveCount(1)
+  await reviewViews.getByRole('link', { name: 'Reports and Evidence', exact: true }).click()
   for (const name of ['Formal review report', 'Access remediation report']) await expect(page.getByRole('tab', { name, exact: true }).locator('svg')).toHaveCount(1)
-  await page.getByRole('link', { name: 'Access Explorer', exact: true }).click()
+  await main(page).getByRole('link', { name: 'SoD', exact: true }).click()
+  await page.getByRole('navigation', { name: 'SoD views', exact: true }).getByRole('link', { name: 'Access Explorer', exact: true }).click()
   await page.getByRole('tab', { name: 'Roles', exact: true }).click()
   const evidence = page.getByRole('button', { name: 'Show evidence for ROLE_AB' })
   await expect(evidence).toHaveClass(/ui-button/); await expect(evidence.locator('svg')).toHaveCount(1)
@@ -101,6 +113,7 @@ for (const width of [375, 800, 1280]) for (const theme of ['light', 'dark']) tes
   if(width<1024){
     await page.getByRole('button',{name:'Open navigation',exact:true}).click()
     const drawer=page.getByRole('dialog',{name:'Navigation',exact:true})
+    await drawer.locator('summary').filter({hasText:'SoD'}).click()
     await expect(drawer.getByRole('link',{name:'Risk Matrix',exact:true})).toBeVisible()
     const box=(await drawer.boundingBox())!
     expect(box.x+box.width).toBeLessThanOrEqual(width)

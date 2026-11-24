@@ -6,7 +6,8 @@
 - [Compare Users](COMPARE_USERS.md): shared/unique roles and role-derived transactions, with source intervals.
 - [Account Review](ACCOUNT_REVIEW.md): evidence-based findings and persistent review decisions.
 - [Release Roles](RELEASE_ROLES.md): PR/PO assignments, filters and distinct-user matrix.
-- [Segregation of Duties](SOD.md): matrices, review workflow, remediation, frozen periods and reports.
+- [Segregation of Duties](SOD.md): risk and activity matrices, Access Explorer, review rules, frozen periods and reports.
+- [Reviews](REVIEWS.md): top-level access-review workspace (Work Queue, Bulk Review, Remediation, Review Periods, Reports and Evidence), routes and compatibility.
 - [Functional Groups](FUNCTIONAL_GROUPS.md): reviewer-maintained business functions, review integration, filters, access analysis and backup behavior.
 - [Saved Filters](SAVED_FILTERS.md): reuse named investigations without storing result datasets.
 - [Shared Filters](FILTERS.md): transaction operators, assignment dates and scoped clearing.

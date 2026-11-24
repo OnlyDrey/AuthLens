@@ -95,7 +95,7 @@ export const goTo = async (page: Page, name: string) => {
   if((page.viewportSize()?.width??1280)<1024){
     await page.getByRole('button',{name:'Open navigation',exact:true}).click()
     const drawer=page.getByRole('dialog',{name:'Navigation',exact:true})
-    if(['User Access','SoD'].includes(name)){
+    if(['User Access','SoD','Reviews'].includes(name)){
       const group=drawer.locator('details').filter({has:page.locator('summary').filter({hasText:name})})
       if(await group.getAttribute('open')===null)await group.locator('summary').click()
       await group.getByRole('link',{name:name==='User Access'?'User directory':'Overview',exact:true}).click()

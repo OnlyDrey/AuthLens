@@ -41,7 +41,8 @@ test('organizational and exact filters combine, follow SoD views and constrain e
  await filters.getByRole('button',{name:'Apply exact usernames',exact:true}).click()
  await expect(page.locator('tbody th.matrix-row-head code')).toHaveCount(1)
  for(const destination of ['Activity Matrix','Access Explorer','Reviews']){
-  await page.getByRole('link',{name:destination,exact:true}).click()
+  if(destination==='Reviews'){await page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'Reviews',exact:true}).click();await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Work Queue',exact:true}).click()}
+  else await page.getByRole('link',{name:destination,exact:true}).click()
   await expect(filters.getByRole('textbox',{name:'Exact usernames',exact:true})).toHaveValue(names.a)
   await expect(filters.getByRole('group',{name:'Selected Functional Group',exact:true})).toContainText(groupName)
   await expect(filters.getByRole('group',{name:'Selected Functional Group',exact:true})).toContainText(otherName)
@@ -51,7 +52,7 @@ test('organizational and exact filters combine, follow SoD views and constrain e
    expect(text).toContain(names.a);expect(text).not.toContain(names.b)
   }
  }
- await page.getByRole('tab',{name:'Remediation',exact:true}).click()
+ await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Remediation',exact:true}).click()
  await expect(filters.getByRole('combobox',{name:'Functional Group',exact:true})).toBeVisible()
  await expect(filters.getByRole('combobox',{name:'Manager',exact:true})).toBeVisible()
  await expect(filters.getByRole('textbox',{name:'Exact usernames',exact:true})).toHaveValue(names.a)

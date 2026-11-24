@@ -49,7 +49,7 @@ test('the active underline stays, selecting a tab shifts no layout and arrow key
 
 test('every secondary tab and view navigation shows icons', async ({ page }) => {
   await openSod(page, 'Reviews')
-  for (const name of ['Review areas']) for (const tab of await page.getByRole('tablist', { name }).getByRole('tab').all()) await expect(tab.locator('svg')).toHaveCount(1)
+  for (const link of await page.getByRole('navigation', { name: 'Review views', exact: true }).getByRole('link').all()) await expect(link.locator('svg')).toHaveCount(1)
   await page.goto('/#session=browser-test-session')
   await page.getByRole('link', { name: 'User Access', exact: true }).first().click()
   for (const link of await page.getByRole('navigation', { name: 'User Access view', exact: true }).getByRole('link').all()) await expect(link.locator('svg')).toHaveCount(1)

@@ -1,3 +1,4 @@
+import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 import {FunctionalGroupPills} from '@/components/Shared/FunctionalGroupPills'
 import {parseUsernameList,looksLikeUsernameList} from '@/lib/usernameList'
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
@@ -308,6 +309,7 @@ export function UserAccess({
                 finally{setSelectionBusy(false)}}}>Select all {result.data.total.toLocaleString()} matching</Button>}
               {picked.size>0&&<Button variant="primary" onClick={()=>setAssignOpen(true)}><UsersRound size={16} aria-hidden="true"/>Assign group</Button>}
               {picked.size>0&&<Button variant="outline" onClick={()=>setPicked(new Set())}><X size={16} aria-hidden="true"/>Clear selection</Button>}
+              <OpenInReviewsButton scope={{ functional_groups: functionalGroups, managers, usernames: parseUsernameList(usernames) }} />
               <ExportCSVButton loading={assignmentExport.busy} disabled={dataLoading||result.isFetching||search!==term||directoryTransaction.settling||!result.data.export_assignments||(exportUserScope==='selected'&&!picked.size)} title="Export assignments for the chosen user scope, across pages. Active role filters restrict exported roles; MATCHED_FILTER marks filter evidence. See Export scope." onClick={()=>void assignmentExport.download()}/>
             </div>
           </div>

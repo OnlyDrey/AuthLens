@@ -1,6 +1,7 @@
 # Functional and deployment acceptance
 
 Use [current status](STATUS.md) to distinguish implemented functionality, focused automated verification and remaining native acceptance.
+The [2.0.0 work-package tracker](WORK_PACKAGES.md) lists the 18 remediation packages, their test evidence and the Windows backlog.
 
 ## Functional acceptance
 

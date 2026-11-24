@@ -1,3 +1,4 @@
+import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 import {FunctionalGroupPills} from '@/components/Shared/FunctionalGroupPills'
 import {ExactUsernameFilter} from '@/components/Shared/ExactUsernameFilter'
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
@@ -431,6 +432,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
             <Download size={16} />
             Export review CSV
           </Button>
+          <OpenInReviewsButton scope={{ functional_groups: groupFilter, managers: managerFilter, usernames }} label="Open access reviews" />
         </PageToolbar>}
         sidebar={<div className="grid min-w-0 gap-3" role="search" aria-label="Review filters">
           <FilterSection title="Saved Filters">

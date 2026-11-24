@@ -1,3 +1,4 @@
+import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {SubjectFilters,subjectFilterParams,type SubjectFiltersValue} from '@/components/Shared/OrganizationFilter'
 import { sentenceCase } from '@/lib/labels'
@@ -447,6 +448,7 @@ export function EmployeeBrowser() {
   return (
     <section className="space-y-3" aria-label="Employee search">
       <SubjectFilters value={subjectFilters} onChange={setSubjectFilters}/>
+      <div className="ui-toolbar"><OpenInReviewsButton scope={subjectFilters} size="compact" /></div>
       <p className="ui-description">Organizational and exact SAP username filters show only reliably linked SAP identities. Unlinked or ambiguous Directory records remain available when these filters are cleared. Manager selection uses direct reports.</p>
       <SearchInput aria-label="Search employees by name, email, department, job title, site or manager" placeholder="Search employees…" value={search} onChange={e=>setSearch(e.target.value)} onClear={()=>setSearch('')} autoComplete="off"/>
 

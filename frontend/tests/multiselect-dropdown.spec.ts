@@ -89,7 +89,7 @@ test('selections survive searching and every toggle keeps the list open', async 
 
 test('a server-searched SAP username filter stays attached across first and later searches', async ({ page }) => {
   await openSod(page, 'Reviews')
-  await page.getByRole('tab', { name: 'Remediation', exact: true }).click()
+  await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Remediation',exact:true}).click()
   await openFilters(page)
   label = 'SAP username'
   const input = page.getByRole('combobox', { name: label, exact: true })

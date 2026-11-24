@@ -119,8 +119,9 @@ test('table columns persist, reorder reading order and export visible or all dis
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true)
 })
 
-test('SoD report heatmap keeps its corner heading opaque and visible after horizontal scrolling',async({page})=>{
-  await page.setViewportSize({width:390,height:844});await page.goto('/#session=browser-test-session');await page.goto('/#/sod/reports')
+// The heatmap is an SoD analysis visualization; it moved off the review pages (Reviews workspace) and is checked on SoD Overview.
+test('SoD heatmap keeps its corner heading opaque and visible after horizontal scrolling',async({page})=>{
+  await page.setViewportSize({width:390,height:844});await page.goto('/#session=browser-test-session');await page.goto('/#/sod')
   const region=page.getByRole('region',{name:'SAP User Group heatmap',exact:true})
   const scroll=region.locator('.sod-heatmap-scroll');await expect(scroll).toBeVisible()
   const corner=scroll.locator('thead th').first();const label=await corner.innerText()
@@ -131,7 +132,7 @@ test('SoD report heatmap keeps its corner heading opaque and visible after horiz
   expect(await corner.evaluate(element=>getComputedStyle(element).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true)
   const output=path.resolve('../build/test-artifacts/mobile-acceptance');mkdirSync(output,{recursive:true})
-  await page.screenshot({animations:'disabled',path:path.join(output,'sod-reports-390-scrolled.png')})
+  await page.screenshot({animations:'disabled',path:path.join(output,'sod-heatmap-390-scrolled.png')})
 })
 
 test('virtualized matrix column choices have a separate scoped export and persist',async({page})=>{

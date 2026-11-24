@@ -232,7 +232,7 @@ test('remediation separates proposals from verification and keeps tracked action
   await expect(dialog).toHaveCount(0)
   await page.keyboard.press('Escape')
   await page.getByRole('link', { name: 'Reviews', exact: true }).click()
-  await page.getByRole('tab', { name: 'Remediation', exact: true }).click()
+  await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Remediation',exact:true}).click()
   const table = page.getByRole('table', { name: 'Access remediation rows' })
   await expect(table.locator('thead th')).toHaveText(['SAP user','SAP User Group','Role assignment','Validity','Review','Remediation','Actions'])
   await expect(table.getByRole('link',{name:`Open SAP user ${names.a}`,exact:true})).toHaveCount(1) // the SAP user column uses the shared identity action: one user, one link

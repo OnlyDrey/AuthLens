@@ -1,3 +1,4 @@
+import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {matchingTransactions,transactionMatches} from '@/lib/searchMatching'
 import { Button } from '@/components/Shared/Button'
@@ -120,6 +121,7 @@ export function RoleDetailPanel({ roleName, onClose, onUsers, onTcodeUsers, pare
                   <div className="flex gap-3 rounded-lg p-2"
                     style={{ backgroundColor: 'var(--surface2)', border: '1px solid var(--border)' }}>
                     {onUsers&&<Button size="compact" onClick={()=>onUsers(role.agr_name)}><Users size={16} aria-hidden="true"/>Assigned users<ArrowRight size={16} aria-hidden="true"/></Button>}
+                    {onUsers&&<OpenInReviewsButton size="compact" scope={{ role: role.agr_name }} label="Review assigned users" />}
                     {/* Single roles â€” LEFT */}
                     <div className="flex-1 text-center">
                       <div className="flex items-center justify-center gap-1.5 mb-1">
