@@ -1,10 +1,10 @@
-import type { ReactNode } from 'react'
-import { ClipboardList, ShieldCheck } from 'lucide-react'
+import { ClipboardList, ShieldCheck, UserCheck } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchConfiguration } from '@/api/configuration'
+import { apiRequest } from '@/api/client'
 import { scopeParams, sod, type ContextInfo } from '@/api/sod'
 import { useHistoryValue, useViewHistory, reviewsHref, userAccessHref, type ReviewsView } from '@/hooks/useViewHistory'
-import { REVIEWS_VIEWS } from '@/lib/navigationItems'
+import { availableReviewsViews, REVIEWS_VIEWS } from '@/lib/navigationItems'
 import { SecondaryNavigation } from '@/components/Shared/Navigation'
 import { Card, ErrorState, LoadingState, PageHeader, StatusBadge, Toolbar } from '@/components/Shared/Presentation'
 import { Button } from '@/components/Shared/Button'
@@ -17,47 +17,65 @@ import { SodPeriods } from '@/components/Sod/SodPeriods'
 import { SodReports } from '@/components/Sod/SodReports'
 
 /**
- * First-class access-review workspace. It reuses the existing review engine, decisions, periods and frozen evidence unchanged:
- * the review context and filters are the same shared state the SoD pages use, so moving between SoD and Reviews never broadens or changes scope.
- * Analytical visualizations (heatmaps, matrices) stay in SoD so the work queue is reachable without scrolling.
+ * Application-level review workspace. SoD access reviews (Work Queue, Bulk Review, Remediation, Review Periods, Reports and Evidence) reuse the
+ * existing review engine, decisions, periods and frozen evidence unchanged and follow the SoD feature switch. Account Review is a separate
+ * account and license review in User Access; the Overview links to it and shows its counters but never merges its decisions.
+ * The review context and filters are the same shared state the SoD pages use, so moving between SoD and Reviews never broadens or changes scope.
  */
 export function ReviewsWorkspace() {
   const configuration = useQuery({ queryKey: ['configuration'], queryFn: fetchConfiguration }),
+    [selected] = useHistoryValue('reviewsView'),
     { change } = useViewHistory(),
-    { canAdmin } = useAuthentication()
-  const header = <PageHeader title="Reviews" icon={<ClipboardList size={22} aria-hidden="true" />} />
-  // Today every review workflow is backed by the SoD review engine, so the SoD feature switch also governs Reviews.
-  if (configuration.data?.settings.features?.sod === false) return (
-    <section className="sod-workspace grid min-w-0 gap-3" aria-label="Access reviews">
-      {header}
-      <Card aria-label="Reviews are turned off">
-        <StatusBadge tone="neutral">Turned off</StatusBadge>
-        <p>Access reviews use SoD evidence, which is disabled in Features. Review decisions, periods, frozen snapshots and reports are kept and return when it is enabled.</p>
-        {canAdmin && <Toolbar><Button variant="primary" onClick={() => change({ settings: true, settingsTarget: 'features' })}>Open Features</Button></Toolbar>}
-      </Card>
-    </section>
-  )
-  return <ReviewsContent header={header} />
-}
-
-function ReviewsContent({ header }: { header: ReactNode }) {
-  const [selected] = useHistoryValue('reviewsView'),
-    { change } = useViewHistory(),
-    view: ReviewsView = selected || 'overview'
+    // Unknown (still loading or unreadable) keeps SoD reviews; only an explicit saved "off" turns them off, as in the main navigation.
+    sodEnabled = configuration.data?.settings.features?.sod !== false,
+    views = availableReviewsViews(sodEnabled),
+    view: ReviewsView = selected || 'overview',
+    sodPage = REVIEWS_VIEWS.find(item => item.value === view)?.sod === true
   return (
     <section className="sod-workspace grid min-w-0 gap-3" aria-label="Access reviews">
-      {header}
-      <SecondaryNavigation label="Review views" items={REVIEWS_VIEWS.map(({ value, label, icon }) => ({ value, label, icon, href: reviewsHref(value), active: view === value, onSelect: () => change({ reviewsView: value }) }))} />
-      <ContextBar />
-      {view === 'overview' ? <ReviewsOverview /> : view === 'queue' || view === 'bulk' || view === 'remediation' ? <SodReviews tab={view} /> : view === 'periods' ? <SodPeriods /> : <SodReports />}
+      <PageHeader title="Reviews" icon={<ClipboardList size={22} aria-hidden="true" />} />
+      <SecondaryNavigation label="Review views" items={views.map(({ value, label, icon }) => ({ value, label, icon, href: reviewsHref(value), active: view === value, onSelect: () => change({ reviewsView: value }) }))} />
+      {sodEnabled && <ContextBar />}
+      {sodPage && !sodEnabled ? <SodReviewsOff /> : view === 'overview' ? <ReviewsOverview sodEnabled={sodEnabled} /> : view === 'queue' || view === 'bulk' || view === 'remediation' ? <SodReviews tab={view} /> : view === 'periods' ? <SodPeriods /> : <SodReports />}
     </section>
   )
+}
+
+/** SoD access reviews are turned off: decisions, periods, frozen snapshots and reports are kept; nothing is enabled from here. */
+function SodReviewsOff() {
+  const { change } = useViewHistory(), { canAdmin } = useAuthentication()
+  return (
+    <Card aria-label="SoD access reviews are turned off">
+      <StatusBadge tone="neutral">Turned off</StatusBadge>
+      <p>SoD access reviews use SoD evidence, which is turned off in Features. Review decisions, periods, frozen snapshots and reports are kept and return when it is turned on. Account Review is not affected.</p>
+      <Toolbar>
+        <AccountReviewLink />
+        {canAdmin && <Button onClick={() => change({ settings: true, settingsTarget: 'features' })}>Open Features</Button>}
+      </Toolbar>
+    </Card>
+  )
+}
+
+/** Link to the existing Account Review in User Access (its route, filters and decisions are unchanged). */
+function AccountReviewLink({ primary = false }: { primary?: boolean }) {
+  const { change } = useViewHistory()
+  return <a className={`ui-button ${primary ? 'ui-button-primary' : 'ui-button-secondary'} ui-button-default`} href={userAccessHref('review')} onClick={event => { if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); change({ page: 'users', accessMode: 'review', user: '', settings: false, detailRole: null }) }}><UserCheck size={16} aria-hidden="true" />Open Account Review</a>
 }
 
 interface QueueSummary extends ContextInfo { total: number; counts: Record<string, number> }
 
 /** Landing page: the existing work-queue counters (same endpoint, filters and definitions as the Work Queue), then direct entry points. */
-function ReviewsOverview() {
+function ReviewsOverview({ sodEnabled }: { sodEnabled: boolean }) {
+  return (
+    <section className="grid min-w-0 gap-4" aria-label="Reviews overview">
+      {sodEnabled ? <AccessReviewsOverview /> : <SodReviewsOff />}
+      <AccountReviewsOverview />
+    </section>
+  )
+}
+
+/** SoD access reviews: the Work Queue counters and workflow entry points. */
+function AccessReviewsOverview() {
   const [context] = useSodContext(),
     [filters] = useSodFilters('queue'),
     { change } = useViewHistory(),
@@ -76,7 +94,8 @@ function ReviewsOverview() {
     { view: 'reports', text: 'Review reports and evidence rendered from one frozen model with checksums.' },
   ]
   return (
-    <section className="grid min-w-0 gap-4" aria-label="Reviews overview">
+    <section className="grid min-w-0 gap-4" aria-label="SoD access reviews">
+      <h2 className="flex items-center gap-2 text-base font-semibold"><ShieldCheck size={16} aria-hidden="true" />SoD access reviews</h2>
       <CoverageNotice info={data} />
       {summary.isError ? <ErrorState error={summary.error} onRetry={() => void summary.refetch()} title="Review progress could not be loaded" /> : !data ? <LoadingState /> : <>
         <section className="sod-tiles" aria-label="Review progress">
@@ -101,12 +120,35 @@ function ReviewsOverview() {
       </section>
       <Card aria-label="Related analysis">
         <h2 className="flex items-center gap-2 text-base font-semibold"><ShieldCheck size={16} aria-hidden="true" />Related analysis</h2>
-        <p className="ui-description">Risk and activity matrices, the SAP User Group heatmap and Access Explorer stay in SoD. Account Review in User Access is a separate account and license review; its decisions are not access-review decisions.</p>
-        <Toolbar>
-          <Button onClick={() => change({ page: 'sod', sodView: 'overview' })}>Open SoD analysis</Button>
-          <a className="ui-button ui-button-secondary ui-button-default" href={userAccessHref('review')} onClick={event => { if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); change({ page: 'users', accessMode: 'review', user: '' }) }}>Open Account Review</a>
-        </Toolbar>
+        <p className="ui-description">Risk and activity matrices, the SAP User Group heatmap and Access Explorer stay in SoD.</p>
+        <Toolbar><Button onClick={() => change({ page: 'sod', sodView: 'overview' })}>Open SoD analysis</Button></Toolbar>
       </Card>
     </section>
+  )
+}
+
+interface AccountReviewSummary { loaded: boolean; summary: Record<string, number | null> }
+
+/**
+ * Account Review counters for the whole SAP account population (Account Review page filters do not apply here). Account Review records account
+ * and license findings; its decisions are separate from SoD access-review decisions and are counted separately.
+ */
+function AccountReviewsOverview() {
+  const result = useQuery({ queryKey: ['account-review', 'reviews-overview'], queryFn: () => apiRequest<AccountReviewSummary>('/api/account-review?limit=1') })
+  const data = result.data, value = (key: string) => (data?.summary[key] ?? 0).toLocaleString()
+  return (
+    <Card aria-label="Account reviews">
+      <h2 className="flex items-center gap-2 text-base font-semibold"><UserCheck size={16} aria-hidden="true" />Account reviews</h2>
+      <p className="ui-description">Account Review in User Access checks SAP accounts against Employee Directory and license evidence (validity, locks, technical users, position changes). Its decisions are account findings, separate from SoD access-review decisions on roles, activities and risks, and are not included in the access-review counters.</p>
+      {result.isError ? <ErrorState error={result.error} onRetry={() => void result.refetch()} title="Account Review progress could not be loaded" />
+        : !data ? <LoadingState />
+        : !data.loaded ? <p className="ui-description" role="status">No SAP user data is loaded yet.</p>
+        : <section className="sod-tiles" aria-label="Account review progress">
+          <Kpi label="SAP accounts" value={value('total')} />
+          <Kpi label="Requiring review" value={value('requiring_review')} tone={stateTone('Needs review', data.summary.requiring_review ?? 0)} />
+          <Kpi label="Completed" value={value('completed')} tone={stateTone('Complete', data.summary.completed ?? 0)} />
+        </section>}
+      <Toolbar><AccountReviewLink primary /></Toolbar>
+    </Card>
   )
 }

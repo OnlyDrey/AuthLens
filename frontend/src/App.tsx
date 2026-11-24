@@ -1,6 +1,6 @@
 import {useSodSubject,useSodContext} from '@/components/Sod/SodShared'
 import { MainNavigation, MainNavigationGroup, MainNavigationItem } from '@/components/Shared/Navigation'
-import { REVIEWS_VIEWS, SOD_VIEWS, USER_ACCESS_VIEWS } from '@/lib/navigationItems'
+import { availableReviewsViews, SOD_VIEWS, USER_ACCESS_VIEWS } from '@/lib/navigationItems'
 import { pageHref, reviewsHref, sodHref, useHistoryValue, useViewHistory } from '@/hooks/useViewHistory'
 import { userAccessHref } from '@/hooks/useViewHistory'
 import { DISCARD_PROMPT, settingsDirty } from '@/lib/settingsGuard'
@@ -44,7 +44,7 @@ export function App() {
   const submenus = {
     users: USER_ACCESS_VIEWS.map(({ value, label, icon }) => ({ value, label, icon, href: userAccessHref(value), active: page === 'users' && !settingsOpen && (accessMode || 'directory') === value, onSelect: () => openPage('users', { accessMode: value, user: '', userContext: {} }) })),
     sod: SOD_VIEWS.map(({ value, label, icon }) => ({ value, label, icon, href: sodHref(value), active: page === 'sod' && !settingsOpen && (sodView || 'overview') === value, onSelect: () => openPage('sod', { sodView: value }) })),
-    reviews: REVIEWS_VIEWS.map(({ value, label, icon }) => ({ value, label, icon, href: reviewsHref(value), active: page === 'reviews' && !settingsOpen && (reviewsView || 'overview') === value, onSelect: () => openPage('reviews', { reviewsView: value }) })),
+    reviews: availableReviewsViews(sodEnabled).map(({ value, label, icon }) => ({ value, label, icon, href: reviewsHref(value), active: page === 'reviews' && !settingsOpen && (reviewsView || 'overview') === value, onSelect: () => openPage('reviews', { reviewsView: value }) })),
   } as const
   /** Settings stay open until the destination is confirmed when they hold unsaved edits. */
   /** The main link opens the module: from another module it returns to where that module was left (open record, filters); on the module itself it opens the main page (User directory, SoD Overview). Other pages are reached through the submenu. */
@@ -81,7 +81,7 @@ export function App() {
     <AppLayout
       navigation={<>
       <MainNavigation>
-        {([['dashboard','Dashboard',LayoutDashboard],['roles','Role Lookup',Search],['users','User Access',Users],['releases','Release Roles',FileCheck2],['sod','SoD',ShieldCheck],['reviews','Reviews',ClipboardList]] as const).filter(([key])=>(key!=='sod'&&key!=='reviews')||sodEnabled).map(([key,label,Icon])=>{const props={label,icon:<Icon size={17} aria-hidden="true"/>,active:page===key&&!settingsOpen,href:pageHref(key),onNavigate:()=>go(key)};return key==='users'||key==='sod'||key==='reviews'?<MainNavigationGroup key={key} {...props} items={[...submenus[key]]}/>:<MainNavigationItem key={key} {...props}/>})}
+        {([['dashboard','Dashboard',LayoutDashboard],['roles','Role Lookup',Search],['users','User Access',Users],['releases','Release Roles',FileCheck2],['sod','SoD',ShieldCheck],['reviews','Reviews',ClipboardList]] as const).filter(([key])=>key!=='sod'||sodEnabled) /* Reviews stays: Account Review does not depend on SoD */.map(([key,label,Icon])=>{const props={label,icon:<Icon size={17} aria-hidden="true"/>,active:page===key&&!settingsOpen,href:pageHref(key),onNavigate:()=>go(key)};return key==='users'||key==='sod'||key==='reviews'?<MainNavigationGroup key={key} {...props} items={[...submenus[key]]}/>:<MainNavigationItem key={key} {...props}/>})}
       </MainNavigation>
       </>}
       onDataChanged={() => {

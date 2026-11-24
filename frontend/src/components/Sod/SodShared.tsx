@@ -93,6 +93,14 @@ export function writeFilters(stored: Record<string, SodFilterState> | undefined,
   const local = Object.fromEntries(Object.entries(value).filter(([key]) => !SHARED_KEYS.includes(key))) as SodFilterState
   return { ...stored, shared, [name]: local }
 }
+const PAGE_ONLY_LABELS: Record<string, string> = { search: 'Search', role_suffix: 'Role suffix', validity: 'Assignment validity', multiple_risks: 'Risks per user', review_status: 'Review status',
+  activity_decision: 'Activity review', assignment_decision: 'Role assignment review', acceptance: 'Risk acceptance' }
+/** Labels of the active filters that belong to this page only (not shared dimensions). Another page does not apply them, so a link to it names them instead of silently broadening the population. */
+export function pageOnlyFilters(filters: Filters, fields: FilterField[]): string[] {
+  const active = (key: string) => { const value = filters[key]; return Array.isArray(value) ? value.length > 0 : value !== undefined && value !== '' && value !== false && value !== (emptyFilters[key] ?? '') }
+  return ['search', ...fields.filter(field => !SHARED_DIMENSIONS[field])].filter(key => PAGE_ONLY_LABELS[key] && (active(key) || (key === 'role_suffix' && active('role_suffixes')))).map(key => PAGE_ONLY_LABELS[key])
+}
+
 /** Does any slot, shared or local, hold a selection that differs from the empty filters? */
 export function hasStoredFilters(stored: Record<string, SodFilterState> | undefined) {
   return Object.values(stored ?? {}).some((slot) => Object.entries(slot).some(([key, value]) => (Array.isArray(value) ? value.length > 0 : value !== '' && value !== false && value !== (emptyFilters[key] ?? ''))))

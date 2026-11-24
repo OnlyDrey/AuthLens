@@ -31,7 +31,7 @@ test('SoD Overview colours nonzero metrics by meaning and keeps informational to
     ['Conflicts', 'Users with potential conflicts', 'warning'], ['Conflicts', 'Users with more than one risk', 'warning'], ['Conflicts', 'Detected user-risk findings', 'warning'], ['Conflicts', 'Enabled risk definitions', 'neutral'],
     ['Reviews', 'Activities pending or outdated', 'warning'], ['Reviews', 'Activities approved or conditional', 'success'], ['Reviews', 'Activities marked for removal', 'warning'],
     ['Reviews', 'Risks accepted', 'success'], ['Reviews', 'Risks rejected', 'warning'], ['Reviews', 'Risk decisions pending', 'warning'],
-    ['Remediation', 'Role assignments marked for removal', 'warning'], ['Remediation', 'Open actions', 'warning'], ['Remediation', 'Overdue actions', 'error'], ['Remediation', 'Remediation awaiting action', 'warning'],
+    ['Remediation', 'Assignments marked for removal', 'warning'], ['Remediation', 'Open actions', 'warning'], ['Remediation', 'Overdue actions', 'error'], ['Remediation', 'Remediation awaiting action', 'warning'],
   ]
   for (const [group, label, want] of expected) {
     const found = await tone(page, group, label)

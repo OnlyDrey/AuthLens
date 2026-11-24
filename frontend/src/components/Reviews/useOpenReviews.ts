@@ -7,13 +7,14 @@ export interface ReviewScope { functional_groups?: string[]; managers?: string[]
  * Opens the Reviews workspace with the caller's subject scope. The destination shows exactly the source screen's organizational and exact-username scope
  * (an empty source dimension clears it, as on the Dashboard), so a link never silently broadens or narrows the population. The review context
  * (current evidence or a frozen period), decisions and snapshots are untouched. A role opens the queue for users holding exactly that role.
+ * Without a scope (SoD pages), the shared SoD filter dimensions are already the source scope and are kept as they are.
  */
 export function useOpenReviews() {
   const { view, change } = useViewHistory()
-  return (scope: ReviewScope, reviewsView: ReviewsView = 'queue') => {
+  return (scope?: ReviewScope, reviewsView: ReviewsView = 'queue') => {
     if (view.settings && settingsDirty() && !window.confirm(DISCARD_PROMPT)) return
-    const shared = { ...view.sodFilters?.shared, functional_groups: scope.functional_groups ?? [], managers: scope.managers ?? [], usernames: scope.usernames ?? [],
+    const shared = !scope ? view.sodFilters?.shared : { ...view.sodFilters?.shared, functional_groups: scope.functional_groups ?? [], managers: scope.managers ?? [], usernames: scope.usernames ?? [],
       ...(scope.role !== undefined ? { role: '', roles: [], role_families: [], role_exact: [scope.role] } : {}) }
-    change({ page: 'reviews', reviewsView, settings: false, detailRole: null, sodSubject: null, sodFilters: { ...view.sodFilters, shared } })
+    change({ page: 'reviews', reviewsView, settings: false, detailRole: null, sodSubject: null, sodFilters: { ...view.sodFilters, ...(shared ? { shared } : {}) } })
   }
 }

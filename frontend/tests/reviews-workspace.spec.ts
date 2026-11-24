@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test'
-import {cleanup,createPeriod,openReviews,openSod,seedGovernance,uniqueName} from './sod-fixture'
+import {cleanup,createPeriod,enableSod,openReviews,openSod,seedGovernance,uniqueName} from './sod-fixture'
 import {mainNavigation} from './support'
 
 let directory:string
@@ -48,4 +48,35 @@ test('moving between SoD and Reviews keeps the selected review context',async({p
  await page.goBack();await page.goBack()
  await expect(page.getByRole('navigation',{name:'SoD views',exact:true})).toBeVisible()
  await expect(page.getByRole('combobox',{name:'Review context',exact:true})).toHaveValue(id)
+})
+
+test('Reviews stays available with SoD turned off and leads to Account Review',async({page,request})=>{
+ await enableSod(request,false)
+ try{
+  await page.goto('/#session=browser-test-session')
+  await expect(mainNavigation(page).getByRole('link',{name:'SoD',exact:true})).toHaveCount(0)
+  await mainNavigation(page).getByRole('link',{name:'Reviews',exact:true}).click()
+  await expect(page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link')).toHaveText(['Overview'])
+  await expect(page.getByRole('combobox',{name:'Review context',exact:true})).toHaveCount(0)
+  await expect(page.getByLabel('SoD access reviews are turned off',{exact:true})).toBeVisible()
+  const accounts=page.getByLabel('Account reviews',{exact:true})
+  await expect(accounts.getByRole('region',{name:'Account review progress',exact:true}).getByText('SAP accounts',{exact:true})).toBeVisible()
+  await expect(accounts).toContainText('separate from SoD access-review decisions')
+  // A bookmarked SoD review page explains itself instead of showing access-review data.
+  await page.goto('/#/reviews/queue');await page.reload()
+  await expect(page.getByLabel('SoD access reviews are turned off',{exact:true})).toBeVisible()
+  await expect(page.getByRole('region',{name:'SoD review work queue',exact:true})).toHaveCount(0)
+  await page.goto('/#/reviews');await page.reload()
+  await page.getByLabel('Account reviews',{exact:true}).getByRole('link',{name:'Open Account Review',exact:true}).click()
+  await expect(page).toHaveURL(/#\/user-access\/account-review$/)
+ }finally{await enableSod(request)}
+})
+
+test('Access Explorer opens the Work Queue with shared filters and names the filters it does not carry',async({page})=>{
+ await openSod(page,'Access Explorer')
+ await page.getByRole('combobox',{name:'Risks per user'}).selectOption('true')
+ await expect(page.getByTestId('work-queue-scope-note')).toHaveText('Not applied in the Work Queue: Risks per user')
+ await page.getByRole('button',{name:'Open Work Queue',exact:true}).click()
+ await expect(page).toHaveURL(/#\/reviews\/queue$/)
+ await expect(page.getByRole('region',{name:'SoD review work queue',exact:true})).toBeVisible()
 })

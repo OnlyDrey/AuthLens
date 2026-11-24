@@ -23,7 +23,8 @@ import { SodPill } from '@/lib/sodAppearance'
 import { UserGroupCell } from '@/components/Shared/UserGroup'
 import { RoleIdentifier } from '@/components/Shared/RoleIdentifier'
 import { kpiTone, stateTone } from '@/lib/kpiTone'
-import { type FilterField, keepWithinContext, useFilterChangeReset, reviewStatusParam, SodArea, RoleCodeList, CoverageNotice, SodFilters, writeFilters, useSodContext, useSodFilters, useSodSubject } from './SodShared'
+import { type FilterField, keepWithinContext, useFilterChangeReset, reviewStatusParam, SodArea, RoleCodeList, CoverageNotice, SodFilters, writeFilters, useSodContext, useSodFilters, useSodSubject, pageOnlyFilters } from './SodShared'
+import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 
 type TableName = Exclude<SodExplorerTable, 'roles'>
 interface Row {
@@ -160,6 +161,7 @@ function ExplorerTable({ table, onTable }: { table: TableName; onTable: (value: 
     [gathering, setGathering] = useState(false),
     [gatherNote, setGatherNote] = useState('')
   const filters:Filters={...storedFilters,assignment_scope:table==='lookup'?'all':'conflicts'}
+  const pageOnly = pageOnlyFilters(storedFilters, FIELDS[table])
   const openBulk=()=>change({sodView:'reviews',sodReviews:'bulk',sodSubject:null,bulkSelectMatching:true,sodFilters:writeFilters(view.sodFilters,'bulk',['group','username','role','risk','activity','tcode','category'],{...filters,role_match:filters.role_match||'search',assignment_scope:'all',review_status:'all'})})
   const selection = useBulkSelection<AssignmentPick>(pickKey)
   const setPageSize = (value: number) => { setPageSizeState(value); setOffset(0) }
@@ -210,6 +212,8 @@ function ExplorerTable({ table, onTable }: { table: TableName; onTable: (value: 
         actions={<>
           {(table === 'user_risk' || table === 'user_activity') && <Select aria-label="Group users by" value={table} onChange={(event) => onTable(event.target.value as SodExplorerTable)}><option value="user_risk">Grouped by risk</option><option value="user_activity">Grouped by activity</option></Select>}
           {table==='lookup'&&<Button disabled={result.isFetching||!data?.reviewable} title="Reviews all active assignments matching these filters, including non-conflict roles and all pages." onClick={openBulk}>Review matching assignments</Button>}
+          <OpenInReviewsButton label="Open Work Queue" />
+          {pageOnly.length > 0 && <span className="ui-description" data-testid="work-queue-scope-note">Not applied in the Work Queue: {pageOnly.join(', ')}</span>}
           <ExportCSVButton loading={busy} disabled={!data?.total} onClick={() => void download(`/api/sod/explorer/${table}/export`, EXPORT_NAME)} title="Exports every filtered row across pages." />
           {table === 'user_risk' && context === 'current' && <Button disabled={busy || !data?.total} variant="outline" onClick={() => void download('/api/sod/analysis/export', /^authlens-sod-users-findings-\d{4}-\d{2}-\d{2}\.csv$/, { kind: 'users' })}><FileDown size={16} aria-hidden="true" />Export evidence CSV</Button>}
         </>}>

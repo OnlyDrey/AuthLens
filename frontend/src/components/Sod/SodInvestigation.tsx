@@ -13,6 +13,7 @@ import { DisclosureChevron } from '@/components/Shared/DisclosureChevron'
 import { Layers, ShieldCheck, ListChecks, Check, ClipboardCheck, FlaskConical, History, Search, Trash2, Wrench } from 'lucide-react'
 import { emptyFilters, scopeParams, sod, sodPost, type ActivityDetail, type AssignmentRow, type DecisionEvent, type OverviewAssignment, type Subject, type ReviewCoverage,type RemediationVerification } from '@/api/sod'
 import { useViewHistory, userHref } from '@/hooks/useViewHistory'
+import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 import { SidePanel } from '@/components/Shared/SidePanel'
 import { Button, IconButton } from '@/components/Shared/Button'
 import { Card, ErrorState, EmptyState, LoadingState, StatusBadge, Toolbar } from '@/components/Shared/Presentation'
@@ -57,7 +58,7 @@ export function SodInvestigation(props:InvestigationProps){
 
 function InvestigationContent({context,user,risk,activity,onScope,reviewTab,setReviewTab}:InvestigationProps & {reviewTab:Kind;setReviewTab:(tab:Kind)=>void}) {
   const qc = useQueryClient(),
-    { change } = useViewHistory(),
+    { view: current, change } = useViewHistory(),
     [form, setForm] = useState<FormState | null>(null),
     [picked, setPicked] = useState<Record<Kind, string[]>>({ activity: [], assignment: [], acceptance: [],risk:[] }),
     [selection, setSelection] = useState<string[]>([]),
@@ -104,6 +105,7 @@ function InvestigationContent({context,user,risk,activity,onScope,reviewTab,setR
             {data.groups.map((group) => <StatusBadge key={group}>{group}</StatusBadge>)}
             {data.frozen && <StatusBadge tone="info">Frozen snapshot, read only</StatusBadge>}
             {!data.frozen && !data.reviewable && <StatusBadge>Read only</StatusBadge>}
+            {current.page !== 'reviews' && <OpenInReviewsButton size="compact" scope={{ usernames: [user] }} label="Open in Work Queue" />}
           </Toolbar>
           {data.account && <p className="ui-description flex flex-wrap items-center gap-x-2 gap-y-1"><span>Directory match</span><StatusBadge tone={data.account.directory_match === 'matched' ? 'success' : ['ambiguous', 'unmatched'].includes(data.account.directory_match) ? 'warning' : 'neutral'}>{sentenceCase(data.account.directory_match)}</StatusBadge><span>AD {data.account.ad_status}{data.account.lock_status ? ` · SAP ${data.account.lock_status}` : ''}</span></p>}
           {scoped && <p className="ui-description" role="status">Showing only {risk ? `risk ${risk}` : `activity ${activity}`} and the evidence behind it.{onScope && <> <Button variant="ghost" onClick={() => onScope({ user })}>Show all review items for {user}</Button></>}</p>}
