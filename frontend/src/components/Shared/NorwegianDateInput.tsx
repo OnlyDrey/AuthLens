@@ -294,7 +294,7 @@ export function NorwegianDateInput({
               </>
             </div>
           </div>,
-          document.body,
+          button.current?.closest<HTMLElement>('[role="dialog"][aria-modal="true"]') ?? document.body,
         )}
     </div>
   )

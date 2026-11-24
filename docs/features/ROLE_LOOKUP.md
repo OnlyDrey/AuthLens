@@ -1,10 +1,22 @@
 # Role Lookup and Role Details
 
 Search catalogue role names/descriptions alongside exact transaction codes. SAP area
-pills combine with OR; separate text/area/transaction categories combine with AND.
+selections combine with OR; separate text/area/transaction categories combine with AND.
 Multiple T-codes default to AND, with an explicit OR option. Enter creates a chip;
 remove chips individually or Clear all filters. Sorting stays beside the result
 count, below the primary searches.
+
+The Filters sidebar starts with a labelled role search and one compact **Role categories** dropdown.
+The closed selector shows the selected category's original module icon/code, name and catalogue count.
+Options retain the configured module icons, full category names, counts and selected checkmarks. Multiple
+selections combine with OR and remain compatible with saved filters; the closed control summarizes their
+combined count. **All categories** clears only category selection. Arrow keys, Home/End and typing navigate
+the open list; Enter/Space toggles a category, Escape/Tab closes it. Long names wrap inside the viewport-bounded
+option list and truncate with full-name titles in the closed control. The same selector is used in the mobile drawer.
+The Saved Filters popup stays above the mobile drawer so saving and loading selections remain clickable.
+The keyboard-accessible search clear action restores input focus and clears only the text. Categories, transactions, saved
+filters and comparison selection keep their existing behavior. Name/code and description matching retain the existing debounce.
+Empty results are announced politely and explain that the filters combine.
 
 ## Exclude matching transactions
 
@@ -123,6 +135,12 @@ The package turns catalogue roles into proposed SAP role names. It never assigns
 
 ## Single-role comparison
 
+Layout: the compared roles and their exclusive single roles are two strips with one role per column, in selection order, on a single
+row that never wraps. Columns share the width while they fit and keep a readable minimum otherwise; the strip then scrolls inside
+itself (it is keyboard focusable), never the page, so a role keeps the same column in both strips. Each compared role has a
+**Remove from comparison** action while more than two roles are compared; removing recomputes the comparison in place. A comparison
+holds two to five roles (the existing selection limit).
+
 Role Comparison keeps the high-level single-role and mapped-transaction similarity
 metrics, with responsive Shared by all tiles (maximum three columns) and Exclusive per composite lists. A shared single role expands vertically inside its own tile, pushing later content down, and exclusive single roles are compact list rows that expand beneath the row. Every single-role entry (also in Role Details) shows the module icon and code with the transaction count below, the description beside them and the copyable role identifier last. Expand an entry to inspect transaction evidence. Search comparison
 transactions accepts exact codes or explicit SAP `*` patterns and filters both
@@ -135,3 +153,14 @@ descriptions and canonical classification are unchanged. Unknown prefixes remain
 intact. Role Details uses the same transaction matcher and restores manual
 expansion state when its filter is cleared. Neither role nor transaction overlap
 proves effective SAP authorization.
+
+## Proposed access packages
+
+The shared access-package selection bar and Role Lookup package panel propose
+role names from the imported catalogue and an organizational suffix. Exact roles
+without a suffix variant remain exact. Supported trailing wildcard/suffix forms
+are resolved using catalogue naming evidence; ambiguous patterns and invalid or
+oversized SAP role names are reported rather than silently rewritten. Inspect the
+proposal before copying/exporting it. The package is an investigation proposal:
+it changes no SAP access, imports no assignments and grants no authorization.
+Implementation: `backend/src/AuthLens.Api/V1AccessPackage.cs` and `AccessPackagePanel.tsx`.

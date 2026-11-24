@@ -4,14 +4,14 @@ import { test, expect } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers } from './support'
+import { headers, postConfiguration } from './support'
 test.beforeEach(async ({ request }) => {
   expect(
     (await request.post('/api/configuration/reset', { headers })).ok()
   ).toBeTruthy()
 })
 const workspace = (page: import('@playwright/test').Page) =>
-  page.getByRole('region', { name: 'SAP Lens settings', exact: true })
+  page.getByRole('region', { name: 'AuthLens settings', exact: true })
 
 test('shared navigation and dropdown geometry retain keyboard access', { tag: '@a11y' }, async ({
   page
@@ -126,7 +126,7 @@ test('unavailable lazy icon assets keep the application usable and preserve save
   cfg.settings.module_overrides.FI = { enabled: true, icon: 'Camera' }
   expect(
     (
-      await request.post('/api/configuration', { headers, data: cfg.settings })
+      await postConfiguration(request, cfg.settings)
     ).ok()
   ).toBeTruthy()
   const errors: string[] = []
@@ -157,7 +157,7 @@ test('automatic selection and optional mapping preview preserve manual overrides
   page,
   request
 }) => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'sap-lens-auto-columns-'))
+  const dir = mkdtempSync(path.join(tmpdir(), 'authlens-auto-columns-'))
   const first = path.join(dir, 'first.csv'),
     second = path.join(dir, 'second.csv')
   writeFileSync(first, 'AGR_NAME,Role,TCODE\nDEMO_AUTO,DEMO_MANUAL,DEMO_T\n')
@@ -176,7 +176,7 @@ test('automatic selection and optional mapping preview preserve manual overrides
       .click()
     await page.getByRole('button',{name:'Refresh source',exact:true}).click()
     await expect(page.getByRole('status').filter({hasText:'Completed ·'})).toBeVisible()
-    await page.getByRole('button',{name:'Back to SAP Lens',exact:true}).click()
+    await page.getByRole('button',{name:'Back to AuthLens',exact:true}).click()
     await expect(workspace(page)).toBeHidden()
     expect(
       (await request.get('/api/roles/DEMO_MANUAL', { headers })).ok()
@@ -201,7 +201,7 @@ test('automatic selection and optional mapping preview preserve manual overrides
     expect(
       (await request.get('/api/roles/DEMO_MANUAL', { headers })).ok()
     ).toBeTruthy()
-    await page.getByRole('button', { name: 'Back to SAP Lens', exact: true }).click()
+    await page.getByRole('button', { name: 'Back to AuthLens', exact: true }).click()
     await expect(workspace(page)).toBeHidden()
     const saved = await (
       await request.get('/api/configuration', { headers })
@@ -334,15 +334,20 @@ test('theme preview screenshot changes and cancel restores the original pixels',
   await page
     .getByRole('tab', { name: 'Health & Diagnostics', exact: true })
     .click()
+  await page.getByRole('tab',{name:'Storage & Logs',exact:true}).click()
   await page.getByText('Source locations and storage details',{exact:true}).click()
+  await page.getByRole('tab',{name:'Source Health',exact:true}).click()
   await inspectTechnicalSources(page)
-  for (const name of [
-    'Application status',
-    'Data & storage',
-    'Troubleshooting',
-    'Configuration export & recovery'
-  ])
-    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
+  // Application status stays above the tabs; every other section is reachable from exactly one tab and nothing was dropped.
+  const sections = page.getByRole('tablist', { name: 'Health and diagnostics sections', exact: true })
+  await expect(sections.getByRole('tab')).toHaveText(['Source Health', 'Storage & Logs', 'Configuration Recovery'])
+  for (const [tab, headings] of [['Source Health', ['Application status', 'Data source health']], ['Storage & Logs', ['Application status', 'Data & storage', 'Troubleshooting']],
+                                 ['Configuration Recovery', ['Application status', 'Configuration export & recovery']]] as const) {
+    await sections.getByRole('tab', { name: tab, exact: true }).click()
+    await expect(sections.getByRole('tab', { name: tab, exact: true })).toHaveAttribute('aria-selected', 'true')
+    for (const name of headings) await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
+  }
+  await sections.getByRole('tab', { name: 'Storage & Logs', exact: true }).click()
   await expect(
     page.getByText('Configuration schema', { exact: true })
   ).toBeHidden()

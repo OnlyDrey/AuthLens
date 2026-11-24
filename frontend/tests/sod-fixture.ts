@@ -1,7 +1,7 @@
 import { expect, type APIRequestContext, type Page } from '@playwright/test'
-import { headers } from './support'
+import { headers, postConfiguration, goTo } from './support'
 export { headers }
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 const roles = 'AGR_NAME,TEXT,CHILD_AGR,TCODE\n' + [['ROLE_A1', 'X1'], ['ROLE_A2', 'X1'], ['ROLE_B', 'X2'], ['ROLE_C', 'X3'], ['ROLE_AB', 'X1'], ['ROLE_AB', 'X2']].map(([role, code]) => `${role},Synthetic ${role},ZS:${role},${code}`).join('\n') + '\n'
@@ -22,7 +22,7 @@ export const longRoleName = 'ZC:SYN:A_VERY_LONG_ROLE_IDENTIFIER_FOR_LAYOUT_STRES
 export async function enableSod(request: APIRequestContext, enabled = true) {
   const settings = (await (await request.get('/api/configuration', { headers })).json()).settings
   settings.features.sod = enabled
-  expect((await request.post('/api/configuration', { headers, data: settings })).ok()).toBeTruthy()
+  expect((await postConfiguration(request, settings)).ok()).toBeTruthy()
 }
 
 export async function seedGovernance(request: APIRequestContext, sodMode: 'static' | 'dynamic' = 'static', sodMatrix = matrix, longRole = false): Promise<string> {
@@ -54,7 +54,7 @@ export async function cleanup(request: APIRequestContext, directory: string) {
 
 export async function openSod(page: Page, link = 'Overview') {
   await page.goto('/#session=browser-test-session')
-  await page.getByRole('navigation', { name: 'Main navigation', exact: true }).getByRole('link', { name: 'SoD', exact: true }).click()
+  await goTo(page, 'SoD')
   if (link !== 'Overview') await page.getByRole('link', { name: link, exact: true }).click()
 }
 
@@ -101,12 +101,12 @@ export async function movePeriod(request: APIRequestContext, id: string, state: 
   expect(response.ok(), await response.text()).toBeTruthy()
 }
 
+/** Captures the next browser downloads into window.__saved ({ name, encoded, content }) so specs can inspect exported files. */
 export async function bridge(page: Page) {
-  await page.evaluate(() => {
-    ;(window as any).pywebview = { api: {
-      save_sod_document: async (_token: string, name: string, encoded: string) => { ;(window as any).__saved = { name, encoded }; return true },
-      save_sod_csv: async (_token: string, name: string, content: string) => { ;(window as any).__saved = { name, content }; return true },
-    } }
+  page.on('download', async (download) => {
+    const file = await download.path()
+    const bytes = file ? readFileSync(file) : Buffer.alloc(0)
+    await page.evaluate((saved) => { ;(window as any).__saved = saved }, { name: download.suggestedFilename(), encoded: bytes.toString('base64'), content: bytes.toString('utf8') })
   })
 }
 

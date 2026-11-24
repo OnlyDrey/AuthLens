@@ -1,6 +1,6 @@
 import { apiRequest } from './client'
 
-export type FunctionalGroup = { id: string; name: string; description: string; status: 'active' | 'archived'; created: string; modified: string; user_count: number }
+export type FunctionalGroup = { id: string; name: string; description: string; status: 'active' | 'archived'; created: string; modified: string; user_count: number; deletable: boolean; references: { members: number; rules: number; history: number } }
 export type ClassificationStatus = 'Unassigned' | 'Confirmed' | 'Needs review'
 export type GroupRef = { id: string; name: string; status: string }
 export type Review = { change_id: string; reason: string; required_since: string }
@@ -17,6 +17,8 @@ export type Classification = {
 export type GroupEvent = {
   id: string; event: string; username: string; previous_group: string | null; new_group: string | null; previous_status: ClassificationStatus
   new_status: ClassificationStatus; actor: string; timestamp: string; reason: string; change_id: string
+  /** Names resolved by the server, also for a group deleted since (then `group_deleted`). */
+  previous_group_name?: string | null; new_group_name?: string | null; group_deleted?: boolean
 }
 export type SuggestedGroup = { group_id: string; group_name: string; rule_ids: string[]; reasons: string[]; already_member: boolean }
 export type Suggestion = { status: 'none' | 'suggested'; groups: SuggestedGroup[]; matches: { rule_id: string; group_id: string; group_name: string; reasons: string[] }[] }
@@ -34,6 +36,9 @@ export const fetchGroups = () => apiRequest<{ items: FunctionalGroup[] }>(base)
 export const createGroup = (name: string, description: string) => apiRequest<FunctionalGroup>(base, 'POST', { name, description })
 export const updateGroup = (id: string, patch: { name?: string; description?: string }) => apiRequest<FunctionalGroup>(`${base}/${id}`, 'PATCH', patch)
 export const setGroupArchived = (id: string, archived: boolean) => apiRequest<FunctionalGroup>(`${base}/${id}/${archived ? 'archive' : 'restore'}`, 'POST')
+/** Permanent deletion of an archived group; `expectedMembers` is the member count the person confirmed (the server refuses a different current count). */
+export const deleteGroup = (id: string, expectedMembers: number) =>
+  apiRequest<{ status: string; id: string; name: string; members_removed: number; rules_removed: number }>(`${base}/${id}?expected_members=${expectedMembers}`, 'DELETE')
 export const rulesKey = ['functional-group-rules'] as const
 export const fetchRules = (counts = false) => apiRequest<{ items: Rule[] }>(`${base}/rules${counts ? '?counts=true' : ''}`)
 export type RuleInput = { group_id: string; department: string; title_contains: string; department_mode: 'contains' | 'equals' }

@@ -1,0 +1,206 @@
+using System.Net;
+
+namespace AuthLens.Api;
+
+/// <summary>Server configuration from command-line options and environment variables (options win). No secret is accepted on the command line, where
+/// any local user could read it from the process list: the certificate password comes from AUTHLENS_CERT_PASSWORD or a file
+/// (--cert-password-file, for example a systemd credential), the access token from AUTHLENS_TOKEN or the protected api-token file.
+/// Unknown options are errors, so a typo never silently falls back to a default.</summary>
+public static class ServerConfiguration
+{
+    public static readonly string[] ValueOptions = ["--data-dir", "--source-dir", "--listen", "--port", "--allowed-hosts", "--proxy-hosts", "--cert", "--cert-key", "--cert-password-file", "--auth", "--trusted-proxies", "--trusted-proxy-hops"];
+    public static readonly string[] FlagOptions = ["--network", "--no-worker"];
+
+    /// <summary>--help (-h) and --version: answered before any configuration is read, so they create no directory or token, open no certificate and
+    /// never print a secret. Any other argument keeps the fail-closed parsing below.</summary>
+    public static string? Informational(string[] args)
+    {
+        if (args.Any(a => a is "--help" or "-h")) return Help;
+        if (args.Contains("--version")) return ProductIdentity.Describe("server");
+        return null;
+    }
+
+    /// <summary>--check-sign-in USERNAME with --data-dir (or AUTHLENS_DATA_DIR): the account store path and the username to diagnose.</summary>
+    public static (string Store, string Username) SignInCheck(string[] args, Func<string, string?> environment)
+    {
+        string? Value(string name) { var i = Array.IndexOf(args, name); return i >= 0 && i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal) ? args[i + 1] : null; }
+        var username = Value("--check-sign-in") ?? throw new InvalidOperationException("--check-sign-in needs a username.");
+        var data = Value("--data-dir") ?? environment("AUTHLENS_DATA_DIR") ?? throw new InvalidOperationException("--data-dir (or AUTHLENS_DATA_DIR) is required.");
+        if (!Path.IsPathFullyQualified(data)) throw new InvalidOperationException("--data-dir must be an absolute path.");
+        return (AuthLens.Application.Accounts.AccountStore.For(data), username);
+    }
+
+    /// <summary>--backup-key create|use|export PATH with --data-dir: a LOCAL host backup key operation. The key itself is never printed.</summary>
+    public static (string Action, string Path, string Data) BackupKey(string[] args, Func<string, string?> environment)
+    {
+        var i = Array.IndexOf(args, "--backup-key");
+        var action = i + 1 < args.Length ? args[i + 1] : "";
+        if (action is not ("create" or "use" or "export" or "verify" or "status")) throw new InvalidOperationException("--backup-key needs create, use, export, verify or status.");
+        var path = action == "status" ? "" : i + 2 < args.Length && !args[i + 2].StartsWith("--", StringComparison.Ordinal) ? args[i + 2] : throw new InvalidOperationException($"--backup-key {action} needs a file path.");
+        var d = Array.IndexOf(args, "--data-dir");
+        var data = (d >= 0 && d + 1 < args.Length ? args[d + 1] : null) ?? environment("AUTHLENS_DATA_DIR") ?? throw new InvalidOperationException("--data-dir (or AUTHLENS_DATA_DIR) is required.");
+        if (!System.IO.Path.IsPathFullyQualified(data) || (path.Length > 0 && !System.IO.Path.IsPathFullyQualified(path))) throw new InvalidOperationException("--data-dir and the key path must be absolute paths.");
+        return (action, path, data);
+    }
+
+    /// <summary>A secret from the console without echo, or one line of redirected input.</summary>
+    public static string ReadSecret()
+    {
+        if (Console.IsInputRedirected) return Console.In.ReadLine() ?? "";
+        var sb = new System.Text.StringBuilder();
+        while (true)
+        {
+            var key = Console.ReadKey(intercept: true);
+            if (key.Key == ConsoleKey.Enter) return sb.ToString();
+            if (key.Key == ConsoleKey.Backspace) { if (sb.Length > 0) sb.Length--; continue; }
+            if (!char.IsControl(key.KeyChar)) sb.Append(key.KeyChar);
+        }
+    }
+
+    /// <summary>AuthLens reads only AUTHLENS_* variables. SAP_LENS_* (SAP Lens, and SAP Lens 1) and SAP_LENS_V2_* (earlier .NET builds) are never read,
+    /// and are not refused either: a host may still run SAP Lens beside AuthLens during acceptance. The startup warning names each ignored variable
+    /// and its AuthLens name, so a setting is never lost silently. Not an alias.</summary>
+    public static string? RenamedEnvironment(System.Collections.IDictionary environment)
+    {
+        static string Replacement(string key) => "AUTHLENS_" + (key.StartsWith("SAP_LENS_V2_", StringComparison.OrdinalIgnoreCase) ? key["SAP_LENS_V2_".Length..] : key["SAP_LENS_".Length..]);
+        var old = environment.Keys.OfType<string>().Where(k => k.StartsWith("SAP_LENS_", StringComparison.OrdinalIgnoreCase) && !k.Equals("SAP_LENS_V1_BACKEND", StringComparison.OrdinalIgnoreCase))
+            .Order(StringComparer.Ordinal).ToList();
+        return old.Count == 0 ? null
+            : $"ignored environment variables of an earlier product name: {string.Join(", ", old.Select(k => $"{k} (AuthLens reads {Replacement(k)})"))}.";
+    }
+
+    public const string Help = """
+        AuthLens server (.NET)
+
+        Usage: AuthLens.Api --data-dir <absolute path> [options]
+
+        Options (each also read from the environment variable shown; a command-line option wins):
+          --data-dir <path>            AUTHLENS_DATA_DIR        Required. Absolute, local path (no network share). Created if missing.
+          --listen <ip>                AUTHLENS_LISTEN          IP address to bind. Default 127.0.0.1. Non-loopback needs --network.
+          --source-dir <path>          AUTHLENS_SOURCE_DIR      Additional operator-approved CSV directory (local or UNC). No credentials.
+                                       AUTHLENS_SOURCE_ROOTS   Optional JSON array of additional approved CSV directories.
+          --port <1-65535>             AUTHLENS_PORT            Default 18790.
+          --network                    AUTHLENS_NETWORK=true    Allow LAN access: one private --listen address, --cert and --allowed-hosts.
+          --allowed-hosts <a,b>        AUTHLENS_ALLOWED_HOSTS   Host names or addresses clients use (no wildcards). Required with --network.
+          --proxy-hosts <a,b>          AUTHLENS_PROXY_HOSTS     Public HTTP hosts accepted only from trusted proxy peers; not backend TLS names.
+          --cert <file>                AUTHLENS_CERT            .pfx/.p12 or PEM certificate; enables HTTPS. Required with --network.
+          --cert-key <file>            AUTHLENS_CERT_KEY        PEM private key file (PEM certificates only).
+          --cert-password-file <file>  AUTHLENS_CERT_PASSWORD_FILE  File holding the certificate password.
+                                       AUTHLENS_CERT_PASSWORD   Password from the environment, used only without a password file.
+          --auth <mode>                AUTHLENS_AUTH            accounts (default) or shared-token.
+          --trusted-proxies <a,b>      AUTHLENS_TRUSTED_PROXIES Reverse proxies (IP or CIDR, at most /24 or /64 wide) whose X-Forwarded-For,
+                                                                   -Proto and -Host are applied. Default none. Needs --network.
+          --trusted-proxy-hops <1-5>   AUTHLENS_TRUSTED_PROXY_HOPS  Trusted proxy hops to walk back through. Default 1.
+          --no-worker                                              Do not run the background import worker.
+                                       AUTHLENS_TOKEN           API access token (at least 32 characters); otherwise <data-dir>/api-token.
+                                       AUTHLENS_PRINCIPAL       Name recorded for API clients using the token. Default server-operator.
+          --help, -h                                               Show this text and exit.
+          --version                                                Show the version and exit.
+          --check-sign-in <username>                               With --data-dir: explain locally why a sign-in is refused, then exit.
+                                                                   Read-only (opens the account store read-only, starts no server); the
+                                                                   password is typed without echo and never printed.
+          --backup-key create <file>                               With --data-dir: create a new private host backup key file outside the data
+                                                                   directory and use it, then exit. The key is never printed.
+          --backup-key use <file>                                  With --data-dir: use an existing host backup key file, then exit.
+          --backup-key export <file>                               With --data-dir: write a recovery copy to a new private file (store it separately,
+                                                                   then verify it in Settings > Backups), then exit.
+          --backup-key status                                      With --data-dir: show whether a key is configured and its fingerprint.
+          --backup-key verify <file>                               Verify a separately stored recovery copy locally; key material is never printed.
+          --accounts-code                                         With --data-dir: issue a one-use initial administrator activation code locally.
+              [--recover-administrator <username>]                 Instead issue a recovery code for an existing administrator; ends their sessions.
+          --inspect-data                                          Inspect scratch copies of SQLite files and WAL without opening source databases.
+          --schema-info                                            With --data-dir: migrations this build knows and the database applied (read-only).
+          --server-preflight                                       With explicit Server options: read-only TLS/network/schema/integrity and backup-key readiness; no listener, token or data initialization.
+          --backup-local <folder>                                  With --data-dir: a verified, host-key encrypted archive of the data (online copy).
+          --backup-verify <file>                                   With --data-dir: decrypt and validate an archive like a restore would.
+          --restore <file> --replace-all-data                      With --data-dir: stage and confirm an AuthLens or SAP Lens backup; it is applied
+                                                                   at the next start (host key via --backup-key use, or AUTHLENS_BACKUP_PASSPHRASE).
+          --adopt-legacy-database                                  With --data-dir: convert an unused SAP Lens database (sap-lens-v2.sqlite3) into
+                                                                   authlens.sqlite3 (verified copy; the SAP Lens file is kept).
+          --migrate-v1 preview --source <dir|.slbak|.tar.gz>       With --data-dir: dry run of a SAP Lens 1 data migration (read-only for the source;
+                                                                   add --replace-existing to allow replacing existing .NET data). Prints a digest.
+                                                                   An encrypted .slbak asks for its passphrase, or for the recovery key of a
+                                                                   host-key archive; --v1-key-file <file> reads that recovery key from its file.
+          --migrate-v1 run --id <id> --approve <digest>            Build and verify the migrated data separately, with a migration backup.
+          --migrate-v1 activate --id <id> --approve <digest>       Activate the verified migration at the next start (previous data is kept).
+          --migrate-v1 rollback --id <id>                          Return to the previous .NET application data at the next start.
+          --migrate-v1 status --id <id>                            Show a migration report.
+
+        Secrets are never accepted as options: --cert-password and --token are refused.
+        Unknown options, missing values and invalid settings stop startup with exit code 3 and "startup refused: <reason>".
+        """;
+
+    public static HostSettings Parse(string[] args, Func<string, string?> environment, bool inspection = false)
+    {
+        var options = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (var i = 0; i < args.Length; i++)
+        {
+            var name = args[i];
+            if (name is "--cert-password" or "--token") throw new InvalidOperationException($"{name} is not accepted on the command line; use the environment or a protected file.");
+            if (FlagOptions.Contains(name)) { options[name] = "true"; continue; }
+            if (!ValueOptions.Contains(name)) throw new InvalidOperationException($"Unknown option '{name}'.");
+            if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal)) throw new InvalidOperationException($"{name} needs a value.");
+            options[name] = args[++i];
+        }
+        string? Get(string option, string variable) => options.TryGetValue(option, out var v) ? v : environment(variable) is { Length: > 0 } e ? e : null;
+
+        var dataDirectory = Get("--data-dir", "AUTHLENS_DATA_DIR") ?? throw new InvalidOperationException("--data-dir (or AUTHLENS_DATA_DIR) is required.");
+        if (!Path.IsPathFullyQualified(dataDirectory)) throw new InvalidOperationException("--data-dir must be an absolute path.");
+        var listenText = Get("--listen", "AUTHLENS_LISTEN") ?? "127.0.0.1";
+        if (!IPAddress.TryParse(listenText, out var listen)) throw new InvalidOperationException($"--listen must be an IP address, not '{listenText}'.");
+        var portText = Get("--port", "AUTHLENS_PORT");
+        var port = 18790;
+        if (portText is not null && (!int.TryParse(portText, out port) || port is < 1 or > 65535)) throw new InvalidOperationException("--port must be between 1 and 65535.");
+        var network = options.ContainsKey("--network") || string.Equals(environment("AUTHLENS_NETWORK"), "true", StringComparison.OrdinalIgnoreCase);
+        var hosts = (Get("--allowed-hosts", "AUTHLENS_ALLOWED_HOSTS") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        var certificatePath = Get("--cert", "AUTHLENS_CERT");
+        var certificate = certificatePath is null ? null : CertificatePolicy.Load(Path.GetFullPath(certificatePath), Get("--cert-key", "AUTHLENS_CERT_KEY"), Password(Get("--cert-password-file", "AUTHLENS_CERT_PASSWORD_FILE"), environment), inspection);
+        var auth = (Get("--auth", "AUTHLENS_AUTH") ?? "accounts") switch
+        {
+            "accounts" => AuthenticationMode.Accounts,
+            "shared-token" => AuthenticationMode.SharedToken,
+            var other => throw new InvalidOperationException($"--auth must be 'accounts' or 'shared-token', not '{other}'."),
+        };
+        var proxies = (Get("--trusted-proxies", "AUTHLENS_TRUSTED_PROXIES") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(ProxyTrust.ParseNetwork).ToList();
+        var hopsText = Get("--trusted-proxy-hops", "AUTHLENS_TRUSTED_PROXY_HOPS");
+        var hops = 1;
+        if (hopsText is not null && (!int.TryParse(hopsText, out hops) || hops is < 1 or > ProxyTrust.MaxHops))
+            throw new InvalidOperationException($"--trusted-proxy-hops must be between 1 and {ProxyTrust.MaxHops}.");
+        if (hopsText is not null && proxies.Count == 0) throw new InvalidOperationException("--trusted-proxy-hops needs --trusted-proxies.");
+        if (!inspection) Directory.CreateDirectory(dataDirectory);
+        return new HostSettings
+        {
+            DataDirectory = Path.GetFullPath(dataDirectory), ListenAddress = listen, Port = port, NetworkAccess = network, AllowedHosts = hosts, Certificate = certificate,
+            SourceRoots = ServerSourcePolicy.Parse(System.Text.Json.JsonSerializer.Serialize(
+                ServerSourcePolicy.Parse(environment("AUTHLENS_SOURCE_ROOTS")).Concat(Get("--source-dir", "AUTHLENS_SOURCE_DIR") is { } sourceDirectory ? new[] { sourceDirectory } : []))),
+            ProxyHosts = (Get("--proxy-hosts", "AUTHLENS_PROXY_HOSTS") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            AccessToken = inspection ? HostSettings.NewToken() : Token(dataDirectory, environment), WorkerEnabled = !options.ContainsKey("--no-worker"), Authentication = auth,
+            PrincipalName = environment("AUTHLENS_PRINCIPAL") ?? "server-operator", TrustedProxies = proxies, TrustedProxyHops = hops,
+        };
+    }
+
+    private static string? Password(string? file, Func<string, string?> environment)
+    {
+        if (file is null) return environment("AUTHLENS_CERT_PASSWORD");
+        if (!File.Exists(file)) throw new InvalidOperationException($"The certificate password file '{file}' does not exist.");
+        return File.ReadAllText(file).TrimEnd('\r', '\n');
+    }
+
+    /// <summary>The token comes from the environment (service configuration) or is generated once into a file only the service account can read.</summary>
+    private static string Token(string dataDirectory, Func<string, string?> environment)
+    {
+        if (environment("AUTHLENS_TOKEN") is { Length: > 0 } token) return token;
+        var tokenFile = Path.Combine(dataDirectory, "api-token");
+        if (!File.Exists(tokenFile))
+        {
+            var create = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
+            // Linux: owner read/write only. Windows: inherits the data directory ACL, which the deployment restricts to the service account and admins.
+            if (!OperatingSystem.IsWindows()) create.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            using var writer = new StreamWriter(new FileStream(tokenFile, create));
+            writer.Write(HostSettings.NewToken());
+        }
+        return File.ReadAllText(tokenFile).Trim();
+    }
+}

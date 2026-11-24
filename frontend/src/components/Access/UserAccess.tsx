@@ -1,5 +1,7 @@
+import {FunctionalGroupPills} from '@/components/Shared/FunctionalGroupPills'
+import {parseUsernameList,looksLikeUsernameList} from '@/lib/usernameList'
+import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import { BulkAssignDialog } from './BulkAssignDialog'
-import { membershipNames } from '@/lib/functionalGroupText'
 import {SAPUserLink} from '@/components/Shared/SAPUserLink'
 import {ExportCSVButton} from '@/components/Shared/ExportCSVButton'
 import { ASSIGNMENT_BANDS, LEGACY_ASSIGNMENT_BANDS } from '@/lib/assignmentBands'
@@ -55,8 +57,14 @@ import {
 const USER_SORTS = [
   { value: 'username', label: 'Username' }, { value: 'group', label: 'User group' }, { value: 'first_name', label: 'First name' },
   { value: 'last_name', label: 'Last name' }, { value: 'email', label: 'Email' }, { value: 'account_status', label: 'Account status' },
-  { value: 'relevant_roles', label: 'Relevant role count' },
+  { value: 'relevant_roles', label: 'Relevant role count' }, { value: 'job_title', label: 'Job title' }, { value: 'department', label: 'Department' },
 ]
+/** A Directory value, or why there is none: the cell never shows a guessed value. */
+function DirectoryValue({ value, status }: { value?: string; status?: string }) {
+  if (value) return <span className="ud-ellipsis" title={value}>{value}</span>
+  const reason = status === 'unavailable' ? 'Employee Directory not loaded' : status === 'unmatched' ? 'No unique Directory match for this SAP user' : 'Not recorded in the Directory'
+  return <span className="text-muted" title={reason} aria-label={reason}>—</span>
+}
 export function UserAccess({
   initialUser,
   initialRole = "",
@@ -74,6 +82,7 @@ export function UserAccess({
   const assignmentBand=comparisonView.assignmentBand||'';
   const setAssignmentBand=(value:string)=>changeComparison({assignmentBand:value},true);
   const comparisonContext=comparisonView.userComparison;
+  useEffect(()=>{if(comparisonView.accessSubjectFilters)changeComparison({accessSubjectFilters:undefined},true)},[comparisonView.accessSubjectFilters,changeComparison])
   const setComparisonContext=(state:ComparisonContext)=>changeComparison({userComparison:state},true);
   const [compareInitial,setCompareInitial]=useState('');
   const [accessMode,setAccessMode]=useHistoryValue('accessMode');
@@ -88,8 +97,8 @@ export function UserAccess({
     [descending, setDescending] = useState(false);
   const organizationLabel = useOrganizationLabel()
   const [groups, setGroups] = useState<string[]>([]),
-    [functionalGroups, setFunctionalGroups] = useState<string[]>([]),
-    [managers, setManagers] = useState<string[]>([]),
+    [functionalGroups, setFunctionalGroups] = useState<string[]>(comparisonView.accessSubjectFilters?.functional_groups||[]),
+    [managers, setManagers] = useState<string[]>(comparisonView.accessSubjectFilters?.managers||[]),
     [offset, setOffset] = useState(0),
     [selected, setSelected] = useHistoryValue('user');
   const { change: changeView } = useViewHistory();
@@ -113,9 +122,10 @@ export function UserAccess({
   const clearEvidence = () => {setRoles([]); directoryTransaction.clear(); setTransactionMode('and'); excludeTransaction.clear(); setExcludeMode('any'); setMissingRoles([]); setMissingMode('any')}
   const [term, setTerm] = useState("");
   const [assignOpen, setAssignOpen] = useState(false);
-  const [usernames, setUsernames] = useState(''), [usernameDraft, setUsernameDraft] = useState('');
+  const [usernames, setUsernames] = useState((comparisonView.accessSubjectFilters?.usernames||[]).join('\n')), [usernameDraft, setUsernameDraft] = useState((comparisonView.accessSubjectFilters?.usernames||[]).join('\n'));
   const [selectionBusy, setSelectionBusy] = useState(false), [selectionNote, setSelectionNote] = useState('');
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [exportUserScope,setExportUserScope] = useState<'matching'|'selected'>('matching');
   useEffect(() => {
     const t = setTimeout(() => setTerm(search), 250);
     return () => clearTimeout(t);
@@ -158,7 +168,7 @@ export function UserAccess({
     const last = Math.max(0, Math.floor((result.data.total - 1) / limit) * limit);
     if (offset > last) setOffset(last);
   }, [result.data, result.isFetching, offset]);
-  const assignmentExport=useAssignmentCSVExport('users',filters,result.data?.data_revision,result.data?.as_of)
+  const assignmentExport=useAssignmentCSVExport('users',filters,result.data?.data_revision,result.data?.as_of,exportUserScope==='selected'?[...picked].sort():undefined)
   const previousSelected = useRef(selected);
   useLayoutEffect(() => {
     if (!selected && previousSelected.current) restoreList.current = true;
@@ -202,6 +212,30 @@ export function UserAccess({
             <SavedFilters showClear={false} view="users" state={{usernames,assignmentBand,search,groups,sort,descending,roles,tcodes:directoryTransaction.codes,transactionMode,excludeTcodes:excludeTransaction.codes,excludeMode,missingRoles,missingMode,expired}} apply={s=>{if(typeof s.usernames==='string'){setUsernames(s.usernames.slice(0,12000));setUsernameDraft(s.usernames.slice(0,12000))};setMissingRoles(Array.isArray(s.missingRoles)?s.missingRoles.filter((name:unknown):name is string=>typeof name==='string').slice(0,20):[]);setMissingMode(s.missingMode==='all'?'all':'any');setAssignmentBand(typeof s.assignmentBand==='string'?s.assignmentBand:'');if(typeof s.search==='string')setSearch(s.search);if(Array.isArray(s.groups))setGroups(s.groups.filter((v:unknown):v is string=>typeof v==='string').slice(0,50));else if(typeof s.group==='string'&&s.group)setGroups([s.group]);if(typeof s.sort==='string'&&['username','group','first_name','last_name','email','account_status','relevant_roles'].includes(s.sort))setSort(s.sort);if(typeof s.descending==='boolean')setDescending(s.descending);if(Array.isArray(s.roles))setRoles(s.roles.filter((v:unknown):v is string=>typeof v==='string').slice(0,50));else if(typeof s.role==='string'&&s.role)setRoles([s.role]);if(Array.isArray(s.tcodes)){directoryTransaction.setInput('');directoryTransaction.setChips(s.tcodes)};if(s.transactionMode==='and'||s.transactionMode==='or')setTransactionMode(s.transactionMode);if(Array.isArray(s.excludeTcodes)){excludeTransaction.setInput('');excludeTransaction.setChips(s.excludeTcodes)}else excludeTransaction.clear();setExcludeMode(s.excludeMode==='all'?'all':'any');if(typeof s.expired==='boolean')setExpired(s.expired)}} clear={clearAll}/>
           </FilterSection>
           <FilterSection title="Users">
+        <Filter label="Search users">
+          <input
+            className={inputClass}
+            value={search}
+            maxLength={256}
+            onChange={(e) => setSearch(e.target.value)}
+            onPaste={(e) => {
+              // Only a deliberate paste of a list converts: typing never does, and one ordinary term (name, e-mail, "two words") stays a text search.
+              const text = e.clipboardData.getData('text')
+              if (looksLikeUsernameList(text)) { e.preventDefault(); setUsernameDraft(text); setUsernames(text); setPicked(new Set()) }
+            }}
+            placeholder="Username, name, email or group"
+          />
+        </Filter>
+        <Filter label="Exact usernames">
+          <textarea className={inputClass} rows={3} value={usernameDraft} maxLength={16000} aria-label="Exact usernames" aria-describedby="exact-usernames-help"
+            onChange={(e) => setUsernameDraft(e.target.value)} placeholder="Paste usernames from Excel or a list" />
+          <p id="exact-usernames-help" className="ui-description">One per line, or separated by commas, semicolons or tabs. Exact, case-insensitive match; up to 500 names.</p>
+          <div className="ui-toolbar">
+            <Button variant="primary" disabled={usernameDraft === usernames} onClick={() => setUsernames(usernameDraft)}><FileCheck2 size={16} aria-hidden="true"/>{usernames ? 'Replace list' : 'Apply list'}</Button>
+            {(usernames || usernameDraft) && <Button variant="outline" onClick={() => { setUsernames(''); setUsernameDraft('') }}><X size={16} aria-hidden="true"/>Clear list</Button>}
+          </div>
+        </Filter>
+
         <Filter label="SAP User Group">
           <MultiSelectFilter label="SAP User Group" values={groups} options={result.data?.groups || []} onChange={setGroups} placeholder="All groups · type to search"/>
         </Filter>
@@ -239,29 +273,6 @@ export function UserAccess({
           </FilterSection>
         </div>}>
       <div className="grid min-w-0 gap-4">
-        <Filter label="Search users">
-          <input
-            className={inputClass}
-            value={search}
-            maxLength={256}
-            onChange={(e) => setSearch(e.target.value)}
-            onPaste={(e) => {
-              // Only a deliberate paste of a list converts: typing never does, and one ordinary term (name, e-mail, "two words") stays a text search.
-              const text = e.clipboardData.getData('text')
-              if (looksLikeUsernameList(text)) { e.preventDefault(); setUsernameDraft(text); setUsernames(text); setPicked(new Set()) }
-            }}
-            placeholder="Username, name, email or group"
-          />
-        </Filter>
-        <Filter label="Exact usernames">
-          <textarea className={inputClass} rows={3} value={usernameDraft} maxLength={16000} aria-label="Exact usernames" aria-describedby="exact-usernames-help"
-            onChange={(e) => setUsernameDraft(e.target.value)} placeholder="Paste usernames from Excel or a list" />
-          <p id="exact-usernames-help" className="ui-description">One per line, or separated by commas, semicolons or tabs. Exact, case-insensitive match; up to 500 names.</p>
-          <div className="ui-toolbar">
-            <Button variant="primary" disabled={usernameDraft === usernames} onClick={() => setUsernames(usernameDraft)}>{usernames ? 'Replace list' : 'Apply list'}</Button>
-            {(usernames || usernameDraft) && <Button variant="outline" onClick={() => { setUsernames(''); setUsernameDraft('') }}>Clear list</Button>}
-          </div>
-        </Filter>
       {(assignmentBand || roles.length > 0 || groups.length > 0 || functionalGroups.length > 0 || managers.length > 0 || search || usernames || expired) && <div className="active-filter-row" aria-label="Active user filters">
         {assignmentBand&&<FilterChip removeLabel="Remove assignment count filter" onRemove={()=>setAssignmentBand('')}>{assignmentBand} currently valid roles</FilterChip>}
         {expired && <FilterChip removeLabel="Remove expired assignment filter" onRemove={()=>setExpired(false)}>Include Expired Assignments</FilterChip>}
@@ -297,23 +308,32 @@ export function UserAccess({
                 finally{setSelectionBusy(false)}}}>Select all {result.data.total.toLocaleString()} matching</Button>}
               {picked.size>0&&<Button variant="primary" onClick={()=>setAssignOpen(true)}><UsersRound size={16} aria-hidden="true"/>Assign group</Button>}
               {picked.size>0&&<Button variant="outline" onClick={()=>setPicked(new Set())}><X size={16} aria-hidden="true"/>Clear selection</Button>}
-              <ExportCSVButton loading={assignmentExport.busy} disabled={dataLoading||result.isFetching||search!==term||directoryTransaction.settling||!result.data.export_assignments} title="Exports every imported assignment for all matching users, across pages. MATCHED_FILTER marks assignments contributing to the active filters; expired and other assignments remain included." onClick={()=>void assignmentExport.download()}/>
+              <ExportCSVButton loading={assignmentExport.busy} disabled={dataLoading||result.isFetching||search!==term||directoryTransaction.settling||!result.data.export_assignments||(exportUserScope==='selected'&&!picked.size)} title="Export assignments for the chosen user scope, across pages. Active role filters restrict exported roles; MATCHED_FILTER marks filter evidence. See Export scope." onClick={()=>void assignmentExport.download()}/>
             </div>
           </div>
           <UsernameFeedback feedback={result.data.username_filter}/>
           {assignOpen&&<BulkAssignDialog usernames={[...picked].sort()} onClose={()=>setAssignOpen(false)} onChanged={()=>undefined}/>}
           {selectionNote&&<p role="status" className="ui-description">{selectionNote}</p>}
-          <details className="ui-evidence-disclosure"><summary>Export scope</summary><div><p className="ui-description">Exports all {result.data.export_assignments?.toLocaleString()??'available'} imported assignments for matching users, including other roles{expired?' and expired assignments':'; expired assignments are excluded while Show expired assignments is off'}. MATCHED_FILTER identifies assignment-level matches. Export covers all matching users and does not depend on the selection. Role-derived transactions are evidence, not proof of effective SAP authorization.</p></div></details>
+          <details className="ui-evidence-disclosure"><summary>Export scope</summary><div className="grid gap-2">
+            <label className="grid gap-1 text-sm">Assignment CSV users<Select aria-label="Assignment CSV users" value={exportUserScope} onChange={event=>setExportUserScope(event.target.value as 'matching'|'selected')}>
+              <option value="matching">All matching users ({result.data.total.toLocaleString()})</option>
+              <option value="selected" disabled={!picked.size}>Selected users ({picked.size.toLocaleString()})</option>
+            </Select></label>
+            <p className="ui-description">{roles.length?'Exports only assignments matching the selected role filters.':'No role filter is active: exports all imported assignments for the chosen users.'} {expired?'Expired assignments are included.':'Expired assignments are excluded while Show expired assignments is off.'} All active user filters still apply, including when exporting selected users. All matching users covers every page. MATCHED_FILTER identifies contributing evidence; it does not expand the exported role scope. Role-derived transactions do not prove effective SAP authorization.</p>
+          </div></details>
+
           <div className="access-table user-directory-table" tabIndex={0} role="region" aria-label="User directory table">
-            <table>
+            <ConfigurableTable aria-label="User directory">
               <thead>
                 <tr>
                   <th className="col-select ud-sticky-1"><input type="checkbox" aria-label="Select all users on this page" checked={pageAll} ref={el=>{if(el)el.indeterminate=pageSome&&!pageAll}} onChange={()=>setPicked(prev=>{const n=new Set(prev);if(pageAll)pageNames.forEach(u=>n.delete(u));else pageNames.forEach(u=>n.add(u));return n})}/></th>
                   <th className="ud-sticky-2">Username</th>
-                  <th>Full name</th>
-                  <th>Functional Group</th>
-                  <th>SAP user group</th>
-                  <th>Email</th>
+                  {<th>Full name</th>}
+                  {<th>Job title</th>}
+                  {<th>Department</th>}
+                  {<th>Functional Group</th>}
+                  {<th>SAP user group</th>}
+                  {<th>Email</th>}
                   <th>SAP account status</th>
                   <th>Lock status</th>
                   <th>Relevant roles</th>
@@ -329,10 +349,12 @@ export function UserAccess({
                     <td className="ud-sticky-2">
                       <SAPUserLink username={user.username} copyLabel="username" onOpen={()=>openUser(user.username)} openLabel={user.username}/>
                     </td>
-                    <td className="ud-cell" data-col="name"><span className="ud-ellipsis" title={full||undefined}>{full||"—"}</span></td>
-                    <td className="ud-cell" data-col="fg">{user.functional_groups?.length ? <span className="ud-ellipsis" title={membershipNames(user.functional_groups)}>{membershipNames(user.functional_groups)}</span> : <span className="text-muted">Unassigned</span>}{user.classification_status === "Needs review" && <> <ClassificationPill status="Needs review"/></>}</td>
-                    <td className="ud-cell" data-col="group"><span className="ud-ellipsis" title={group}>{group}</span></td>
-                    <td className="ud-cell" data-col="email"><span className="ud-ellipsis" title={user.email||undefined}>{user.email || "—"}</span></td>
+                    {<td className="ud-cell" data-col="name"><span className="ud-ellipsis" title={full||undefined}>{full||"—"}</span></td>}
+                    {<td className="ud-cell" data-col="title"><DirectoryValue value={user.job_title} status={user.directory_status}/></td>}
+                    {<td className="ud-cell" data-col="department"><DirectoryValue value={user.department} status={user.directory_status}/></td>}
+                    {<td className="ud-cell" data-col="fg"><div className="flex min-w-0 flex-col items-start gap-1">{user.functional_groups?.length ? <FunctionalGroupPills groups={user.functional_groups} username={user.username}/> : <span className="text-muted">Unassigned</span>}{user.classification_status === "Needs review" && <ClassificationPill status="Needs review"/>}</div></td>}
+                    {<td className="ud-cell" data-col="group"><span className="ud-ellipsis" title={group}>{group}</span></td>}
+                    {<td className="ud-cell" data-col="email"><span className="ud-ellipsis" title={user.email||undefined}>{user.email || "—"}</span></td>}
                     <td aria-label="Account validity">
                       <AccountStatus value={user.account_status}/>
                     </td><td aria-label="Account lock"><LockStatus value={user.lock_status}/>
@@ -341,7 +363,7 @@ export function UserAccess({
                   </tr>)
                 })}
               </tbody>
-            </table>
+            </ConfigurableTable>
           </div>
           {result.data.total === 0 && result.data.loaded && (
             <p>No users match these filters.</p>
@@ -433,9 +455,9 @@ function UserDetails({
           <UserProfile user={user}/>
           {user.account_total > 1 && <details className="settings-advanced"><summary>User validity and account evidence · {user.account_total} source records</summary>
             <p className="text-sm text-[var(--muted)]">Distinct source records are retained below; a summary does not override conflicting validity or lock evidence.</p>
-            <div className="access-table"><table><thead><tr><th>User group</th><th>User validity</th><th>Account status</th><th>Lock status</th><th>User type</th></tr></thead><tbody>
+            <div className="access-table"><ConfigurableTable aria-label="Account source observations"><thead><tr><th>User group</th><th>User validity</th><th>Account status</th><th>Lock status</th><th>User type</th></tr></thead><tbody>
               {user.accounts.map((a, i) => <tr key={i}><td>{a.user_group || 'Unknown'}</td><td>{dates(a.valid_from, a.valid_to)}</td><td><AccountStatus value={a.status}/></td><td><LockStatus value={a.locked == null ? 'Unknown' : a.locked ? 'Locked' : 'Unlocked'}/></td><td>{a.user_type || 'Unknown'}</td></tr>)}
-            </tbody></table></div>
+            </tbody></ConfigurableTable></div>
             <Pagination offset={accountOffset} total={user.account_total} onChange={setAccountOffset} label="Account evidence pages"/>
           </details>}
           {user.names_total > 100 && (
@@ -500,7 +522,7 @@ function UserDetails({
           <div className="assignment-results-summary"><strong>{user.total.toLocaleString()} matching assignments</strong><span className="ui-description">Validity evaluated on {formatDate(user.as_of)}.</span></div>
           {transactionCodes.length > 0 && (!user.mapping_available || Boolean(user.unmapped_assignments)) && <details className="compact-evidence-warning"><summary>Catalogue coverage may be incomplete</summary><p>{user.mapping_available ? `${user.unmapped_assignments} assignment records have unresolved or unavailable catalogue mappings.` : 'No role catalogue is loaded.'} Transaction coverage is role-derived evidence, not effective SAP authorization.</p></details>}
           <div className="access-table user-assignment-table" role="region" aria-label="User role assignments" tabIndex={0}>
-            <table>
+            <ConfigurableTable aria-label="User assignments">
               <thead>
                 <tr>
                   <th>Exact assigned role</th>
@@ -523,7 +545,7 @@ function UserDetails({
                   />
                 ))}
               </tbody>
-            </table>
+            </ConfigurableTable>
           </div>
           {!user.items.length && (
             <p>
@@ -589,13 +611,7 @@ function AssignmentRow({
 }
 
 
-const USERNAME_TOKEN = /^[^\s@,;<>"]{1,40}$/
-export const parseUsernameList = (text: string) => [...new Set(text.split(/[\s,;]+/).map(item => item.trim()).filter(Boolean).map(item => item.toLocaleUpperCase()))]
-/** A pasted block is an exact-username list only when it has at least two entries separated by a line break, tab, comma or semicolon and every entry is a single token without spaces or an at-sign. "Jane Doe, John Smith" and one ordinary term stay a text search. */
-export function looksLikeUsernameList(text: string): boolean {
-  const entries = text.split(/[\n\r\t,;]+/).map(item => item.trim()).filter(Boolean)
-  return entries.length >= 2 && entries.every(entry => USERNAME_TOKEN.test(entry))
-}
+export {parseUsernameList,looksLikeUsernameList} from '@/lib/usernameList'
 
 type UsernameFeedbackData = { requested: number; duplicates: number; invalid: string[]; found: number; matched: number; filtered_out: string[]; unmatched: string[]; limit: number; exceeds_limit: boolean } | null | undefined
 function UsernameFeedback({ feedback }: { feedback: UsernameFeedbackData }) {

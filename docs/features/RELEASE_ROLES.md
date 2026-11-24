@@ -70,7 +70,7 @@ Above the results, **Add filtered roles** adds every distinct role matching the 
 and dates (across pages, more than 500 asks for confirmation) and reports how many were added
 versus already selected. **Copy role names** copies the same distinct roles, one name per line in
 a deterministic order, without descriptions. **Export role list** downloads
-`sap-lens-release-role-list-review-DATE.csv` with ROLE_NAME, ROLE_DESCRIPTION (only when the exact
+a CSV file with ROLE_NAME, ROLE_DESCRIPTION (only when the exact
 role exists in the catalogue), RELEASE_AREA, RELEASE_GROUP, RELEASE_STRATEGY and PR_PO. It is
 separate from the assignment export below, which is unchanged.
 

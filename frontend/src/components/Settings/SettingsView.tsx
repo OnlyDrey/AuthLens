@@ -1,8 +1,10 @@
+import {UserManagement} from './UserManagement'
+import {useAuthentication} from '@/components/Auth/Authentication'
 import type { ReactNode } from 'react'
+import {Dialog} from '@/components/Shared/Dialog'
 import {Button} from '@/components/Shared/Button'
 import {BackupRestore} from './BackupRestore'
 import {useApplicationData} from '@/state/ApplicationData'
-import {DesktopOptions} from './DesktopOptions'
 import {ScheduledRefresh} from './ScheduledRefresh'
 import { FormField, controlClass } from '@/components/Shared/Controls'
 import { ContentTabList } from '@/components/Shared/Navigation'
@@ -24,6 +26,7 @@ import { isHex } from '@/lib/theme'
 import { useEffect, useRef, useState, lazy, Suspense } from 'react'
 import {
   ArrowLeft,
+  Menu,
   Save,
   RotateCcw,
   Image,
@@ -48,7 +51,7 @@ import { ThemeEditor } from './ThemeEditor'
 import { paletteErrors, defaultThemeColors } from '@/lib/theme'
 import { Diagnostics } from './Diagnostics'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, applicationToken } from '@/api/client'
+import { apiRequest } from '@/api/client'
 import {
   fetchConfiguration,
   fetchRegistry,
@@ -64,7 +67,7 @@ import {
 import { ReportBranding } from './ReportBranding'
 import { DISCARD_PROMPT, setSettingsDirty } from '@/lib/settingsGuard'
 const ComponentLibrary=lazy(()=>import('./ComponentLibrary').then(module=>({default:module.ComponentLibrary})))
-const sectionIcons = [Building2, Database, Layers, Palette, Activity, BookUser, Info, Layers, ShieldCheck, Clock, Archive, UsersRound]
+const sectionIcons = [Building2, Database, Layers, Palette, Activity, BookUser, Info, Layers, ShieldCheck, Clock, Archive, UsersRound, UsersRound]
 const sections = [
   'Organization & SAP System',
   'Data Sources',
@@ -72,14 +75,23 @@ const sections = [
   'Appearance & Branding',
   'Health & Diagnostics',
   'Features',
-  'About SAP Lens',
+  'About AuthLens',
   'Component Library',
   'SoD Risk Configuration',
   'Runtime & Scheduling',
   'Backup & Restore',
-  'Functional Groups'
+  'Functional Groups',
+  'User Management'
 ]
-const navigationOrder=[0,3,1,2,8,11,5,9,10,4,7,6]
+/** Sidebar groups (section indexes into `sections`). About AuthLens (6) is the sidebar footer. The order of this list is the visual, DOM and
+ *  arrow-key order; User Management (12) is listed only for administrators of a sign-in server. */
+const navigationGroups:{label:string;sections:number[]}[]=[
+  {label:'General',sections:[0,3]},
+  {label:'Data & Integrations',sections:[1,2,9,11]},
+  {label:'Security & Governance',sections:[12,8,10]},
+  {label:'System & Tools',sections:[4,5,7]},
+]
+const footerSection=6
 const fieldLabels: Record<string, string> = {
   FUNCTION_KEY: 'SAP module or area',
   AGR_NAME: 'Role name (required)',
@@ -122,6 +134,10 @@ export function SettingsView({
   onDataChanged: () => void
   onSaved: () => void
 }) {
+  const auth=useAuthentication()
+  const visibleSection=(index:number)=>index!==12||auth.session&&auth.canAdmin
+  const groups=navigationGroups.map(group=>({...group,sections:group.sections.filter(visibleSection)})).filter(group=>group.sections.length)
+  const navigationOrder=[...groups.flatMap(group=>group.sections),footerSection]
   const applicationData=useApplicationData()
   const [section, setSection] = useState(0)
   const [importSource, setImportSource] = useState<CSVSource>('roles')
@@ -133,7 +149,6 @@ export function SettingsView({
   }, [section, open])
   const [draft, setDraft] = useState<Configuration | null>(null)
   const [busy, setBusy] = useState(false)
-  const [native, setNative] = useState(Boolean(window.pywebview?.api))
   const [error, setError] = useState<string | null>(null)
   const [settingsTarget] = useHistoryValue('settingsTarget')
   const {change: changeSettingsTarget} = useViewHistory()
@@ -198,11 +213,6 @@ export function SettingsView({
     staleTime: Infinity
   })
 
-  useEffect(() => {
-    const ready = () => setNative(true)
-    window.addEventListener('pywebviewready', ready)
-    return () => window.removeEventListener('pywebviewready', ready)
-  }, [])
   useEffect(() => {
     if (config.data)
       setDraft((previous) => previous || structuredClone(config.data.settings))
@@ -442,102 +452,89 @@ export function SettingsView({
     })
   const exportConfig = () =>
     run(async () => {
-      if (window.pywebview?.api.export_configuration) {
-        const saved = await window.pywebview.api.export_configuration(
-          applicationToken(),
-          includePrivate
-        )
-        if (saved)
-          setMessage(
-            'Configuration exported. The package never contains CSV records or a file path.'
-          )
-      } else {
-        const packageData = await apiRequest(
-          `/api/configuration/export?include_private=${includePrivate}`,
-          'POST'
-        )
-        const url = URL.createObjectURL(
-          new Blob([JSON.stringify(packageData, null, 2)], {
-            type: 'application/json'
-          })
-        )
-        const link = document.createElement('a')
-        link.href = url
-        link.download = 'SAP-Lens.sap-lens.json'
-        link.click()
-        URL.revokeObjectURL(url)
-        setMessage('Configuration exported; keep private packages secure.')
-      }
+      const packageData = await apiRequest(
+        `/api/configuration/export?include_private=${includePrivate}`,
+        'POST'
+      )
+      const url = URL.createObjectURL(
+        new Blob([JSON.stringify(packageData, null, 2)], {
+          type: 'application/json'
+        })
+      )
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'AuthLens.authlens.json'
+      link.click()
+      URL.revokeObjectURL(url)
+      setMessage('Configuration exported; keep private packages secure.')
     })
+
+  const [sectionsOpen,setSectionsOpen]=useState(false)
+  useEffect(()=>{if(!open)setSectionsOpen(false)},[open])
+  useEffect(()=>{const media=window.matchMedia('(min-width: 768px)');const close=()=>{if(media.matches)setSectionsOpen(false)};media.addEventListener('change',close);return()=>media.removeEventListener('change',close)},[])
+  const renderTab=(index:number,drawer=false)=>{
+    const label=sections[index], Icon=sectionIcons[index], position=navigationOrder.indexOf(index)
+    return <button
+      key={index}
+      role={drawer?undefined:"tab"}
+      aria-current={drawer&&section===index?"page":undefined}
+      aria-label={label}
+      title={label}
+      id={`settings-${drawer?"drawer":"tab"}-${index}`}
+      aria-selected={drawer?undefined:section === index}
+      aria-controls={`settings-panel-${index}`}
+      tabIndex={drawer?0:section === index ? 0 : -1}
+      onKeyDown={(event) => {
+        if (!drawer&&['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+          event.preventDefault()
+          const next = event.key === 'Home' ? navigationOrder[0] : event.key === 'End' ? navigationOrder[navigationOrder.length-1]
+            : navigationOrder[(position + (event.key === 'ArrowDown' ? 1 : navigationOrder.length - 1)) % navigationOrder.length]
+          setSection(next)
+          document.getElementById(`settings-tab-${next}`)?.focus()
+        }
+      }}
+      onClick={() => { setSection(index); setError(null); setMessage(null);if(drawer){setSectionsOpen(false);requestAnimationFrame(()=>document.getElementById('settings-heading')?.focus())} }}
+      className={`settings-nav-item ${section === index ? 'active' : ''}`}
+    >
+      <Icon size={19} aria-hidden="true" />
+      <span>{label}</span>
+    </button>
+  }
 
   return (
     <section
-      aria-label="SAP Lens settings"
+      aria-label="AuthLens settings"
       className={open ? 'settings-workspace' : 'hidden'}
     >
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface p-3 md:hidden">
+        <Button disabled={busy} onClick={()=>show(false)}><ArrowLeft size={16} aria-hidden="true"/>Back to AuthLens</Button>
+        <Button aria-label={`Settings sections: ${sections[section]}`} aria-haspopup="dialog" aria-expanded={sectionsOpen} onClick={()=>setSectionsOpen(true)} disabled={busy}><Menu size={18} aria-hidden="true"/>Settings sections<span className="sr-only">: {sections[section]}</span></Button>
+      </div>
+      {open&&sectionsOpen&&<Dialog title="Settings sections" presentation="drawer" footer={null} onClose={()=>setSectionsOpen(false)}><nav aria-label="Settings pages" className="settings-nav">{groups.map(group=><div key={group.label} className="settings-nav-group"><p className="settings-nav-category">{group.label}</p>{group.sections.map(index=>renderTab(index,true))}</div>)}{renderTab(footerSection,true)}</nav></Dialog>}
       <aside className="settings-sidebar">
         <button
-          className={`${buttonClass} flex items-center gap-2 mb-6`}
+          className={`${buttonClass} settings-back`}
           onClick={() => show(false)}
           disabled={busy}
-          aria-label="Back to SAP Lens"
+          aria-label="Back to AuthLens"
         >
-          <ArrowLeft size={16} /> Back to SAP Lens
+          <ArrowLeft size={16} /> Back to AuthLens
         </button>
-        <p className="text-xs uppercase tracking-widest font-semibold px-3 mb-3 text-[var(--muted)]">
-          Administration
-        </p>
-        <nav
-          role="tablist"
-          aria-label="Settings sections"
-          aria-orientation="vertical"
-          className="flex flex-col gap-1"
-        >
-          {navigationOrder.map((index, position) => {
-            const label=sections[index]
-            const Icon = sectionIcons[index]
-            return (
-              <div key={label}>{[0,1,5].includes(index)&&<p className="settings-nav-category">{index===0?'GENERAL':index===1?'DATA & MODULES':'APPLICATION'}</p>}<button
-                role="tab"
-                aria-label={label}
-                title={label}
-                id={`settings-tab-${index}`}
-                aria-selected={section === index}
-                aria-controls={`settings-panel-${index}`}
-                tabIndex={section === index ? 0 : -1}
-                onKeyDown={(event) => {
-                  if (
-                    ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)
-                  ) {
-                    event.preventDefault()
-                    const next =
-                      event.key === 'Home'
-                        ? navigationOrder[0]
-                        : event.key === 'End'
-                          ? navigationOrder[navigationOrder.length-1]
-                          : navigationOrder[(position + (event.key === 'ArrowDown' ? 1 : navigationOrder.length - 1)) % navigationOrder.length]
-                    setSection(next)
-                    document.getElementById(`settings-tab-${next}`)?.focus()
-                  }
-                }}
-                onClick={() => {
-                  setSection(index)
-                  setError(null)
-                  setMessage(null)
-                }}
-                className={`settings-nav-item ${section === index ? 'active' : ''}`}
-              >
-                <Icon size={19} aria-hidden="true" />
-                <span>{label}</span>
-              </button></div>
-            )
-          })}
+        {/* One tablist: the scrollable groups and the About footer share arrow-key navigation (navigationOrder). */}
+        <nav role="tablist" aria-label="Settings sections" aria-orientation="vertical" className="settings-nav">
+          <div className="settings-nav-scroll">
+            {groups.map(group=>(
+              <div key={group.label} className="settings-nav-group">
+                <p className="settings-nav-category" aria-hidden="true">{group.label}</p>
+                {group.sections.map(index=>renderTab(index))}
+              </div>
+            ))}
+          </div>
+          <div className="settings-nav-footer">
+            {renderTab(footerSection)}
+            <p className="settings-nav-note">One active SAP system. Settings stay on this computer.</p>
+          </div>
         </nav>
-        <p className="text-xs text-[var(--muted)] px-3 mt-auto pt-8">
-          One active SAP system.
-          <br />
-          Settings stay on this computer.
-        </p>
       </aside>
       <div className="settings-main">
         <div className="settings-scroll" ref={scrollPane}>
@@ -605,7 +602,7 @@ export function SettingsView({
                       })
                       .catch(() =>
                         setError(
-                          'Could not cancel the read. Close and reopen SAP Lens.'
+                          'Could not cancel the read. Close and reopen AuthLens.'
                         )
                       )
                   }
@@ -636,7 +633,7 @@ export function SettingsView({
               aria-labelledby={`settings-tab-${section}`}
               className="space-y-5 min-w-0"
             >
-              {section === 10 ? <BackupRestore/> : !draft ? (
+              {section === 12 ? <UserManagement/> : section === 10 ? <BackupRestore/> : !draft ? (
                 <p>Loading settings…</p>
               ) : (
                 <>
@@ -903,7 +900,7 @@ export function SettingsView({
                       <div className="min-w-0"><ThemeEditor
                         key={`${open}-${config.data?.settings.revision}`}
                         draft={draft}
-                        logoSrc={draft.logo_id ? logoPreview || logo.data?.data_url || '/sap-lens.png' : '/sap-lens.png'}
+                        logoSrc={draft.logo_id ? logoPreview || logo.data?.data_url || '/logo.png' : '/logo.png'}
                         onChange={(patch) => setDraft({ ...draft, ...patch })}
                       />
                       </div><div className="space-y-3"><h2 className="settings-subheading">Header logo</h2>
@@ -911,7 +908,7 @@ export function SettingsView({
                         Currently active:{' '}
                         {config.data?.settings.logo_id
                           ? 'Custom organization logo'
-                          : 'SAP Lens default logo'}
+                          : 'AuthLens default logo'}
                         .{' '}
                         {draft.logo_id !== config.data?.settings.logo_id
                           ? 'A pending change will be applied when you save.'
@@ -924,13 +921,13 @@ export function SettingsView({
                         is rejected.
                       </p>
                       <div className="branding-logo-grid">
-                      <div className="flex min-h-32 items-center justify-center rounded-card border border-line bg-elevated p-4"><img alt="Selected header logo preview" src={draft.logo_id?logoPreview||logo.data?.data_url||'/sap-lens.png':'/sap-lens.png'} className="max-h-24 max-w-full object-contain" onError={event=>{if(!event.currentTarget.src.endsWith('/sap-lens.png'))event.currentTarget.src='/sap-lens.png'}}/></div>
+                      <div className="flex min-h-32 items-center justify-center rounded-card border border-line bg-elevated p-4"><img alt="Selected header logo preview" src={draft.logo_id?logoPreview||logo.data?.data_url||'/logo.png':'/logo.png'} className="max-h-24 max-w-full object-contain" onError={event=>{if(!event.currentTarget.src.endsWith('/logo.png'))event.currentTarget.src='/logo.png'}}/></div>
                       <div className="branding-logo-controls">{logo.isError && (
                         <p
                           role="status"
                           className="text-[var(--warning)] text-sm"
                         >
-                          The saved custom logo is unavailable; SAP Lens uses
+                          The saved custom logo is unavailable; AuthLens uses
                           its default logo.
                         </p>
                       )}
@@ -944,32 +941,6 @@ export function SettingsView({
                       <div className="branding-actions">
                       <button
                         className={buttonClass}
-                        disabled={
-                          !native || busy || !window.pywebview?.api.choose_logo
-                        }
-                        onClick={() =>
-                          void run(async () => {
-                            const path =
-                              await window.pywebview?.api.choose_logo?.(
-                                applicationToken()
-                              )
-                            if (path) {
-                              setLogoPath(path)
-                              const result = await apiRequest<{
-                                logo_id: string
-                                data_url: string
-                              }>('/api/branding/preview', 'POST', { path })
-                              update('logo_id', result.logo_id)
-                              setLogoPreview(result.data_url)
-                            }
-                          })
-                        }
-                      >
-                        <Image size={16} aria-hidden="true" /> Select custom
-                        logo…
-                      </button>
-                      <button
-                        className={buttonClass}
                         disabled={!logoPath || busy}
                         onClick={() => void previewLogo(logoPath)}
                       >
@@ -977,8 +948,8 @@ export function SettingsView({
                       </button>
                       <button
                         className={buttonClass}
-                        aria-label="Remove custom logo / restore SAP Lens default"
-                        title="Remove custom logo and restore the SAP Lens default"
+                        aria-label="Remove custom logo / restore AuthLens default"
+                        title="Remove custom logo and restore the AuthLens default"
                         onClick={() => {
                           update('logo_id', null)
                           setLogoPreview(null)
@@ -998,14 +969,14 @@ export function SettingsView({
                   }
 
                   {section === 6 && <About/>}
-                  {section === 9 && <><ScheduledRefresh draft={draft} onChange={setDraft}/><DesktopOptions draft={draft} onChange={setDraft}/></>}
+                  {section === 9 && <ScheduledRefresh draft={draft} onChange={setDraft}/>}
                   {section === 8 && <SodRiskSettings/>}
                   {section === 11 && <FunctionalGroupSettings/>}
                   {section === 7 && <Suspense fallback={<p role="status">Loading component previews…</p>}><ComponentLibrary/></Suspense>}
                   {section === 5 && <><FeatureSettings draft={draft} onChange={setDraft} onConfigure={source => { setSection(1); setImportSource(source) }}/></>}
                   {section === 4 && (
                     <>
-                      <Diagnostics onSource={source=>{setSection(1);setImportSource(source)}} native={native} onEmployeeFeatures={() => setSection(5)} onEmployeeSettings={() => { setSection(1); setImportSource('employees') }}/>
+                      <Diagnostics onSource={source=>{setSection(1);setImportSource(source)}} onEmployeeFeatures={() => setSection(5)} onEmployeeSettings={() => { setSection(1); setImportSource('employees') }} recovery={<>
                       <h2 className="settings-subheading">Configuration export & recovery</h2>
                       <p className="text-sm text-[var(--text2)]">
                         Export saved settings before an update, or restore a
@@ -1096,6 +1067,7 @@ export function SettingsView({
                         <RotateCcw size={16} aria-hidden="true" /> Reset to
                         defaults
                       </button>
+                      </>}/>
                     </>
                   )}
                 </>
@@ -1104,7 +1076,7 @@ export function SettingsView({
             </div>
           </div>
         </div>
-        <div className={section===7||section===8||section===10||section===11?'hidden':'settings-actions'}>
+        <div className={section===7||section===8||section===10||section===11||section===12?'hidden':'settings-actions'}>
           <p role="status" className="text-xs text-[var(--muted)] mr-auto">
             {draft &&
             (['dark', 'light'] as const).some(

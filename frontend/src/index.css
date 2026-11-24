@@ -52,7 +52,7 @@
 }
 /* A single administration workspace; only its content pane scrolls. */
 .settings-workspace { display:flex; flex:1 1 0%; overflow:hidden; width:100%; min-height:0; color:var(--text); background:var(--bg); }
-.settings-sidebar { width:280px; flex-shrink:0; display:flex; flex-direction:column; padding:24px 16px; border-right:1px solid var(--border); background:var(--surface); overflow-y:auto; }
+.settings-sidebar { width:280px; flex-shrink:0; display:flex; flex-direction:column; min-height:0; padding:24px 16px 16px; border-right:1px solid var(--border); background:var(--surface); overflow:hidden; }
 .settings-nav-item { border:0; display:flex; align-items:center; gap:var(--space-3); min-height:var(--control-height); padding:10px 12px; border-radius:var(--radius-control); text-align:left; font-size:var(--font-label); font-weight:500; color:var(--text2); background:transparent; transition:background-color .12s,color .12s; }
 .settings-nav-item svg { flex-shrink:0; }
 /* One line per item in any installed font: selection (bold) or a wider brand font never changes an item's height. The sidebar fits the longest label in Montserrat at desktop widths; narrower layouts truncate with the full label as tooltip. */
@@ -77,13 +77,13 @@
 .icon-choice { display:flex; position:relative; flex-direction:column; gap:var(--space-2); align-items:center; padding:14px 8px; border-radius:8px; background:var(--surface2); font-size:11px; }
 .icon-choice.selected { background:color-mix(in srgb, var(--accent2) 20%, var(--surface)); box-shadow:inset 0 0 0 2px var(--accent2); }
 @media(max-width:1050px) { .settings-sidebar { width:226px; padding:20px 10px; } .settings-content { padding:28px 24px; } .settings-actions { padding:14px 24px; } }
-@media(max-width:700px) { .settings-sidebar { width:72px; padding:16px 8px; } .settings-sidebar p,.settings-nav-item span { display:none; } .settings-sidebar>button { font-size:0; padding:10px; } .settings-nav-item { justify-content:center; } .settings-content { padding:22px 16px; } .settings-actions { padding:12px 16px; gap:var(--space-2); } .module-editor { padding-left:8px; } }
+@media(max-width:700px) { .settings-content { padding:22px 16px; } .settings-actions { padding:12px 16px; gap:var(--space-2); } .module-editor { padding-left:8px; } }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:0.01ms!important; transition-duration:0.01ms!important; } }
 
 
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible,textarea:focus-visible { outline:var(--focus-width) solid var(--focus); outline-offset:var(--focus-offset); }
 .startup-screen { min-height:100dvh; display:grid; place-items:center; padding:28px; background:var(--bg); color:var(--text); }
-.startup-card { max-width:460px; width:100%; text-align:center; padding:28px; border-radius:20px; background:var(--surface); }
+.startup-card { min-width:0; max-width:460px; width:100%; text-align:center; padding:28px; border-radius:20px; background:var(--surface); }
 .startup-actions { display:flex; flex-wrap:wrap; justify-content:center; align-items:stretch; gap:var(--space-2,8px); margin-top:16px; }
 .startup-actions > .ui-button { flex:1 1 180px; min-height:40px; justify-content:center; }
 .startup-actions-tertiary { margin-top:12px; padding-top:12px; border-top:1px solid var(--border); }
@@ -379,7 +379,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 }
 .catalogue-search-controls { display:grid; grid-template-columns:minmax(0,1fr); gap:var(--space-3); }
 .catalogue-search-controls .catalogue-role-search { min-width:0; }
-.catalogue-search-controls .catalogue-role-search input { height:42px; }
+.catalogue-search-controls .catalogue-role-search input { height:var(--control-height); }
 .notification-close:focus-visible { outline:var(--focus-width) solid var(--focus); outline-offset:var(--focus-offset); }
 .notification { color:var(--text); background:var(--surface); }
 .notification-success { color:var(--success); }
@@ -470,7 +470,16 @@ button.manager-identity:focus-visible { outline:var(--focus-width) solid var(--f
 .compact-health { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-card); padding:12px; display:flex; flex-direction:column; gap:6px; min-width:0; }
 .compact-health span { font-size:12px; color:var(--muted); }
 .compact-health strong { font-size:20px; }
-.settings-nav-category { padding:14px 12px 5px; font-size:10px; letter-spacing:.08em; color:var(--muted); font-weight:700; }
+.settings-nav-category { padding:4px 12px; font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); font-weight:700; }
+/* Settings sidebar: Back stays at the top, About at the bottom; only the grouped sections in between scroll (one scrollbar). The scroll area keeps a
+   small inner padding so focus rings are never clipped. */
+.settings-back { flex:none; display:flex; align-items:center; gap:var(--space-2); margin-bottom:var(--space-4); }
+.settings-nav { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+.settings-nav-scroll { flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain; display:flex; flex-direction:column; gap:var(--space-3); padding:4px; margin:-4px; scroll-padding:8px; }
+.settings-nav-group { display:flex; flex-direction:column; gap:2px; }
+.settings-nav-footer { flex:none; display:flex; flex-direction:column; gap:var(--space-2); margin-top:var(--space-3); padding-top:var(--space-3); border-top:1px solid var(--border); }
+.settings-nav-note { padding:0 12px; font-size:var(--font-meta); color:var(--muted); }
+@media(max-height:560px) { .settings-nav-note { display:none; } }
 .settings-nav-item { width:100%; }
 .settings-review-groups { background:var(--surface); color:var(--text); border:1px solid var(--border); padding:10px; border-radius:8px; }
 @media(max-width:1099px) {

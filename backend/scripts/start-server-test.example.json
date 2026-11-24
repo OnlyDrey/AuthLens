@@ -1,0 +1,11 @@
+{
+  "ListenAddress": "192.0.2.10",
+  "Port": 18791,
+  "AllowedHosts": ["lens.example.com", "192.0.2.10"],
+  "TrustedProxies": [],
+  "DataDirectory": "C:\\AuthLens-Acceptance\\server-test",
+  "CertificatePath": "C:\\AuthLens-Acceptance\\tls\\server.pfx",
+  "CertificatePasswordFile": "C:\\AuthLens-Acceptance\\tls\\cert-password",
+  "BuildsRoot": "C:\\AuthLens-Acceptance\\builds",
+  "LogDirectory": "C:\\AuthLens-Acceptance\\logs"
+}

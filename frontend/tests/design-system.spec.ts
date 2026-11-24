@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, goTo, openFilters } from './support'
+import { headers, goTo, openFilters, postConfiguration } from './support'
 let directory: string
 async function library(page: Page) {
   await page.getByRole('button', { name: 'Open settings', exact: true }).click()
@@ -15,7 +15,7 @@ async function library(page: Page) {
 }
 test.beforeEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
-  directory = mkdtempSync(path.join(tmpdir(), 'sap-lens-design-'))
+  directory = mkdtempSync(path.join(tmpdir(), 'authlens-design-'))
   const users = path.join(directory, 'users.csv')
   writeFileSync(
     users,
@@ -28,7 +28,7 @@ test.beforeEach(async ({ request }) => {
   settings.user_csv_path = users
   expect(
     (
-      await request.post('/api/configuration', { headers, data: settings })
+      await postConfiguration(request, settings)
     ).ok(),
   ).toBeTruthy()
   expect((await request.post('/api/refresh', { headers })).ok()).toBeTruthy()
@@ -343,7 +343,7 @@ for (const theme of ['light', 'dark'])
         await (await request.get('/api/configuration', { headers })).json()
       ).settings
       settings.theme = theme
-      await request.post('/api/configuration', { headers, data: settings })
+      await postConfiguration(request, settings)
       await page.setViewportSize({ width, height: 1000 })
       await page.goto('/#session=browser-test-session')
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
@@ -375,7 +375,7 @@ for (const theme of ['light', 'dark'])
         .scrollIntoViewIfNeeded()
       await page.screenshot({ path: info.outputPath('component-controls.png') })
       await page
-        .getByRole('button', { name: 'Back to SAP Lens', exact: true })
+        .getByRole('button', { name: 'Back to AuthLens', exact: true })
         .click()
       await goTo(page, 'User Access')
       await page
@@ -452,15 +452,15 @@ for(const theme of ['light','dark']) for(const width of [375,800,1280])
  test(`import settings visual contracts ${theme} ${width}`,{ tag: '@visual' }, async({page,request},info)=>{
   const settings=(await(await request.get('/api/configuration',{headers})).json()).settings
   settings.theme=theme
-  await request.post('/api/configuration',{headers,data:settings})
+  await postConfiguration(request, settings)
   await page.setViewportSize({width,height:1000})
   await page.goto('/#session=browser-test-session')
   await page.getByRole('button',{name:'Open settings',exact:true}).click()
   const tabs=page.getByRole('tab')
-  await expect(tabs.filter({hasText:'About SAP Lens'})).toBeVisible() // the tab list renders after the dialog opens; read it once it is there
+  await expect(tabs.filter({hasText:'About AuthLens'})).toBeVisible() // the tab list renders after the dialog opens; read it once it is there
   const names=await tabs.allTextContents()
   expect(names).toContain('Component Library')
-  expect(names.indexOf('Component Library')).toBeLessThan(names.indexOf('About SAP Lens'))
+  expect(names.indexOf('Component Library')).toBeLessThan(names.indexOf('About AuthLens'))
   await page.getByRole('tab',{name:'Data Sources',exact:true}).click()
   for(const source of ['Role Catalogue','User Access','Employee Directory']){
    await page.getByRole('tab',{name:source,exact:true}).click()

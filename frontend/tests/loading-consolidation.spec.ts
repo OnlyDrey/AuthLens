@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, goTo, setDescending, sortDirection, openFilters } from './support'
+import { headers, goTo, setDescending, sortDirection, openFilters, postConfiguration } from './support'
 import { layoutMatrix } from './matrix'
 let directory: string, roles: string, users: string
 const roleCSV =
@@ -11,7 +11,7 @@ const userCSV =
   'USERNAME,ROLE_NAME,USER_GROUP,FIRST_NAME,LAST_NAME,EMAIL,USER_VALID_FROM,USER_VALID_TO,ROLE_VALID_FROM,ROLE_VALID_TO\nDEMO_ONE,ZC:DEMO:A,G1,Demo,One,one@example.test,20200101,99991231,20200101,99991231\n'
 test.beforeEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
-  directory = mkdtempSync(path.join(tmpdir(), 'sap-lens-loading-'))
+  directory = mkdtempSync(path.join(tmpdir(), 'authlens-loading-'))
   roles = path.join(directory, 'roles.csv')
   users = path.join(directory, 'users.csv')
   writeFileSync(roles, roleCSV)
@@ -23,7 +23,7 @@ test.beforeEach(async ({ request }) => {
   settings.user_csv_path = users
   expect(
     (
-      await request.post('/api/configuration', { headers, data: settings })
+      await postConfiguration(request, settings)
     ).ok(),
   ).toBeTruthy()
 })
@@ -218,7 +218,7 @@ test('Dashboard is the default landing route and configuration links target thei
     page.getByRole('tab', { name: 'User Access', exact: true }),
   ).toHaveAttribute('aria-selected', 'true')
   await page
-    .getByRole('button', { name: 'Back to SAP Lens', exact: true })
+    .getByRole('button', { name: 'Back to AuthLens', exact: true })
     .click()
   await expect(
     page.getByRole('region', { name: 'Dashboard', exact: true }),
@@ -234,7 +234,7 @@ for (const { theme, width } of layoutMatrix([375, 800, 1280]))
         await (await request.get('/api/configuration', { headers })).json()
       ).settings
       settings.theme = theme
-      await request.post('/api/configuration', { headers, data: settings })
+      await postConfiguration(request, settings)
       await page.setViewportSize({ width, height: 1000 })
       await page.goto('/#session=browser-test-session')
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
@@ -363,7 +363,7 @@ test('restored user detail waits for the startup publication instead of flashing
   await page.addInitScript(() => {
     sessionStorage.setItem('sap-lens-session', 'browser-test-session')
     history.replaceState(
-      { sapLensView: { page: 'users', user: 'DEMO_ONE' } },
+      { authLensView: { page: 'users', user: 'DEMO_ONE' } },
       '',
       '#/user-access/user/DEMO_ONE',
     )

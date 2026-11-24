@@ -3,7 +3,7 @@ import { test, expect, type Locator } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, recordClipboard, copiedText } from './support'
+import { headers, recordClipboard, copiedText, postConfiguration } from './support'
 // Capture brief feedback in the browser at the moment it appears. A slow
 // automation round-trip must not miss a correctly expiring confirmation.
 const observeCopy = async (button: Locator) => {
@@ -57,7 +57,7 @@ for (const theme of ['dark', 'light'] as const) {
     page,
     request
   }, testInfo) => {
-    const directory = mkdtempSync(path.join(tmpdir(), 'sap-lens-identifiers-'))
+    const directory = mkdtempSync(path.join(tmpdir(), 'authlens-identifiers-'))
     const file = path.join(directory, 'role-catalogue.csv')
     const identifier = 'DEMO_' + 'LONG_IDENTIFIER_'.repeat(24)
     writeFileSync(
@@ -72,10 +72,7 @@ for (const theme of ['dark', 'light'] as const) {
       ).settings
       expect(
         (
-          await request.post('/api/configuration', {
-            headers,
-            data: { ...settings, data_csv_path: file, theme }
-          })
+          await postConfiguration(request, { ...settings, data_csv_path: file, theme })
         ).ok()
       ).toBeTruthy()
       await recordClipboard(page)
@@ -214,7 +211,7 @@ for (const theme of ['light', 'dark'] as const) {
         .getByRole('button', { name: 'Apply settings', exact: true })
         .click()
       await expect(
-        page.getByRole('region', { name: 'SAP Lens settings', exact: true })
+        page.getByRole('region', { name: 'AuthLens settings', exact: true })
       ).toBeHidden()
       await page.getByRole('button', { name: 'Open settings' }).click()
     }
@@ -273,7 +270,7 @@ test('clipboard denial is announced and leaves exact identifier selectable', asy
   )
   await page.goto('/#session=browser-test-session')
   await activateCSV(page,'roles',path.resolve('tests/fixtures/role-catalogue-minimal.csv'))
-  await page.getByRole('button',{name:'Back to SAP Lens',exact:true}).click()
+  await page.getByRole('button',{name:'Back to AuthLens',exact:true}).click()
   await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Role Lookup',exact:true}).click()
   const card = page.getByRole('article').first()
   const copy = card.getByRole('button', { name: /^Copy role identifier/ })
@@ -289,8 +286,8 @@ test('clipboard denial is announced and leaves exact identifier selectable', asy
 for (const theme of ['light', 'dark'] as const) {
   test(`copy success overlays the identifier for exactly two seconds without resizing in ${theme}`, { tag: '@visual' }, async ({ page, request }, info) => {
     const settings = (await (await request.get('/api/configuration', { headers })).json()).settings
-    expect((await request.post('/api/configuration', { headers, data: { ...settings,
-      data_csv_path: path.resolve('tests/fixtures/role-catalogue-minimal.csv'), theme } })).ok()).toBeTruthy()
+    expect((await postConfiguration(request, { ...settings,
+      data_csv_path: path.resolve('tests/fixtures/role-catalogue-minimal.csv'), theme })).ok()).toBeTruthy()
     await recordClipboard(page)
     await page.goto('/#session=browser-test-session')
     await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Role Lookup',exact:true}).click()

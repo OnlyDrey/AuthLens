@@ -2,18 +2,18 @@ import {test,expect} from '@playwright/test'
 import {mkdtempSync,writeFileSync,rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import { headers } from './support'
+import { headers, postConfiguration } from './support'
 let directory:string
 const areas=['MM','FI','SD','BC','PP','QM','PM']
 test.beforeEach(async({request})=>{
  await request.post('/api/configuration/reset',{headers})
- directory=mkdtempSync(path.join(tmpdir(),'sap-lens-consistency-'))
+ directory=mkdtempSync(path.join(tmpdir(),'authlens-consistency-'))
  const roles=path.join(directory,'roles.csv'),users=path.join(directory,'users.csv')
  writeFileSync(roles,'FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,CHILD_AGR_TEXT,TCODE\n'+areas.map((area,index)=>`${area},ZC:SYN:${area},Synthetic ${area},ZS:SYN:${area},Synthetic component ${area},SYN${index}\n`).join(''))
  writeFileSync(users,'USERNAME,ROLE_NAME,EMAIL,USER_VALID_FROM,USER_VALID_TO,ROLE_VALID_FROM,ROLE_VALID_TO,USER_LOCKED\nSYN_VIEW,ZC:SYN:MM,synthetic@example.test,20000101,99991231,20000101,99991231,0\n')
  const settings=(await(await request.get('/api/configuration',{headers})).json()).settings
  settings.data_csv_path=roles;settings.user_csv_path=users
- expect((await request.post('/api/configuration',{headers,data:settings})).ok()).toBeTruthy()
+ expect((await postConfiguration(request, settings)).ok()).toBeTruthy()
 })
 test.afterEach(async({request})=>{await request.post('/api/configuration/reset',{headers});rmSync(directory,{recursive:true,force:true})})
 for(const theme of ['light','dark'])for(const width of [375,800,1280,1600])test(`consistent interactions previews and library ${theme} ${width}`,{ tag: '@visual' }, async({page,request},info)=>{

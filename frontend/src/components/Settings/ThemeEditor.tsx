@@ -96,13 +96,13 @@ export function ThemeEditor({
             }}
           >
             <img
-              src={logoSrc || "/sap-lens.png"}
+              src={logoSrc || "/logo.png"}
               alt="Header logo preview"
-              onError={event=>{if(!event.currentTarget.src.endsWith('/sap-lens.png'))event.currentTarget.src='/sap-lens.png'}}
+              onError={event=>{if(!event.currentTarget.src.endsWith('/logo.png'))event.currentTarget.src='/logo.png'}}
               className="h-12 w-auto max-w-24 shrink-0 object-contain sm:max-w-40"
             />
             <div className="min-w-0">
-              <b className="block break-words text-base font-semibold">{draft.organization.name || 'SAP Lens'}</b>
+              <b className="block break-words text-base font-semibold">{draft.organization.name || 'AuthLens'}</b>
               <p className="text-xs">{draft.organization.platform === 'Other / Custom' ? draft.organization.custom_platform : draft.organization.platform} · {draft.organization.system_id} {draft.organization.client}</p><p className="text-xs">{draft.organization.description}</p>
             </div>
           </div>
@@ -154,7 +154,7 @@ export function ThemeEditor({
 
       <div className="grid md:grid-cols-2 gap-3">
         <label className="text-sm font-medium">
-          Theme
+          Application default theme
           <SettingsSelect
             className={`${control} mt-1`}
             value={draft.theme}

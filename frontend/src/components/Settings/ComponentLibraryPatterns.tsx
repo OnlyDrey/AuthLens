@@ -1,3 +1,4 @@
+import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {SAPUserLink} from '@/components/Shared/SAPUserLink'
 import { useState } from 'react'
 import { Database, FileDown, ShieldCheck, UsersRound } from 'lucide-react'
@@ -55,10 +56,10 @@ export function ComponentLibraryPatterns() {
         <section aria-label="Table states" className="grid gap-2">
           <h3>Table zebra, hover and selection</h3>
           <div className="access-table" role="region" aria-label="Demo table states" tabIndex={0} data-density="compact">
-            <table>
+            <ConfigurableTable>
               <thead><tr><th>SAP user</th><th>Group</th></tr></thead>
               <tbody>{['SYN_A', 'SYN_B', 'SYN_C'].map((user) => <tr key={user} data-selected={row === user || undefined} onClick={() => setRow(user)}><td>{user}</td><td>FIN</td></tr>)}</tbody>
-            </table>
+            </ConfigurableTable>
           </div>
         </section>
         <section aria-label="Codeblock" className="grid gap-2">
@@ -93,7 +94,7 @@ export function ComponentLibraryPatterns() {
           <div className="flex flex-wrap gap-2"><Button onClick={() => setModal(true)}>Open wide modal</Button><Button><FileDown size={16} aria-hidden="true" />Export CSV</Button></div>
           {modal && <Dialog title="Demo evidence modal" onClose={() => setModal(false)} footer={<Button onClick={() => setModal(false)}>Close</Button>}>
             <dl className="evidence-summary"><div><dt>SAP user</dt><dd>SYN_A</dd></div><div><dt>Risk</dt><dd>R1</dd></div><div><dt>Roles</dt><dd>3</dd></div></dl>
-            <div className="evidence-scroll" tabIndex={0} role="region" aria-label="Demo scrollable evidence"><table><thead><tr><th>Role</th></tr></thead><tbody><tr><td><RoleIdentifier value="ROLE_A1" label="role" /></td></tr><tr><td><RoleIdentifier value="ROLE_B" label="role" /></td></tr></tbody></table></div>
+            <div className="evidence-scroll" tabIndex={0} role="region" aria-label="Demo scrollable evidence"><ConfigurableTable><thead><tr><th>Role</th></tr></thead><tbody><tr><td><RoleIdentifier value="ROLE_A1" label="role" /></td></tr><tr><td><RoleIdentifier value="ROLE_B" label="role" /></td></tr></tbody></ConfigurableTable></div>
           </Dialog>}
         </section>
       </div>

@@ -1,3 +1,5 @@
+import {useReviewerName} from '@/hooks/useReviewerIdentity'
+import {Permission} from '@/components/Auth/Authentication'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Settings2, Trash2, UsersRound } from 'lucide-react'
@@ -63,7 +65,7 @@ function MembershipRow({ item, busy, onConfirm, onRemove }: { item: Membership; 
 
 /** Reviewer and rationale shared by the actions of one dialog. The reviewer is self-reported unless the server authenticates one. */
 function useReviewer() {
-  const [reviewer, setReviewer] = useState(lastReviewer), [rationale, setRationale] = useState('')
+  const [reviewer, setReviewer] = useReviewerName(lastReviewer), [rationale, setRationale] = useState('')
   return { reviewer, setReviewer, rationale, setRationale }
 }
 
@@ -92,7 +94,7 @@ export function ManageGroupsDialog({ username, data, changeId = '', onClose }: {
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={needReviewer || !toAdd.length || run.isPending} onClick={() => run.mutate({ add: toAdd })}>
         <Plus size={16} aria-hidden="true" />{toAdd.length ? `Add ${toAdd.length} ${toAdd.length === 1 ? 'group' : 'groups'}` : 'Add groups'}</Button></>}>
       <div className="grid min-w-0 gap-3">
-        <p className="ui-description">Business classification maintained in SAP Lens. Adding a group keeps the user's other groups and never changes SAP access.</p>
+        <p className="ui-description">Business classification maintained in AuthLens. Adding a group keeps the user's other groups and never changes SAP access.</p>
         {current.memberships.length > 0 ? (
           <ul className="fg-memberships" aria-label="Current Functional Groups">{current.memberships.map(item => (
             <MembershipRow key={item.group_id} item={item} busy={run.isPending || needReviewer} onConfirm={() => run.mutate({ confirm: item.group_id })} onRemove={() => { setRemoving(item); setRemoveRationale('') }} />))}</ul>
@@ -107,7 +109,7 @@ export function ManageGroupsDialog({ username, data, changeId = '', onClose }: {
         )}
         <Suggestions items={data.suggestion?.groups ?? []} pending={run.isPending || needReviewer} onAdd={group => setPicked(previous => (previous.includes(group) ? previous : [...previous, group]))} />
         <GroupPicker selected={picked} onChange={setPicked} disabledIds={held} />
-        <FormField label="Reviewer"><input className={controlClass} value={reviewer} maxLength={120} onChange={event => setReviewer(event.target.value)} /></FormField>
+        <FormField label="Reviewer"><input className={controlClass} readOnly value={reviewer} maxLength={120} onChange={event => setReviewer(event.target.value)} /></FormField>
         <FormField label="Rationale (optional when adding)"><textarea className={controlClass} rows={2} maxLength={2000} value={rationale} onChange={event => setRationale(event.target.value)} /></FormField>
         {run.isError && <p role="alert">{message(run.error, 'The change could not be saved.')}</p>}
       </div>
@@ -115,7 +117,7 @@ export function ManageGroupsDialog({ username, data, changeId = '', onClose }: {
   )
 }
 
-/** User Details: SAP Lens-maintained classification, separate from the imported Directory fields. A business classification only: SAP access is never changed. */
+/** User Details: AuthLens-maintained classification, separate from the imported Directory fields. A business classification only: SAP access is never changed. */
 export function FunctionalGroupPanel({ username }: { username: string }) {
   const query = useQuery({ queryKey: classificationKey(username), queryFn: () => fetchUserClassification(username) })
   const [editing, setEditing] = useState(false)
@@ -126,30 +128,38 @@ export function FunctionalGroupPanel({ username }: { username: string }) {
       <div className="profile-group-header">
         <h2><UsersRound size={18} aria-hidden="true" />Functional Groups</h2>
         {current && (
-          <span className="inline-flex flex-wrap gap-2">
+          <Permission permission="admin"><span className="inline-flex flex-wrap gap-2">
             <Button variant={count ? 'secondary' : 'primary'} onClick={() => setEditing(true)} aria-label={count ? 'Add group' : 'Assign group'}>{count ? <Plus size={16} aria-hidden="true" /> : <UsersRound size={16} aria-hidden="true" />}{count ? 'Add group' : 'Assign group'}</Button>
             {count > 0 && <Button onClick={() => setEditing(true)} aria-label="Manage groups"><Settings2 size={16} aria-hidden="true" />Manage groups</Button>}
-          </span>
+          </span></Permission>
         )}
       </div>
       {query.isError ? <p role="alert">{message(query.error, 'Functional Group data is unavailable.')}</p> : !current ? <LoadingState /> : (
         <>
           {count ? (
-            <ul className="fg-memberships" aria-label="Functional Group memberships">{current.memberships.map(item => (
-              <li key={item.group_id} className="fg-membership" data-status={item.status}>
-                <div className="fg-membership-main">
-                  <strong className="fg-name">{item.group.name}{item.group.status === 'archived' && ' (archived)'}</strong>
-                  <ClassificationPill status={item.status} />
-                  {confirmationText(item.confirmed_at, item.confirmed_by, item.status === 'Confirmed') && <span className="fg-meta">{confirmationText(item.confirmed_at, item.confirmed_by, item.status === 'Confirmed')}</span>}
-                  {item.review && <span className="fg-meta">Review required: {item.review.reason}</span>}
-                </div>
-              </li>))}</ul>
+            <>
+              {/* Active groups first; memberships of archived groups stay visible as their own, clearly labelled list. */}
+              {[['Functional Group memberships', current.memberships.filter(item => item.group.status !== 'archived'), ''] as const,
+                ['Archived Functional Group memberships', current.memberships.filter(item => item.group.status === 'archived'), 'Archived groups (kept on the user, cannot be newly assigned)'] as const].map(([label, items, heading]) => items.length > 0 && (
+                <div key={label} className="grid gap-1">
+                  {heading && <h3 className="fg-meta">{heading}</h3>}
+                  <ul className="fg-memberships" aria-label={label}>{items.map(item => (
+                    <li key={item.group_id} className="fg-membership" data-status={item.status}>
+                      <div className="fg-membership-main">
+                        <strong className="fg-name">{item.group.name}{item.group.status === 'archived' && ' (archived)'}</strong>
+                        <ClassificationPill status={item.status} />
+                        {confirmationText(item.confirmed_at, item.confirmed_by, item.status === 'Confirmed') && <span className="fg-meta">{confirmationText(item.confirmed_at, item.confirmed_by, item.status === 'Confirmed')}</span>}
+                        {item.review && <span className="fg-meta">Review required: {item.review.reason}</span>}
+                      </div>
+                    </li>))}</ul>
+                </div>))}
+            </>
           ) : <div className="fg-summary"><strong className="fg-name">Unassigned</strong><ClassificationPill status="Unassigned" /></div>}
           {(data?.suggestion?.groups ?? []).some(group => !group.already_member) && (
             <p className="fg-meta">Suggested (advisory): {data!.suggestion!.groups.filter(group => !group.already_member).map(group => group.group_name).join(', ')}</p>)}
-          <p className="fg-meta">Business classification maintained in SAP Lens. It does not change SAP access.</p>
-          <EvidenceDisclosure title="About Functional Groups"><p className="ui-description">Functional Groups are maintained in SAP Lens. A user can belong to several groups. Directory Department, Job Title and SAP User Group are imported and displayed separately.</p></EvidenceDisclosure>
-          {editing && data && <ManageGroupsDialog username={username} data={data} onClose={() => setEditing(false)} />}
+          <p className="fg-meta">Business classification maintained in AuthLens. It does not change SAP access.</p>
+          <EvidenceDisclosure title="About Functional Groups"><p className="ui-description">Functional Groups are maintained in AuthLens. A user can belong to several groups. Directory Department, Job Title and SAP User Group are imported and displayed separately.</p></EvidenceDisclosure>
+          <Permission permission="admin">{editing && data && <ManageGroupsDialog username={username} data={data} onClose={() => setEditing(false)} />}</Permission>
         </>
       )}
     </section>
@@ -183,8 +193,8 @@ export function FunctionalGroupReview({ username, department, title, manager, de
             {detectedAt && <div><dt>Change detected</dt><dd>{detectedAt}</dd></div>}
           </dl>
           <p className="ui-description">Classification only. This does not record a SAP role decision and never changes SAP access.</p>
-          <Button onClick={() => setOpen(true)}>{current.status === 'Needs review' ? 'Review Functional Groups' : 'Manage groups'}</Button>
-          {open && data && <ManageGroupsDialog username={username} data={data} changeId={changeId} onClose={() => setOpen(false)} />}
+          <Permission permission="admin"><Button onClick={() => setOpen(true)}>{current.status === 'Needs review' ? 'Review Functional Groups' : 'Manage groups'}</Button>
+          {open && data && <ManageGroupsDialog username={username} data={data} changeId={changeId} onClose={() => setOpen(false)} />}</Permission>
         </>
       )}
     </section>

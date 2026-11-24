@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, goTo, openFilters, closeFilters } from './support'
+import { headers, goTo, openFilters, closeFilters, postConfiguration } from './support'
 import { layoutMatrix } from './matrix'
 let directory: string
 const roles =
@@ -11,7 +11,7 @@ const users =
   'USERNAME,ROLE_NAME,USER_GROUP,ROLE_VALID_FROM,ROLE_VALID_TO\nDEMO_ONE,ZC:MM:A,G1,20200101,99991231\nDEMO_ONE,ZC:FI:B,G1,20200101,99991231\nDEMO_TWO,ZC:MM:A,G2,20200101,99991231\nDEMO_THREE,ZC:SD:C,G2,20200101,99991231\n'
 test.beforeEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
-  directory = mkdtempSync(path.join(tmpdir(), 'sap-lens-dashboard-'))
+  directory = mkdtempSync(path.join(tmpdir(), 'authlens-dashboard-'))
   const rolePath = path.join(directory, 'roles.csv'),
     userPath = path.join(directory, 'users.csv')
   writeFileSync(rolePath, roles)
@@ -23,7 +23,7 @@ test.beforeEach(async ({ request }) => {
   settings.user_csv_path = userPath
   expect(
     (
-      await request.post('/api/configuration', { headers, data: settings })
+      await postConfiguration(request, settings)
     ).ok(),
   ).toBeTruthy()
 })
@@ -177,7 +177,7 @@ test('Dashboard counts and KPI routes are meaningful, with browser Back and disa
   ).settings
   current.features.user_role_mapping = false
   expect(
-    (await request.post('/api/configuration', { headers, data: current })).ok(),
+    (await postConfiguration(request, current)).ok(),
   ).toBeTruthy()
   await page.goto('/#/dashboard')
   await page.reload()
@@ -206,7 +206,7 @@ for (const { theme, width } of layoutMatrix([375, 800, 1280]))
       settings.theme = theme
       expect(
         (
-          await request.post('/api/configuration', { headers, data: settings })
+          await postConfiguration(request, settings)
         ).ok(),
       ).toBeTruthy()
       await page.setViewportSize({ width, height: 1000 })
@@ -224,14 +224,15 @@ for (const { theme, width } of layoutMatrix([375, 800, 1280]))
         fullPage: true,
       })
       await goTo(page, 'Role Lookup')
-      // Filters live in the sidebar (wide) or drawer (narrow); the role search stays in the page body.
+      // Role search and transaction filters share the sidebar/drawer in reading order.
       const name = page.getByPlaceholder('Search roles by name or description...'),
         tcode = page.getByRole('textbox', { name: 'Filter catalogue by transaction', exact: true })
       await openFilters(page)
       await expect(tcode).toBeVisible()
       const a = (await name.boundingBox())!, b = (await tcode.boundingBox())!
       expect(Math.abs(a.height - b.height)).toBeLessThanOrEqual(2)
-      if (width >= 1024) expect(b.x + b.width).toBeLessThanOrEqual(a.x + 1) // sidebar before content, in DOM and visual order
+      expect(b.y).toBeGreaterThanOrEqual(a.y + a.height)
+      expect(await name.evaluate((element, other) => !!(element.compareDocumentPosition(other!) & Node.DOCUMENT_POSITION_FOLLOWING), await tcode.elementHandle())).toBe(true)
       await tcode.fill('MIGO')
       await tcode.press('Enter')
       await tcode.fill('ME21N')

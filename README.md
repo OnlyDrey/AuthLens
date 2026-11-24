@@ -1,8 +1,8 @@
 <!-- LOGO -->
 <h1>
 <p align="center">
-  <img src="assets/sap-lens.png" alt="Logo" width="200">
-  <br>SAP Lens
+  <img src="assets/branding/app.png" alt="Logo" width="200">
+  <br>AuthLens
 </h1>
   <p align="center">
     <b>SAP S/4HANA</b> · Role analysis and comparison tool for Company's internal SAP authorisation landscape.
@@ -10,7 +10,7 @@
     <br />
     <a href="docs/README.md">Documentation</a>
     ·
-    <a href="docs/getting-started/QUICK_START.md">Quick Start</a>
+    <a href="docs/README.md#quick-start">Quick Start</a>
     ·
     <a href="docs/deployment/README.md">Build &amp; Deployment</a>
     ·
@@ -18,80 +18,119 @@
     ·
     <a href="docs/development/README.md">Development</a>
     ·
-    <a href="https://github.com/OnlyDrey/sap-lens/releases">GitHub Releases</a>
+    <a href="https://github.com/OnlyDrey/AuthLens/releases">GitHub Releases</a>
   </p>
 </p>
 
 ---
 
-SAP Lens is a local-first SAP investigation and access-review application. Browse
-roles and transaction mappings, investigate user/release assignments, compare
-users, enrich identities with optional Employee Directory data, record Account
-Review decisions, and investigate and review potential Segregation of Duties
-conflicts with frozen periods and DOCX/PDF reports. Role-derived transaction coverage is investigation evidence,
-not proof of effective authorization or license consumption. No direct SAP connection
-or third-party data-upload service is required.
+AuthLens is a local-first SAP investigation and access-review application. Browse roles and transaction mappings, propose access packages,
+investigate user/release assignments, compare users, enrich identities with optional Employee Directory data, record Account Review decisions,
+and investigate and review potential Segregation of Duties conflicts with frozen periods and DOCX/PDF reports. Role-derived transaction coverage
+is investigation evidence, not proof of effective authorization or license consumption. No direct SAP connection or third-party data-upload
+service is required.
 
-## Get started
+## Getting Started
 
-Choose [Quick Start](docs/getting-started/QUICK_START.md), then a deployment:
+Build on Windows with **Windows PowerShell 5.1**, **Git**, **.NET SDK 10**, **Node.js 24 or 25 with npm**,
+**Python 3** (available as `python`) and **Inno Setup 6** (`ISCC.exe`). Git, .NET, Node, npm and Python must
+be available on `PATH`. Dependency restore needs access to NuGet/npm feeds or populated local caches.
+Inno Setup is detected in its standard installation locations; use `-Iscc 'C:\Tools\Inno Setup 6\ISCC.exe'`
+if installed elsewhere.
 
-| Target | Interface | Primary guide |
-| --- | --- | --- |
-| Windows Desktop x64 | EXE / WebView2; portable or per-user installer | [Desktop](docs/deployment/WINDOWS_DESKTOP.md) |
-| Windows Server Service x64 | Headless WinSW/SCM, browser | [Service](docs/deployment/WINDOWS_SERVICE.md) |
-| Linux Docker amd64 | Offline image / Compose, browser | [Docker](docs/deployment/LINUX_DOCKER.md) |
-| Linux Native/systemd x64 | Python 3.12, systemd or manual browser process | [Native](docs/deployment/LINUX_NATIVE.md) |
+Run all commands **from the repository root**, containing [build.ps1](build.ps1). The working tree must
+be clean, including untracked files: `git status --short` must print nothing. Commit reviewed changes
+before building; the build refuses dirty sources. `-ExecutionPolicy Bypass` applies to the launched
+PowerShell process and does not change the saved user or machine execution policy.
 
-All targets share the application and CSV lifecycle. Linux client support is
-browser-based; no standalone Linux GUI is supplied. Server deployments default to
-loopback and require an explicit [security boundary](docs/deployment/SECURITY.md)
-for remote access. Packaging support does not establish native production acceptance;
-see the [validation matrix](docs/deployment/README.md#validation-status).
+**Standard Windows build:**
 
-## How it works
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
+```
 
-A FastAPI backend and a React frontend run on one machine. Role, user, Employee Directory and SoD CSV files are imported as immutable, content-addressed
-snapshots (Static sources once, Dynamic sources on every refresh); an optional, rebuildable SQLite store and fingerprints keep restarts and refreshes fast. Review
-decisions are bound to the evidence they were made on and are rejected, never overwritten, when that evidence or the dataset changed. See
-[Storage, revisions and consistency](docs/architecture/STORAGE_AND_REVISIONS.md).
+**Build without regression tests:**
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -SkipTests
+```
+
+`-SkipTests` skips the release builder's .NET test execution, including publish tests. It still builds the
+frontend and .NET solution, publishes both products, scans the release for secrets, verifies build identity
+and release checksums, compiles both installers, and verifies installer hashes and branding. Neither command
+launches the separate browser or Pester suites. Skipped tests do not satisfy release acceptance.
+
+Both commands produce **Server and Desktop release artifacts and installers**. The default output root
+is `C:\AuthLens`; choose another with `-OutputRoot`:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -OutputRoot 'C:\AuthLens-Builds'
+```
+
+Each run creates a new `AuthLens-{version}-{yyyy-MM-dd_HHmm}-{shortSha}` directory under that output root,
+using the canonical version (including any prerelease suffix), UTC time and the first seven commit characters.
+For example: `C:\AuthLens\AuthLens-2.0.0-2026-11-24_0948-8ec7f77`. Collisions append `-02`, `-03`, etc.;
+existing directories are never reused or renamed. Manifests and build metadata retain the full timestamp precision
+and complete commit SHA. The internal layout is unchanged:
+
+| Location within the run directory | Contents |
+| --- | --- |
+| `build-summary.json`, `build.log` | Build/test status, tool versions, verification results, artifact hashes and console log |
+| `build\AuthLens-<version>-<timestamp>-<sha>-win-x64\` | `server\AuthLens.Api.exe`, `desktop\AuthLens.exe`, symbols, `build-manifest.json` and `SHA256SUMS` |
+| `installer\` | Both Setup executables, `installer-manifest.json`, `installers-SHA256SUMS` and packaged helpers |
+| `build\branding-verification.json` | Executable, installer and frontend branding checks |
+
+Building does **not install AuthLens or modify Windows services**. For detailed switches, output layout
+and failure handling, see the [canonical Windows build guide](docs/deployment/WINDOWS_DEPLOYMENT.md#canonical-windows-build).
+Production approval remains subject to the [release gates](docs/validation/STATUS.md).
+
+## Implementation
+
+The implementation is an ASP.NET Core (.NET 10) backend in [`backend/`](backend) serving the React/Vite frontend in [`frontend/`](frontend),
+as a Windows service or console **Server** (browser access over HTTPS) and a WebView2 **Desktop** for one user.
+Development target `2.0.0` - **NOT APPROVED for production**; see [versioning and release gates](docs/architecture/VERSIONING.md).
+
+| Area | Status |
+| --- | --- |
+| UI and API | Shared React frontend and authenticated .NET API ([UI integration](docs/architecture/UI_INTEGRATION.md)) |
+| Data | SQLite system of record, immutable evidence and review history, encrypted backups ([database design](docs/architecture/DATABASE_DESIGN.md)) |
+| Windows Server | The `AuthLens` Windows service, HTTPS and verified package updates with backup and rollback ([Windows deployment](docs/deployment/WINDOWS_DEPLOYMENT.md)) |
+| Desktop | Per-user installation and loopback-only API with isolated application data |
+| Acceptance | Current verification and remaining checks are recorded in [validation status](docs/validation/STATUS.md) |
+
+
+## Repository layout
+
+| Path | Content |
+| --- | --- |
+| [`backend/`](backend) | AuthLens .NET solution (`src/`, `tests/`), build, release, installer and deployment scripts (`scripts/`, `installer/`), offline fixture/reference utilities (`tools/`) |
+| [`frontend/`](frontend) | React/Vite application UI |
+| [`docs/`](docs/README.md) | Documentation (canonical for AuthLens) |
+| [`scripts/`](scripts/README.md) | Repository-wide checks (documentation links, secrets, workflow contracts, frontend version and icon catalogue) |
+| [`examples/`](examples/README.md), [`assets/`](assets) | Synthetic example data; product icon and logo |
+
+## Quick commands
+
+```bash
+npm --prefix frontend ci && npm --prefix frontend run build
+dotnet build backend/AuthLens.slnx -c Release
+dotnet test backend/tests/AuthLens.Tests -c Release --no-build --filter "Category!=Publish"
+backend/scripts/build-release.sh <output>                     # Linux; Windows: .\build.ps1
+```
+
+Details: [development](docs/development/README.md), [deployment](docs/deployment/README.md).
 
 ## Security and operations
 
-* The desktop application listens on `127.0.0.1` only; server mode defaults to loopback and needs an explicit [security boundary](docs/deployment/SECURITY.md) for remote access.
-* Private CSVs, exports, logs and configuration never belong in Git or in build artifacts; the repository ships synthetic [examples](examples/README.md) only.
-* Old data is cleaned up by approval-gated [retention](docs/operations/DATA_RETENTION.md); [backups](docs/deployment/BACKUP_RESTORE.md) are verified before use.
-* Native Windows (SCM, WebView2, UNC) and real systemd acceptance are not established by the Linux validation; see the [validation matrix](docs/deployment/README.md#validation-status).
+* The Server listens on loopback unless `--network` is given; network mode requires HTTPS, an explicit host allow-list and, behind a reverse
+  proxy, an explicit trusted-proxy list ([network access and security](docs/deployment/SERVER_NETWORK_ACCESS.md)). The Desktop listens on loopback only.
+* Private CSVs, exports, logs, configuration, certificates and deployment settings never belong in Git or in build artifacts; the repository ships
+  synthetic [examples](examples/README.md) only.
+* Backups are encrypted and verified; every deployment takes and verifies a backup before it stops the service.
 
-## Find your guide
-
-- [Build packages](docs/BUILD.md): Actions selections, versions, local commands, prerequisites and outputs.
-- [Features](docs/features/README.md): investigation, comparisons, review, [SoD](docs/features/SOD.md) and Saved Filters.
-- [Data & CSV](docs/data/README.md): four independent sources, formats, replacement and persistence.
-- [Configuration](docs/getting-started/CONFIGURATION.md): settings, storage and recovery.
-- [Development & Testing](docs/development/README.md): source-mode execution without an EXE and validation.
-- [Architecture](docs/architecture/README.md): runtime, storage and revisions, API, security and shared components.
-- [Operations](docs/operations/README.md): data retention, backup and restore, recovery.
-- [Scripts](scripts/README.md): which build, validation and maintenance scripts to run.
-- [Synthetic examples](examples/README.md): safe linked test datasets, never automatically imported.
-- [Privacy](docs/architecture/PRIVACY.md): unresolved accepted historical branding and repository boundaries.
-
-[GitHub Releases](https://github.com/OnlyDrey/sap-lens/releases) holds release notes
-and history. Actions artifacts are available only after successful approved builds
-and have finite retention. Local builds never publish releases, tags or commits.
-
-Local Windows build entry point (from the repository root):
-
-```powershell
-.\scripts\build.ps1 -Mode quick
-.\scripts\build.ps1 -Mode build -Platform windows -Target desktop
-```
-
-Version resolution, prerequisites, optional service packaging and output paths are
-in the [build guide](docs/BUILD.md#commands).
 
 ## Licensing
 
-SAP Lens is proprietary software. All rights reserved; no open-source license is
+AuthLens is proprietary software. All rights reserved; no open-source license is
 granted. Use or distribution requires authorization from the applicable rights
 holder. See [LICENSE.md](LICENSE.md). Third-party components retain their own licenses.

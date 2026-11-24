@@ -1,3 +1,7 @@
+import {FunctionalGroupPills} from '@/components/Shared/FunctionalGroupPills'
+import {ExactUsernameFilter} from '@/components/Shared/ExactUsernameFilter'
+import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
+import {useReviewerName} from '@/hooks/useReviewerIdentity'
 import { Dialog } from '@/components/Shared/Dialog'
 import { type ReviewEvidence } from '@/components/Shared/ReviewFindings'
 import { PageHeader, MetadataList } from '@/components/Shared/Presentation'
@@ -15,7 +19,7 @@ import { useApplicationData } from '@/state/ApplicationData'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRightLeft, ArrowUpRight, ClipboardCheck, ClipboardList, Download, History, Save, SearchX, UserMinus } from 'lucide-react'
-import { apiRequest, applicationToken } from '@/api/client'
+import { apiRequest } from '@/api/client'
 import { useHistoryValue, useViewHistory } from '@/hooks/useViewHistory'
 import { AccountStatus } from '@/components/Shared/AccountStatus'
 import { FilterChip } from '@/components/Shared/FilterChip'
@@ -124,12 +128,13 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
     [licenses, setLicenses] = useState<string[]>(retained?.licenses||[]),
     [states, setStates] = useState<string[]>(retained?.states||[]),
     [includeCompleted, setIncludeCompleted] = useState(false),
-    [groupFilter, setGroupFilter] = useState<string[]>([]),
-    [managerFilter, setManagerFilter] = useState<string[]>([]),
+    [groupFilter, setGroupFilter] = useState<string[]>(retained?.groups||[]),
+    [managerFilter, setManagerFilter] = useState<string[]>(retained?.managers||[]),
+    [usernames, setUsernames] = useState<string[]>(retained?.usernames||[]),
     [sort, setSort] = useState(retained?.sort||'username'),
     [descending, setDescending] = useState(retained?.descending||false),
     [offset, setOffset] = useState(0)
-  useEffect(()=>change({accountReviewFilters:{search,licenses,states,sort,descending}},true),[search,licenses,states,sort,descending,change])
+  useEffect(()=>change({accountReviewFilters:{search,licenses,states,sort,descending,groups:groupFilter,managers:managerFilter,usernames}},true),[search,licenses,states,sort,descending,groupFilter,managerFilter,usernames,change])
   const [term, setTerm] = useState(''),
     [feedback, setFeedback] = useState(''),
     [busy, setBusy] = useState(false),
@@ -143,7 +148,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
 
     }
   }, [editing])
-  const [reviewer, setReviewer] = useState(''),
+  const [reviewer, setReviewer,reviewIdentity] = useReviewerName(),
     [rationale, setRationale] = useState(''),
     [decision, setDecision] = useState('Needs review')
   useEffect(() => {
@@ -152,7 +157,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
   }, [search])
   useEffect(
     () => setOffset(0),
-    [term, findings.join('|'), licenses.join('|'), states.join('|'), groupFilter.join('|'), managerFilter.join('|'), includeCompleted, sort, descending],
+    [term, findings.join('|'), licenses.join('|'), states.join('|'), groupFilter.join('|'), managerFilter.join('|'), usernames.join('|'), includeCompleted, sort, descending],
   )
   const params = new URLSearchParams({
     search: term,
@@ -165,6 +170,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
   if (includeCompleted) params.set('include_completed', 'true')
   groupFilter.forEach(value => params.append('functional_groups', value))
   managerFilter.forEach(value => params.append('managers', value))
+  usernames.forEach(value=>params.append('usernames',value))
   const generation = useRef(0)
   useEffect(() => {
     generation.current++
@@ -213,7 +219,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
         <section aria-label="Account review progress" className="review-progress" data-primary="true">
           <div className="review-progress-head">
             <h2>Account review progress</h2>
-            <InfoTip label="About account review progress">Completed and pending partition all SAP users, so no account is counted twice. Outdated reviews count as pending until they are reviewed again.</InfoTip>
+            <InfoTip label="About account review progress">Completed and pending partition the selected population, so no account is counted twice. Finding and completion filters narrow the work table; outdated reviews count as pending until reviewed again.</InfoTip>
           </div>
           {known && <p className="progress-summary"><strong className="progress-summary-value">{percent.toFixed(1)}%</strong><span className="progress-summary-caption">{reviewed!.toLocaleString()} of {total!.toLocaleString()} SAP users reviewed</span></p>}
           {known ? <StackedBar inline label="Account review progress" total={total!} segments={[
@@ -234,7 +240,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
   }
   const findingOptions = ['any', 'matched', 'directory_missing', 'directory_ambiguous', 'reviewed', 'pending', 'position_change', 'manager_change', 'functional_group_review', ...Object.keys(data?.finding_labels || {}), 'stale']
   const findingLabel = (key: string) => FINDING_NAMES[key] || data?.finding_labels[key] || key
-  const clearAll = () => { setOffset(0); setSearch(''); setTerm(''); setFindings([]); setLicenses([]); setStates([]); setGroupFilter([]); setManagerFilter([]); setIncludeCompleted(false); setSort('username'); setDescending(false) }
+  const clearAll = () => { setOffset(0); setSearch(''); setTerm(''); setFindings([]); setLicenses([]); setStates([]); setGroupFilter([]); setManagerFilter([]); setUsernames([]); setIncludeCompleted(false); setSort('username'); setDescending(false) }
   const queueParams = 'finding=position_change&sort=priority&limit=25'
   const queue = useQuery({
     queryKey: ['account-review', 'position-queue'],
@@ -243,7 +249,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
   })
   const closeEditor=()=>{
     if(busy)return
-    const dirty=editing&&(reviewer!==(editing.decision?.reviewer||'')||rationale!==(editing.decision?.rationale||'')||decision!==editing.review_state)
+    const dirty=editing&&(rationale!==(editing.decision?.rationale||'')||decision!==editing.review_state)
     if(dirty&&!window.confirm('Discard unsaved review changes?'))return
     setEditing(null)
   }
@@ -357,18 +363,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
       )
         throw Error('Review evidence changed. Refresh before exporting.')
       const content = lines.join(''),
-        filename = `sap-lens-account-review-review-${new Date().toISOString().slice(0, 10)}.csv`
-      if (window.pywebview) {
-        if (!window.pywebview.api.save_user_access_csv)
-          throw Error('Update the desktop application to export CSV.')
-        const saved = await window.pywebview.api.save_user_access_csv(
-          applicationToken(),
-          filename,
-          content,
-        )
-        setFeedback(saved ? 'Review CSV saved.' : 'CSV export cancelled.')
-        return
-      }
+        filename = `authlens-account-review-review-${new Date().toISOString().slice(0, 10)}.csv`
       const url = URL.createObjectURL(
           new Blob([content], { type: 'text/csv;charset=utf-8' }),
         ),
@@ -402,7 +397,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
           </p>
           {!queue.data ? <p role="status">Loading position changes…</p> : (
             <div className="access-table" role="region" aria-label="Position change review queue" tabIndex={0}>
-              <table>
+              <ConfigurableTable aria-label="Position changes">
                 <thead>
                   <tr>
                     <th>SAP username</th><th>Employee</th><th>Previous position</th><th>Current position</th><th>Priority</th><th><span className="sr-only">Review action</span></th>
@@ -423,7 +418,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
                     )
                   })}
                 </tbody>
-              </table>
+              </ConfigurableTable>
             </div>
           )}
           {queue.data && queue.data.total > queue.data.items.length && <p className="ui-description">Showing {queue.data.items.length} of {queue.data.total}. Use the Review finding filter to see all.</p>}
@@ -439,7 +434,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
         </PageToolbar>}
         sidebar={<div className="grid min-w-0 gap-3" role="search" aria-label="Review filters">
           <FilterSection title="Saved Filters">
-            <SavedFilters showClear={false} view="review" state={{search,findings,licenses,states,groups:groupFilter,managers:managerFilter,includeCompleted,sort,descending}} apply={s=>{setIncludeCompleted(s.includeCompleted===true);if(Array.isArray(s.groups))setGroupFilter(s.groups.filter((item:string)=>(data?.functional_group_options||[]).some(o=>o.value===item)));if(Array.isArray(s.managers))setManagerFilter(s.managers.filter((item:string)=>(data?.manager_options||[]).some(o=>o.value===item)));if(typeof s.search==='string')setSearch(s.search);if(Array.isArray(s.findings))setFindings(s.findings.filter(item=>findingOptions.includes(item)));if(Array.isArray(s.licenses))setLicenses(s.licenses.filter(item=>['classified','exclude'].includes(item)));if(Array.isArray(s.states))setStates(s.states.filter(item=>(data?.review_states||[]).includes(item)));if(['username','name','sap_validity','lock_status','ad_status','review_state'].includes(String(s.sort)))setSort(String(s.sort));if(typeof s.descending==='boolean')setDescending(s.descending)}} clear={()=>{setSearch('');setFindings([]);setLicenses([]);setStates([]);setSort('username');setDescending(false)}}/>
+            <SavedFilters showClear={false} view="review" state={{search,findings,licenses,states,groups:groupFilter,managers:managerFilter,usernames,includeCompleted,sort,descending}} apply={s=>{if(Array.isArray(s.usernames))setUsernames(s.usernames);setIncludeCompleted(s.includeCompleted===true);if(Array.isArray(s.groups))setGroupFilter(s.groups.filter((item:string)=>typeof item==='string'));if(Array.isArray(s.managers))setManagerFilter(s.managers.filter((item:string)=>typeof item==='string'));if(typeof s.search==='string')setSearch(s.search);if(Array.isArray(s.findings))setFindings(s.findings.filter(item=>findingOptions.includes(item)));if(Array.isArray(s.licenses))setLicenses(s.licenses.filter(item=>['classified','exclude'].includes(item)));if(Array.isArray(s.states))setStates(s.states.filter(item=>(data?.review_states||[]).includes(item)));if(['username','name','sap_validity','lock_status','ad_status','review_state'].includes(String(s.sort)))setSort(String(s.sort));if(typeof s.descending==='boolean')setDescending(s.descending)}} clear={()=>{setSearch('');setFindings([]);setLicenses([]);setStates([]);setSort('username');setDescending(false)}}/>
           </FilterSection>
           <FilterSection title="Search">
             <SearchInput className={inputClass} aria-label="Search account reviews" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} onClear={() => setSearch('')} />
@@ -457,6 +452,8 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
             <Checkbox checked={includeCompleted} onChange={event => setIncludeCompleted(event.target.checked)}>Include completed reviews</Checkbox>
           </FilterSection>
           <FilterSection title="Organization">
+            <p className="ui-description">Progress and tiles cover the selected population, including completed reviews. Finding, classification, decision and completion filters narrow the work table.</p>
+            <ExactUsernameFilter values={usernames} onChange={setUsernames} max={500}/>
             <FormField label="Functional Group">
               <MultiSelectFilter label="Functional Group" values={groupFilter} options={(data?.functional_group_options || []).map(o => o.value)} optionLabel={value => data?.functional_group_options.find(o => o.value === value)?.label ?? value} onChange={setGroupFilter} placeholder="All Functional Groups" />
             </FormField>
@@ -465,13 +462,14 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
             </FormField>
           </FilterSection>
         </div>}>
-      {(findings.length > 0 || licenses.length > 0 || states.length > 0 || groupFilter.length > 0 || managerFilter.length > 0 || search) && <div className="active-filter-row" aria-label="Active review filters">
+      {(findings.length > 0 || licenses.length > 0 || states.length > 0 || groupFilter.length > 0 || managerFilter.length > 0 || usernames.length > 0 || search) && <div className="active-filter-row" aria-label="Active review filters">
         {findings.map(value => <FilterChip key={`finding-${value}`} removeLabel={`Remove review finding ${findingLabel(value)}`} onRemove={() => setFindings(findings.filter(item => item !== value))}>Finding: {findingLabel(value)}</FilterChip>)}
         {licenses.map(value => <FilterChip key={`license-${value}`} removeLabel={`Remove license classification ${value === 'classified' ? 'Configured unlicensed groups' : 'Exclude unlicensed groups'}`} onRemove={() => setLicenses(licenses.filter(item => item !== value))}>{value === 'classified' ? 'Configured unlicensed groups' : 'Excluding unlicensed groups'}</FilterChip>)}
         {states.map(value => <FilterChip key={`state-${value}`} removeLabel={`Remove review decision ${value}`} onRemove={() => setStates(states.filter(item => item !== value))}>Decision: {value}</FilterChip>)}
         {groupFilter.map(value => <FilterChip key={`group-${value}`} removeLabel={`Remove Functional Group ${data?.functional_group_options.find(o => o.value === value)?.label ?? value}`} onRemove={() => setGroupFilter(groupFilter.filter(item => item !== value))}>Functional Group: {data?.functional_group_options.find(o => o.value === value)?.label ?? value}</FilterChip>)}
         {managerFilter.map(value => <FilterChip key={`manager-${value}`} removeLabel={`Remove manager ${data?.manager_options.find(o => o.value === value)?.label ?? value}`} onRemove={() => setManagerFilter(managerFilter.filter(item => item !== value))}>Manager: {data?.manager_options.find(o => o.value === value)?.label ?? value}</FilterChip>)}
         {search && <FilterChip removeLabel="Remove account search filter" onRemove={() => { setSearch(''); setTerm('') }}>Search: {search}</FilterChip>}
+        {!!usernames.length&&<FilterChip removeLabel="Remove exact username filter" onRemove={()=>setUsernames([])}>Exact usernames: {usernames.length}</FilterChip>}
       </div>}
       <div className="results-toolbar ui-toolbar"><strong>{data?.total.toLocaleString() ?? '…'} accounts</strong>{!!data?.completed_hidden && <span className="ui-description" role="status"> · {data.completed_hidden.toLocaleString()} completed review{data.completed_hidden === 1 ? '' : 's'} hidden · <Button size="compact" variant="ghost" onClick={() => setIncludeCompleted(true)}>Show reviewed</Button></span>}</div>
       <QueryState
@@ -497,7 +495,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
             role="region"
             aria-label="Account review results"
           >
-            <table>
+            <ConfigurableTable aria-label="Account Review results">
               <thead>
                 <tr>
                   {[
@@ -505,6 +503,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
                     'Name',
                     'SAP User Group',
                     'Functional Group',
+                    'Manager',
                     'SAP validity',
                     'SAP lock status',
                     'AD account status',
@@ -534,10 +533,11 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
                     <td>{row.name || 'Unknown'}</td>
                     <td>{row.groups.join(', ') || 'Unknown'}</td>
                     <td>
-                      {row.functional_groups?.length ? row.functional_groups.map(group => group.name).join('; ') : row.functional_group ? row.functional_group.name : <span className="text-muted">Unassigned</span>}
+                      <FunctionalGroupPills groups={row.functional_groups?.length?row.functional_groups:row.functional_group?[row.functional_group]:[]} username={row.username}/>
                       {row.classification.status === 'Needs review' && <> <ClassificationPill status="Needs review" /></>}
-                      {row.manager?.name && <small className="block">Manager: {row.manager.name}</small>}
+
                     </td>
+                    <td>{row.manager?.name || <span className="text-muted">Not recorded</span>}</td>
                     <td>
                       <AccountStatus value={row.sap_validity} />
                       {row.evidence&&row.evidence.account_total>row.evidence.accounts.length&&<small>More source intervals in User Details</small>}
@@ -588,7 +588,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ConfigurableTable>
           </div>
           {!data.items.length && <p>No accounts match these review filters.</p>}
           <Pagination
@@ -613,7 +613,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
               {label:'SAP User Group',value:editing.groups.join(', ')||'Group unavailable'},
               {label:'Directory match',value:matchLabel(editing.match_status)},
             ]}/>
-            <div className="ui-toolbar"><Button onClick={()=>{if(reviewer!==(editing.decision?.reviewer||'')||rationale!==(editing.decision?.rationale||'')||decision!==editing.review_state){if(!window.confirm('Discard unsaved review changes and investigate this user?'))return}setEditing(null);onUser(editing.username)}}><ArrowUpRight size={16} aria-hidden="true"/>Investigate SAP user</Button></div>
+            <div className="ui-toolbar"><Button onClick={()=>{if(rationale!==(editing.decision?.rationale||'')||decision!==editing.review_state){if(!window.confirm('Discard unsaved review changes and investigate this user?'))return}setEditing(null);onUser(editing.username)}}><ArrowUpRight size={16} aria-hidden="true"/>Investigate SAP user</Button></div>
           </section>
           {editing.classification.status !== 'Unassigned' && <FunctionalGroupReview username={editing.username}
             department={editing.position_change?.fields.includes('department') ? { previous: editing.position_change.previous_department, current: editing.position_change.current_department } : undefined}
@@ -621,11 +621,11 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
             manager={editing.manager_change ? { previous: editing.manager_change.previous_manager, current: editing.manager_change.current_manager } : null}
             detectedAt={editing.position_change?.detected_at ?? editing.manager_change?.detected_at} />}
           {editing.position_change&&<section aria-label="Position change that triggered this review" className="review-dialog-section review-dialog-trigger"><h3>Organizational position changes</h3>
-            <table className="review-change-table"><thead><tr><th scope="col"><span className="sr-only">Field</span></th><th scope="col">Previous (last known)</th><th scope="col">Current</th></tr></thead><tbody>
+            <ConfigurableTable aria-label="Position change comparison" className="review-change-table"><thead><tr><th scope="col"><span className="sr-only">Field</span></th><th scope="col">Previous (last known)</th><th scope="col">Current</th></tr></thead><tbody>
               <tr><th scope="row">Department</th><td>{editing.position_change.previous_department||'—'}</td><td data-changed={editing.position_change.fields.includes('department')||undefined}>{editing.position_change.current_department||'—'}</td></tr>
               <tr><th scope="row">Job title</th><td>{editing.position_change.previous_title||'—'}</td><td data-changed={editing.position_change.fields.includes('title')||undefined}>{editing.position_change.current_title||'—'}</td></tr>
               <tr><th scope="row">Employee Directory snapshot</th><td>{editing.position_change.previous_imported_at?`Imported ${formatTimestamp(editing.position_change.previous_imported_at)}`:'Import time not recorded'}</td><td>First detected {formatTimestamp(editing.position_change.detected_at)}</td></tr>
-            </tbody></table>
+            </tbody></ConfigurableTable>
             <p className="ui-description">The organizational change itself happened at an unknown time between the two imports. A position change prompts a review; it is not evidence that access is inappropriate.</p></section>}
           {actionError&&feedback&&<p role="alert">{feedback}</p>}
           <section aria-label="Review decision" className="review-dialog-section"><h3>Review decision</h3>
@@ -635,7 +635,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
               className={inputClass}
               disabled={busy}
               maxLength={120}
-              placeholder="Your name (self-declared)"
+              readOnly
               value={reviewer}
               onChange={(e) => setReviewer(e.target.value)}
             />
@@ -666,13 +666,13 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
             />
           </Filter>
           <p className="text-xs">
-            Review decisions are local annotations: the reviewer name is
+            Review decisions are application annotations. Identity provenance is recorded; Desktop profiles are
             self-declared, not an authenticated approval, and nothing is sent to
             or changed in SAP or Active Directory.
           </p>
           <div className="review-decision-actions"><Button
             variant="primary"
-            disabled={busy || !reviewer.trim() || !rationale.trim()}
+            disabled={!reviewIdentity.canReview || reviewIdentity.loading || busy || !reviewer.trim() || !rationale.trim()}
             onClick={() =>
               void action(async () => {
                 await apiRequest(

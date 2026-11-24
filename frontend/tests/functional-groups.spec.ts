@@ -1,7 +1,8 @@
+import {expectReviewerProfile} from './reviewer-profile'
 import { test, expect, type APIRequestContext } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { headers, openSettings, seedSources, sessionUrl, type SeededSources } from './support'
+import { headers, openSettings, seedSources, sessionUrl, type SeededSources, postConfiguration } from './support'
 const columns = 'Site;Name;SamAccountName;UserPrincipalName;Mail;Department;Title;Enabled;DistinguishedName;ManagerDN;ManagerName;ManagerSamAccountName;ManagerMail;ManagerDepartment;ManagerTitle;ManagerLookupStatus\n'
 const employee = (department: string, manager: string) => '\ufeff' + columns + `North;Demo Fg;demo_fg;;fg@example.test;${department};Buyer;true;;;${manager};;${manager.toLowerCase()}@example.test;;;Resolved\n`
 
@@ -18,7 +19,7 @@ test.beforeEach(async ({ request }) => {
   seeded = await seedSources(request, { roles: readFileSync('tests/fixtures/role-catalogue-minimal.csv', 'utf8'), users: USERS })
   const settings = (await (await request.get('/api/configuration', { headers })).json()).settings
   settings.features.employee_directory = true
-  expect((await request.post('/api/configuration', { headers, data: settings })).ok()).toBeTruthy()
+  expect((await postConfiguration(request, settings)).ok()).toBeTruthy()
   directory = seeded.directory
 })
 test.afterEach(async () => { await seeded.cleanup() })
@@ -41,6 +42,11 @@ test('Settings administers groups and advisory rules', async ({ page }) => {
 
   // Suggestion rules are a compact table with a New rule action, not a permanent form.
   await expect(section.getByLabel('Rule Directory Department')).toHaveCount(0)
+  // Groups and Suggestion Rules are separate tabs of one section; the group catalogue is not shown beside the rules.
+  await expect(section.getByRole('tablist', { name: 'Functional Groups sections', exact: true }).getByRole('tab')).toHaveText(['Groups', 'Suggestion Rules'])
+  await expect(section.getByRole('button', { name: 'New rule' })).toHaveCount(0)
+  await section.getByRole('tab', { name: 'Suggestion Rules', exact: true }).click()
+  await expect(section.getByRole('table', { name: 'Functional Groups', exact: true })).toHaveCount(0)
   await section.getByRole('button', { name: 'New rule' }).click()
   const ruleDialog = page.getByRole('dialog', { name: 'New suggestion rule' })
   await expect(ruleDialog.getByRole('button', { name: 'Create rule' })).toBeDisabled()        // a condition and a group are required
@@ -59,12 +65,102 @@ test('Settings administers groups and advisory rules', async ({ page }) => {
   await page.getByRole('dialog', { name: 'Delete suggestion rule' }).getByRole('button', { name: 'Delete rule' }).click()
   await expect(rules.getByRole('row').filter({ hasText: name })).toHaveCount(0)
 
+  await section.getByRole('tab', { name: 'Groups', exact: true }).click()
   await row.getByRole('button', { name: `Archive ${name}` }).click()
   await expect(row).toContainText('Archived')
+  await expect(section.getByRole('status')).toContainText(`"${name}" was archived`)
   await row.getByRole('button', { name: `Restore ${name}` }).click()
   await expect(row).toContainText('Active')
+  await expect(section.getByRole('status')).toContainText(`"${name}" was restored`)
   await section.getByLabel('Search Functional Groups').fill('no such group')
-  await expect(section.getByText('No Functional Groups match the search.')).toBeVisible()
+  await expect(section.getByText('No Functional Groups match the search and status filter.')).toBeVisible()
+})
+
+test('status filter, safe permanent deletion of archived groups and inline group creation in a rule', async ({ page, request }) => {
+  const unused = `Unused ${unique}`, used = `Used ${unique}`, inline = `Inline ${unique}`, kept = `Kept ${unique}`
+  const create = async (name: string) => (await (await request.post('/api/functional-groups', { headers, data: { name, description: '' } })).json()).id as string
+  const unusedId = await create(unused), usedId = await create(used)
+  await create(kept)                                                                 // active: the duplicate check of the inline creation below
+  expect((await classify(request, usedId)).ok()).toBeTruthy()                       // DEMO_FG is a member: the group has a member and history
+  for (const id of [unusedId, usedId]) expect((await request.post(`/api/functional-groups/${id}/archive`, { headers })).ok()).toBeTruthy()
+  await openSettings(page, 'Functional Groups')
+  const section = page.getByRole('region', { name: 'Functional Groups', exact: true })
+  const table = section.getByRole('table', { name: 'Functional Groups', exact: true })
+  await section.getByLabel('Search Functional Groups').fill(unique)
+  await expect(table.getByRole('row').filter({ hasText: unused })).toBeVisible()
+  // Status filter: Active hides archived groups, Archived shows only them, and the filter survives a tab change.
+  await section.getByLabel('Group status').selectOption('active')
+  await expect(table.getByRole('row').filter({ hasText: unused })).toHaveCount(0)
+  await section.getByLabel('Group status').selectOption('archived')
+  await section.getByRole('tab', { name: 'Suggestion Rules', exact: true }).click()
+  await section.getByRole('tab', { name: 'Groups', exact: true }).click()
+  await expect(section.getByLabel('Group status')).toHaveValue('archived')
+  await expect(section.getByRole('searchbox', { name: 'Search Functional Groups' })).toHaveValue(unique)
+  const usedRow = table.getByRole('row').filter({ hasText: used }), unusedRow = table.getByRole('row').filter({ hasText: unused })
+  // Counts: zero is plain text, a positive count is the button that opens the members.
+  await expect(unusedRow.getByRole('button', { name: /^View \d+ members of/ })).toHaveCount(0)
+  await expect(unusedRow.getByRole('cell').nth(2)).toHaveText('0')
+  await expect(usedRow.getByRole('button', { name: `View 1 members of ${used}` })).toBeVisible()
+  // An archived group with a member can be deleted. The server needs the confirmed member count: none, or a different one, changes nothing.
+  await expect(usedRow.getByRole('button', { name: `Delete ${used}` })).toBeEnabled()
+  const memberships = async () => (await (await request.get('/api/functional-groups/users/DEMO_FG', { headers })).json()).classification.memberships.map((m: { group_id: string }) => m.group_id)
+  expect((await request.delete(`/api/functional-groups/${usedId}`, { headers })).status()).toBe(422)
+  const stale = await request.delete(`/api/functional-groups/${usedId}?expected_members=0`, { headers })
+  expect(stale.status()).toBe(409); expect((await stale.json()).detail).toContain('now has 1 member(s), not the 0 confirmed')
+  expect(await memberships()).toContain(usedId)
+  // An unreferenced archived group: Cancel keeps it; the exact name enables Delete permanently.
+  await unusedRow.getByRole('button', { name: `Delete ${unused}` }).click()
+  let confirm = page.getByRole('dialog', { name: 'Delete Functional Group' })
+  await expect(confirm).toContainText('This cannot be undone')
+  await confirm.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(unusedRow).toBeVisible()
+  await unusedRow.getByRole('button', { name: `Delete ${unused}` }).click()
+  confirm = page.getByRole('dialog', { name: 'Delete Functional Group' })
+  const remove = confirm.getByRole('button', { name: 'Delete permanently', exact: true })
+  await expect(remove).toBeDisabled()
+  await confirm.getByRole('textbox', { name: /Type the group name/ }).fill(unused.toLowerCase())
+  await expect(remove).toBeDisabled()
+  await confirm.getByRole('textbox', { name: /Type the group name/ }).fill(unused)
+  await remove.click()
+  await expect(unusedRow).toHaveCount(0)
+  await expect(section.getByRole('status')).toContainText(`"${unused}" was deleted permanently: 0 memberships and 0 suggestion rules removed.`)
+  expect((await request.delete(`/api/functional-groups/${unusedId}?expected_members=0`, { headers })).status()).toBe(404)
+  // The group with a member: the dialog names it and its member count; deleting removes the membership, never the user.
+  await usedRow.getByRole('button', { name: `Delete ${used}` }).click()
+  confirm = page.getByRole('dialog', { name: 'Delete Functional Group' })
+  await expect(confirm).toContainText(used)
+  await expect(confirm.getByText('Members', { exact: true }).locator('xpath=following-sibling::*[1]')).toHaveText('1')
+  await expect(confirm).toContainText('The membership in this group is removed')
+  await confirm.getByRole('textbox', { name: /Type the group name/ }).fill(used)
+  await confirm.getByRole('button', { name: 'Delete permanently', exact: true }).click()
+  await expect(usedRow).toHaveCount(0)
+  await expect(section.getByRole('status')).toContainText(`"${used}" was deleted permanently: 1 membership and 0 suggestion rules removed.`)
+  expect(await memberships()).not.toContain(usedId)
+  const history = (await (await request.get('/api/functional-groups/history/DEMO_FG', { headers })).json()).items
+  expect(history[0]).toMatchObject({ event: 'removed', previous_group: usedId, previous_group_name: used, group_deleted: true })
+  // Inline creation in the rule dialog: duplicate refused with the input kept, the new group is selected, the rule fields are kept.
+  await section.getByRole('tab', { name: 'Suggestion Rules', exact: true }).click()
+  await section.getByRole('button', { name: 'New rule' }).click()
+  const rule = page.getByRole('dialog', { name: 'New suggestion rule' })
+  await rule.getByLabel('Job Title contains').fill('Planner')
+  await rule.getByRole('button', { name: 'New group', exact: true }).click()
+  await rule.getByLabel('New Functional Group name').fill(kept.toUpperCase())
+  await expect(rule.getByRole('alert')).toContainText('already exists')
+  await expect(rule.getByRole('button', { name: 'Create group', exact: true })).toBeDisabled()
+  await expect(rule.getByLabel('New Functional Group name')).toHaveValue(kept.toUpperCase())
+  await rule.getByLabel('New Functional Group name').fill(inline)
+  await rule.getByRole('button', { name: 'Create group', exact: true }).click()
+  await expect(rule.getByLabel('Suggested Functional Group')).toHaveValue(/^fg_/)
+  await expect(rule.getByLabel('Suggested Functional Group').locator('option:checked')).toHaveText(inline)
+  await expect(rule.getByLabel('Job Title contains')).toHaveValue('Planner')
+  await rule.getByRole('button', { name: 'Create rule' }).click()
+  const rules = section.getByRole('table', { name: 'Functional Group suggestion rules' })
+  await expect(rules.getByRole('row').filter({ hasText: inline })).toContainText('Planner')
+  // Nothing was assigned by creating the group or the rule.
+  await section.getByRole('tab', { name: 'Groups', exact: true }).click()
+  await section.getByLabel('Group status').selectOption('all')
+  await expect(table.getByRole('row').filter({ hasText: inline }).getByRole('cell').nth(2)).toHaveText('0')
+  expect((await classify(request, null)).ok()).toBeTruthy()                        // storage persists across tests: leave DEMO_FG unassigned again
 })
 
 test('User Details classifies a user explicitly and keeps it separate from imported data', async ({ page, request }) => {
@@ -79,11 +175,11 @@ test('User Details classifies a user explicitly and keeps it separate from impor
   await expect(dialog.getByRole('button', { name: 'Add groups' })).toBeDisabled() // nothing is preselected
   await dialog.getByRole('combobox', { name: 'Search or create a Functional Group' }).fill(name)
   await dialog.getByRole('option', { name }).click()
-  await dialog.getByLabel('Reviewer').fill('Reviewer One')
+  await expectReviewerProfile(dialog.getByLabel('Reviewer'))
   await dialog.getByRole('button', { name: 'Add 1 group' }).click()
   await expect(panel).toContainText(name)
   await expect(panel).toContainText('Confirmed')
-  await expect(panel).toContainText('Reviewer One')
+  await expect(panel).toContainText((await(await request.get('/api/reviewer-profile',{headers})).json()).identity.display_name)
   // Stale write is refused over HTTP and surfaces no overwrite.
   const stale = await request.put('/api/functional-groups/users/DEMO_FG', { headers, data: { group_id: null, rationale: 'x', reviewer: 'R', expected_revision: 0 } })
   expect(stale.status()).toBe(409)
@@ -93,7 +189,9 @@ test('Functional Groups settings fit 375 px without horizontal scroll', async ({
   await page.setViewportSize({ width: 375, height: 800 })
   await openSettings(page, 'Functional Groups')
   await expect(page.getByRole('region', { name: 'Functional Groups', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'New rule' })).toBeVisible() // data has loaded
+  await expect(page.getByRole('button', { name: 'New group' })).toBeVisible() // data has loaded
+  await page.getByRole('tab', { name: 'Suggestion Rules', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'New rule' })).toBeVisible()
   const wide = await page.evaluate(() => [...document.querySelectorAll('body *')].filter(e => !e.closest('.access-table table') && e.getBoundingClientRect().right > window.innerWidth + 1).slice(0, 6).map(e => e.tagName + '.' + String(e.className).slice(0, 80) + ':' + Math.round(e.getBoundingClientRect().right)))
   expect(wide).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
@@ -128,14 +226,15 @@ test('a Department change requires explicit Functional Group reconfirmation in A
   await expect(section).toContainText('Procurement')
   await section.getByRole('button', { name: 'Review Functional Groups' }).click()
   const manage = page.getByRole('dialog', { name: 'Functional Groups for DEMO_FG' })
-  await expect(manage.getByRole('button', { name: `Confirm ${name}` })).toBeDisabled()              // a reviewer is required first
-  await manage.getByLabel('Reviewer', { exact: true }).fill('Reviewer Two')
+  await expect(manage.getByRole('button', { name: `Confirm ${name}` })).toBeEnabled() // Stable reviewer is supplied; confirmation remains explicit.
+  expect((await(await request.get('/api/functional-groups/users/DEMO_FG',{headers})).json()).classification.status).toBe('Needs review')
+  await expectReviewerProfile(manage.getByLabel('Reviewer', { exact: true }))
   await manage.getByRole('button', { name: `Confirm ${name}` }).click()
   await expect(section).toContainText('Confirmed')
   const detail = await (await request.get('/api/functional-groups/users/DEMO_FG', { headers })).json()
   expect(detail.classification.status).toBe('Confirmed')
   expect(detail.classification.group_id).toBe(group)
-  expect(detail.classification.memberships[0].confirmed_by).toBe('Reviewer Two')
+  expect(detail.classification.memberships[0].confirmed_by).toBe((await(await request.get('/api/reviewer-profile',{headers})).json()).identity.display_name)
 })
 
 test('Account Review filters by Functional Group and Manager', async ({ page, request }) => {
@@ -148,6 +247,70 @@ test('Account Review filters by Functional Group and Manager', async ({ page, re
   await page.getByRole('combobox', { name: 'Functional Group', exact: true }).first().click()
   await page.getByRole('option', { name: 'Unassigned', exact: true }).click()
   await expect(page.getByRole('row').filter({ hasText: 'DEMO_FG' })).toHaveCount(0)
+})
+
+test('User Access shows Directory job title and department, group chips with overflow and remembers hidden columns', async ({ page, request }) => {
+  const csv = path.join(directory, 'employees.csv')
+  writeFileSync(csv, employee('Finance', 'Boss'))
+  const revision = (await (await request.get('/api/configuration', { headers })).json()).settings.revision
+  const preview = await request.post('/api/employees/preview', { headers, data: { path: csv, revision } })
+  expect((await request.post('/api/employees/import', { headers, data: { path: csv, revision, digest: (await preview.json()).digest } })).ok()).toBeTruthy()
+  const names = ['Alpha', 'Bravo', 'Charlie', 'Delta'].map(label => `${label} ${unique}`), ids: string[] = []
+  await classify(request, null)                                                    // storage persists across tests: start from no membership (refused when there is none)
+  expect((await (await request.get('/api/functional-groups/users/DEMO_FG', { headers })).json()).classification.memberships).toEqual([])
+  for (const name of names) ids.push((await (await request.post('/api/functional-groups', { headers, data: { name, description: '' } })).json()).id)
+  for (const id of ids) {
+    const current = (await (await request.get('/api/functional-groups/users/DEMO_FG', { headers })).json()).classification.revision
+    expect((await request.post('/api/functional-groups/memberships', { headers, data: { username: 'DEMO_FG', group_id: id, rationale: 'test', reviewer: 'R', expected_revision: current } })).ok()).toBeTruthy()
+  }
+  await page.goto(sessionUrl)
+  await page.goto('/#/user-access')
+  const table = page.getByRole('region', { name: 'User directory table', exact: true })
+  const row = table.getByRole('row').filter({ hasText: 'DEMO_FG' })
+  // Values come from the mapped Directory employee.
+  await expect(table.getByRole('columnheader', { name: 'Job title', exact: true })).toBeVisible()
+  await expect(row.locator('[data-col="title"]')).toHaveText('Buyer')
+  await expect(row.locator('[data-col="department"]')).toHaveText('Finance')
+  // Two readable badges and a single-line "+2 more" action; full membership stays available in the dialog/export.
+  const chips = row.getByRole('list', { name: 'Functional Groups of DEMO_FG', exact: true })
+  await expect(chips.locator('.fg-chip:not(.fg-chip-more)')).toHaveCount(2)
+  const more = chips.getByRole('button', { name: 'Show all 4 Functional Groups of DEMO_FG' })
+  await expect(more).toHaveText('+2 more')
+  await more.click()
+  const groupDialog=page.getByRole('dialog',{name:'Functional Groups of DEMO_FG',exact:true})
+  for(const name of names)await expect(groupDialog).toContainText(name)
+  await page.keyboard.press('Escape')
+  await page.getByRole('link',{name:'Account Review',exact:true}).click()
+  const reviews=page.getByRole('region',{name:'Account review results',exact:true})
+  await expect(reviews.getByRole('columnheader',{name:'Manager',exact:true})).toBeVisible()
+  const groupIndex=await reviews.getByRole('columnheader',{name:'Functional Group',exact:true}).getAttribute('data-column-index')
+  const reviewed=reviews.getByRole('row').filter({has:page.getByRole('link',{name:'DEMO_FG',exact:true})})
+  const groupCell=reviewed.locator(`[data-column-index="${groupIndex}"]`)
+  await expect(groupCell.getByRole('list',{name:'Functional Groups of DEMO_FG',exact:true})).toBeVisible()
+  await expect(groupCell).not.toContainText('Manager:')
+  await page.getByRole('link',{name:'User directory',exact:true}).click()
+  // Sorting by a Directory column is a server sort and keeps the user.
+  await page.getByLabel('Sort users', { exact: true }).selectOption('job_title')
+  await expect(row.locator('[data-col="title"]')).toHaveText('Buyer')
+  // Column visibility is remembered across a reload.
+  await table.getByRole('button',{name:/^Columns for/}).click()
+  await page.getByRole('dialog',{name:/^Columns for/}).getByLabel('Email', { exact: true }).uncheck()
+  await expect(table.getByRole('columnheader', { name: 'Email', exact: true })).toHaveCount(0)
+  await page.getByRole('dialog',{name:/^Columns for/}).getByRole('button',{name:'Done',exact:true}).click()
+  await page.reload()
+  await expect(table.getByRole('columnheader', { name: 'Job title', exact: true })).toBeVisible()
+  await expect(table.getByRole('columnheader', { name: 'Email', exact: true })).toHaveCount(0)
+  await page.evaluate(() => window.localStorage.removeItem('authlens.table-columns'))
+  // The overflow control is keyboard reachable and opens the user, whose memberships show a real confirmation time.
+  expect((await request.post(`/api/functional-groups/${ids[3]}/archive`, { headers })).ok()).toBeTruthy()
+  await row.getByRole('link',{name:'DEMO_FG',exact:true}).click()
+  const profile = page.getByRole('region', { name: 'Functional Group', exact: true })
+  // Memberships of active groups first; the archived group's membership is kept and listed separately.
+  await expect(profile.getByRole('list', { name: 'Functional Group memberships', exact: true }).getByRole('listitem')).toHaveCount(3)
+  await expect(profile.getByRole('list', { name: 'Archived Functional Group memberships', exact: true }).getByRole('listitem')).toHaveText([new RegExp(`^${names[3]} \\(archived\\)`)])
+  await expect(profile).toContainText(/Last confirmed \d{2}\.\d{2}\.\d{4} \d{2}:\d{2} by /)
+  await expect(profile).not.toContainText('Unknown')
+  expect((await classify(request, null)).ok()).toBeTruthy()                        // leave DEMO_FG unassigned for the other tests
 })
 
 test('User Access filters users by Functional Group on the server and shows the column', async ({ page, request }) => {

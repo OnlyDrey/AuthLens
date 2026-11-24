@@ -2,15 +2,15 @@ import {test,expect,type Page,type APIRequestContext} from '@playwright/test'
 import {mkdtempSync,writeFileSync,rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import { headers, goTo } from './support'
+import { headers, goTo, postConfiguration } from './support'
 let directory:string,userPath:string
 const config=async(request:APIRequestContext)=>(await(await request.get('/api/configuration',{headers})).json()).settings
 const settings=async(page:Page,tab:string)=>{await page.getByRole('button',{name:'Open settings',exact:true}).click();await page.getByRole('tab',{name:tab,exact:true}).click()}
 test.beforeEach(async({request})=>{
- await request.post('/api/configuration/reset',{headers});directory=mkdtempSync(path.join(tmpdir(),'sap-lens-refine-'));userPath=path.join(directory,'users.csv');const rolePath=path.join(directory,'roles.csv')
+ await request.post('/api/configuration/reset',{headers});directory=mkdtempSync(path.join(tmpdir(),'authlens-refine-'));userPath=path.join(directory,'users.csv');const rolePath=path.join(directory,'roles.csv')
  writeFileSync(rolePath,'FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,TCODE\nMM,ZC:SYN:A,Synthetic Alpha,ZS:SYN:ONE,MIGO\nMM,ZC:SYN:B,Synthetic Beta,ZS:SYN:ONE,MIGO\nMM,ZC:SYN:B,Synthetic Beta,ZS:SYN:TWO,ME23N\nBC,ZC:SYN:'+ 'LONG_'.repeat(25)+',Synthetic Long,ZS:SYN:THREE,VA03\n')
  writeFileSync(userPath,'USERNAME,ROLE_NAME,USER_GROUP,FIRST_NAME,LAST_NAME,EMAIL,USER_VALID_FROM,USER_VALID_TO,USER_LOCKED,ROLE_VALID_FROM,ROLE_VALID_TO\nSYN_REVIEW,ZC:SYN:A,SYN,Demo,Synthetic,demo@example.test,20000101,99991231,0,20000101,99991231\n')
- const value=await config(request);value.data_csv_path=rolePath;value.user_csv_path=userPath;expect((await request.post('/api/configuration',{headers,data:value})).ok()).toBeTruthy()
+ const value=await config(request);value.data_csv_path=rolePath;value.user_csv_path=userPath;expect((await postConfiguration(request, value)).ok()).toBeTruthy()
 })
 test.afterEach(async({request})=>{await request.post('/api/configuration/reset',{headers});rmSync(directory,{recursive:true,force:true})})
 test('catalogue search visual order matches keyboard order and cards contain long identifiers',{ tag: '@a11y' }, async({page})=>{
@@ -21,6 +21,37 @@ test('catalogue search visual order matches keyboard order and cards contain lon
  expect((await exclude.boundingBox())!.y).toBeGreaterThan((await tc.boundingBox())!.y);expect((await name.boundingBox())!.x).toBeGreaterThan((await exclude.boundingBox())!.x)
  for(const card of await page.locator('article.role-card').all()){const box=(await card.boundingBox())!;expect(box.x+box.width).toBeLessThanOrEqual(1280);await expect(card.getByRole('button',{name:/View details/})).toHaveCSS('min-height','34px')}
  await tc.fill('MIGO');await expect(page.locator('article.role-card')).toHaveCount(2)
+})
+test('role comparison keeps one aligned non-wrapping row for 5, 3 and 2 roles and removes roles in place', async({page,request})=>{
+ const rolePath=path.join(directory,'many.csv'),count=5                       // five roles is the product's comparison limit
+ writeFileSync(rolePath,'FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,TCODE\n'+Array.from({length:count},(_,index)=>{const id=String(index+1).padStart(2,'0');return `MM,ZC:MANY:${id},Many ${id},ZS:MANY:SHARED,MIGO\nMM,ZC:MANY:${id},Many ${id},ZS:MANY:OWN${id},ME${id}N`}).join('\n')+'\n')
+ const value=await config(request);value.data_csv_path=rolePath;expect((await postConfiguration(request, value)).ok()).toBeTruthy()
+ await page.goto('/#session=browser-test-session');await goTo(page,'Role Lookup')
+ for(let index=1;index<=count;index++)await page.getByRole('article',{name:`Many ${String(index).padStart(2,'0')}`,exact:true}).getByRole('button',{name:'Add to comparison',exact:true}).click()
+ await page.getByRole('button',{name:'Compare now',exact:true}).click()
+ const comparison=page.getByRole('region',{name:'Role comparison',exact:true})
+ const roles=comparison.getByRole('list',{name:'Compared roles',exact:true}),exclusive=comparison.getByRole('group',{name:'Exclusive single roles by role',exact:true})
+ const layout=async(expected:number)=>{
+  await expect(roles.getByRole('listitem')).toHaveCount(expected);await expect(exclusive.locator('.comparison-column')).toHaveCount(expected)
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy()           // the strips scroll, never the page
+  return page.evaluate(()=>[...document.querySelectorAll('.comparison-strip')].map(strip=>{const items=[...strip.children].map(item=>item.getBoundingClientRect())
+   return {tops:new Set(items.map(box=>Math.round(box.top))).size,widths:new Set(items.map(box=>Math.round(box.width))).size,min:Math.min(...items.map(box=>box.width)),lefts:items.map(box=>Math.round(box.left-strip.getBoundingClientRect().left+strip.scrollLeft)),scrolls:strip.scrollWidth>strip.clientWidth+1}}))
+ }
+ for(const expected of [5,3,2]){
+  while(await roles.getByRole('listitem').count()>expected)await roles.getByRole('listitem').last().getByRole('button',{name:/^Remove ZC:MANY:\d\d from comparison$/}).click()
+  const [header,columns]=await layout(expected)
+  for(const strip of [header,columns]){expect(strip.tops).toBe(1);expect(strip.widths).toBe(1);expect(strip.min).toBeGreaterThanOrEqual(270)}   // one row, equal columns, readable minimum
+  expect(columns.lefts).toEqual(header.lefts)                                                               // every role keeps the same column in both strips
+  expect(header.scrolls).toBe(expected>=5);expect(columns.scrolls).toBe(expected>=5)                         // 2 roles fit at 1280 px; many scroll inside the strip
+ }
+ // The first roles were kept in selection order, and a comparison never drops below two roles.
+ await expect(roles.getByRole('listitem')).toContainText(['ZC:MANY:01','ZC:MANY:02'])
+ await expect(roles.getByRole('button',{name:/from comparison$/})).toHaveCount(0)
+ await expect(exclusive.locator('.comparison-column')).toContainText(['1 exclusive','1 exclusive'])
+ // Keyboard: the strip itself is focusable for arrow-key scrolling and shows a focus ring.
+ await page.setViewportSize({width:375,height:800});await exclusive.focus();await expect(exclusive).toBeFocused()
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy()
+ expect(await exclusive.evaluate(element=>element.scrollWidth>element.clientWidth)).toBeTruthy()
 })
 test('role comparison subset preserves Jaccard summaries and inspectable pair evidence', { tag: '@smoke' },async({page,request})=>{
  const response=await request.post('/api/compare',{headers,data:{roles:['ZC:SYN:A','ZC:SYN:B']}});expect((await response.json()).pairwise_single_overlaps[0].shared_count).toBe(1)
@@ -52,11 +83,10 @@ test('library categories remain isolated and anchored controls are measured befo
  await page.keyboard.press('Escape');await expect(trigger).toBeFocused();expect((await config(request)).revision).toBe(before.revision)
 })
 for(const theme of ['light','dark'])for(const width of [375,800,1280,1600])test(`refinement visual ${theme} ${width}`,{ tag: '@visual' }, async({page,request},info)=>{
- await page.addInitScript(()=>{(window as any).pywebview={api:{choose_csv:async()=>null,desktop_runtime:async()=>({windows:true,startup_supported:true,tray_available:false,warning:null})}}})
- const value=await config(request);value.theme=theme;await request.post('/api/configuration',{headers,data:value});await page.setViewportSize({width,height:1000});await page.goto('/#session=browser-test-session')
+ const value=await config(request);value.theme=theme;await postConfiguration(request, value);await page.setViewportSize({width,height:1000});await page.goto('/#session=browser-test-session')
  const capture=async(name:string)=>{expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();await page.screenshot({path:info.outputPath(name+'.png'),fullPage:true})}
  const distribution=(await page.getByRole('region',{name:'Role Distribution',exact:true}).boundingBox())!,sources=(await page.getByRole('region',{name:'Data Sources & Configuration',exact:true}).boundingBox())!;expect(sources.y).toBeGreaterThan(distribution.y)
- await capture('dashboard');await goTo(page,'Role Lookup');await capture('role-cards');await page.getByRole('button',{name:'View details for Synthetic Long',exact:true}).click();await capture('role-details');await page.getByRole('button',{name:'Close role details',exact:true}).click();await settings(page,'Appearance & Branding');await capture('appearance');await page.getByLabel('Logo file location',{exact:true}).scrollIntoViewIfNeeded();await capture('logo-controls');await page.getByRole('tab',{name:'SAP Modules',exact:true}).click();await page.getByRole('button',{name:/Edit MM —/}).click();await capture('module-dialog');await page.keyboard.press('Escape');await page.getByRole('tab',{name:'Component Library',exact:true}).click();await page.getByRole('tab',{name:'Status & Feedback',exact:true}).click();await page.emulateMedia({reducedMotion:'reduce'});await expect(page.locator('.animate-spin').first()).toHaveCSS('animation-name','none');await capture('component-library');await page.getByRole('tab',{name:'Runtime & Scheduling',exact:true}).click();await expect(page.getByRole('region',{name:'Windows Desktop background operation',exact:true})).toBeVisible();await page.getByRole('region',{name:'Windows Desktop background operation',exact:true}).screenshot({path:info.outputPath('desktop-options.png')})
+ await capture('dashboard');await goTo(page,'Role Lookup');await capture('role-cards');await page.getByRole('button',{name:'View details for Synthetic Long',exact:true}).click();await capture('role-details');await page.getByRole('button',{name:'Close role details',exact:true}).click();await settings(page,'Appearance & Branding');await capture('appearance');await page.getByLabel('Logo file location',{exact:true}).scrollIntoViewIfNeeded();await capture('logo-controls');await page.getByRole('tab',{name:'SAP Modules',exact:true}).click();await page.getByRole('button',{name:/Edit MM —/}).click();await capture('module-dialog');await page.keyboard.press('Escape');await page.getByRole('tab',{name:'Component Library',exact:true}).click();await page.getByRole('tab',{name:'Status & Feedback',exact:true}).click();await page.emulateMedia({reducedMotion:'reduce'});await expect(page.locator('.animate-spin').first()).toHaveCSS('animation-name','none');await capture('component-library');await page.getByRole('tab',{name:'Runtime & Scheduling',exact:true}).click();await capture('runtime-scheduling')
 })
 
 test('profile match placement and manual review wording preserve separate account evidence',async({page})=>{
@@ -75,18 +105,4 @@ test('release fields align and Data Health reuses canonical source state',async(
   for(const box of visible)expect(box!.height).toBe(42)
  }
  await settings(page,'Data Sources');await page.getByText('Data Health & Coverage',{exact:true}).click();await expect(page.locator('.health-source-grid .source-compact')).toHaveCount(4);await expect(page.locator('.health-source-grid').getByText('Loaded',{exact:true})).toHaveCount(2)
-})
-
-test('Windows tray settings use the parent draft, persist and respond to native settings navigation',async({page,request})=>{
- await page.addInitScript(()=>{(window as any).pywebview={api:{choose_csv:async()=>null,desktop_runtime:async(token:string)=>{if(token!=='browser-test-session')throw Error('Wrong capability');return {windows:true,startup_supported:true,tray_available:false,warning:null}}}}})
- await page.goto('/#session=browser-test-session');await expect.poll(()=>page.evaluate(()=>window.__sapLensSettingsReady)).toBe(true);await page.evaluate(()=>window.dispatchEvent(new Event('sap-lens-open-settings')));await expect(page.getByRole('region',{name:'SAP Lens settings',exact:true})).toBeVisible();await page.getByRole('tab',{name:'Features',exact:true}).click();await expect(page.getByRole('region',{name:'Windows Desktop background operation',exact:true})).toHaveCount(0);await page.getByRole('tab',{name:'Runtime & Scheduling',exact:true}).click()
- const area=page.getByRole('region',{name:'Windows Desktop background operation',exact:true}),toggle=area.getByRole('switch',{name:'Minimize to System Tray on Close',exact:true})
- await expect(toggle).toHaveAttribute('aria-checked','false');await expect(area.getByLabel('Start minimized to the system tray',{exact:true})).toBeDisabled()
- await toggle.click();await area.getByLabel('Start minimized to the system tray',{exact:true}).check();await area.getByLabel('Start SAP Lens at Windows sign-in',{exact:true}).check();expect((await config(request)).desktop.close_to_tray).toBe(false)
- await page.getByRole('button',{name:'Apply settings',exact:true}).click();await expect(page.getByRole('status').filter({ hasText: 'Settings saved successfully.' })).toBeVisible();expect((await config(request)).desktop).toEqual({close_to_tray:true,run_at_signin:true,start_minimized:true})
- await page.reload();await settings(page,'Runtime & Scheduling');await expect(toggle).toHaveAttribute('aria-checked','true');await expect(area.getByLabel('Start minimized to the system tray',{exact:true})).toBeChecked();await toggle.click();await expect(area.getByLabel('Start minimized to the system tray',{exact:true})).not.toBeChecked()
-})
-test('Windows tray controls are unavailable without the native Windows capability',async({page})=>{
- await page.goto('/#session=browser-test-session');await settings(page,'Runtime & Scheduling');await expect(page.getByRole('region',{name:'Windows Desktop background operation',exact:true})).toHaveCount(0)
- await page.evaluate(()=>{(window as any).pywebview={api:{choose_csv:async()=>null,desktop_runtime:async()=>({windows:false,startup_supported:false,tray_available:false,warning:null})}}});await page.getByRole('tab',{name:'Runtime & Scheduling',exact:true}).click();await page.getByRole('tab',{name:'Runtime & Scheduling',exact:true}).click();await expect(page.getByRole('region',{name:'Windows Desktop background operation',exact:true})).toHaveCount(0)
 })

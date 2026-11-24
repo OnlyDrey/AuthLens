@@ -1,10 +1,10 @@
 import { createContext, useContext, useEffect, useState, type ReactNode, type SetStateAction } from 'react'
 
-export type ReleaseDrill = { status?: string; username?: string; role_search?: string; ungrouped?: boolean; role?: string; group?: string; user_groups?: string[]; document_type?: string; release_group?: string; strategy?: string }
+export type ReleaseDrill = {functional_groups?:string[];managers?:string[];usernames?:string[]; status?: string; username?: string; role_search?: string; ungrouped?: boolean; role?: string; group?: string; user_groups?: string[]; document_type?: string; release_group?: string; strategy?: string }
 export type SodFilterState = Record<string,string|boolean|number|string[]>
 export type SodView = 'overview'|'risk-matrix'|'activity-matrix'|'explorer'|'reviews'|'periods'|'reports'
 export type SodExplorerTable = 'user_risk'|'user_activity'|'access_list'|'lookup'|'roles'
-type View = { bulkSelectMatching?:boolean;userTrail?:string[]; sodView?:SodView; sodFilters?:Record<string,SodFilterState>; sodContext?:string; sodSubject?:{user:string;risk?:string;activity?:string}|null; sodExplorer?:SodExplorerTable; sodReviews?:'queue'|'bulk'|'remediation'; assignmentBand?:string; catalogueArea?:string; accountReviewFilters?:{search:string;licenses:string[];states:string[];sort:string;descending:boolean}; userComparison?:{sort?:string;descending?:boolean;a:string;b:string;validity:string;kind:string;difference:string;search:string;areas:string[]}; accessMode?: 'directory'|'review'|'compare'; reviewFindings?: string[]; kpiNavigation?: Partial<Record<'roles'|'users'|'releases',number>>; settingsTarget?: 'roles' | 'users' | 'employees' | 'sod' | 'diagnostics' | 'features'; page: 'dashboard' | 'roles' | 'users' | 'releases' | 'sod'; user: string; release: ReleaseDrill | null; detailRole: string | null; comparison: boolean; settings: boolean; releaseContext: string; userContext: { role?: string; tcode?: string } }
+type View = { accessSubjectFilters?:{functional_groups:string[];managers:string[];usernames:string[]};bulkSelectMatching?:boolean;userTrail?:string[]; sodView?:SodView; sodFilters?:Record<string,SodFilterState>; sodContext?:string; sodSubject?:{user:string;risk?:string;activity?:string}|null; sodExplorer?:SodExplorerTable; sodReviews?:'queue'|'bulk'|'remediation'; assignmentBand?:string; catalogueArea?:string; accountReviewFilters?:{search:string;licenses:string[];states:string[];sort:string;descending:boolean;groups?:string[];managers?:string[];usernames?:string[]}; userComparison?:{sort?:string;descending?:boolean;a:string;b:string;validity:string;kind:string;difference:string;search:string;areas:string[]}; accessMode?: 'directory'|'review'|'compare'; reviewFindings?: string[]; kpiNavigation?: Partial<Record<'roles'|'users'|'releases',number>>; settingsTarget?: 'roles' | 'users' | 'employees' | 'sod' | 'diagnostics' | 'features'; page: 'dashboard' | 'roles' | 'users' | 'releases' | 'sod'; user: string; release: ReleaseDrill | null; detailRole: string | null; comparison: boolean; settings: boolean; releaseContext: string; userContext: { role?: string; tcode?: string } }
 const paths = { dashboard: 'dashboard', roles: 'role-lookup', users: 'user-access', releases: 'release-roles', sod:'sod' }
 const defaults: View = { page: 'dashboard', user: '', release: null, detailRole: null, comparison: false, settings: false, releaseContext: '', userContext: {} }
 export function userAccessHref(mode:'directory'|'review'|'compare') {return '#/user-access'+(mode==='directory'?'':mode==='review'?'/account-review':'/compare')}
@@ -18,7 +18,7 @@ function viewUrl(view:View) {
  return base+(query?'?'+query:'')
 }
 function readView(): View {
- const stored=history.state?.sapLensView as View|undefined
+ const stored=history.state?.authLensView as View|undefined
  const segments=location.hash.slice(2).split('?')[0].split('/')
  const page=Object.entries(paths).find(([,value])=>value===segments[0])?.[0] as View['page']|undefined
  const base=stored&&['dashboard','roles','users','releases','sod'].includes(stored.page)?{...defaults,...stored}:{...defaults,page:page||'dashboard'}
@@ -40,12 +40,12 @@ function readView(): View {
 export function initializeViewHistory() {
     const current = readView()
     const url = viewUrl(current)
-    if (!history.state?.sapLensView) {
+    if (!history.state?.authLensView) {
       // Boundary is the same meaningful view, never a bootstrap document. Back at
       // the app's first record stays here; normal Back/Forward is untouched.
-      history.replaceState({ sapLensView: current, sapLensBoundary:true }, '', url)
-      history.pushState({ sapLensView: current }, '', url)
-    } else history.replaceState({ ...history.state, sapLensView: current }, '', url)
+      history.replaceState({ authLensView: current, authLensBoundary:true }, '', url)
+      history.pushState({ authLensView: current }, '', url)
+    } else history.replaceState({ ...history.state, authLensView: current }, '', url)
 }
 const Context = createContext<{ view: View; change: (patch: Partial<View>, replace?: boolean) => void } | null>(null)
 /** Navigation identities and bounded comparison controls live in session history; result datasets and credentials never do. */
@@ -53,10 +53,10 @@ export function ViewHistory({ children }: { children: ReactNode }) {
   const [view, setView] = useState(readView)
   useEffect(() => {
     const pop = (event: PopStateEvent) => {
-      if (event.state?.sapLensBoundary) { history.forward(); return }
+      if (event.state?.authLensBoundary) { history.forward(); return }
       setView(readView())
     }
-    const hash=()=>{if(!history.state?.sapLensBoundary)setView(readView())}
+    const hash=()=>{if(!history.state?.authLensBoundary)setView(readView())}
     window.addEventListener('popstate', pop)
     window.addEventListener('hashchange',hash)
     return () => {window.removeEventListener('popstate',pop);window.removeEventListener('hashchange',hash)}
@@ -64,7 +64,7 @@ export function ViewHistory({ children }: { children: ReactNode }) {
   const change = (patch: Partial<View>, replace = false) => {
     const next = { ...readView(), ...patch }
     if (JSON.stringify(next) === JSON.stringify(readView())) return
-    history[replace ? 'replaceState' : 'pushState']({ sapLensView: next }, '', viewUrl(next))
+    history[replace ? 'replaceState' : 'pushState']({ authLensView: next }, '', viewUrl(next))
     setView(next)
   }
   return <Context.Provider value={{ view, change }}>{children}</Context.Provider>

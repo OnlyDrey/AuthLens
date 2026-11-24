@@ -1,4 +1,5 @@
 import {Fragment,useState,type ReactNode} from 'react'
+import {SubjectFilters,subjectFilterParams,type SubjectFiltersValue} from '@/components/Shared/OrganizationFilter'
 import {Button} from '@/components/Shared/Button'
 import {useModules} from '@/hooks/useModules'
 import {ModuleBadge} from '@/components/Modules/ModuleBadge'
@@ -96,13 +97,15 @@ interface Source {
 export function Dashboard() {
   const { view, change } = useViewHistory(),
     { loading } = useApplicationData()
+  const [subjectFilters,setSubjectFilters]=useState<SubjectFiltersValue>({functional_groups:[],managers:[],usernames:[]})
+  const subjectParameters=subjectFilterParams(subjectFilters).toString()
   const sourceEvidence=useSourceEvidence('roles')
   const configuration=useQuery({queryKey:['configuration'],queryFn:fetchConfiguration})
   const sodEnabled=configuration.data?.settings.features?.sod===true
-  const sodSummary=useQuery({queryKey:['sod-overview'],enabled:sodEnabled,queryFn:()=>apiRequest<{governance:{available:boolean;reason?:string|null;missing?:string[];users_with_conflicts?:number;user_risk_findings?:number;activities?:Record<string,number>;acceptance?:Record<string,number>;review_coverage?:Record<string,{total:number;reviewed:number}>;remediation?:{open_actions:number;overdue:number}}}>('/api/sod/overview')})
-  const openSod=(sodView:'overview'|'risk-matrix'|'activity-matrix'|'reviews')=>change({page:'sod',sodView,settings:false,detailRole:null})
+  const sodSummary=useQuery({queryKey:['sod-overview',subjectParameters],enabled:sodEnabled,queryFn:()=>apiRequest<{governance:{available:boolean;reason?:string|null;missing?:string[];users_with_conflicts?:number;user_risk_findings?:number;activities?:Record<string,number>;acceptance?:Record<string,number>;review_coverage?:Record<string,{total:number;reviewed:number}>;remediation?:{open_actions:number;overdue:number}}}>('/api/sod/overview?'+subjectParameters)})
+  const openSod=(sodView:'overview'|'risk-matrix'|'activity-matrix'|'reviews')=>change({page:'sod',sodView,settings:false,detailRole:null,sodFilters:{...view.sodFilters,shared:{...view.sodFilters?.shared,...subjectFilters}}})
   const query = useQuery({
-    queryKey: ['dashboard'],
+    queryKey: ['dashboard',subjectParameters],
     queryFn: () =>
       apiRequest<{
         metrics: Metric[]
@@ -114,7 +117,7 @@ export function Dashboard() {
         last_successful_refresh?: string | null
         source_warning?: string | null
         notice: string
-      }>('/api/dashboard'),
+      }>('/api/dashboard?'+subjectParameters),
   })
   type DashboardData = NonNullable<typeof query.data>
   const open = (metric: Metric, area='') =>
@@ -122,7 +125,7 @@ export function Dashboard() {
       ? change({
           page: 'users',
           accessMode: 'review',
-          accountReviewFilters:{search:'',licenses:[],states:[],sort:'username',descending:false},
+          accountReviewFilters:{search:'',licenses:[],states:[],sort:'username',descending:false,groups:subjectFilters.functional_groups,managers:subjectFilters.managers,usernames:subjectFilters.usernames},
           kpiNavigation:{...view.kpiNavigation,users:(view.kpiNavigation?.users||0)+1},
           user: '',
           reviewFindings: [
@@ -134,6 +137,7 @@ export function Dashboard() {
         ? change({ settings: true, settingsTarget: 'employees' })
         : change({
             page: metric.destination,
+            accessSubjectFilters: metric.destination==='users'||metric.destination==='releases'?subjectFilters:undefined,
             kpiNavigation: {
               ...view.kpiNavigation,
               [metric.destination]:
@@ -354,6 +358,8 @@ export function Dashboard() {
   return (
     <section aria-label="Dashboard" className="space-y-5">
       <PageHeader title="Dashboard" icon={<LayoutDashboard size={22} aria-hidden="true"/>}/>
+      <SubjectFilters value={subjectFilters} onChange={setSubjectFilters}/>
+      <p className="ui-description">User metrics use the selected current population. Catalogue, source integrity and total Employee Directory records remain global.</p>
       <p className="ui-description">Current validated SAP data and available capabilities.</p>
       <DataLifecycleStatus state={lifecycle} validatedAt={query.data?.last_successful_refresh} warning={query.data?.source_warning} onConfigure={()=>change({settings:true,settingsTarget:'roles'})}/>
       {query.data && (

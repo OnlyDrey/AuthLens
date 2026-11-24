@@ -1,3 +1,4 @@
+import {expectReviewerProfile} from './reviewer-profile'
 import { test, expect, type Page } from '@playwright/test'
 import {
   mkdtempSync,
@@ -8,7 +9,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, goTo, openFilters, closeFilters, setDescending, sortDirection, pickMulti } from './support'
+import { headers, goTo, openFilters, closeFilters, setDescending, sortDirection, pickMulti, postConfiguration, selectSettingsSection } from './support'
 import { DEFAULT_THEME_ONLY } from './matrix'
 const fields =
   'Site;Name;SamAccountName;UserPrincipalName;Mail;Department;Title;Enabled;DistinguishedName;ManagerDN;ManagerName;ManagerSamAccountName;ManagerMail;ManagerDepartment;ManagerTitle;ManagerLookupStatus'.split(
@@ -29,7 +30,7 @@ async function review(page: Page) {
 }
 test.beforeEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
-  root = mkdtempSync(path.join(tmpdir(), 'sap-lens-review-'))
+  root = mkdtempSync(path.join(tmpdir(), 'authlens-review-'))
   source = path.join(root, 'directory.csv')
   const rows = [
     {
@@ -66,7 +67,7 @@ test.beforeEach(async ({ request }) => {
   settings.features.employee_directory = true
   expect(
     (
-      await request.post('/api/configuration', { headers, data: settings })
+      await postConfiguration(request, settings)
     ).ok(),
   ).toBeTruthy()
   const revision = (await current(request)).revision,
@@ -149,8 +150,8 @@ test('review findings, license filter, local decision persistence and spreadshee
   await page.evaluate(() => {
     const state = {
       ...history.state,
-      sapLensView: {
-        ...history.state.sapLensView,
+      authLensView: {
+        ...history.state.authLensView,
         userContext: { role: 'ZC:FI:VIEW' },
       },
     }
@@ -179,7 +180,7 @@ test('review findings, license filter, local decision persistence and spreadshee
     })
     .click()
   await expect(page.getByRole('dialog',{name:/^Review account ·/})).toBeFocused()
-  await page.getByLabel('Reviewer', { exact: true }).fill('Synthetic Reviewer')
+  await expectReviewerProfile(page.getByLabel('Reviewer', { exact: true }))
   await page
     .getByLabel('Decision', { exact: true })
     .selectOption('Investigating')
@@ -214,33 +215,9 @@ test('review findings, license filter, local decision persistence and spreadshee
   expect(text).toContain('DEMO_OPEN')
   expect(text).toContain("'=Synthetic note")
   expect(text).not.toContain('DEMO_LOCKED')
-  await page.evaluate(() => {
-    ;(window as any).nativeReview = null
-    ;(window as any).pywebview = {
-      api: {
-        save_user_access_csv: async (
-          token: string,
-          filename: string,
-          content: string,
-        ) => {
-          ;(window as any).nativeReview = { token, filename, content }
-          return true
-        },
-      },
-    }
-  })
-  await page
-    .getByRole('button', { name: 'Export review CSV', exact: true })
-    .click()
-  await expect(
-    page.getByText('Review CSV saved.', { exact: true }),
-  ).toBeVisible()
-  const native = await page.evaluate(() => (window as any).nativeReview)
-  expect(native.token).toBe('browser-test-session')
-  expect(native.filename).toMatch(
-    /^sap-lens-account-review-review-\d{4}-\d{2}-\d{2}\.csv$/,
+  expect(file.suggestedFilename()).toMatch(
+    /^authlens-account-review-review-\d{4}-\d{2}-\d{2}\.csv$/,
   )
-  expect(native.content).toContain('DEMO_OPEN')
   await table.getByRole('link', { name: 'DEMO_OPEN', exact: true }).click()
   await expect(
     page.getByRole('region', { name: 'SAP Identity', exact: true }),
@@ -376,46 +353,29 @@ test('floating Norwegian calendar stays outside layout, handles maximum dates, E
   ).toHaveCount(0)
 })
 
-test('source snapshot recovery persists records after removal and reload with concise diagnostics', async ({
+test('directory records persist after the source CSV is removed and the page reloads, with concise diagnostics', async ({
   page,
   request,
 }) => {
-  // Deliberately create legacy path-only settings using the existing configuration workflow.
-  const settings = await current(request)
-  settings.employee_snapshot_id = null
-  expect(
-    (
-      await request.post('/api/configuration', { headers, data: settings })
-    ).ok(),
-  ).toBeTruthy()
-  await request.get('/api/employees/status', { headers })
+  // AuthLens stores an activated directory durably in its database: removing the source CSV and reloading keeps the records.
+  const before = (await (await request.get('/api/employees/status', { headers })).json()).report.records
+  const records = await (await request.get('/api/employees', { headers })).json()
+  const snapshot = (await current(request)).employee_snapshot_id
+  expect(snapshot).toMatch(/^[a-f0-9]{64}$/)
   unlinkSync(source)
   await page.goto('/#session=browser-test-session')
-  await page.getByRole('button', { name: 'Open settings', exact: true }).click()
-  await page.getByRole('tab', { name: 'Data Sources', exact: true }).click()
-  await page
-    .getByRole('tab', { name: 'Employee Directory', exact: true })
-    .click()
-  await page
-    .getByRole('button', {
-      name: 'Save durable directory snapshot',
-      exact: true,
-    })
-    .click()
-  await expect(
-    page.getByText('Validated directory records saved locally.', {
-      exact: false,
-    }),
-  ).toBeVisible()
   await page.reload()
+  expect(await (await request.get('/api/employees', {headers})).json()).toEqual(records)
+  expect((await current(request)).employee_snapshot_id).toBe(snapshot)
   await page.getByRole('button', { name: 'Open settings', exact: true }).click()
   await page.getByRole('tab', { name: 'Data Sources', exact: true }).click()
   await page
     .getByRole('tab', { name: 'Employee Directory', exact: true })
     .click()
   await expect(
-    page.getByRole('region', { name: 'Directory import status', exact: true }),
-  ).toContainText('Records saved locally')
+    page.getByRole('region', { name: 'Employee Directory source management', exact: true }),
+  ).toContainText('Durable snapshot available')
+  expect((await (await request.get('/api/employees/status', { headers })).json()).report.records).toBe(before)
   await page
     .getByRole('tab', { name: 'Health & Diagnostics', exact: true })
     .click()
@@ -428,9 +388,9 @@ test('source snapshot recovery persists records after removal and reload with co
   await expect(sourceDetails.getByRole('region', { name: 'Employee Directory diagnostics', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(sourceDetails).toHaveCount(0)
-  await page.getByRole('tab', { name: 'About SAP Lens', exact: true }).click()
+  await page.getByRole('tab', { name: 'About AuthLens', exact: true }).click()
   await expect(
-    page.getByRole('region', { name: 'About SAP Lens', exact: true }),
+    page.getByRole('region', { name: 'About AuthLens', exact: true }),
   ).toContainText('Application version')
 })
 
@@ -442,7 +402,7 @@ for (const theme of ['light', 'dark'])
     }, info) => {
       const settings = await current(request)
       settings.theme = theme
-      await request.post('/api/configuration', { headers, data: settings })
+      await postConfiguration(request, settings)
       await page.setViewportSize({ width, height: 1000 })
       await page.goto('/#session=browser-test-session')
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
@@ -498,6 +458,14 @@ for (const theme of ['light', 'dark'])
       await page
         .getByRole('button', { name: 'Assignment date filters', exact: true })
         .click()
+      const dateControls = page.getByRole('dialog', { name: 'Assignment date controls', exact: true })
+      if (width < 1024) {
+        const filters = page.getByRole('dialog', { name: 'Filters', exact: true })
+        await expect(filters.getByRole('dialog', { name: 'Assignment date controls', exact: true })).toBeVisible()
+        await dateControls.getByRole('button', { name: 'Apply date filters', exact: true }).focus()
+        await page.keyboard.press('Tab')
+        expect(await filters.evaluate(element => element.contains(document.activeElement))).toBe(true)
+      }
       await page
         .getByText('Advanced interval filtering', { exact: true })
         .click()
@@ -511,6 +479,7 @@ for (const theme of ['light', 'dark'])
         exact: true,
       })
       await expect(calendar).toBeVisible()
+      if (width < 1024) await expect(page.getByRole('dialog', { name: 'Filters', exact: true }).getByRole('dialog', { name: 'Calendar for Start date from', exact: true })).toBeVisible()
       const box = (await calendar.boundingBox())!
       expect(box.x).toBeGreaterThanOrEqual(0)
       expect(box.x + box.width).toBeLessThanOrEqual(width)
@@ -521,13 +490,15 @@ for (const theme of ['light', 'dark'])
         animations: 'disabled',
       })
       await page.keyboard.press('Escape')
+      await expect(calendar).toBeHidden()
+      // Escape closes the nested calendar first, then its date-controls popover.
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('dialog', {name: 'Assignment date controls', exact: true})).toBeHidden()
       await closeFilters(page)
       await page
         .getByRole('button', { name: 'Open settings', exact: true })
         .click()
-      await page
-        .getByRole('tab', { name: 'Health & Diagnostics', exact: true })
-        .click()
+      await selectSettingsSection(page, 'Health & Diagnostics')
       await shot('health-settings')
     })
 
@@ -541,9 +512,14 @@ test('unlicensed group policy can be edited, cleared and reloaded without suppre
   await page
     .getByLabel('Unlicensed SAP User Groups', { exact: false })
     .fill('EXEMPT, TECH REVIEW')
-  await page
-    .getByRole('button', { name: 'Apply settings', exact: true })
-    .click()
+  const apply = async () => {
+    const [saved] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === '/api/configuration' && response.request().method() === 'POST'),
+      page.getByRole('button', {name: 'Apply settings', exact: true}).click(),
+    ])
+    expect(saved.ok(), await saved.text()).toBeTruthy()
+  }
+  await apply()
   expect((await current(request)).unlicensed_user_groups).toEqual([
     'EXEMPT',
     'TECH REVIEW',
@@ -560,9 +536,7 @@ test('unlicensed group policy can be edited, cleared and reloaded without suppre
     page.getByLabel('Unlicensed SAP User Groups', { exact: false }),
   ).toHaveValue('EXEMPT, TECH REVIEW')
   await page.getByLabel('Unlicensed SAP User Groups', { exact: false }).fill('')
-  await page
-    .getByRole('button', { name: 'Apply settings', exact: true })
-    .click()
+  await apply()
   expect((await current(request)).unlicensed_user_groups).toEqual([])
 })
 
@@ -621,7 +595,7 @@ test('calendar reopening restores the selected day and Back dismisses its portal
 
 for (const theme of DEFAULT_THEME_ONLY) test(`directory conflict evidence identifies source records without selecting an identity ${theme}`,async({page,request},info)=>{
   const settings=await current(request);settings.theme=theme
-  await request.post('/api/configuration',{headers,data:settings})
+  await postConfiguration(request, settings)
   const rows=[{Name:'Demo Conflict A',Mail:'open@example.test',SamAccountName:'DEMO_AD_A',Enabled:''},{Name:'Demo Conflict B',Mail:'open@example.test',SamAccountName:'DEMO_AD_B',Enabled:'false'}]
   writeFileSync(source,fields.join(';')+'\n'+rows.map(row=>fields.map(field=>(row as Record<string,string>)[field]||'').join(';')).join('\n'))
   const revision=(await current(request)).revision
@@ -735,7 +709,7 @@ test('Account Review shows review progress beside a compact review attention lis
 
 for (const theme of ['light', 'dark']) test(`Review progress takes a third and review attention two thirds of one row in ${theme}, and stack on narrow screens`, { tag: '@visual' }, async ({ page, request }) => {
   const settings = await current(request); settings.theme = theme
-  await request.post('/api/configuration', { headers, data: settings })
+  await postConfiguration(request, settings)
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/#session=browser-test-session')
   await review(page)

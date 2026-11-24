@@ -17,10 +17,13 @@ Paths below are relative to `frontend/src/components/`. The inventory covers reu
 | `Shared/Button.tsx`: Button | Access exports/review, pagination, detail actions, library; primary/secondary/outline/success/ghost/destructive, default/compact/icon, loading/disabled | Central tokens; native button/default type=button, forwarded ref, disabled/aria-busy. Replaces duplicated routine action markup incrementally |
 | IconButton / Tooltip, same file | Navbar utilities, comparison user links, library | Required label; focus/hover tooltip, Escape, disabled/loading states. No hidden text-only dependency |
 | ButtonGroup, same file | Release Table/Matrix, transaction AND/OR, library | Native pressed buttons, named group; this is a presentation/filter control, not page navigation |
-| `Shared/Controls.tsx`: Input / SearchInput | Library and shared form contract; legacy Settings/Access inputs use `controlClass` | IDs/ARIA forwarded; search icon space, invalid/disabled states; no copied theme color literals |
+| `Shared/Controls.tsx`: Input / SearchInput | Library and shared form contract; legacy Settings/Access inputs use `controlClass` | IDs/ARIA forwarded; search icon space, invalid/disabled states; optional `onClear`/`clearLabel` gives a keyboard-accessible action that respects disabled state and restores input focus; no copied theme color literals |
+| `Shared/FunctionalGroupPills.tsx` | User directory and Account Review | Two equal-width, 28 px badges in a bounded stack; single-line `+N more` or View groups action opens the full keyboard-accessible list. Full names stay in DOM/title and every membership remains in `data-export-value`; no classification/filter changes |
+| PasswordInput, same file | My Profile, sign-in and password reset, user creation | Password `<input>` with a visibility toggle: a real button after the input (`aria-pressed`, "Show password"/"Hide password"), above the input in the stacking order so it is clickable; the value never leaves the input. Use inside FormField |
+| `Shared/ActionMenu.tsx` | User Management row actions | Compact "more" menu on the shared Popover: trigger named for its row ("Actions for alice"), items with icon, description and optional destructive tone, arrow/Home/End keys, closes after a choice, Escape and outside click restore focus. Use for three or more row actions instead of a button wall |
 | FormField | Access Filter alias, Settings Field alias, SAP selector and library | Label/control association; optional description, retained described-by links. Replaces duplicate label wrappers |
 | Checkbox / Toggle, same file | Checkbox preview; real Feature Settings toggles and library | Native checkbox; switch uses native Button with checked state and existing StatusPill, no automatic persistence |
-| `Shared/Select.tsx`; SettingsSelect adapter | Settings, Access filters, dates, library | Standard, non-searchable select: a real `<select>` (value, `change` event, labels, validation, disabled state) whose popup is the Combobox list (same surface, option spacing, hover, accent and check mark for the selected option, wrapped long labels, disabled and empty states, group headings). Keyboard: Enter, Space, Arrow keys open it; Arrow keys, Home, End, Page keys and typing move; Enter or Space choose; Escape and Tab close (Escape never reaches a surrounding dialog or panel). Multiple or sized selects keep the browser control. Keep the Settings adapter for compatible styling |
+| `Shared/Select.tsx`; SettingsSelect adapter | Settings, Access filters, dates, library | Standard, non-searchable select: a real `<select>` (value, `change` event, labels, validation, disabled state) whose popup is the Combobox list (same surface, option spacing, hover, accent and check mark for the selected option, wrapped long labels, disabled and empty states, group headings). Keyboard: Enter, Space, Arrow keys open it; Arrow keys, Home, End, Page keys and typing move; Enter or Space choose; Escape and Tab close (Escape never reaches a surrounding dialog or panel). Multiple or sized selects keep the browser control. The optional `multiSelection` button trigger and `renderOption` presentation reuse this popup/keyboard contract for compact category selection; native option labels remain the accessible/search names. The caller owns toggling and All semantics. Keep the Settings adapter for compatible styling |
 | `Shared/Combobox.tsx` | User/group/area/source selectors and library | Portal listbox, arrows/Enter/Escape/Tab, outside dismissal; string values, optional option labels, local/server filtering. Preserved and extended in place |
 | `Shared/SAPUserSelector.tsx` | Comparison's authenticated search adapter and isolated library options | Pure presentation of username plus distinguishing name/email options. Does not fetch, merge or mutate identities |
 | `Shared/NorwegianDateInput.tsx` | Assignment date controls, library | Existing localized portal calendar/manual entry, focus/keyboard behavior and maximum-date safety preserved |
@@ -33,7 +36,7 @@ Paths below are relative to `frontend/src/components/`. The inventory covers reu
 | `Shared/WindowsIcon.tsx` | Windows Desktop settings heading, library | Generic four-pane inline mark in currentColor; no third-party artwork or dependency |
 | `Shared/FilterChip.tsx` | Transactions and assignment date filters | One removable-chip implementation, explicit removal label, existing focus restoration supplied by caller |
 | `Shared/ClearFilterButton.tsx` | Investigation pages/date controls | Canonical Button + filter-x icon; neutral reset styling, explicit accessible text |
-| `Shared/SavedFilters.tsx` | Users, roles, releases, review, comparison; memory-only library | Same versioned persistence/CRUD/compatibility logic, compact Popover. Existing page-level clears remain singular; menu-only clear available when needed |
+| `Shared/SavedFilters.tsx` | Users, roles, releases, review, comparison; memory-only library | Same versioned persistence/CRUD/compatibility logic, compact Popover layered above mobile filter drawers. Existing page-level clears remain singular; menu-only clear available when needed |
 | `Shared/Popover.tsx` | Saved-filter menus, library demonstration, truncated-text reveal (`reveal="hover"`: opens on mouse hover and keyboard focus, a click pins it; `isolateClicks` keeps portal clicks away from clickable ancestors) | Anchored nonmodal portal, viewport bounds, scroll/resize placement, outside/Escape/Back dismissal and focus restoration. Forms remain forms, not falsely labeled ARIA menus |
 | `Shared/Navigation.tsx`: MainNavigation / MainNavigationItem | Application navbar and library | Named landmark, current page, native keyboard operation, visible responsive labels |
 | SecondaryNavigation, same file | User Access and library | Real anchors, bottom-border active state, native modified-click support, history-backed routes |
@@ -41,7 +44,7 @@ Paths below are relative to `frontend/src/components/`. The inventory covers reu
 | `Shared/InvestigationNavigation.tsx`: DetailNavigation / DetailButton | User/role/release investigations | Existing breadcrumb/record position/focus and global filtered navigation. Routine buttons now canonical; domain routing preserved |
 | `Access/Shared.tsx`: Filter / Pagination / QueryState | Access, review, comparison and library | Filter aliases FormField; pagination uses compact Button; shared LoadingState and existing error semantics. Server pagination unchanged |
 | `Shared/Presentation.tsx`: Card / Toolbar / PageHeader | Comparison and library | Lightweight layout wrappers with explicit children/classes, no data responsibilities |
-| DataTable, same file | Comparison and library; existing tables share CSS | Caption, focusable bounded overflow; columns remain caller-owned rather than a complex table framework |
+| DataTable, same file | Comparison and library; existing tables share CSS | Caption, focusable bounded overflow and shared column presentation; row data remains caller-owned |
 | StatusBadge / EmptyState / LoadingState, same file | Domain status wrappers, query state and library | Generic presentation only; labels and source interpretation remain in domain components |
 | EvidenceDisclosure, same file | Comparison and library | Discoverable information summary, keyboard-operable disclosure; evidence limitations retained |
 | `Shared/AccountStatus.tsx` | User Directory/Details, comparison, review, library | Existing SAP validity/lock/AD classifications and friendly type labels unchanged; generic badge rendering reused |
@@ -53,7 +56,7 @@ Paths below are relative to `frontend/src/components/`. The inventory covers reu
 | `Modules/ModuleRegistry.tsx`, ModuleIcon, CatalogIcon, IconCatalog | All module/role views, Settings icon picker | Existing Lucide catalog, module preferences and theme-aware classification colors retained; no duplicate icon library |
 | Settings Controls/ColorControl, ImportSection, ImportPresets, SourceStatus | Settings data/branding workflows | Specialized mapping/preset/color contracts retained; common dimensions and tab behavior consolidated |
 | RoleList/RoleCard, RoleDetail panels and RoleComparison subcomponents | Existing role investigations | Specialized selection/overlap/hierarchy presentation retained. No duplicate Role Comparison or generalized data model |
-| Settings navigation/sidebar, diagnostics and health source cards | Existing Settings workspace | Existing section IDs preserved, Component Library ordered immediately before About. Detailed source/diagnostic responsibilities retained |
+| Settings navigation/sidebar, diagnostics and health source cards | Existing Settings workspace | Existing section IDs preserved. The sidebar has three parts: Back to AuthLens at the top; four groups (General: Organization & SAP System, Appearance & Branding; Data & Integrations: Data Sources, SAP Modules, Runtime & Scheduling, Functional Groups; Security & Governance: User Management (administrators of a sign-in server only), SoD Risk Configuration, Backup & Restore; System & Tools: Health & Diagnostics, Features, Component Library) in the only scrolling area; About AuthLens as the footer above a divider. One `tablist`: arrow keys, Home and End follow the visual order including the footer; the group list (`navigationGroups` in SettingsView) is the single source of order. The Component Library stays visible to everyone who can open Settings (there is no developer mode to bind it to). Detailed source/diagnostic responsibilities retained |
 
 Native confirmation dialogs remain the existing deletion safeguard. There is no separate custom ConfirmationDialog or new toast service to showcase. Do not create a second abstraction simply to populate the library.
 
@@ -93,7 +96,15 @@ See [Design system](DESIGN_SYSTEM.md), [Navigation patterns](NAVIGATION.md) and 
 
 ## CSV lifecycle additions
 
-`Shared/Dialog.tsx` is the canonical modal used by refresh change/error viewers and the isolated Component Library preview. It portals outside overflow boundaries, makes the app root inert, traps Tab focus, supports Escape, and restores the originating control. `Shared/RefreshReport.tsx` shares the result banner, bounded report viewer and history presentation between Data Sources and Diagnostics. `Settings/DirectoryPreview.tsx` reuses the shared fields, table, status and pagination controls. These components introduce no external service or UI dependency.
+`Shared/Dialog.tsx` is the canonical modal (sizes: `wide`, the default, for tables and evidence; `medium`, about 720px, for forms and account settings such as My Profile and user editing; `narrow`, about 520px, used by ConfirmDialog and one-time codes; an optional `description` line is linked with `aria-describedby`) used by refresh change/error viewers and the isolated Component Library preview. It portals outside overflow boundaries, makes the app root inert, traps Tab focus, supports Escape, and restores the originating control. `Shared/RefreshReport.tsx` shares the result banner, bounded report viewer and history presentation between Data Sources and Diagnostics. `Settings/DirectoryPreview.tsx` reuses the shared fields, table, status and pagination controls. These components introduce no external service or UI dependency.
+
+The optional `presentation="drawer"` reuses that modal focus/scroll isolation for the application navigation below 1024 px. Drawer presentation
+adds outside dismissal and a reduced-motion-aware slide-in surface; ordinary dialogs retain their existing dismissal behavior. The compact header
+opens the same permission-filtered route groups with full labels and current-route indication. Navigation, Escape, backdrop interaction and a
+desktop resize close it. Settings, theme and refresh utilities remain available inside the drawer. Desktop navigation remains in the header.
+The profile icon uses the shared tooltip/Popover, an accessible profile name and the existing profile/session dialog and sign-out flow.
+Below 768 px Settings uses a labelled full-text section Select rather than a permanent icon-only rail; returning restores focus to a visible
+header control. Tables and matrices retain readable content in intentional horizontal scroll regions.
 
 ## Import and evidence refinement
 
@@ -107,6 +118,9 @@ provides compact StatusCard, FilterPanel and ResultsToolbar wrappers.
 Assignment dates use the shared Popover. Combobox/calendar portals register their
 popover ownership so an inner selection does not dismiss its parent. Escape closes
 the inner popup first; the next Escape restores focus to the outer trigger. The
+Popover and calendar portal into their nearest modal dialog when present, keeping
+them above its backdrop and within its Tab focus scope; outside a modal they use the body.
+This applies to mobile filter drawers without changing theme or stacking values. The
 Component Library uses these actual components with isolated synthetic state.
 See [validation tracker](../validation/README.md) for scope and validation.
 
@@ -206,12 +220,7 @@ prefixes; capability, size and destination protections remain intact.
 
 Component Library uses eight category tabs (actions, navigation, forms, filters, feedback, dialogs, data display and SAP controls); All components is an explicit expanded QA view. Previews use real shared controls and isolated in-memory state. ModuleEditor uses the shared Dialog with a local draft and explicit parent-draft Apply. SourceDetailsDialog groups status, storage and diagnostics, with complete copyable paths. SourceHealthSummary supports a compact dashboard variant from the same diagnostic evidence. Anchored portals stay hidden until measured; event-driven anchor observation continues tracking subsequent layout changes.
 
-`Settings/DesktopOptions.tsx` reuses Toggle/Checkbox and the parent settings draft.
-It renders only after a Windows native capability response; hosted/Linux/browser
-clients do not expose Windows options. No new reusable control or demo-only analogue
-was introduced. Sign-in startup is disabled for source-mode activation; an existing
-preference can still be switched off. Tray Settings navigation queues until App's
-native-readiness handshake and preserves the current route/history underneath.
+Desktop integration uses the supported native bridge and shared frontend lifecycle.
 
 ### Refined controls and search
 
@@ -227,10 +236,10 @@ the existing managed-file and contrast validation with a full-width draft previe
 Employee source diagnostics expose a compact summary and expandable full details.
 The Component Library uses these same navigation/select primitives automatically.
 
-Text search lives in `backend/search_matching.py` and
+Text search lives in `backend/src/AuthLens.Domain/Text/TextMatching.cs` and
 `frontend/src/lib/searchMatching.ts`. Both match literal chunks, never execute user
 regular expressions. Transaction pattern expansion lives in the existing
-`transaction_filters.py`; internal identity and assignment joins remain unchanged.
+`backend/src/AuthLens.Domain/Analysis/TransactionFilters.cs`; internal identity and assignment joins remain unchanged.
 
 ## Current refinement behavior
 
@@ -350,6 +359,24 @@ switching with explicit discard confirmation.
 
 ## Session notice and bundle layout
 
-`Layout/SessionNotice` is the only component that renders session or connection state (see [session lifecycle](DESKTOP.md#session-lifecycle-and-recovery-states)). Settings and the SoD workspace and investigation panel are loaded on first use (`lazy` with `Suspense`; Settings then stays mounted so its drafts survive). Measured on the production build: largest chunk 909.5 kB to 361.6 kB, initial JavaScript 926.7 kB to 600.5 kB (gzip 261 kB to 192 kB), at the cost of about 58 more small shared chunks (hoisted lucide icons). Further splitting needs new evidence; do not raise `chunkSizeWarningLimit` or add manual chunks to hide the warning.
+`Layout/SessionNotice` is the only component that renders session or connection state (see [session lifecycle](../deployment/DESKTOP_SERVER_DEPLOYMENT.md)). Settings and the SoD workspace and investigation panel are loaded on first use (`lazy` with `Suspense`; Settings then stays mounted so its drafts survive). Measured on the production build: largest chunk 909.5 kB to 361.6 kB, initial JavaScript 926.7 kB to 600.5 kB (gzip 261 kB to 192 kB), at the cost of about 58 more small shared chunks (hoisted lucide icons). Further splitting needs new evidence; do not raise `chunkSizeWarningLimit` or add manual chunks to hide the warning.
 
 `Shared/ExportMenu` is the export button for pages with several formats: an outline **Export CSV** trigger on the shared Popover listing options with a title and one-line description, arrow-key navigation, closing after a choice and Escape returning focus. A disabled menu renders the plain disabled `ExportCSVButton`. First use: SoD Remediation.
+
+## Configurable tables and group pills
+
+`Shared/ConfigurableTable` renders native table children with a shared **Columns** dialog for simple headers. It changes cell DOM order and hidden
+state together, preserves locked sticky identity/selection fields, supports default no-wrap and permits Functional Group wrapping. Preferences are
+validated and kept in local browser storage; saving one schema preserves other schemas. Source row objects and backend queries are unchanged.
+`Shared/ColumnOptions` supplies the common keyboard/touch visibility and up/down editor. `Shared/MatrixGrid` uses that editor against its complete
+column definitions, before virtualization, keeping grouped/windowed matrix geometry and keyboard investigation behavior intact.
+
+Displayed-row CSV defaults to visible columns in the chosen order, with an explicit all-column alternative. Matrices export loaded rows in expanded
+groups; page-level full-result/evidence exports remain separate. `lib/csv` centralizes unchanged formula/quote escaping and bounded UTF-8 CSV
+construction; mismatched row shapes or output above 32 MiB fail without a partial download. Raw HTML, hidden pages and credentials are not exported.
+
+`Shared/FunctionalGroupPills` accepts group IDs/names/status plus username, displays two bounded pills and a read-only expansion dialog. Its
+`data-export-value` exposes the full group list to table projection, including names truncated visually. It does not edit memberships or approvals.
+
+Mobile Filters and Settings navigation reuse the shared Dialog drawer. Desktop/tab navigation and per-page filter/permission state remain owned
+by their existing callers. Do not implement another focus trap or reorder the DOM using CSS.

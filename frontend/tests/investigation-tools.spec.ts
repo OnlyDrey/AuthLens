@@ -2,7 +2,7 @@ import { test, expect, type Locator, type Page } from '@playwright/test'
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, goTo, setDescending, sortDirection } from './support'
+import { headers, goTo, setDescending, sortDirection, postConfiguration } from './support'
 import { layoutMatrix } from './matrix'
 let root: string
 const mode = async (page: Page, name: string) =>
@@ -40,7 +40,7 @@ async function expectIntervals(page:Page,scope:Locator,expected:string[]){
 }
 test.beforeEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
-  root = mkdtempSync(path.join(tmpdir(), 'sap-lens-tools-'))
+  root = mkdtempSync(path.join(tmpdir(), 'authlens-tools-'))
   const roles = path.join(root, 'catalogue.csv'),
     users = path.join(root, 'users.csv')
   writeFileSync(
@@ -58,7 +58,7 @@ test.beforeEach(async ({ request }) => {
   settings.user_csv_path = users
   expect(
     (
-      await request.post('/api/configuration', { headers, data: settings })
+      await postConfiguration(request, settings)
     ).ok(),
   ).toBeTruthy()
   expect((await request.post('/api/refresh', { headers })).ok()).toBeTruthy()
@@ -114,7 +114,7 @@ test('comparison entry from details retains User A and original comparison on Ba
   ).toHaveValue(/DEMO_B/)
 })
 test('comparison difference and evidence indicators start at the same vertical position in every row', async ({ page, request }) => {
-  if (process.env.THEME) { const settings = (await (await request.get('/api/configuration', { headers })).json()).settings; settings.theme = process.env.THEME; await request.post('/api/configuration', { headers, data: settings }) }
+  if (process.env.THEME) { const settings = (await (await request.get('/api/configuration', { headers })).json()).settings; settings.theme = process.env.THEME; await postConfiguration(request, settings) }
   await page.goto('/#session=browser-test-session')
   await goTo(page, 'User Access')
   await page.getByRole('link', { name: 'DEMO_A', exact: true }).click()
@@ -506,24 +506,15 @@ test('transaction investigation and browser Back retain comparison users and fil
   ).toHaveValue('transactions')
 })
 
-test('leaving comparison cancels a pending CSV before the native save dialog', async ({
+test('leaving comparison cancels a pending CSV export before it downloads', async ({
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
   await comparison(page)
   await choose(page, 'User A', 'DEMO_A')
   await choose(page, 'User B', 'DEMO_B')
-  await page.evaluate(() => {
-    ;(window as any).exportCalls = 0
-    ;(window as any).pywebview = {
-      api: {
-        save_user_access_csv: async () => {
-          ;(window as any).exportCalls++
-          return true
-        },
-      },
-    }
-  })
+  let downloads = 0
+  page.on('download', () => downloads++)
   let release!: () => void, started!: () => void
   const gate = new Promise<void>((resolve) => {
       release = resolve
@@ -553,41 +544,27 @@ test('leaving comparison cancels a pending CSV before the native save dialog', a
         requestAnimationFrame(() => requestAnimationFrame(resolve)),
       ),
   )
-  expect(await page.evaluate(() => (window as any).exportCalls)).toBe(0)
+  expect(downloads).toBe(0)
 })
 
-test('comparison export uses guarded native bridge and retains distinct assignment intervals', async ({
+test('comparison export downloads a CSV that retains distinct assignment intervals', async ({
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
   await comparison(page)
   await choose(page, 'User A', 'DEMO_A')
   await choose(page, 'User B', 'DEMO_B')
-  await page.evaluate(() => {
-    ;(window as any).comparisonExport = null
-    ;(window as any).pywebview = {
-      api: {
-        save_user_access_csv: async (
-          token: string,
-          filename: string,
-          content: string,
-        ) => {
-          ;(window as any).comparisonExport = { token, filename, content }
-          return true
-        },
-      },
-    }
-  })
+  const download = page.waitForEvent('download')
   await page
     .getByRole('button', { name: 'Export comparison CSV', exact: true })
     .click()
+  const file = await download
   await expect(
-    page.getByText('Comparison CSV saved.', { exact: true }),
+    page.getByText('Comparison CSV exported.', { exact: true }),
   ).toBeVisible()
-  const exported = await page.evaluate(() => (window as any).comparisonExport)
-  expect(exported.token).toBe('browser-test-session')
+  const exported = { filename: file.suggestedFilename(), content: readFileSync((await file.path())!, 'utf8') }
   expect(exported.filename).toMatch(
-    /^sap-lens-user-comparison-review-\d{4}-\d{2}-\d{2}\.csv$/,
+    /^authlens-user-comparison-review-\d{4}-\d{2}-\d{2}\.csv$/,
   )
   expect(exported.content).toContain('"2000-01-01"')
   expect(exported.content).toContain('"2001-01-01"')
@@ -678,7 +655,7 @@ for (const { theme, width } of layoutMatrix([375, 800, 1280]))
       settings.theme = theme
       expect(
         (
-          await request.post('/api/configuration', { headers, data: settings })
+          await postConfiguration(request, settings)
         ).ok(),
       ).toBeTruthy()
       await page.goto('/#session=browser-test-session')

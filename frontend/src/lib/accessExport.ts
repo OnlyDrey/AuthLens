@@ -1,13 +1,7 @@
 import { accessQuery, type UserDetail, type Assignment } from '@/api/access'
-import { applicationToken } from '@/api/client'
 
-// Quote every field; neutralise spreadsheet formulas without changing normal SAP identifiers.
-export function csvField(value: unknown): string {
-  let text = value == null ? '' : String(value)
-  // eslint-disable-next-line no-control-regex -- control characters before a formula marker must be caught too
-  if (/^[\s\u0000-\u001f]*[=+@-]/u.test(text) || /^[\t\r\n]/u.test(text)) text = "'" + text
-  return '"' + text.replace(/"/g, '""') + '"'
-}
+import {csvField} from './csv.ts'
+export {csvField} from './csv.ts'
 const csvHeader = ['Username', 'User group', 'Full name', 'Role', 'Role description', 'Role family', 'Valid from', 'Valid to', 'Assignment status', 'Document type', 'Release group', 'Release strategy'].map(csvField).join(',')
 function assignmentLine(user: UserDetail, a: Assignment): string {
   return [user.username, a.user_group, [user.first_name, user.last_name].filter(Boolean).join(' '), a.role_name, a.role_description, a.scope === 'business' ? 'Business' : 'Release', a.valid_from, a.valid_to, a.status, a.release?.document_type, a.release?.release_group, a.release?.release_strategy].map(csvField).join(',') + '\r\n'
@@ -31,11 +25,7 @@ export async function exportAssignments(user: UserDetail, scope: string, status:
   }
   if (seen.size !== user.total || !current()) throw new Error('Export cancelled or incomplete.')
   const content = chunks.join('')
-  const filename = `sap-lens-${user.username.replace(/[^a-z0-9_-]/gi, '_').slice(0, 80)}-${scope}-${user.as_of}.csv`
-  if (window.pywebview) {
-    if (!window.pywebview.api.save_user_access_csv) throw new Error('This desktop version does not support CSV export. Update the desktop application.')
-    return window.pywebview.api.save_user_access_csv(applicationToken(), filename, content)
-  }
+  const filename = `authlens-${user.username.replace(/[^a-z0-9_-]/gi, '_').slice(0, 80)}-${scope}-${user.as_of}.csv`
   const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }))
   const link = document.createElement('a'); link.href = url; link.download = filename
   document.body.append(link); link.click(); link.remove()

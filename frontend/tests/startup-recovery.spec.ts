@@ -21,14 +21,15 @@ test('a clean start opens the application without any recovery screen', async ({
   await expect(card(page)).toHaveCount(0)
 })
 
-test('a session token from an earlier run is replaced automatically through the guarded document', async ({ page }) => {
+test('an obsolete legacy fragment does not invalidate the current native Desktop capability', async ({ page }) => {
   const documents = documentRequests(page)
   await page.goto('/#session=token-of-a-previous-run')
   await expect(appVisible(page)).toBeVisible()                                               // no click needed
   await expect(page.getByRole('button', { name: 'Reload trusted session' })).toHaveCount(0)
   await expect(page.getByRole('alert').filter({ hasText: 'no longer valid' })).toHaveCount(0)
-  expect(documents).toHaveLength(2)                                                          // the first load and exactly one restore
-  expect(await page.evaluate(() => sessionStorage.getItem('sap-lens-session'))).toBe('browser-test-session')
+  expect(documents).toHaveLength(1) // native WebView2 injects the current capability; the legacy fragment does not authorize API requests
+  expect((await (await page.request.get('/api/v1/session')).json()).authentication).toBe('token')
+  expect(await page.evaluate(() => Object.values(sessionStorage).includes('synthetic-browser-capability-0000000000000000'))).toBe(false)
   expect(page.url()).not.toContain('session=')                                               // the capability never stays in the address
 })
 
@@ -36,7 +37,7 @@ test('a session that cannot be restored stops after one attempt and offers one a
   const documents = documentRequests(page)
   await page.route('**/api/configuration', (route) => route.fulfill({ status: 403, json: STALE }))
   await page.goto('/#session=browser-test-session')
-  await expect(card(page).getByRole('heading', { name: 'SAP Lens could not restore your local session' })).toBeVisible()
+  await expect(card(page).getByRole('heading', { name: 'AuthLens could not restore your local session' })).toBeVisible()
   await page.waitForTimeout(1500)                                                            // a loop would reload again within this time
   expect(documents).toHaveLength(2)
   const actions = page.getByRole('group', { name: 'Recovery actions' })
@@ -51,12 +52,21 @@ test('a session that cannot be restored stops after one attempt and offers one a
 })
 
 test('Retry connection after an unrestorable session restores it once the service answers', async ({ page }) => {
-  await page.route('**/api/configuration', (route) => route.fulfill({ status: 403, json: STALE }))
+  // The service answers again only because Retry was clicked. A capture listener marks the click before the application's handler sends its
+  // request; until then every configuration read is refused. Un-routing earlier lets the application recover on its own (also correct) and
+  // remove the button before the test clicks it, which made this test depend on the timing of that background recovery.
+  // The flag lives in the test process: Retry reloads the document, which would reset a flag kept in the page.
+  let retried = false
+  await page.exposeFunction('markRetry', () => { retried = true })
+  await page.addInitScript(() => document.addEventListener('click', (event) => {
+    if ((event.target as Element | null)?.closest('button')?.textContent?.includes('Retry connection')) void (window as Window & { markRetry?: () => void }).markRetry?.()
+  }, true))
+  await page.route('**/api/configuration', (route) => (retried ? route.fallback() : route.fulfill({ status: 403, json: STALE })))
   await page.goto('/#session=browser-test-session')
   await expect(page.getByRole('button', { name: 'Retry connection' })).toBeVisible()
-  await page.unroute('**/api/configuration')
   await page.getByRole('button', { name: 'Retry connection' }).click()
   await expect(appVisible(page)).toBeVisible()
+  await page.unrouteAll({ behavior: 'wait' })
 })
 
 test('a service that is still starting is waited for and never reported as a session problem', async ({ page }) => {
@@ -74,7 +84,7 @@ test('a service that never answers ends in a bounded wait and one Retry action',
   const configuration = configurationRequests(page)
   await page.route('**/api/configuration', (route) => route.abort('connectionrefused'))
   await page.goto('/#session=browser-test-session')
-  await expect(card(page).getByRole('heading', { name: 'SAP Lens cannot reach its local service' })).toBeVisible({ timeout: 30_000 })
+  await expect(card(page).getByRole('heading', { name: 'AuthLens cannot reach its local service' })).toBeVisible({ timeout: 30_000 })
   expect(configuration).toHaveLength(7)                                                      // the first request and six retries, no endless loop
   await expect(page.getByRole('button', { name: 'Open Backup & Restore' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Reload trusted session' })).toHaveCount(0)
@@ -99,7 +109,7 @@ test('a configuration failure is reported as such, is not retried automatically 
   const configuration = configurationRequests(page)
   await page.route('**/api/configuration', (route) => route.fulfill({ status: 500, json: { detail: 'Settings storage could not be opened.' } }))
   await page.goto('/#session=browser-test-session')
-  await expect(card(page).getByRole('heading', { name: 'SAP Lens could not load its configuration' })).toBeVisible()
+  await expect(card(page).getByRole('heading', { name: 'AuthLens could not load its configuration' })).toBeVisible()
   await page.waitForTimeout(1000)
   expect(configuration).toHaveLength(1)
   await expect(card(page)).not.toContainText('local session')                                // not presented as a session problem

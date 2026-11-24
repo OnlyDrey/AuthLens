@@ -4,31 +4,59 @@ import { openListOwnsEscape } from '@/lib/openListOwnsEscape'
 import { X } from 'lucide-react'
 import { Button, IconButton } from './Button'
 
+// Dialogs can overlap during a confirmed operation (or be nested). Isolation
+// belongs to the stack, not to whichever effect happens to clean up last.
+const dialogs: HTMLElement[] = []
+let restoreIsolation: (()=>void) | undefined
+function isolate(element: HTMLElement) {
+  if (!dialogs.length) {
+    const root=document.getElementById('root'), wasInert=root?.inert, overflow=document.body.style.overflow
+    if(root)root.inert=true
+    document.body.style.overflow='hidden'
+    restoreIsolation=()=>{if(root)root.inert=!!wasInert;document.body.style.overflow=overflow}
+  }
+  dialogs.push(element)
+  return ()=>{
+    const index=dialogs.indexOf(element)
+    if(index>=0)dialogs.splice(index,1)
+    if(!dialogs.length){restoreIsolation?.();restoreIsolation=undefined}
+  }
+}
+
 /** Modal owner: portalled above overflow boundaries with focus isolation. */
 export function Dialog({
   title,
   children,
   onClose,
   footer,
+  size = 'wide',
+  description,
+  presentation = 'dialog',
 }: {
   title: string
   children: ReactNode
   onClose: () => void
   footer?: ReactNode
+  /** `wide` (default) for tables and evidence; `medium` (about 720px) for forms and account settings; `narrow` (about 520px) for confirmations. */
+  size?: 'wide' | 'medium' | 'narrow'
+  /** One line under the title, linked as the dialog's description. */
+  description?: string
+  /** Drawer shares modal isolation, focus restoration and Escape handling; only its backdrop dismisses it. */
+  presentation?: 'dialog' | 'drawer'
 }) {
   const id = useId(),
+    descriptionId = `${id}-description`,
     dialog = useRef<HTMLDivElement>(null),
     close = useRef(onClose)
   close.current = onClose
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
-    const root = document.getElementById('root')
-    const wasInert = root?.inert
-    if (root) root.inert = true
-    const oldOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    dialog.current?.focus()
+    const element=dialog.current
+    if(!element)return
+    const release=isolate(element)
+    element.focus()
     const key = (event: KeyboardEvent) => {
+      if(dialogs[dialogs.length-1]!==element)return
       if (event.key === 'Escape') {
         if (openListOwnsEscape(event)) return
         event.preventDefault()
@@ -71,24 +99,28 @@ export function Dialog({
     document.addEventListener('keydown', key, true)
     return () => {
       document.removeEventListener('keydown', key, true)
-      if (root) root.inert = wasInert || false
-      document.body.style.overflow = oldOverflow
-      if (previous?.isConnected) previous.focus()
+      release()
+      const top=dialogs[dialogs.length-1]
+      if(previous?.isConnected&&(!top||top.contains(previous)))previous.focus()
+      else top?.focus()
     }
   }, [])
   useEffect(()=>{dialog.current?.focus()},[title])
   return createPortal(
-    <div className="ui-dialog-backdrop">
+    <div className="ui-dialog-backdrop" data-presentation={presentation} onClick={event=>{if(presentation==='drawer'&&event.target===event.currentTarget)close.current()}}>
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={id}
+        aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         ref={dialog}
         className="ui-dialog"
+        data-size={size}
+        data-presentation={presentation}
       >
         <header>
-          <h2 id={id}>{title}</h2>
+          <div className="ui-dialog-heading"><h2 id={id}>{title}</h2>{description && <p id={descriptionId} className="ui-description">{description}</p>}</div>
           <IconButton label="Close dialog" onClick={onClose}>
             <X size={16} />
           </IconButton>

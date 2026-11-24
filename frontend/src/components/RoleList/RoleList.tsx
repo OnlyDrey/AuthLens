@@ -5,16 +5,17 @@ import { FilterLayout, FilterSection } from '@/components/Shared/FilterLayout'
 import { AccessPackagePanel } from './AccessPackagePanel'
 import { AccessPackageBar } from '@/components/Shared/AccessPackageBar'
 import { useAccessPackage } from '@/lib/accessPackage'
-import { SearchInput } from '@/components/Shared/Controls'
+import { FormField, SearchInput } from '@/components/Shared/Controls'
+import { Select } from '@/components/Shared/Select'
+import { ModuleBadge } from '@/components/Modules/ModuleBadge'
 import { SavedFilters } from '@/components/Shared/SavedFilters'
 import { useApplicationData } from '@/state/ApplicationData'
 import { TransactionFilterGroups, useTransactionFilter } from '@/components/Shared/TransactionFilter'
 import { ClearFilterButton } from '@/components/Shared/ClearFilterButton'
-import { ModuleBadge } from '@/components/Modules/ModuleBadge'
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  GitCompare, X,
+  GitCompare,
   AlertTriangle, RefreshCw, ArrowUpDown, Zap
 } from 'lucide-react'
 import { useModules } from '@/hooks/useModules'
@@ -92,14 +93,12 @@ function applySort(roles: RoleSummary[], key: SortKey): RoleSummary[] {
   }
 }
 
-function shortenModName(name: string) {
-  return name
-    .replace('Management','Mgmt')
-    .replace('Production','Prod.')
-    .replace('Distribution','Dist.')
-    .replace('Resources','Res.')
-    .replace('Maintenance','Maint.')
-    .replace('Planning','Plan.')
+function CategoryLabel({code,label,count,expanded=false}:{code?:string;label:string;count:number;expanded?:boolean}) {
+  return <span className="flex min-w-0 flex-1 items-center gap-2" title={`${code ? `${code} — ` : ''}${label} (${count})`}>
+    {code && <span className="shrink-0"><ModuleBadge moduleId={code} variant="compact" /></span>}
+    <span className={`min-w-0 flex-1 ${expanded ? 'whitespace-normal break-words' : 'truncate'}`}>{code ? ' ' : ''}{label}</span>
+    <span className="shrink-0 text-xs text-muted"> ({count})</span>
+  </span>
 }
 
 function Skeleton() {
@@ -264,8 +263,34 @@ export function RoleList({
     <div className="flex flex-col gap-4" role="region" aria-label="Role catalogue investigation" aria-busy={isLoading||search!==debSearch||transaction.settling||excludeTransaction.settling||exactTransactions.isFetching}>
       <PageHeader title="Role Lookup" icon={<PageIcon size={22} aria-hidden="true"/>}/>
       {packageOpen&&<AccessPackagePanel onClose={()=>setPackageOpen(false)}/>}
-      <FilterLayout label="Filters" onClear={clearAll} clearDisabled={!isFiltering && sortBy === 'name-asc'} activeCount={[transaction.codes.length, excludeTransaction.codes.length].filter(Boolean).length}
+      <FilterLayout label="Filters" onClear={clearAll} clearDisabled={!isFiltering && sortBy === 'name-asc'} activeCount={[transaction.codes.length, excludeTransaction.codes.length,search.trim().length,activeModules.length].filter(Boolean).length}
         sidebar={<div className="grid min-w-0 gap-3" role="search" aria-label="Role filters">
+      <div className="catalogue-search-controls min-w-0">
+        {exactTransactions.isError && transaction.codes.length > 0 && <p role="alert">Transaction filtering failed. {exactTransactions.error.message}</p>}
+        <div className="catalogue-role-search min-w-0">
+          <FormField label="Search roles">
+            <SearchInput aria-label="Search roles by name or description" value={search} onChange={event=>setSearch(event.target.value)}
+              placeholder="Search roles by name or description..." onClear={()=>setSearch('')} clearLabel="Clear role search"/>
+          </FormField>
+        </div>
+        {!isLoading && !isError && (
+          <FilterSection title="Role categories">
+            <div className="catalogue-area-filter min-w-0" role="group" aria-label="SAP areas">
+              <Select aria-label="Role categories" value={activeModules[0] ?? ''} onChange={()=>{}}
+                multiSelection={{values:activeModules.length ? activeModules : [''],
+                  onSelect:key=>setActiveModules(previous=>!key ? [] : previous.includes(key)?previous.filter(value=>value!==key):[...previous,key]),
+                  content:activeModules.length===1
+                    ? <CategoryLabel code={activeModules[0]} label={moduleNames[activeModules[0]]??activeModules[0]} count={moduleGroups.find(([key])=>key===activeModules[0])?.[1]??0}/>
+                    : <CategoryLabel label={activeModules.length ? `${activeModules.length} categories selected` : 'All categories'} count={activeModules.length ? moduleGroups.filter(([key])=>activeModules.includes(key)).reduce((sum,[,count])=>sum+count,0) : allRolesRaw.length}/>}}
+                renderOption={key=><CategoryLabel expanded code={key||undefined} label={key ? moduleNames[key]??key : 'All categories'} count={key ? moduleGroups.find(([code])=>code===key)?.[1]??0 : allRolesRaw.length}/> }>
+                <option value="">All categories ({allRolesRaw.length})</option>
+                {moduleGroups.map(([key,count])=><option key={key} value={key}>{key} {moduleNames[key]??key} ({count})</option>)}
+              </Select>
+            </div>
+          </FilterSection>
+        )}
+      </div>
+
           <FilterSection title="Saved Filters">
   <SavedFilters showClear={false} view="roles" state={{search,activeModules,transactionMode,tcodes:transaction.codes,excludeTcodes:excludeTransaction.codes,excludeMode,sortBy}} apply={s=>{if(typeof s.search==='string')setSearch(s.search);if(Array.isArray(s.activeModules))setActiveModules(s.activeModules);if(s.transactionMode==='and'||s.transactionMode==='or')setTransactionMode(s.transactionMode);if(Array.isArray(s.tcodes)){transaction.setInput('');transaction.setChips(s.tcodes)};if(Array.isArray(s.excludeTcodes)){excludeTransaction.setInput('');excludeTransaction.setChips(s.excludeTcodes)}else excludeTransaction.clear();setExcludeMode(s.excludeMode==='all'?'all':'any');if(SORT_OPTIONS.some(o=>o.key===s.sortBy))setSortBy(s.sortBy as SortKey)}} clear={clearAll}/>
           </FilterSection>
@@ -274,101 +299,6 @@ export function RoleList({
           </FilterSection>
         </div>}>
       <div className="flex min-w-0 flex-col gap-4">
-      <div
-        className="catalogue-search-controls rounded-2xl border px-4 py-3 gap-3 "
-        style={{
-          backgroundColor:'var(--surface)',
-          borderColor:'var(--border)'
-        }}
-      >
-        {exactTransactions.isError && transaction.codes.length > 0 && <p role="alert">Transaction filtering failed. {exactTransactions.error.message}</p>}
-        <div className="catalogue-role-search flex gap-2">
-          <div className="relative flex-1">
-            <SearchInput aria-label="Search roles by name or description" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search roles by name or description..."/>
-
-
-            {search && (
-              <button
-                onClick={() => setSearch('')}
-                aria-label="Clear role search"
-                className="absolute right-3 top-1/2 -translate-y-1/2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--focus)] rounded"
-                style={{ color:'var(--muted)' }}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-
-
-        </div>
-
-        {!isLoading && !isError && (
-          <div className="catalogue-area-filter relative z-20 flex flex-wrap gap-1.5" role="group" aria-label="SAP areas">
-            <button
-              onClick={() => setActiveModules([])}
-              aria-pressed={!activeModules.length}
-              className="px-3 py-1.5 rounded-full text-xs font-bold border transition-all focus:outline-none"
-              style={
-                !activeModules.length
-                  ? {
-                      backgroundColor:'var(--accent)',
-                      color:'var(--on-accent)',
-                      borderColor:'var(--accent)'
-                    }
-                  : {
-                      backgroundColor:'var(--surface2)',
-                      color:'var(--muted)',
-                      borderColor:'var(--border)'
-                    }
-              }
-            >
-              All ({allRolesRaw.length})
-            </button>
-
-            {moduleGroups.map(([key, count]) => {
-              const active = activeModules.includes(key)
-              const full = moduleNames[key] ?? key
-              const short =
-                full.length > 14
-                  ? shortenModName(full)
-                  : full
-
-              return (
-                <button
-                  key={key}
-                  onClick={() =>
-                    setActiveModules(previous => active ? previous.filter(value => value !== key) : [...previous, key])
-                  }
-                  aria-pressed={active}
-                  title={full}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all focus:outline-none"
-                  style={
-                    active
-                      ? {
-                          backgroundColor:'var(--accent)',
-                          color:'var(--on-accent)',
-                          borderColor:'var(--accent)'
-                        }
-                      : {
-                          backgroundColor:'var(--surface2)',
-                          color:'var(--muted)',
-                          borderColor:'var(--border)'
-                        }
-                  }
-                >
-                  <ModuleBadge moduleId={key} variant="compact" />
-                  {short}
-
-                  <span className="opacity-60 font-medium">
-                    ({count})
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
       {!isLoading && !isError && (
         <div className="flex items-center justify-between px-1">
           <p className="text-sm" style={{ color:'var(--muted)' }}>
@@ -522,6 +452,8 @@ export function RoleList({
         visible.length === 0
           ? (
             <div
+              role="status"
+              aria-live="polite"
               className="py-16 text-center rounded-2xl border"
               style={{
                 backgroundColor:'var(--surface)',
@@ -536,7 +468,7 @@ export function RoleList({
 
               <p className="text-sm mt-1" style={{ color:'var(--muted)' }}>
                 {allRolesRaw.length
-                  ? 'No roles match the selected name, description, SAP areas and exact transaction filters.'
+                  ? 'No roles match the selected name, code, description, SAP areas and exact transaction filters.'
                   : 'Open Settings to choose a CSV.'}
               </p>
 

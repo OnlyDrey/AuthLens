@@ -1,6 +1,7 @@
-import { useId, type ReactNode } from 'react'
+import { createContext, useContext, useId, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Popover } from './Popover'
+export const NavigationPresentation = createContext<'desktop'|'drawer'>('desktop')
 /** One layout primitive; routes remain links and content switches remain tabs. */
 function NavigationStrip({ variant, label, children, className = '' }: {
   variant: 'main' | 'secondary' | 'tabs'; label: string; children: ReactNode; className?: string
@@ -154,7 +155,7 @@ export function ContentTabs({
         panelId={() => `${uid}-panel`}
       />
       <div
-        className="grid min-w-0 gap-4"
+        className="grid min-w-0 grid-cols-1 gap-4"
         role="tabpanel"
         id={`${uid}-panel`}
         aria-labelledby={`${uid}-${selected.value}`}
@@ -205,6 +206,9 @@ export interface MainNavigationSubItem { value: string; label: string; icon: Rea
  * The group stays highlighted while any child page is open and the active submenu entry is marked. Modified clicks open the target in a new tab.
  */
 export function MainNavigationGroup({ label, icon, active, href, onNavigate, items }: { label: string; icon: ReactNode; active: boolean; href: string; onNavigate: () => void; items: MainNavigationSubItem[] }) {
+  const presentation = useContext(NavigationPresentation)
+  const links = <ul className="primary-submenu" aria-label={`${label} pages`}>{items.map(item=><li key={item.value}><MainNavigationItem label={item.label} icon={item.icon} active={item.active} href={item.href} onNavigate={item.onSelect}/></li>)}</ul>
+  if(presentation==='drawer')return <details className="primary-nav-group" open={active || undefined}><summary className="primary-nav-button" data-active={active || undefined}>{icon}<span>{label}</span><ChevronDown size={16} aria-hidden="true"/></summary>{links}</details>
   return (
     <div className="primary-nav-group" data-active={active || undefined}>
       <MainNavigationItem label={label} icon={icon} active={active} href={href} onNavigate={onNavigate} />

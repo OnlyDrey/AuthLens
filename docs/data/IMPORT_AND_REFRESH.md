@@ -2,28 +2,28 @@
 
 ## Sources and compatibility
 
-SAP Lens has four independent local CSV sources: Role Catalogue, User–Role Mapping, Employee Directory and the [SoD Matrix](SOD_MATRIX.md). Role catalogue and user assignments default to **Dynamic**, preserving the existing refresh behavior. Employee Directory and the SoD Matrix default to **Static**, retaining snapshots until explicit replacement. Older schema-3 settings receive these additive defaults without losing feature preferences, profiles or paths.
+AuthLens has four independent local CSV sources: Role Catalogue, User–Role Mapping, Employee Directory and the [SoD Matrix](SOD_MATRIX.md). Role catalogue and user assignments default to **Dynamic**, preserving the existing refresh behavior. Employee Directory and the SoD Matrix default to **Static**, retaining snapshots until explicit replacement. Older schema-3 settings receive these additive defaults without losing feature preferences, profiles or paths.
 
 Settings → Data Sources offers a source mode selector. Use the existing **Apply settings** action to persist mode changes; no second Save action is needed. Changing a mode does not delete imported records. Existing CSV mappings, delimiter/encoding controls and validation remain authoritative.
 
 - **Static:** selecting a replacement automatically validates and imports it. Global Refresh skips the CSV and continues using the private snapshot, even if the original file is unavailable.
-- **Dynamic:** Global Refresh rereads the entire configured file. A daily export can overwrite that file; SAP Lens does not schedule or monitor exports. A complete valid replacement removes records absent from the incoming file.
+- **Dynamic:** Global Refresh rereads the entire configured file. A daily export can overwrite that file; AuthLens does not schedule or monitor exports. A complete valid replacement removes records absent from the incoming file.
 
 Never point two sources at different interpretations of the same file without configuring their respective import formats.
 
 ## Preparation, publication and persistence
 
-Parsing happens off the request thread. Each candidate is validated separately, and immutable content-addressed snapshot files are staged under `%LOCALAPPDATA%\SAP Lens\csv-data\snapshots\`. Employee Directory retains its existing content-addressed `employee-directory` format. SHA-256 verifies stored snapshot bytes before restoration; canonical observations are rebuilt through the existing catalogue/user processing, not deserialized executable objects.
+Parsing happens in a persistent background job, off the request thread. Each candidate is validated separately and staged as a dataset revision in the AuthLens database (`authlens.sqlite3`: `Datasets` with its canonical rows in `DatasetRecords`, identified by the SHA-256 of its content); Employee Directory uses the same store (source `employees`). Canonical observations are rebuilt from the stored rows through the catalogue/user processing, not deserialized executable objects../operations/BACKUP_AND_RECOVERY.md).
 
-The single atomic settings update contains snapshot references and bounded report references. A revision check rejects a competing settings/import operation. Only after that commit are the prepared cache generation and directory indexes activated. Readers keep the previous generation during preparation. Cancellation prevents the commit; no timed-out worker may later overwrite a newer generation.
+Activation is one database transaction: the staged revision becomes `Active`, the previous one `Retired` (a unique index allows one active revision per source), and the settings document records the source path and report reference with a revision check that rejects a competing settings/import operation. Only after that commit are the prepared cache generation and directory indexes activated. Readers keep the previous generation during preparation. Cancellation prevents the commit; no timed-out worker may later overwrite a newer generation.
 
-A source read/validation/staging failure retains that source. Other independent sources can succeed. If catalogue data changes while user CSV reading fails, retained **raw validated user observations** are remapped against the new catalogue. This rebuilds wildcard/transaction indexes; old derived transaction claims are never mixed with a new catalogue. A transaction/storage failure before pointer commit activates none of the staged candidates.
+A source read/validation/staging failure retains that source. Other independent sources can succeed. If catalogue data changes while user CSV reading fails, retained **raw validated user observations** are remapped against the new catalogue. This rebuilds wildcard/transaction indexes; old derived transaction claims are never mixed with a new catalogue. A transaction or storage failure before the activation commit activates none of the staged candidates.
 
 Successful imports store full replacements, not email-based upserts. For example, replacing 1,310 directory rows with 1,295 leaves exactly 1,295 active records, with removed employees absent from email/manager indexes. Missing email remains a quality warning. Empty email keys are excluded from duplicate-email indexing.
 
 Startup restores durable observations and initializes enabled dynamic sources. Failed live reads can retain restored data. Static sources restore without reopening the original CSV. A legacy, enabled directory that only has a readable path is validated and durably captured once at startup. An invalid/missing snapshot is reported; it is never silently accepted as valid data. Original source availability and durable snapshot availability are separate facts.
 
-Immutable staged files are private application data, never build inputs. Old snapshot files are retained conservatively for local configuration-backup recovery; clearing a source removes its active reference. Do not manually delete snapshots referenced by a backup you intend to restore. Report retention is independent and bounded to five recent operations.
+Staged and retired revisions are private application data inside the database, never build inputs. Clearing a source retires its active revision; retired revisions are removed only by approved [data retention](#data-retention), and every application backup contains the database as a whole.
 
 ## Change identity and evidence
 
@@ -55,6 +55,55 @@ Reports contain personal data and stay local. Diagnostic exports contain only al
 
 ## Scheduled refresh
 
+### Server source policy remediation (awaiting Windows acceptance)
+
+All four CSV sources use one policy for path selection, preview, individual refresh and Global Refresh.
+Browser uploads remain Static and never authorize access to client-device paths. Administrator requests may
+select CSVs beneath `<data-dir>/sources` or an additional operator-approved directory. Configure the latter
+with deployment JSON `SourceDirectory` (passed as `--source-dir`), or `AUTHLENS_SOURCE_DIR`. Advanced hosts may
+provide `AUTHLENS_SOURCE_ROOTS` as a JSON array of absolute directories. Local directories and Windows UNC
+directories are supported; roots are host configuration, excluded from application backups and never changed
+by a browser. A restored external path requires approval on the destination host before a live read.
+
+Use a dedicated export directory, not a drive containing unrelated confidential files. The actual service
+identity requires directory traversal and CSV read access; for UNC sources both share and NTFS permissions
+must allow that identity. Virtual accounts normally authenticate remotely as the computer account; confirm
+the effective identity with the domain administrator. No credentials are stored by this workflow, and the
+application does not change service accounts or grant filesystem access. Restart after host-policy changes.
+
+Paths must be absolute CSV paths, inside an approved directory at a directory boundary. Device paths,
+alternate streams, traversal spellings, symbolic links and reparse points in any ancestor are refused.
+Operators must protect approved directory ancestors against untrusted replacement during reads. Network
+availability and ACL checks execute as the running service. Missing files, denied access, unavailable shares,
+policy refusal and parser/schema errors retain the last validated snapshot. Source status shows the last
+attempt separately from the durable snapshot; it does not claim current reachability without a read.
+Refresh can use the saved source without disclosing its path back to the browser.
+
+#### Data-source compatibility matrix
+
+Comparison basis: historical Python implementation at `604f21e` (`deployment.source_path`,
+`validate_server_sources`, source selection and CSV lifecycle), current .NET routes and focused tests.
+Historical code was inspected only; no Python service or fixtures were added to the active application.
+
+| Contract | Python reference | Current .NET implementation | Remaining acceptance |
+| --- | --- | --- | --- |
+| Role Catalogue / SAP role extract | Upload and confined server path; Static/Dynamic | Shared import pipeline, approved local/UNC source roots, individual/Global Refresh | Actual Windows Service local/UNC reads |
+| User–Role Mapping / SAP user extract | Independent upload/path and modes | Same shared policy and pipeline | Actual Windows Service local/UNC reads |
+| Employee Directory | Fixed schema, upload/path, Static/Dynamic, durable snapshot | Shared policy includes directory preview/import and refresh; fixed schema retained | Restored alpha backup with real service identity |
+| SoD Matrix | Upload/path, modes, matrix validation and retained review evidence | Shared policy; existing fingerprint, held-import and revision/approval paths retained | Review periods, frozen evidence and decisions across live matrix replacement |
+| Browser uploads | Static managed uploads | Static multipart upload and durable managed copy | Native deployed UI smoke test |
+| Restore / restart | Saved source and durable snapshot; host source-root policy | Saved settings persist; host approval is independent; failed reads retain snapshots | AuthLens alpha and supported SAP Lens backup acceptance on Windows |
+| Unavailable/invalid source | Retain last valid data | Categorized refresh failures and durable snapshot retained | Denied ACL, disconnected share and recovery under SCM |
+
+No supported source type is intentionally dropped. Native UNC/service identity, restored-source and SoD
+evidence acceptance are release blockers until executed; focused local tests do not establish those results.
+
+Acceptance in a disposable Windows Service installation must cover every source with local and UNC files,
+Static and Dynamic modes, individual and Global Refresh, restart and restore, administrator versus reviewer
+requests, denied ACLs, unavailable shares, malformed/empty files and recovery. Record dataset fingerprints,
+SoD period/evidence fingerprints and decisions before failures/replacements and verify their preservation.
+Never perform this test against the retained DASH1 installation.
+
 **Settings → Runtime & Scheduling** can run the same refresh automatically. The backend schedules it, so no browser tab has to be open, and every run is the normal refresh: Dynamic sources are re-read, Static sources are not, a changed source is validated before it replaces the previous one, and any failure keeps the previously validated data.
 
 - **Schedule.** Enable it, then choose a daily time (HH:MM, 24-hour) or an advanced five-field cron expression (`minute hour day-of-month month day-of-week`; lists, ranges, steps and `JAN`/`MON` names; Sunday is 0 or 7; day-of-month and weekday are OR-ed like standard cron). Runs must be at least 5 minutes apart. The page explains the schedule in words and lists the next runs before you apply it.
@@ -64,10 +113,9 @@ Reports contain personal data and stay local. Diagnostic exports contain only al
 
 | Deployment | When scheduled refresh runs |
 | --- | --- |
-| Windows Desktop | Only while SAP Lens is running, in its window or in the system tray |
+| Windows Desktop | Only while the AuthLens window is open |
 | Windows Service | Continuously while the service runs; no sign-in or browser needed |
-| Linux Docker | Continuously while the container runs |
-| Linux native / systemd | Continuously while the unit runs |
+| Linux server / systemd | Continuously while the unit runs |
 
 ## Feature dependencies
 
@@ -85,9 +133,8 @@ For all four sources, selecting a file automatically reads, validates, stages an
 activates a complete non-empty dataset. There is no separate normal-flow Validate,
 Confirm or Import action. **Browse / Upload file** (one label for every source) is always available,
 also when a file is already configured; only an import in progress for that source
-blocks it. It opens the native dialog in the desktop app, the upload chooser where browser
-uploads are supported, and otherwise explains that native browsing is desktop-only and moves
-to the file location field. A replacement that does not validate (invalid, empty or
+blocks it. It opens the browser's file chooser (also in the Desktop window); a path the server can read
+can instead be entered in the file location field and committed with Enter. A replacement that does not validate (invalid, empty or
 unreadable) never replaces the configured file or its data: the attempted path stays in the field
 for correction or column mapping, and the message says the active file is unchanged and names
 it, while a valid replacement is confirmed by file name and counts.
@@ -128,8 +175,8 @@ Settings → Data Sources → SoD Matrix has the same **Advanced import format a
 
 In Settings → Data Sources, **Browse / Upload file** opens the browser's file picker
 for Role Catalogue, User Access, Employee Directory and SoD Matrix CSVs. No server
-filesystem path is required. Desktop WebView2 uses the same primary action with its native file dialog;
-a browser connected to the desktop backend can also upload using its authenticated session.
+filesystem path is required. Desktop WebView2 uses the same browser file picker; a path the server can read can
+also be entered under *Advanced server source path* and committed with Enter. A browser connected to the desktop backend can also upload using its authenticated session.
 
 The authenticated multipart request (`POST /api/server/uploads/{source}/activate`)
 carries one CSV, the current settings revision and optional existing import profile.
@@ -148,8 +195,8 @@ server source-root permissions. Existing raw staging endpoints remain compatible
 packaging tools, but the UI uses multipart activation, not the legacy staging/confirmation flow.
 
 
-There is one primary **Browse / Upload file** action per Data Sources tab. Native desktop
-uses its file dialog; browser sessions use the authenticated multipart uploader. The optional
+There is one primary **Browse / Upload file** action per Data Sources tab. It uses the
+authenticated multipart uploader in the browser and in the Desktop window alike. The optional
 **Advanced server source path** contains only the path input, with no second Browse action.
 Uploaded replacements explicitly use Static mode (shown beside the action and in completion
 feedback/source mode); administrator-selected paths retain the chosen Static/Dynamic mode.
@@ -159,22 +206,23 @@ Global/manual/scheduled refresh behavior, inspection and failure recovery are un
 
 Start-up (Dynamic sources) and every refresh evaluate each source on its own:
 
-1. **Fingerprint.** For Role Catalogue, User-Role Mapping, SoD Matrix and Employee Directory ([details](EMPLOYEE_DIRECTORY.md#fingerprint-derived-copy-and-shared-identity-matching)) the file content digest is combined with the parsing settings (active import profile or SoD format) and the digest of the
-   parser code. The fingerprint of the input that produced the active revision is stored with that revision in the SQLite store.
-2. **Unchanged:** an equal fingerprint, the same path and a loaded active revision mean parsing would reproduce the active snapshot exactly. The source is reported `unchanged` (marked `fast_path`) and is
-   neither parsed, compared, anomaly-checked, snapshotted nor rebuilt; its `checked_at` is updated. The file is still read once to hash it; the content is never trusted by timestamp or size alone.
-3. **Changed:** only that source takes the full path (parse, validate, compare with the previous approved revision of the same source, anomaly check, snapshot). Users are re-mapped against the
-   catalogue **once**: when the users file is re-read they are already mapped to the final catalogue; when only the catalogue changed, the unchanged users are re-mapped without reading their file.
-4. **Unknown fingerprint** (first start after an upgrade, store missing or rebuilt, different parser) simply takes the full path once and then records the fingerprint.
+1. **Read and hash.** The configured file is read and parsed with the active import profile (or SoD format), and the SHA-256 of its canonical
+   records is computed.
+2. **Unchanged:** a hash equal to the active revision's `ContentHash` means the file reproduces the active data exactly. The source is reported
+   `unchanged` (marked `fast_path`); nothing is staged, compared again, anomaly-checked or activated, and its `checked_at` is updated. The
+   content is never trusted by timestamp or size.
+3. **Changed:** only that source is staged as a new revision, compared with the previous active revision of the same source, anomaly-checked
+   and activated (or held for confirmation). Users are mapped against the catalogue that is active after the refresh.
 
-Activation stays atomic. The new snapshot is written (immutable), its rows are *staged* in the store (invisible to readers), the configuration pointer is committed with the existing compare-and-swap, and
-only then are the staged revisions activated (one short transaction per source). Each load is a staging *operation* with its own identifier; staged revisions are owned by it. If the commit does not happen, or the load fails or is cancelled, only that operation's staged revisions are discarded (a snapshot two overlapping loaders both staged is handed to the remaining one, never deleted under it). Revisions left by a process that died are orphans: they are removed at start-up and, while running, when older than an hour and not owned by a live operation. Activation clears ownership. In memory the published dataset is replaced as one object.
-Snapshot integrity is verified on every start (SHA-256 of the snapshot file against its content address) even when the records come from the store or the derived cache.
+Activation is atomic. The candidate rows are streamed into a `Staged` revision in bounded batches (invisible to readers); a suspicious import
+stays `Held` until an administrator confirms it; activation is one transaction that marks the revision `Active`, retires the previous one and
+records the settings reference. A failed or cancelled job leaves its revision `Failed` or `Discarded`, never active. Readers switch to the new
+revision as one object after the commit. SQLite's integrity check runs at every start and gates readiness (`/health/ready`).
 
 ## Data retention
 
 Old superseded source snapshots, completed review periods and expired automatic backups are cleaned up by three separate, approval-gated retention categories.
-The rules, previews, approvals, recovery and undo are described in [Data retention](../operations/DATA_RETENTION.md).
+The rules, previews, approvals, recovery and undo are described in [Data retention](../operations/BACKUP_AND_RECOVERY.md#retention-retention-tab).
 
 ## Import checks: suspicious versus invalid
 
@@ -198,3 +246,12 @@ A held import keeps the active data, settings revision and snapshots untouched. 
 Settings dialog shows the same report. Importing again with confirmation (`confirm_anomalies`, upload form field of the same name) activates it through the normal atomic path and appends an entry
 (source, time, actor, triggered checks, old and new record counts; last 100) to `data_lifecycle.confirmations`. A scheduled or startup refresh that finds a suspicious file reports the source as
 failed with `previous_preserved: true` and never activates it.
+
+
+## Managed source copies and import policy
+
+Each durable import job captures the chosen import-check policy, rather than reading mutable process-wide policy at execution time. Header-only or otherwise unusable sources cannot replace valid data, including by confirming a historical empty held revision. The default holds a drop over 30 percent when the previous source has at least 20 records; the saved policy can be changed explicitly without allowing malformed input.
+
+Successful and held imports retain a private immutable CSV addressed by its byte SHA-256 and linked from the dataset report. Files and canonical records have distinct hashes: raw formatting changes need not alter the business observations. Failed imports retain the last valid copy. Copies are included in the existing encrypted backup and rebound to the restored data root on another machine; see [managed imports and portability](../operations/BACKUP_AND_RECOVERY.md#managed-imports-and-portability). Old archives without copies still restore their durable observations.
+
+SAP `data_revision` depends on catalogue/user revisions and the independent Employee Directory component. An SoD-only change updates its own generation, not the SAP revision. Functional Group and Account Review confirmations use the authenticated account or stable Desktop reviewer profile; request aliases never change attribution or rewrite prior history.

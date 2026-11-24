@@ -1,3 +1,4 @@
+import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {matchingTransactions,transactionMatches} from '@/lib/searchMatching'
 import { Button } from '@/components/Shared/Button'
 import { useApplicationData } from '@/state/ApplicationData'
@@ -37,7 +38,7 @@ const SingleRoleRow = memo(function SingleRoleRow({ sr, onTcodeUsers, transactio
         {sr.tcodes.length === 0
           ? <p className="text-xs italic text-[var(--muted)] px-4 py-3">No transactions</p>
           : <div className="transaction-table-scroll" role="region" aria-label={`Transactions for ${sr.child_agr}`} tabIndex={0}>
-            <table>
+            <ConfigurableTable>
               <thead><tr><th scope="col">T-Code</th><th scope="col">Description</th><th scope="col" className="transaction-action">Action</th></tr></thead>
               <tbody>{rows.map((tc: TCode) => <tr key={tc.tcode} data-transaction-match={searching && transactionMatches(tc.tcode,transaction)}>
                 <td className="transaction-code">{tc.tcode}</td>
@@ -47,7 +48,7 @@ const SingleRoleRow = memo(function SingleRoleRow({ sr, onTcodeUsers, transactio
                   <Users size={14} aria-hidden="true"/>Investigate users
                 </button>}</td>
               </tr>)}</tbody>
-            </table>
+            </ConfigurableTable>
           </div>}
       </div>}
     </div>
@@ -151,9 +152,9 @@ export function RoleDetailPanel({ roleName, onClose, onUsers, onTcodeUsers, pare
                     <p className="mt-1">Single-role header labels may use a recognized module prefix in the imported description. These display labels do not reclassify roles or change transaction mappings.</p>
                     <p className="mt-1">Alternative descriptions: {role.alternate_descriptions?.join(' · ') || 'None'}</p>
                     <p className="mt-1">Import profile {String(role.analysis?.import_profile_id || 'default')}</p>
-                    <table className="w-full text-left mt-2"><thead><tr><th>Child</th><th>Parent</th><th>Effective role</th></tr></thead><tbody>
+                    <ConfigurableTable className="w-full text-left mt-2"><thead><tr><th>Child</th><th>Parent</th><th>Effective role</th></tr></thead><tbody>
                       {role.relationships?.slice(0,200).map((r,i)=><tr key={i}><td className="p-1 break-all">{r.child_agr ? <RoleIdentifier value={r.child_agr} /> : '—'}</td><td className="p-1 break-all">{r.parent_agr ? <RoleIdentifier value={r.parent_agr} /> : '—'}</td><td className="p-1 break-all">{r.effective_role ? <RoleIdentifier value={r.effective_role} /> : '—'}</td></tr>)}
-                    </tbody></table>
+                    </tbody></ConfigurableTable>
                     {(role.relationships?.length||0)>200 && <p>Showing 200 of {role.relationships?.length} retained relationships.</p>}
                   </details>
                   <form className="role-transaction-search" aria-label="Sidebar transaction search" onSubmit={event => event.preventDefault()}>

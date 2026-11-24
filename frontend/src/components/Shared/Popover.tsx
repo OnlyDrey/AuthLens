@@ -180,7 +180,9 @@ export function Popover({
               ? children(() => close())
               : children}</PopoverOwners.Provider>
           </div>,
-          document.body,
+          // Keep dialog-owned portals above that dialog's backdrop and inside its focus scope.
+          // The dialog itself does not scroll; its content region does.
+          anchor.current?.closest<HTMLElement>('[role="dialog"][aria-modal="true"]') ?? document.body,
         )}
     </>
   )

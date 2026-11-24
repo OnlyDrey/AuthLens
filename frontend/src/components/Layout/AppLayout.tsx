@@ -1,12 +1,17 @@
+import {LocalReviewerProfile} from '@/components/Auth/LocalReviewerProfile'
+import {useAuthentication,MyProfile} from '@/components/Auth/Authentication'
 import { ApplicationFooter } from '@/components/Shared/ApplicationFooter'
-import { IconButton } from '@/components/Shared/Button'
+import { Button, IconButton, Tooltip } from '@/components/Shared/Button'
+import { Popover } from '@/components/Shared/Popover'
+import { Dialog } from '@/components/Shared/Dialog'
+import { NavigationPresentation } from '@/components/Shared/Navigation'
 import { ExportNotice } from '@/components/Shared/ExportNotice'
 import { RefreshBanner } from '@/components/Shared/RefreshReport'
 import { useApplicationData } from '@/state/ApplicationData'
 import { Notification } from '@/components/Shared/Notification'
 import { useHistoryValue } from '@/hooks/useViewHistory'
 import { type ReactNode, lazy, Suspense, useEffect, useState, useRef } from 'react'
-import { RefreshCw, Sun, Moon, Settings, Loader2, Database } from 'lucide-react'
+import { RefreshCw, Sun, Moon, Settings, Loader2, Database, Menu, UserRound, LogOut } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { apiRequest, ApiError } from '@/api/client'
 import { useSession } from '@/api/session'
@@ -29,6 +34,15 @@ export function AppLayout({
   isDark,
   onToggleTheme
 }: Props) {
+  const auth=useAuthentication(),[profileOpen,setProfileOpen]=useState(false)
+  const [navigationOpen,setNavigationOpen]=useState(false)
+  useEffect(()=>{
+    const desktop=window.matchMedia('(min-width: 1024px)')
+    const close=()=>setNavigationOpen(false)
+    const resize=()=>{if(desktop.matches)close()}
+    window.addEventListener('hashchange',close);desktop.addEventListener('change',resize)
+    return()=>{window.removeEventListener('hashchange',close);desktop.removeEventListener('change',resize)}
+  },[])
   const dataState=useApplicationData()
   const sessionIssue = ['manual', 'failed', 'reconnecting', 'disconnected'].includes(useSession().phase) // SessionNotice owns every connection or session message
   const configurationQuery = useQuery({
@@ -50,6 +64,7 @@ export function AppLayout({
   })
   const [savedFeedback, setSavedFeedback] = useState(false)
   const [settingsOpen, setSettingsOpen] = useHistoryValue('settings')
+  useEffect(()=>{if(!auth.can('admin')&&settingsOpen)setSettingsOpen(false)},[auth,settingsOpen,setSettingsOpen])
   // Settings is large but must exist early (it opens itself on first launch and listens for the native bridge). It loads as its own chunk right after the first render instead of inside the entry bundle, and then stays mounted so drafts survive.
   const [settingsMounted, setSettingsMounted] = useState(false)
   useEffect(() => { setSettingsMounted(true) }, [])
@@ -75,7 +90,7 @@ export function AppLayout({
   }
 
   return (
-    <div className={`${settingsOpen ? 'h-dvh overflow-hidden' : 'min-h-screen'} flex flex-col bg-[var(--bg)] transition-colors duration-300`}>
+    <div className={`${settingsOpen ? 'h-dvh overflow-hidden' : 'min-h-screen'} flex min-w-0 flex-col bg-[var(--bg)] transition-colors duration-300`}>
       {/* â”€â”€ Header â”€â”€ */}
       <header
         className=" sticky top-0 z-30 shrink-0"
@@ -85,33 +100,34 @@ export function AppLayout({
         }}
         role="banner"
       >
-        <div className="app-header-row max-w-screen-2xl mx-auto px-4 min-h-[4.5rem] flex items-center justify-between gap-3">
+        <div className="app-header-row max-w-screen-2xl mx-auto px-3 sm:px-4 min-h-[3.5rem] lg:min-h-[4.5rem] flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-3">
+          <div className="app-navigation-trigger lg:hidden"><IconButton label="Open navigation" variant="ghost" aria-haspopup="dialog" aria-expanded={navigationOpen} disabled={settingsOpen} onClick={()=>setNavigationOpen(true)}><Menu size={22} aria-hidden="true"/></IconButton></div>
           {/* Brand: logo image + name */}
-          <div className="app-brand flex items-center gap-3 shrink-0">
+          <div className="app-brand flex min-w-0 items-center gap-3">
             {/* Logo image â€” fallback to styled "E" if file not found */}
             <img
               src={
                 organization?.name.trim()
-                  ? customLogo?.data_url || '/sap-lens.png'
-                  : '/sap-lens.png'
+                  ? customLogo?.data_url || '/logo.png'
+                  : '/logo.png'
               }
               alt={
                 organization?.name.trim() && customLogo?.data_url
                   ? `${organization.name} logo`
-                  : 'SAP Lens'
+                  : 'AuthLens'
               }
               className="h-12 w-auto max-w-40 object-contain flex-shrink-0"
               onError={(e) => {
-                if (!e.currentTarget.src.endsWith('/sap-lens.png'))
-                  e.currentTarget.src = '/sap-lens.png'
+                if (!e.currentTarget.src.endsWith('/logo.png'))
+                  e.currentTarget.src = '/logo.png'
               }}
             />
             <div>
               <p
                 className="text-[var(--on-primary)] text-md leading-tight font-semibold truncate max-w-[38vw]"
-                title={organization?.name.trim() || 'SAP Lens'}
+                title={organization?.name.trim() || 'AuthLens'}
               >
-                {organization?.name.trim() || 'SAP Lens'}
+                {organization?.name.trim() || 'AuthLens'}
               </p>
               <p
                 className="text-[10px] font-semibold tracking-widest uppercase"
@@ -126,12 +142,15 @@ export function AppLayout({
             </div>
           </div>
 
-          <div className="min-w-0">{navigation}</div>
+          <div className="hidden min-w-0 lg:block">{navigation}</div>
 
           <div className="app-utilities">
-            <IconButton label={isDark?'Switch to light mode':'Switch to dark mode'} variant="ghost" disabled={themeBusy||settingsOpen} loading={themeBusy} onClick={()=>{setErr(null);setThemeBusy(true);void onToggleTheme().catch(e=>setErr(e instanceof Error?e.message:'Could not save the theme.')).finally(()=>setThemeBusy(false))}}>{!themeBusy&&(isDark?<Sun size={17} aria-hidden="true"/>:<Moon size={17} aria-hidden="true"/>)}</IconButton>
-            <IconButton label="Open settings" tooltip="Settings" variant="ghost" onClick={()=>setSettingsOpen(true)}><Settings size={17} aria-hidden="true"/></IconButton>
-            <IconButton label={busy?'Refreshing data':'Refresh role data from CSV'} tooltip="Refresh data" variant="ghost" disabled={busy||settingsOpen} loading={busy} onClick={()=>void handleRefresh()}>{!busy&&<RefreshCw size={17} aria-hidden="true"/>}</IconButton>
+            <div><IconButton label={isDark?'Switch to light mode':'Switch to dark mode'} variant="ghost" disabled={themeBusy||settingsOpen} loading={themeBusy} onClick={()=>{setErr(null);setThemeBusy(true);void onToggleTheme().catch(e=>setErr(e instanceof Error?e.message:'Could not save the theme.')).finally(()=>setThemeBusy(false))}}>{!themeBusy&&(isDark?<Sun size={17} aria-hidden="true"/>:<Moon size={17} aria-hidden="true"/>)}</IconButton></div>
+            <Tooltip label={auth.session?'My Profile':'Reviewer profile'}><Popover label={auth.session?'My Profile':'Reviewer profile'} triggerLabel={auth.session?'My Profile':'Reviewer profile'} trigger={<UserRound size={20} aria-hidden="true"/>} triggerSize="icon" triggerVariant="ghost" preferredWidth={240} className="ui-popover-menu">
+              {close=><div className="grid gap-2"><Button className="justify-start text-left" onClick={()=>{close();setProfileOpen(true)}}><UserRound size={16} aria-hidden="true"/>{auth.session?'Profile & sessions':'Edit reviewer profile'}</Button>{auth.session&&<Button className="justify-start text-left" onClick={()=>{close();void auth.logout().catch(e=>setErr(e instanceof Error?e.message:'Could not sign out.'))}}><LogOut size={16} aria-hidden="true"/>Sign out</Button>}</div>}
+            </Popover></Tooltip>
+            {auth.can('admin')&&<div><IconButton label="Open settings" tooltip="Settings" variant="ghost" onClick={()=>setSettingsOpen(true)}><Settings size={17} aria-hidden="true"/></IconButton></div>}
+            {auth.can('admin')&&<div><IconButton label={busy?'Refreshing data':'Refresh role data from CSV'} tooltip="Refresh data" variant="ghost" disabled={busy||settingsOpen} loading={busy} onClick={()=>void handleRefresh()}>{!busy&&<RefreshCw size={17} aria-hidden="true"/>}</IconButton></div>}
           </div>
         </div>
 
@@ -139,7 +158,14 @@ export function AppLayout({
         {err && <Notification variant="error" onDismiss={()=>setErr(null)}>{err}</Notification>}
       </header>
 
-      {(settingsOpen || settingsMounted) && <Suspense fallback={null}>
+      {navigationOpen&&<Dialog title="Navigation" presentation="drawer" footer={null} onClose={()=>setNavigationOpen(false)}>
+        <div className="mobile-navigation" onClick={event=>{const target=event.target as HTMLElement;if(target.closest('a[href]'))setNavigationOpen(false)}}>
+          <NavigationPresentation.Provider value="drawer">{navigation}</NavigationPresentation.Provider>
+        </div>
+      </Dialog>}
+
+      {profileOpen&&(auth.session?<MyProfile onClose={()=>setProfileOpen(false)}/>:<LocalReviewerProfile onClose={()=>setProfileOpen(false)}/>)}
+      {auth.canAdmin&&(settingsOpen || settingsMounted) && <Suspense fallback={null}>
       <SettingsView
         applicationFooter={<ApplicationFooter version={application?.version} mode={application?.mode} note={organization?.footer}/>}
         open={settingsOpen}
@@ -147,9 +173,8 @@ export function AppLayout({
         onOpen={() => setSettingsOpen(true)}
         onClose={() => {
           setSettingsOpen(false)
-          document
-            .querySelector<HTMLButtonElement>('[aria-label="Open settings"]')
-            ?.focus()
+          const target=[...document.querySelectorAll<HTMLButtonElement>('[aria-label="Open settings"],[aria-label="Open navigation"]')].find(button=>button.getClientRects().length>0&&!button.disabled)
+          target?.focus()
         }}
         onSaved={() => setSavedFeedback(true)}
         onDataChanged={onDataChanged}
@@ -187,7 +212,7 @@ export function AppLayout({
         className={
           settingsOpen
             ? 'hidden'
-            : 'flex-1 max-w-screen-2xl mx-auto w-full px-4 sm:px-6 py-5'
+            : 'flex-1 min-w-0 max-w-screen-2xl mx-auto w-full px-4 sm:px-6 py-5'
         }
         id="main-content" tabIndex={-1}
       >

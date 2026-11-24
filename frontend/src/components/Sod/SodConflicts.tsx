@@ -49,13 +49,13 @@ export function ConflictView({kind}:{kind:'users'|'roles'}){
   try{
    const exportQuery=new URLSearchParams(query);exportQuery.set('expected_generation',captured.generation);const response=await fetch(`/api/sod/analysis/export?${exportQuery}`,{headers:{'X-SAP-Lens':applicationToken()},cache:'no-store',signal:request.signal});if(!response.ok)throw Error('SoD export failed. Refresh the source and retry.')
    if(response.headers.get('X-SAP-Lens-Data-Generation')!==captured.generation)throw Error('Source evidence changed. Refresh before exporting.')
-   const filename=response.headers.get('Content-Disposition')?.match(/filename="(sap-lens-sod-(?:users|roles)-findings-\d{4}-\d{2}-\d{2}\.csv)"/)?.[1];if(!filename||!response.headers.get('Content-Type')?.startsWith('text/csv'))throw Error('Invalid SoD export response.')
+   const filename=response.headers.get('Content-Disposition')?.match(/filename="(authlens-sod-(?:users|roles)-findings-\d{4}-\d{2}-\d{2}\.csv)"/)?.[1];if(!filename||!response.headers.get('Content-Type')?.startsWith('text/csv'))throw Error('Invalid SoD export response.')
    const reader=response.body?.getReader();if(!reader)throw Error('Export stream unavailable.');const parts:string[]=[],decoder=new TextDecoder('utf-8',{fatal:true});let bytes=0
    try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>32*1024*1024){await reader.cancel();throw Error('Export exceeds 32 MiB. Narrow the filters.')}parts.push(decoder.decode(value,{stream:true}))}parts.push(decoder.decode())}finally{reader.releaseLock()}
    if(current.current!==started||currentGeneration.current!==captured.generation||request.signal.aborted)throw Error('Export cancelled because filters or evidence changed.')
-   const content='\ufeff'+parts.join('').replace(/^\ufeff/,'');let saved=true
-   if(window.pywebview){if(!window.pywebview.api.save_sod_csv)throw Error('Update the desktop application for SoD CSV export.');saved=await window.pywebview.api.save_sod_csv(applicationToken(),filename,content)}else{const url=URL.createObjectURL(new Blob([content],{type:'text/csv;charset=utf-8'})),link=document.createElement('a');link.href=url;link.download=filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
-   announceExport(saved?{kind:'success',message:`${captured.total} findings exported with supporting evidence.`}:{kind:'info',message:'Export cancelled.'})
+   const content='\ufeff'+parts.join('').replace(/^\ufeff/,'')
+   const url=URL.createObjectURL(new Blob([content],{type:'text/csv;charset=utf-8'})),link=document.createElement('a');link.href=url;link.download=filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
+   announceExport({kind:'success',message:`${captured.total} findings exported with supporting evidence.`})
   }catch(cause){setFailed(true);announceExport({kind:'error',message:request.signal.aborted?'Export cancelled because the view changed.':cause instanceof Error?cause.message:'Export failed.'})}finally{if(controller.current===request){controller.current=null;setBusy(false)}}
  }
  const openUser=(username:string)=>change({page:'users',accessMode:'directory',user:username,userContext:{},detailRole:null,settings:false})

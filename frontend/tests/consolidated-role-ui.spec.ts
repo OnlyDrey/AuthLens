@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers } from './support'
+import { headers, postConfiguration } from './support'
 import { layoutMatrix } from './matrix'
 let directory: string
 const pattern = 'ZC:BC:DEMO:*'
@@ -17,7 +17,7 @@ const catalogue = 'FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,CHILD_AGR_TEXT,TCODE,TTE
   'BC,ZC:BC:EXACT,,ZD:EMPTY,,,\n'
 test.beforeEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
-  directory = mkdtempSync(path.join(tmpdir(), 'sap-lens-consolidated-'))
+  directory = mkdtempSync(path.join(tmpdir(), 'authlens-consolidated-'))
   const roles = path.join(directory, 'roles.csv'), users = path.join(directory, 'users.csv')
   writeFileSync(roles, catalogue)
   writeFileSync(users, 'USERNAME,ROLE_NAME,USER_GROUP,ROLE_VALID_FROM,ROLE_VALID_TO,USER_LOCKED,USER_VALID_FROM,USER_VALID_TO\n' +
@@ -25,7 +25,7 @@ test.beforeEach(async ({ request }) => {
     'DEMO_OPEN,ZC:BC:EXACT,DEMO_GROUP,20000101,99991231,0,20000101,99991231\nDEMO_UNKNOWN,ZC:BC:EXACT,DEMO_GROUP,20000101,99991231,,20000101,99991231\n')
   const settings = (await (await request.get('/api/configuration', { headers })).json()).settings
   settings.data_csv_path = roles; settings.user_csv_path = users
-  expect((await request.post('/api/configuration', { headers, data: settings })).ok()).toBeTruthy()
+  expect((await postConfiguration(request, settings)).ok()).toBeTruthy()
 })
 test.afterEach(async ({ request }) => { await request.post('/api/configuration/reset', { headers }); rmSync(directory, { recursive: true, force: true }) })
 async function openRole(page: Page, role = pattern) {
@@ -135,7 +135,7 @@ test('All roles default, match codes only and one toolbar preserve search and CS
 })
 for (const { theme, width } of layoutMatrix([800, 1280])) test(`consolidated visual QA ${theme} ${width}`, { tag: '@visual' }, async ({ page, request }, info) => {
   const settings = (await (await request.get('/api/configuration', { headers })).json()).settings
-  settings.theme = theme; await request.post('/api/configuration', { headers, data: settings })
+  settings.theme = theme; await postConfiguration(request, settings)
   await page.setViewportSize({ width, height: 900 })
   const detail = await openUser(page)
   const toolbar = detail.getByRole('form', { name: 'User role toolbar' })

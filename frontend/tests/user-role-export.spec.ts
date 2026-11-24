@@ -2,12 +2,12 @@ import { test, expect } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers } from './support'
+import { headers, postConfiguration } from './support'
 let directory: string
 const business = 'ZC:MM:BUY:ENP', release = 'ZO:MM:M:PR_REL_ST_SH_N6:ALL'
 test.beforeEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
-  directory = mkdtempSync(path.join(tmpdir(), 'sap-lens-export-'))
+  directory = mkdtempSync(path.join(tmpdir(), 'authlens-export-'))
   const catalogue = path.join(directory, 'catalogue.csv'), users = path.join(directory, 'users.csv')
   writeFileSync(catalogue, 'FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,CHILD_AGR_TEXT,TCODE\nMM,ZC:MM:BUY:EN*,Purchasing,ZD:BUY,Purchasing evidence,ME21N\nFI,ZC:FI:VIEW:*,Display,ZD:VIEW,Accounting evidence,ME21N\nMM,ZO:MM:M:PR_REL_ST_SH_N6:ALL,Release,ZD:REL,Release evidence,ME21N\n')
   const row = (username: string, role: string, group = 'GROUP_A', from = '20000101', to = '99991231', locked = '') => `${username},${role},${group},"Éva, ""Demo""",Example,${from},${to},${locked},20000101,99991231\n`
@@ -22,7 +22,7 @@ test.beforeEach(async ({ request }) => {
     row('DEMO_UNKNOWN', business).replace(',20000101,99991231\n', ',,\n'))
   const settings = (await (await request.get('/api/configuration', { headers })).json()).settings
   settings.data_csv_path = catalogue; settings.user_csv_path = users
-  expect((await request.post('/api/configuration', { headers, data: settings })).ok()).toBeTruthy()
+  expect((await postConfiguration(request, settings)).ok()).toBeTruthy()
 })
 test.afterEach(async ({ request }) => { await request.post('/api/configuration/reset', { headers }); rmSync(directory, { recursive: true, force: true }) })
 async function openUser(page: import('@playwright/test').Page) {
@@ -75,26 +75,16 @@ test('CSV includes every filtered page, exact identifiers, dates, UTF-8 and safe
   expect(csv).toContain('"ZC:UNMAPPED:104"')
   expect(csv).not.toContain('ZD:HIDDEN'); expect(csv).not.toContain('ZZ:HIDDEN'); expect(csv).not.toContain('ZC:EXPIRED')
   expect(csv.split('\r\n')).toHaveLength(112) // header + 110 rows + final empty line
-  expect(download.suggestedFilename()).toMatch(/^sap-lens-DEMO_EXPORT-all-\d{4}-\d{2}-\d{2}\.csv$/)
+  expect(download.suggestedFilename()).toMatch(/^authlens-DEMO_EXPORT-all-\d{4}-\d{2}-\d{2}\.csv$/)
   await page.getByLabel('Assignment status', { exact: true }).selectOption('expired')
   const expiredPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export CSV', exact: true }).click()
   const expired = readFileSync((await (await expiredPromise).path())!, 'utf8')
   expect(expired).toContain('ZC:EXPIRED'); expect(expired).not.toContain(business)
 })
-test('desktop CSV uses authenticated native save instead of a blocked browser download', async ({ page }) => {
-  await openUser(page)
-  await page.evaluate(() => {
-    window.pywebview = { api: { choose_csv: async () => null, save_user_access_csv: async (token, filename, content) => { (window as unknown as { saved: unknown }).saved = { token, filename, content }; return true } } }
-  })
-  await page.getByRole('button', { name: 'Export CSV', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'CSV exported.' })).toBeVisible()
-  const saved = await page.evaluate(() => (window as unknown as { saved: { token: string; content: string } }).saved)
-  expect(saved.token).toBe('browser-test-session'); expect(saved.content).toContain(business)
-})
 for (const theme of ['light', 'dark']) for (const width of [800, 1280]) test(`separate validity and lock indicators ${theme} ${width}`, { tag: '@visual' }, async ({ page, request }, info) => {
   const settings = (await (await request.get('/api/configuration', { headers })).json()).settings
-  settings.theme = theme; await request.post('/api/configuration', { headers, data: settings })
+  settings.theme = theme; await postConfiguration(request, settings)
   await page.setViewportSize({ width, height: 900 })
   await page.goto('/#session=browser-test-session')
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'User Access', exact: true }).click()
@@ -148,17 +138,4 @@ test('changed source generation aborts export rather than downloading mixed page
   await page.getByRole('textbox', { name: 'Find roles by transaction' }).fill('NO_SUCH_TRANSACTION')
   await expect(page.getByRole('button', { name: 'Search', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Export CSV', exact: true })).toBeDisabled()
-})
-
-test('desktop cancellation and unavailable bridge provide feedback without browser fallback', async ({ page }) => {
-  await openUser(page)
-  let downloaded = false
-  page.on('download', () => { downloaded = true })
-  await page.evaluate(() => { window.pywebview = { api: { choose_csv: async () => null, save_user_access_csv: async () => false } } })
-  await page.getByRole('button', { name: 'Export CSV', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Export cancelled.' })).toBeVisible()
-  await page.evaluate(() => { delete window.pywebview!.api.save_user_access_csv })
-  await page.getByRole('button', { name: 'Export CSV', exact: true }).click()
-  await expect(page.getByRole('alert').filter({ hasText: 'Update the desktop application.' })).toBeVisible()
-  expect(downloaded).toBe(false)
 })

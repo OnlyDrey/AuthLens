@@ -1,8 +1,9 @@
+import {toggleRoleCategory} from './role-category-support'
 import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, goTo } from './support'
+import { headers, goTo, postConfiguration } from './support'
 let directory: string
 const roles = `FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,CHILD_AGR_TEXT,TCODE,TTEXT
 MM,ZC:MM:A,Alpha purchasing,ZS:A1,MM - Purchasing,MIGO,Goods movement
@@ -25,12 +26,12 @@ U7,ZC:XX:MISSING,G2,20200101,99991231
 `
 test.beforeEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
-  directory = mkdtempSync(path.join(tmpdir(), 'sap-lens-transaction-filter-'))
+  directory = mkdtempSync(path.join(tmpdir(), 'authlens-transaction-filter-'))
   const roleFile = path.join(directory, 'roles.csv'), userFile = path.join(directory, 'users.csv')
   writeFileSync(roleFile, roles); writeFileSync(userFile, users)
   const settings = (await (await request.get('/api/configuration', { headers })).json()).settings
   settings.data_csv_path = roleFile; settings.user_csv_path = userFile
-  expect((await request.post('/api/configuration', { headers, data: settings })).ok()).toBeTruthy()
+  expect((await postConfiguration(request, settings)).ok()).toBeTruthy()
 })
 test.afterEach(async ({ request }) => {
   // Saved filters live outside the configuration reset; leave none behind for other specs sharing this server.
@@ -123,7 +124,7 @@ test.describe('Role Lookup', () => {
     await expect(page.getByRole('article')).toHaveCount(1) // only D holds neither excluded code
     await exclude.getByRole('button', { name: 'Remove transaction MIGO' }).click()
     await expect(page.getByRole('article')).toHaveCount(2)
-    await page.getByRole('group', { name: 'SAP areas', exact: true }).getByRole('button', { name: /^MM / }).click()
+    await toggleRoleCategory(page,'MM')
     await expect(page.getByRole('article')).toHaveCount(1)
     await page.getByPlaceholder('Search roles by name or description...').fill('beta')
     await expect(page.getByRole('article')).toHaveCount(0)
@@ -151,8 +152,10 @@ test.describe('Role Lookup', () => {
     }
   })
 
-  test('both groups and their modes are saved in a Saved Filter', async ({ page, request }) => {
+  for(const width of [375,1280])test(`both groups and their modes are saved in a Saved Filter at ${width}px`, async ({ page, request }) => {
+    await page.setViewportSize({width,height:900})
     await openRoles(page)
+    await toggleRoleCategory(page,'MM'); await toggleRoleCategory(page,'FI')
     await add(roleInclude(page), 'MIGO'); await add(roleExclude(page), 'ME21N'); await add(roleExclude(page), 'VA03')
     await mode(page, 'Exclude roles by transaction', 'ALL').click()
     await page.locator('div.saved-filter-toolbar[aria-label="roles saved filters"]').getByRole('button', { name: /Saved filters/ }).click()
@@ -162,9 +165,11 @@ test.describe('Role Lookup', () => {
     await expect(menu).toContainText('Saved filters updated.')
     const stored = (await (await request.get('/api/saved-filters', { headers })).json()).items.find((item: { name: string }) => item.name === 'MIGO without both')
     expect([stored.filters.tcodes, stored.filters.excludeTcodes, stored.filters.excludeMode]).toEqual([['MIGO'], ['ME21N', 'VA03'], 'all'])
+    expect(stored.filters.activeModules).toEqual(['MM','FI'])
     await menu.getByRole('button', { name: 'Clear filters', exact: true }).click()
     await page.keyboard.press('Escape')
     await expect(roleExclude(page).locator('.transaction-chip')).toHaveCount(0)
+    await expect(page.getByRole('combobox',{name:'Role categories',exact:true})).toContainText('All categories')
     await page.locator('div.saved-filter-toolbar[aria-label="roles saved filters"]').getByRole('button', { name: /Saved filters/ }).click()
     const box = page.getByRole('dialog', { name: 'roles saved filters', exact: true }).getByRole('combobox', { name: 'Saved filter', exact: true })
     await box.click(); await box.fill('without')
@@ -172,6 +177,11 @@ test.describe('Role Lookup', () => {
     await page.getByRole('dialog', { name: 'roles saved filters', exact: true }).getByRole('button', { name: 'Load', exact: true }).click()
     await page.keyboard.press('Escape')
     await expect(roleExclude(page).locator('.transaction-chip')).toHaveCount(2)
+    const categories=page.getByRole('combobox',{name:'Role categories',exact:true})
+    await expect(categories).toContainText('2 categories selected')
+    await categories.click()
+    for(const code of ['MM','FI'])await expect(page.getByRole('option',{name:new RegExp(`^${code} `)})).toHaveAttribute('aria-selected','true')
+    await categories.press('Escape')
     await expect(mode(page, 'Exclude roles by transaction', 'ALL')).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByRole('article')).toHaveCount(2) // A and B hold MIGO; neither holds both excluded codes
     page.once('dialog', (dialog) => dialog.accept())

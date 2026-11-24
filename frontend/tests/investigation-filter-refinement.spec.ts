@@ -1,8 +1,9 @@
+import {toggleRoleCategory} from './role-category-support'
 import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers } from './support'
+import { headers, postConfiguration, goTo } from './support'
 import { layoutMatrix } from './matrix'
 let directory: string
 const roles =
@@ -11,7 +12,7 @@ const users =
   'USERNAME,ROLE_NAME,USER_GROUP,ROLE_VALID_FROM,ROLE_VALID_TO,USER_VALID_FROM,USER_VALID_TO\nDEMO_ONE,ZC:MM:A,G1,20200101,99991231,20200101,99991231\nDEMO_ONE,ZC:FI:B,G1,20240101,20260101,20200101,99991231\nDEMO_ONE,ZO:MM:M:PR_REL_ST_G1_N1:ALL,G1,20240101,99991231,20200101,99991231\nDEMO_TWO,ZO:MM:M:PR_REL_ST_G1_N1:ALL,G2,20250101,20251231,20200101,99991231\nDEMO_TWO,ZO:MM:M:PO_REL_ST_G2_N2:ALL,G2,,,20200101,99991231\nDEMO_THREE,ZO:UNKNOWN,G2,20300101,99991231,20200101,99991231\n'
 test.beforeEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
-  directory = mkdtempSync(path.join(tmpdir(), 'sap-lens-filter-'))
+  directory = mkdtempSync(path.join(tmpdir(), 'authlens-filter-'))
   const rolePath = path.join(directory, 'roles.csv'),
     userPath = path.join(directory, 'users.csv')
   writeFileSync(rolePath, roles)
@@ -23,7 +24,7 @@ test.beforeEach(async ({ request }) => {
   settings.user_csv_path = userPath
   expect(
     (
-      await request.post('/api/configuration', { headers, data: settings })
+      await postConfiguration(request, settings)
     ).ok(),
   ).toBeTruthy()
 })
@@ -33,10 +34,7 @@ test.afterEach(async ({ request }) => {
 })
 async function go(page: Page, view = 'Role Lookup') {
   await page.goto('/#session=browser-test-session')
-  await page
-    .getByRole('navigation', { name: 'Main navigation' })
-    .getByRole('link', { name: view, exact: true })
-    .click()
+  await goTo(page,view)
   if(view==='Release Roles')await page.getByRole('button',{name:'Table',exact:true}).click()
 }
 async function user(page: Page) {
@@ -91,18 +89,18 @@ test('catalogue AND/OR is exact across mapping rows; multi-area OR combines with
   ).toHaveCount(1)
   await tx.getByRole('button', { name: 'ANY', exact: true }).click()
   await expect(page.getByRole('article')).toHaveCount(2)
-  await areas.getByRole('button', { name: /^SD / }).click()
+  await toggleRoleCategory(page, 'SD')
   await expect(page.getByRole('article')).toHaveCount(0)
-  await areas.getByRole('button', { name: /^MM / }).click()
+  await toggleRoleCategory(page, 'MM')
   await expect(page.getByRole('article')).toHaveCount(1)
-  await areas.getByRole('button', { name: /^FI / }).click()
+  await toggleRoleCategory(page, 'FI')
   await expect(page.getByRole('article')).toHaveCount(2)
-  await areas.getByRole('button', { name: /^MM / }).click()
+  await toggleRoleCategory(page, 'MM')
   await expect(page.getByRole('article')).toHaveCount(1)
-  await expect(areas.getByRole('button', { name: /^FI / })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
+  await expect(areas.getByRole('combobox')).toContainText('2 categories selected')
+  await areas.getByRole('combobox').click()
+  await expect(page.getByRole('option', { name: /^FI / })).toHaveAttribute('aria-selected', 'true')
+  await areas.getByRole('combobox').press('Escape')
   const search = page.getByPlaceholder('Search roles by name or description...')
   await search.fill('Beta')
   await expect(page.getByRole('article')).toHaveCount(1)
@@ -113,10 +111,7 @@ test('catalogue AND/OR is exact across mapping rows; multi-area OR combines with
     .click()
   await expect(page.getByRole('article')).toHaveCount(3)
   await expect(search).toHaveValue('')
-  await expect(areas.getByRole('button', { name: /^All / })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
+  await expect(areas.getByRole('combobox')).toContainText('All categories')
   await expect(
     page.getByRole('button', { name: 'Clear filters', exact: true }),
   ).toBeDisabled()
@@ -361,7 +356,7 @@ for (const { theme, width } of layoutMatrix([800, 1280]))
       current.theme = theme
       expect(
         (
-          await request.post('/api/configuration', { headers, data: current })
+          await postConfiguration(request, current)
         ).ok(),
       ).toBeTruthy()
       await page.setViewportSize({ width, height: 1000 })
@@ -377,18 +372,16 @@ for (const { theme, width } of layoutMatrix([800, 1280]))
       await tx.getByRole('textbox').press('Enter')
       if (width < 1024) await page.keyboard.press('Escape')
       await expect(page.getByRole('article')).toHaveCount(1)
-      const areas = page.getByRole('group', { name: 'SAP areas', exact: true })
-      await areas.getByRole('button', { name: /^MM / }).click()
-      await areas.getByRole('button', { name: /^FI / }).click()
+      if(width<1024)await page.getByRole('button',{name:/^Filters/}).click()
+      await toggleRoleCategory(page, 'MM')
+      await toggleRoleCategory(page, 'FI')
+      if(width<1024)await page.getByRole('button',{name:'Show results',exact:true}).click()
       await page.screenshot({
         animations: 'disabled',
         path: info.outputPath('catalogue.png'),
         fullPage: true,
       })
-      await page
-        .getByRole('navigation', { name: 'Main navigation' })
-        .getByRole('link', { name: 'User Access', exact: true })
-        .click()
+      await goTo(page,'User Access')
       await page.getByRole('link', { name: 'DEMO_ONE', exact: true }).click()
       await page
         .getByRole('tab', { name: 'Release Roles — ZO:*', exact: true })
@@ -446,7 +439,7 @@ test('catalogue detail navigation crosses page boundaries and returns to its ori
   settings.data_csv_path = file
   expect(
     (
-      await request.post('/api/configuration', { headers, data: settings })
+      await postConfiguration(request, settings)
     ).ok(),
   ).toBeTruthy()
   await go(page)

@@ -1,0 +1,32 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!-- Product version of AuthLens (.NET Server and Desktop): product-version.json next to this file is the only source (see
+       docs/architecture/VERSIONING.md). It is independent of SAP Lens 1's version (archived with SAP Lens 1) and changes only by an
+       explicit, approved edit; builds never increment it. Build identity is separate: the release scripts pass -p:SourceRevisionId=<commit>, which the
+       SDK appends to the informational version (2.0.0+<commit>); build time and artifact hashes live in build-manifest.json.
+       FileVersion follows the v1 contract (MAJOR.MINOR.PATCH plus the alpha/beta/rc number, 0 for a stable release). -->
+  <PropertyGroup>
+    <AuthLensVersionFile>$(MSBuildThisFileDirectory)product-version.json</AuthLensVersionFile>
+    <AuthLensVersion>$([System.Text.RegularExpressions.Regex]::Replace($([System.IO.File]::ReadAllText('$(AuthLensVersionFile)')), '(?s)^.*"version"\s*:\s*"([^"]*)".*$', '$1'))</AuthLensVersion>
+    <AuthLensVersionValid>$([System.Text.RegularExpressions.Regex]::IsMatch('$(AuthLensVersion)', '^(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})(-(alpha|beta|rc)\.[1-9]\d{0,4})?$'))</AuthLensVersionValid>
+    <AuthLensBaseVersion>$([System.Text.RegularExpressions.Regex]::Replace('$(AuthLensVersion)', '^(\d+\.\d+\.\d+).*$', '$1'))</AuthLensBaseVersion>
+    <AuthLensPrerelease Condition="$(AuthLensVersion.Contains('-'))">$([System.Text.RegularExpressions.Regex]::Replace('$(AuthLensVersion)', '^.*\.(\d+)$', '$1'))</AuthLensPrerelease>
+    <AuthLensPrerelease Condition="!$(AuthLensVersion.Contains('-'))">0</AuthLensPrerelease>
+    <Version>$(AuthLensVersion)</Version>
+    <FileVersion>$(AuthLensBaseVersion).$(AuthLensPrerelease)</FileVersion>
+    <AssemblyVersion>$(AuthLensBaseVersion).0</AssemblyVersion>
+    <Product>AuthLens</Product>
+  </PropertyGroup>
+  <Target Name="AuthLensValidateVersion" BeforeTargets="CoreCompile" Condition="'$(AuthLensVersionValid)' != 'True'">
+    <Error Text="$(AuthLensVersionFile): version '$(AuthLensVersion)' must be MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-alpha.N|-beta.N|-rc.N." />
+  </Target>
+</Project>

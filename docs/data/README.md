@@ -8,6 +8,11 @@
 
 6. [SoD matrix source](SOD_MATRIX.md): verified activity slots, supported policy and durable source lifecycle.
 
-[Configuration](../getting-started/CONFIGURATION.md) owns local storage/preferences;
-[deployment security](../deployment/SECURITY.md) owns hosted filesystem/access rules.
+[Configuration](../architecture/README.md) owns local storage/preferences;
+[deployment security](../deployment/SERVER_NETWORK_ACCESS.md) owns hosted filesystem/access rules.
 Use only [synthetic examples](../../examples/README.md) in repository fixtures.
+
+Durable storage is described in [Storage and revisions](../architecture/DATABASE_DESIGN.md).
+SQLite is the system of record, including settings and immutable review history. Do not delete it as cache cleanup.
+See [backup/restore](../operations/BACKUP_AND_RECOVERY.md) and
+[retention](../operations/BACKUP_AND_RECOVERY.md#retention-retention-tab) before deleting or replacing data.

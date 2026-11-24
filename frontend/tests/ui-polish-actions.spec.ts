@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { seedGovernance } from './sod-fixture'
-import { headers, openSettings, seedSources, type SeededSources } from './support'
+import { headers, openSettings, seedSources, type SeededSources, postConfiguration } from './support'
 
 const roles = `FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,CHILD_AGR_TEXT,TCODE,TTEXT
 MM,ZC:MM:BUY:ENP,Buyer plant,ZS:SH,MM - Shared purchasing,MIGO,Goods movement
@@ -77,7 +77,8 @@ test('Settings navigation: keyboard focus is a separate outline and arrow keys m
   await expect(active).toBeFocused()
   expect(await active.evaluate(el => getComputedStyle(el).outlineStyle)).toBe('solid')
   await page.keyboard.press('ArrowDown')
-  const next = page.getByRole('tab', { selected: true })
+  // The Settings section list only: the next section (Component Library) renders tablists of its own.
+  const next = page.getByRole('tablist', { name: 'Settings sections', exact: true }).getByRole('tab', { selected: true })
   await expect(next).toBeFocused()
   await expect(next).not.toHaveText(/^Features$/)
   expect(await next.evaluate(el => getComputedStyle(el).borderBottomWidth)).toBe('0px')
@@ -110,7 +111,7 @@ test('no rounded underlines or double borders on Settings sections and main scre
   for (const theme of ['light', 'dark']) {
     const settings = (await (await request.get('/api/configuration', { headers })).json()).settings
     settings.theme = theme
-    expect((await request.post('/api/configuration', { headers, data: settings })).ok()).toBeTruthy()
+    expect((await postConfiguration(request, settings)).ok()).toBeTruthy()
     await page.goto('about:blank'); await page.goto('/#session=browser-test-session')
     const main = page.getByRole('navigation', { name: 'Main navigation', exact: true })
     const scan = async (label: string) => { for (const defect of await page.evaluate(borderDefects)) defects.push(`${theme} ${label}: ${defect}`) }
@@ -204,7 +205,7 @@ test('selected Settings item and active role card toggles meet 4.5:1 text and 3:
   for (const theme of ['light', 'dark']) {
     const settings = (await (await request.get('/api/configuration', { headers })).json()).settings
     settings.theme = theme
-    expect((await request.post('/api/configuration', { headers, data: settings })).ok()).toBeTruthy()
+    expect((await postConfiguration(request, settings)).ok()).toBeTruthy()
     await page.goto('about:blank'); await page.goto('/#session=browser-test-session')
     await page.getByRole('navigation', { name: 'Main navigation', exact: true }).getByRole('link', { name: 'Role Lookup', exact: true }).click()
     const card = page.getByRole('article', { name: /Buyer plant/ })

@@ -1,3 +1,4 @@
+import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {SourceHealthSummary,useSourceEvidence} from './SourceStatus'
 import { Button } from '@/components/Shared/Button'
 import { useState } from 'react'
@@ -149,7 +150,7 @@ export function DataHealth({
                 {data.findings.find((f) => f.id === finding)?.explanation}
               </p>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <ConfigurableTable className="w-full text-sm">
                   <thead>
                     <tr>
                       <th>Record</th>
@@ -198,7 +199,7 @@ export function DataHealth({
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </ConfigurableTable>
               </div>
               <Pagination
                 label="Data Health records"

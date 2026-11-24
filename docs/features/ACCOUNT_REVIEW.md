@@ -6,6 +6,10 @@ license savings or actual license entitlement is inferred.
 
 ## Sources and prerequisites
 
+Stored decisions are compared with the current identity and evidence using their recorded schema. Explicit invalidation and disappearance
+markers take precedence. Read-time currency checks never rewrite historical decisions, evidence or hashes; changed evidence requires an explicit
+new review. Unknown encodings fail closed.
+
 The existing User Access CSV supplies SAP identities, groups, account validity,
 locks and user types. The optional Employee Directory supplies AD state through a
 reliable exact email match. There is no additional CSV or direct SAP/AD connection.
@@ -62,7 +66,7 @@ does not invent Previous/Next positions from the independent User Directory orde
 
 ## Position changes
 
-When a replacement Employee Directory is imported, SAP Lens compares it with the previous validated snapshot and records a **position change** when an employee's **Department** or **Job title** differs. Employees are matched by their unique e-mail address and then attributed to a SAP user only through the existing reliable directory match. The previous and current values, detection time, source generation and affected fields are kept as private evidence (`position-changes.json`, never copied SAP rows).
+When a replacement Employee Directory is imported, AuthLens compares it with the previous validated snapshot and records a **position change** when an employee's **Department** or **Job title** differs. Employees are matched by their unique e-mail address and then attributed to a SAP user only through the existing reliable directory match. The previous and current values, detection time, source generation and affected fields are kept as private evidence (`position-changes.json`, never copied SAP rows).
 
 These never count as a change: manager-only differences, spacing or capitalization differences, a missing old or new value, employees new to the directory, duplicate or ambiguous e-mail addresses, and a replacement with far fewer records or a mostly empty Department/Title column (a notice is stored instead). The first import is a baseline. Changes older than 90 days drop out.
 
@@ -89,10 +93,12 @@ action required**. This saves immediately through the explicit review action;
 Settings' Apply button is unrelated. The reviewer is self-declared local metadata,
 not an authenticated approval or an instruction to SAP.
 
-Annotations are atomically written to `%LOCALAPPDATA%\SAP Lens\account-review.json`
-(or the supported per-user configuration directory on other platforms). Keys are
-hashed usernames; stored records contain decision, reviewer, rationale, timestamp
-and an evidence fingerprint, not copied SAP rows. Review timestamps are stored and
+Decisions are appended to the AuthLens database (`authlens.sqlite3`, table `ReviewDecisions`, subject type `account`):
+append-only (database triggers reject updates and deletes) and SHA-256 hash-chained, so the latest decision is the
+current one and earlier ones are its history. Each record holds the decision, reviewer, rationale, timestamp, the
+User Access revision it was made against and an evidence fingerprint, not copied SAP rows. An account that disappears
+from a later User Access revision gets an invalidation record and needs a new review. Decisions travel with application
+backups and restores ([backup and recovery](../operations/BACKUP_AND_RECOVERY.md)). Review timestamps are stored and
 exported in ISO UTC; the UI uses Norwegian dates and local 24-hour time. Reviewer/rationale can still
 contain personal information and must be treated as private local data.
 
@@ -120,8 +126,8 @@ retain prior annotations. Storage is bounded to 20 MiB; large tables remain pagi
 annotations. Export checks a generation covering SAP publication, directory,
 classification policy, review annotations and evaluation date across all pages and
 again before saving. Changed filters/evidence cancel export. Output is UTF-8/BOM,
-spreadsheet-formula-safe, bounded to 32 MiB, and uses the existing authenticated
-native CSV save dialog in desktop mode. Browser mode offers a local download.
+spreadsheet-formula-safe, bounded to 32 MiB, and is a browser download (Desktop
+included).
 CSV export contains identity data by design; diagnostic export remains redacted.
 
 No source CSV, employee snapshot or review annotation is sent to GitHub, bundled
@@ -157,7 +163,7 @@ unreadable store rejects replacement and preserves previous annotations.
 
 New evidence fingerprints exclude CSV row order/IDs and unrelated directory fields.
 Material identity, assignments, account validity/lock, AD status, matching and group
-classification changes reassess currency. Legacy fingerprints remain supported for
+classification changes reassess currency. Stored fingerprints remain validated for
 unchanged evidence until the annotation is explicitly saved with the new schema.
 A valid replacement that removes an account marks its retained annotation absent;
 a reappearing username requires review even if its fields look unchanged. Missing
@@ -193,3 +199,9 @@ is outstanding. Completed reviews are hidden from the default list; no parallel 
 - A completed review reopens only when its evidence version changes (a new or different finding, changed identity or directory data), or a new
   position change, manager change or Functional Group reconfirmation is open. Nothing else reopens it.
 - Total, pagination, sorting and the review CSV export all use the same filter. The response carries `completed_hidden` and `summary.completed`.
+
+## Responsive table presentation
+
+Functional Groups use the shared pills/read-only expansion. Manager is a separate column, not appended to group labels. **Columns** controls
+visibility, DOM/export order and no-wrap presentation; Functional Groups may wrap. Local column preferences and displayed-row CSV projections
+are presentation only. They do not alter review currency, evidence, decisions, historical hashes or the complete review-evidence export.

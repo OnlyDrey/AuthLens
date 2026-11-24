@@ -4,7 +4,7 @@ SoD turns an externally supplied risk matrix into **potential conflict evidence*
 documented review trail. It supports investigation: a transaction mapping does not prove
 effective SAP authorization, a confirmed violation or license use. Methodology, schema and
 limits: [SoD matrix reference](../data/SOD_MATRIX.md). Internals:
-[SoD architecture](../architecture/SOD.md).
+[SoD architecture](SOD.md).
 
 **Analyze → Investigate → Review activities → Review role assignments → Calculate risks →
 Accept or reject → Approve → Remediate → Verify → Report**
@@ -38,7 +38,7 @@ One **review context bar** sits beneath the SoD navigation on every page: choose
    Pending. Risk Approved means acceptable for this review; it is not formal acceptance.
    Risk Remove requires a specific remediation plan and never removes roles automatically.
 4. **Formal risk acceptance** (user + risk): Accepted, Rejected or Pending, with a named
-   approver different from the reviewer, justification, optional controls and expiry.
+   acting approver, justification, optional controls and expiry. Self-approval is permitted.
    It remains independent of normal risk review and retains its approval gates.
 
 Decisions never change what is detected: an approved activity can still produce an active
@@ -59,8 +59,14 @@ are shown rather than one recommendation.
 
 Create a period (name, range, evaluation date) to freeze evidence, then
 `Draft → In review → Ready for approval → Approved → Closed` (or `Rejected` with a reason).
-Approval needs every activity and risk decision current, a different reviewer and approver,
-and freezes the snapshot with its decisions. Reports: PDF and DOCX formal review (executive summary, scope, sources,
+Approval requires every activity and risk decision to be current and an explicit
+confirmation. It freezes the snapshot with its decisions. Review and approval
+remain separate events; reviewers may approve their own work. Session servers
+record the authenticated account UUID and username/display snapshots, while
+passwordless Desktop uses a stable, explicitly self-reported local profile.
+Legacy reviewer strings and frozen evidence are retained without invented account
+mappings. See [application accounts](../architecture/README.md).
+Reports: PDF and DOCX formal review (executive summary, scope, sources,
 risk overview, activity, assignment and acceptance results, controls, remediation, changes,
 conclusion and signature lines, technical appendix) and an access remediation report with
 CSV, DOCX and PDF. Generating a report never approves a review, and names and signature
@@ -74,7 +80,7 @@ lines are not verified digital signatures.
   exports exclude them. Use only synthetic data in examples and tests.
 
 Source import: [Data & CSV](../data/IMPORT_AND_REFRESH.md), synthetic example
-[sod-matrix.example.csv](../../examples/sod-matrix.example.csv). API: [SoD API](../architecture/API.md#sod-api).
+[sod-matrix.example.csv](../../examples/sod-matrix.example.csv). API: [SoD API](../architecture/UI_INTEGRATION.md).
 Validation and open native acceptance items: [validation tracker](../validation/README.md)
 and [validation tracker](../validation/README.md).
 
@@ -138,7 +144,7 @@ preserved outside this configuration page. Original reference workbooks are not 
 
 ## Deleting review periods
 
-Manual deletion archives a completed period and keeps everything. Separately, [review retention](../operations/DATA_RETENTION.md#review-retention) can permanently remove a completed period older than the retention period (default 24 months) and the records only it owns, after a preview and a one-time administrator approval; it never touches active or incomplete periods, the newest completed period or evidence another period shares.
+Manual deletion archives a completed period and keeps everything. Separately, [review retention](../operations/BACKUP_AND_RECOVERY.md#retention-retention-tab) can permanently remove a completed period older than the retention period (default 24 months) and the records only it owns, after a preview and a one-time administrator approval; it never touches active or incomplete periods, the newest completed period or evidence another period shares.
 
 Every period status can be deleted from the row action menu or the period dialog. The delete dialog previews what is affected
 (decisions, actions, reports, comparison baselines, snapshots) and always needs the exact period name and who is deleting.
@@ -148,11 +154,11 @@ Every period status can be deleted from the row action menu or the period dialog
   decisions, actions and report log stay on disk. It appears under "Show archived periods". Archiving needs an impact confirmation.
 - Approved or closed periods, periods with issued reports, and periods used as a report baseline need a second history confirmation.
   Approved or closed periods also need a reason. The reason, actor and previous state are stored in the deletion record and the period history.
-- Reports already issued outside SAP Lens stay valid; their log entries remain, but they cannot be regenerated afterwards. Findings first seen in a deleted
+- Reports already issued outside AuthLens stay valid; their log entries remain, but they cannot be regenerated afterwards. Findings first seen in a deleted
   approved period are classified as new instead of reopened in later comparisons. Other periods and current decisions are never changed (no cascade).
 
 
-The **Create SoD review period** dialog is a two-column grid (name and evaluation date, then period start and end) that stacks on narrow screens; Cancel and Capture review period carry icons. In the delete dialog, *Recorded by (self-reported)* and the period-name confirmation share a grid row, consequences and impact stay full width, and Cancel and Delete permanently (or Archive period) carry icons; the confirmation rules and audit behavior are unchanged. In the Review Periods toolbar, *Compare periods* stays disabled with fewer than two eligible periods and explains why through a tooltip and an accessible description (no inline text), and *Show archived periods* is a visible toggle button with an archive icon that only changes visibility, never a period status.
+The **Create SoD review period** dialog is a two-column grid (name and evaluation date, then period start and end) that stacks on narrow screens; Cancel and Capture review period carry icons. In the delete dialog, *Recorded by* and the period-name confirmation share a grid row, consequences and impact stay full width, and Cancel and Delete permanently (or Archive period) carry icons; the confirmation rules and audit behavior are unchanged. In the Review Periods toolbar, *Compare periods* stays disabled with fewer than two eligible periods and explains why through a tooltip and an accessible description (no inline text), and *Show archived periods* is a visible toggle button with an archive icon that only changes visibility, never a period status.
 
 ## SAP User Group heatmap
 
@@ -221,7 +227,7 @@ The filter tiles of the Work Queue (review progress) and Remediation (recommende
   (for example CJK) makes the PDF fail with the existing explicit message while the editable DOCX works.
 - **Access remediation report** (CSV, DOCX, PDF): also lists role assignments *awaiting review* and adds the status tables, so it is useful before any decision or action exists, with an explicit note that no actions are recorded. Nothing in it claims that access was removed.
 - The report forms show the essentials (period or context, title, status, handling groups) and keep people, roles, version, date and comments under "Document details". The Norwegian language option was removed; older API requests that send `language` remain accepted and produce the English report.
-- **Report status** distinguishes four labels: *Draft* (not reviewed or approved), *Reviewed* (a reviewer is named; the name is not authenticated, so it is not an approval), *Approved* (the period has a recorded approval and is frozen; names are still typed locally) and *Externally signed* (the preparer states it was signed outside SAP Lens; the signature is not verified). Approved and Externally signed require a frozen period. Earlier values *For review* and *Approved snapshot* are read as Reviewed and Approved. The preview, DOCX and PDF show the same status statement.
+- **Report status** distinguishes four labels: *Draft* (not reviewed or approved), *Reviewed* (a reviewer is named; the name is not authenticated, so it is not an approval), *Approved* (the period has a recorded approval and is frozen; names are still typed locally) and *Externally signed* (the preparer states it was signed outside AuthLens; the signature is not verified). Approved and Externally signed require a frozen period. Earlier values *For review* and *Approved snapshot* are read as Reviewed and Approved. The preview, DOCX and PDF show the same status statement.
 - **Export notice**: every export reports through one notice fixed at the top of the application. It overlays the page, so nothing shifts. Success and cancel messages fade after a few seconds; errors stay until dismissed.
 
 ## Consolidated review workflows
@@ -549,11 +555,45 @@ checks, period gates and per-assignment immutable history are unchanged.
 
 **Export CSV** on Remediation is a menu with two formats, both honoring every active Remediation filter (SAP User Group, username, risk, activity, assigned role, role suffix, transaction code, business area, assignment validity, recommended handling and tracking) across all pages, independent of expanded rows:
 
-- **Role Assignments** (`sap-lens-sod-role-assignments-YYYY-MM-DD.csv`): columns `USERNAME;ROLE;SAP User Group;Decision Status`, one row per exact SAP username and assigned role, sorted by username then role. Several activities, risks or validity intervals of the same pair never add rows; display names and descriptions are not used to merge anything. Where one pair has several values the result is deterministic and visible: the SAP User Group is the distinct non-empty groups joined with `, ` (empty when none exists, never invented), and the Decision Status is the authoritative assignment decision when all intervals agree, otherwise `Mixed (A / B)` listing the distinct decisions. It reports the review decision only; remediation actions and verification stay in the detailed export.
-- **Detailed Remediation** (`sap-lens-sod-access-remediation-YYYY-MM-DD.csv`): unchanged columns and activity-level rows for evidence and investigation.
+- **Role Assignments** (CSV download): columns `USERNAME;ROLE;SAP User Group;Decision Status`, one row per exact SAP username and assigned role, sorted by username then role. Several activities, risks or validity intervals of the same pair never add rows; display names and descriptions are not used to merge anything. Where one pair has several values the result is deterministic and visible: the SAP User Group is the distinct non-empty groups joined with `, ` (empty when none exists, never invented), and the Decision Status is the authoritative assignment decision when all intervals agree, otherwise `Mixed (A / B)` listing the distinct decisions. It reports the review decision only; remediation actions and verification stay in the detailed export.
+- **Detailed Remediation** (CSV download): unchanged columns and activity-level rows for evidence and investigation.
 
 Both use the established CSV conventions (semicolon delimiter, all fields quoted, UTF-8 with BOM, spreadsheet-formula protection).
 
 ## Role Evidence: inline Role Assignment Review
 
 The Role Evidence modal of Access Explorer lists every role supplying a risk's activities with its **Status** and **Review actions** (Investigate, Keep, Remove, in that order). The actions use the same service as the Role Assignment Review in the investigation panel (`POST /api/sod/decisions/assignment`), keyed by the assignment id of that SAP user, so a decision never reaches other users with the same role. A role with several assignment intervals shows one row per interval. The reviewer is the authenticated user or a self-reported name entered above the table; an optional rationale is stored with the decision. A row changes only after the server confirmed the save, loading and errors belong to the row, and decisions are not offered where the context is not reviewable (for example frozen periods). Remove records a removal recommendation only: SAP assignments, mappings and evidence snapshots are not modified, and the risk still needs its own approval and formal acceptance. After a save the shared SoD queries (explorer tables, matrices, overview) are refreshed.
+
+
+## Acting reviewer profile
+
+Server review forms use the signed-in account; submitted reviewer/approver aliases
+cannot change the backend actor. Use **My Profile** to change your display name.
+Desktop stays passwordless: use **Reviewer profile** in the header to edit its
+stable local identity. Review dialogs display that profile automatically rather
+than asking for a name for every action. Local profiles are self-reported and are
+not equivalent to verified server accounts. Profile/name changes affect future
+actions; prior events retain their UUID/name/provenance snapshots. Completing an
+activity or role review never automatically grants formal risk acceptance or
+period approval. Explicit approval confirmation and evidence/revision gates remain.
+
+### Population filter consistency
+
+User-level SoD views share Functional Group, direct Manager and exact-username selection, including pasted
+lists. OR applies within a dimension and AND between dimensions and general search. Existing searchable
+username choices and saved filters remain supported. Counts, pages and CSV exports use the same backend
+scope. See the [cross-application coverage matrix](USER_ACCESS.md#cross-application-filter-coverage-200-remediation)
+for implemented screens, explicit exclusions and validation boundaries.
+
+Historical organizational selections use **current membership**, clearly labelled, because historical group
+and manager membership was not frozen in these snapshots. Filtering narrows a read-only view and never
+changes captured populations, decisions, evidence fingerprints or approvals. Filtered operational remediation
+reports record their scope in the report text and model checksum; formal approved reports keep their complete
+approved scope. Windows Server acceptance and real restored-period acceptance remain separate release gates.
+
+Future evidence recommendation (not implemented): capture a versioned organizational evidence cut with
+stable Functional Group IDs and labels, resolved direct-manager relationships, relevant organizational
+attributes, source identities and capture time. Bind it to the frozen population and evidence checksum.
+This requires coordinated snapshot, backup/restore and report-reader version support before adoption.
+Existing periods must remain readable and unchanged; never backfill historical organization from current
+membership. Older snapshots must continue to identify organizational filtering as current membership.

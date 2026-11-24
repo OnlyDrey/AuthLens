@@ -1,8 +1,9 @@
+import {expectReviewerProfile} from './reviewer-profile'
 import { test, expect, type APIRequestContext } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, goTo } from './support'
+import { headers, goTo, postConfiguration } from './support'
 const columns = 'Site;Name;SamAccountName;UserPrincipalName;Mail;Department;Title;Enabled;DistinguishedName;ManagerDN;ManagerName;ManagerSamAccountName;ManagerMail;ManagerDepartment;ManagerTitle;ManagerLookupStatus'
 const employees = (department: string, title: string, manager = 'Demo Manager') =>
   '﻿' + columns + '\n' +
@@ -19,7 +20,7 @@ async function importDirectory(request: APIRequestContext) {
 }
 test.beforeEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
-  directory = mkdtempSync(path.join(tmpdir(), 'sap-lens-position-'))
+  directory = mkdtempSync(path.join(tmpdir(), 'authlens-position-'))
   csv = path.join(directory, 'employees.csv')
   const users = path.join(directory, 'users.csv')
   writeFileSync(users, 'USERNAME,ROLE_NAME,EMAIL,USER_GROUP,USER_VALID_FROM,USER_VALID_TO,ROLE_VALID_FROM,ROLE_VALID_TO\n' +
@@ -27,7 +28,7 @@ test.beforeEach(async ({ request }) => {
   const current = await settings(request)
   current.data_csv_path = path.resolve('tests/fixtures/role-catalogue-minimal.csv'); current.user_csv_path = users
   current.features.employee_directory = true
-  expect((await request.post('/api/configuration', { headers, data: current })).ok()).toBeTruthy()
+  expect((await postConfiguration(request, current)).ok()).toBeTruthy()
   writeFileSync(csv, employees('Finance', 'Accountant'))
   await importDirectory(request)
 })
@@ -75,7 +76,7 @@ test('a department change becomes a priority review that uses the existing Accou
   await expect(dialog.getByRole('heading', { name: 'Organizational position changes' })).toBeVisible()
   await expect(dialog.getByText('Current findings and evidence')).toHaveCount(0)
   await expect(dialog.getByRole('button', { name: /Investigate SAP user/ })).toBeVisible()
-  await dialog.getByLabel('Reviewer', { exact: true }).fill('Synthetic Reviewer')
+  await expectReviewerProfile(dialog.getByLabel('Reviewer', { exact: true }))
   await dialog.getByLabel('Rationale', { exact: true }).fill('Move confirmed with the line manager.')
   await dialog.getByLabel('Decision', { exact: true }).selectOption('No action required')
   await dialog.getByRole('button', { name: /Save/ }).click()

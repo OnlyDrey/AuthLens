@@ -1,3 +1,4 @@
+import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Eraser } from 'lucide-react'
@@ -28,12 +29,12 @@ function RoleMembers({ role, data }: { role: Analysis['roles'][number]; data: An
       <p className="ui-description">{role.users} of {role.eligible} compared members hold this role (active assignments only).</p>
       <Input aria-label={`Search members for ${role.role}`} placeholder="Search members" value={search} onChange={event => setSearch(event.target.value)} />
       {rows.length ? (
-        <table className="ui-data-table" aria-label={`Members compared for ${role.role}`}>
+        <ConfigurableTable className="ui-data-table" aria-label={`Members compared for ${role.role}`}>
           <thead><tr><th>SAP user</th><th>Full name</th><th>Role</th><th>SAP account</th></tr></thead>
           <tbody>{rows.map(user => (
             <tr key={user.username}><td><SAPUserLink username={user.username} copyLabel="username" /></td><td>{user.full_name || '—'}</td>
               <td><StatusBadge tone={user.has ? 'success' : 'neutral'}>{user.has ? 'Has role' : 'Missing role'}</StatusBadge></td><td>{user.account_status || '—'}</td></tr>))}</tbody>
-        </table>
+        </ConfigurableTable>
       ) : <EmptyState>No compared member matches the search.</EmptyState>}
     </div>
   )

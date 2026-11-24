@@ -86,12 +86,12 @@ Replacing the directory with a different validated snapshot compares Department 
 
 ## Persistence, privacy and recovery
 
-Confirmation atomically stages one validated, content-addressed UTF-8 JSON snapshot
-in `%LOCALAPPDATA%\SAP Lens\employee-directory\`, then saves its ID and the selected
-source path in settings. Only after both succeed is the new in-memory dataset
-published. Failed validation, changed preview digests, stale revisions, storage or
-settings failures retain the previous accepted import. Prior immutable snapshot retention follows the [CSV lifecycle](IMPORT_AND_REFRESH.md);
-cleanup failures are reported without exposing local paths.
+Confirmation stores the validated directory as a dataset revision in the AuthLens database (`authlens.sqlite3`,
+source `employees`, identified by its content hash) and records its ID and the selected source path in the settings
+document, in one transaction. Only after that commit is the new directory published; the previous revision is retired
+(kept as history), never deleted. Failed validation, changed preview digests, stale revisions, storage or
+settings failures retain the previous accepted import. Retention of retired revisions follows the [CSV lifecycle](IMPORT_AND_REFRESH.md) and
+[data retention](../operations/BACKUP_AND_RECOVERY.md#retention-retention-tab).
 The original CSV is never copied, changed or deleted. Imported records now survive
 restart even when that CSV/share is unavailable. Last successful import remains the
 confirmation timestamp, not the latest process start/read time.
@@ -114,7 +114,7 @@ performing a deliberate personal-data cleanup. **Clear directory data** removes 
 active snapshot and reference, preserving the original file and feature preference.
 Neither records, paths nor snapshot IDs enter portable settings exports. Importing
 portable settings preserves the current local snapshot. `.gitignore` and Windows
-package verification exclude `employee-directory` directories. Server browser uploads go only to the configured SAP Lens server; no third-party
+package verification exclude `employee-directory` directories. Server browser uploads go only to the configured AuthLens server; no third-party
 upload service, credentials, personal-data logs, external profile images or service-worker
 data caches are introduced. Keep local screenshots and exports private.
 
@@ -126,7 +126,7 @@ loading, search, privacy, manager navigation and light/dark layouts. Existing SA
 CSV and package integrity tests remain required.
 
 Before distribution, run the canonical Windows build and packaged EXE smoke tests,
-then manually test WebView2, the native file dialog, Unicode paths and a real
+then manually test WebView2, the browser file picker, Unicode paths and a real
 permitted UNC share. Linux browser and unit tests do not validate those native
 Windows behaviors. No real employee data should enter test logs or build inputs.
 
@@ -172,7 +172,7 @@ Valid and Unlocked; absent/ambiguous directory data cannot produce it.
 For legacy path-only imports, validated in-memory records can be committed through
 **Save durable directory snapshot** without rereading the original CSV. It preserves
 the original import timestamp and validates the current settings revision/digest.
-See [Settings and persistence recovery](../getting-started/CONFIGURATION.md) and
+See [Settings and persistence recovery](../architecture/README.md) and
 [Account Review](../features/ACCOUNT_REVIEW.md) for current behavior and privacy boundaries.
 
 ## Shared status and technical evidence
@@ -191,12 +191,14 @@ operational/dependency status describe persisted server state independently of t
 draft. Directory matching in SAP User Details opens its own compact evidence modal;
 no identity matching rule or source replacement semantics are changed.
 
-## Fingerprint, derived copy and shared identity matching
+## Fast path and shared identity matching
 
-* **Unchanged fast path.** A directory check computes the SHA-256 of the CSV and combines it with the digest of the parser code (the format is fixed, there is no import profile). If that fingerprint equals the one recorded for the active snapshot, the file is **not parsed,
-  not compared, not re-matched and no position-change pass runs**; the source is reported `unchanged` with `fast_path`. The fingerprint is a derived fact in the SQLite store; a missing or different fingerprint (first start after an upgrade, store rebuilt, parser changed) simply takes the full path once and records it.
-* **Changes are still detected exactly as before.** Any changed field (SamAccountName, UPN, Enabled, Department, Title, manager fields, e-mail) makes the file differ, so the full comparison runs, the snapshot is replaced through the normal compare-and-swap activation and position changes are recorded. A removed account stops matching immediately and matches again when it reappears.
-  There is no general historical directory versioning.
-* **Integrity.** The snapshot file is always read and verified against its content address; only parsing, validation and index building are skipped when an authenticated derived copy of exactly that snapshot and parser code exists (`kind: directory` in the signed derived cache). A damaged snapshot is still reported.
+* **Unchanged fast path.** A directory check parses the CSV and compares the SHA-256 of its canonical records with the active revision's
+  content hash. If they are equal, nothing is staged, compared or re-matched and no position-change pass runs; the source is reported
+  `unchanged` with `fast_path`.
+* **Changes are detected exactly.** Any changed field (SamAccountName, UPN, Enabled, Department, Title, manager fields, e-mail) changes the hash,
+  so the full comparison runs, the new revision is activated in one transaction and position changes are recorded. A removed account stops
+  matching immediately and matches again when it reappears. Earlier revisions are retired, not versioned for browsing.
+* **Integrity.** Revisions live in the AuthLens database, whose SQLite integrity check runs at every start and gates readiness.
 * **Shared SAP-to-directory matching.** The match of every SAP user against the directory is computed once per (SAP dataset, directory) pair and shared by Data Health, Account Review, organization filters and the SoD analysis. It is held on the SAP dataset object, so a refresh that replaces either side
   starts a new mapping and an old mapping can never serve a new dataset. Addresses shared by several SAP users stay ambiguous.

@@ -1,6 +1,6 @@
 # Functional Groups
 
-A Functional Group is the business function a person performs (Purchasing, Logistics, Finance). It is maintained by SAP Lens reviewers and is
+A Functional Group is the business function a person performs (Purchasing, Logistics, Finance). It is maintained by AuthLens reviewers and is
 independent of Directory Department, Job Title, Manager, Site and SAP User Group. It never changes SAP access.
 
 ## Data model
@@ -9,10 +9,11 @@ One store, `functional-groups.json` (format 2) in the application data folder, i
 
 | Part | Content |
 | --- | --- |
-| `groups` | Global catalogue: stable id `fg_<12 hex>`, unique name, description, `active` or `archived`, created and modified timestamps. Groups are archived, never deleted. |
+| `groups` | Global catalogue: stable id `fg_<12 hex>`, unique name, description, `active` or `archived`, created and modified timestamps. Groups are archived first; an archived group can then be deleted permanently, also with members (see [Permanent deletion](#permanent-deletion)). |
 | `users` | At most one record per canonical SAP user (the upper-cased user name, hashed as in Account Review): `group_id`, status, revision, confirmation time and reviewer, rationale, open review, handled change ids. |
 | `history` | Append-only events: assigned, changed, confirmed, removed, review_required, reconfirmed, manager_changed. Each keeps user, previous and new group and status, actor, time, reason and the related organizational change id. |
 | `rules` | Advisory suggestion rules (see below). |
+| `catalogue_events` | Audit trail of group lifecycle actions (`archived`, `restored`, `deleted`): group id and name, actor, time, member and rule counts. Optional: created with the first event, without requiring an event table before any lifecycle action. A `deleted` event keeps the deleted group's id and name resolvable for the history. |
 
 Classification states: `Unassigned` (no group), `Confirmed`, `Needs review` (a group is kept but needs reconfirmation). A user can belong to several groups: a user record holds `memberships`, one entry per group with its own status, confirmation time and reviewer, rationale and open review. Every write is validated (names unique after Unicode, case and spacing normalization,
 references resolve, status agrees with group) and replaced atomically. Changes carry the revision the reviewer saw; a stale revision is rejected
@@ -23,9 +24,32 @@ SAP-to-Directory match, which already refuses missing, duplicate and ambiguous m
 
 ## API
 
-`/api/functional-groups`: list, create, rename or edit (`PATCH`), `archive`, `restore`; `users/{username}` reads and writes one classification
+`/api/functional-groups`: list, create, rename or edit (`PATCH`), `archive`, `restore`, `DELETE /{id}?expected_members=N` (archived only; see
+[Permanent deletion](#permanent-deletion)), `audit` (the catalogue audit trail, administrators); `users/{username}` reads and writes one classification
 (`group_id` null clears it, rationale required when clearing); `history/{username}`. A reviewer name is required unless the server supplies the
 signed-in actor.
+
+## Permanent deletion
+
+Implemented and tested on Linux (.NET `FunctionalGroupTests`, browser `functional-groups.spec.ts`).
+
+- **Only archived groups.** An active group is refused with HTTP 409; archive it first. Archiving keeps all members.
+- **Explicit confirmation.** The dialog shows the group name, its member count and its suggestion rule count, says what is removed and what is kept,
+  and enables **Delete permanently** only after the exact group name is typed. Cancel changes nothing.
+- **Concurrency.** The request carries the member count the person confirmed (`expected_members`). If the group has a different number of members
+  when the server applies it (someone added or removed a member meanwhile), it answers 409 and changes nothing. A request without the count is refused
+  with 422. All writes to the store are serialized and the deletion is one atomic write: all of it or nothing.
+- **What is removed:** the group, its memberships and its suggestion rules. Each removed membership gets a `removed` event in the user's
+  classification history (reason `Functional Group "<name>" was deleted.`), and each affected user's revision is raised, so an edit loaded before the
+  deletion is refused instead of restoring the membership.
+- **What is kept:** users, their other memberships, other rules, SAP roles and imports, Employee Directory data, Account Review decisions, SoD
+  decisions, snapshots and reports (none of them store Functional Group ids), and all existing classification history. History events keep the
+  group id; the API adds `previous_group_name`/`new_group_name` and `group_deleted`, resolved through the `deleted` audit event.
+- **Audit:** a `deleted` event in `catalogue_events` with actor, time, group id and name, removed memberships and rules; `GET
+  /api/functional-groups/audit` lists the trail (newest first, administrators only). The trail is not yet shown in the UI.
+- **Authorization:** `DELETE`, `archive`, `restore` and `audit` are administrator operations in Server Accounts mode (`V1Auth.Permission`); the
+  server enforces every rule independently of the UI.
+- **Saved filters** that name a deleted group select nobody; they are not rewritten.
 
 ## Backup and restore
 
@@ -36,6 +60,15 @@ the file restore to an empty catalogue.
 
 - **Settings > Functional Groups:** searchable table (name, description, assigned users, Active or Archived), create, edit and archive or restore.
   Duplicate names (case, spacing and Unicode-normalized) are refused. Archived groups stay on existing users and in history but cannot be newly assigned.
+  The section has two tabs, **Groups** and **Suggestion Rules**; search text and the status filter (All, Active, Archived) are kept when switching.
+  Archive, restore and delete each report their result in a status line under the toolbar (for archive: the members kept). **Permanent
+  deletion** of an archived group is described below. A new group can be created inside the suggestion
+  rule dialog; it is created active and without members, is selected at once, and the rule fields are kept. Nothing is ever assigned by creating a
+  group or a rule.
+  **Users count:** one definition everywhere a group is listed in Settings (`user_count`): distinct users with a stored membership in the group,
+  whatever its status (Confirmed or Needs review) and whether or not the user is in the current SAP import; archived groups keep their members and
+  their count. The members dialog lists exactly those users. Filter choices in User Access and SoD show a different, labelled number: SAP users of
+  the current import in the group. Zero is shown as plain text, a positive count opens its list.
 - **User Details > Functional Group:** shows the group and classification separately from the imported Directory fields. A reviewer can assign,
   change, confirm or clear. Nothing is preselected, the action button names the outcome ("Assign Purchasing", "Change to Logistics", "Confirm
   Purchasing"), the reviewer name is required (the signed-in actor in server mode) and clearing requires a rationale.
@@ -50,7 +83,7 @@ a group and are only computed from an unambiguous Directory match.
 
 ## Organizational change handling
 
-Employee Directory imports reuse the existing change detector (`position_changes.py`); there is no second detector. Imports never write
+Employee Directory imports reuse the existing change detector (`backend/src/AuthLens.Application/PositionChangeStore.cs`); there is no second detector. Imports never write
 Functional Groups. Stored change events are applied to classified users when Account Review or User Details is read (idempotent, never failing the read):
 
 | Directory change | Functional Group | Account Review |
@@ -110,7 +143,7 @@ and never grants, removes or approves access, creates accepted risks or changes 
 ## Persistence, backup and migration
 
 - `functional-groups.json` is written atomically after validation and survives restarts. It is part of the application data folder, so the existing
-  [backup and restore](../deployment/BACKUP_RESTORE.md) carries it byte for byte (stable group ids, revisions, history and open reviews). A restore
+  [backup and restore](../operations/BACKUP_AND_RECOVERY.md) carries it byte for byte (stable group ids, revisions, history and open reviews). A restore
   validates it first and rejects broken group references, contradictory states, duplicate names and unparsable files; an older backup without the
   file restores to an empty catalogue (restore replaces, it never merges).
 - No migration is needed: databases without the file start with no groups and every user `Unassigned`. SAP, Directory and review data are never
@@ -125,9 +158,9 @@ and never grants, removes or approves access, creates accepted risks or changes 
 ## Multiple memberships, suggestion rules and member management
 
 - **Format 2 migration:** format 1 data (one `group_id` per user) is migrated losslessly on first read: each assignment becomes one membership with its status, confirmation metadata and history preserved, and existing rules become `department_mode: equals`. A one-time `functional-groups.json.format1.bak` is kept. Format 2 is not downgraded; older backups (format 1) are accepted on restore and migrated.
-- **Writes:** `POST /memberships` adds one, `POST /memberships/remove` removes one (both idempotent, revision-checked), bulk assignment takes `group_ids` and only adds (`replace_existing=true` is rejected). The legacy `PUT users/{username}` still replaces all memberships. An organizational change (manager or department) marks every Confirmed membership `Needs review`.
+- **Writes:** `POST /memberships` adds one, `POST /memberships/remove` removes one (both idempotent, revision-checked), bulk assignment takes `group_ids` and only adds (`replace_existing=true` is rejected). `PUT users/{username}` replaces all memberships. An organizational change (manager or department) marks every Confirmed membership `Needs review`.
 - **Exports and filters:** existing columns are kept and join values with `; `; a `memberships` list is added. Singular `group`/`group_id` are present only when exactly one membership exists. Filters match any membership and counts are unique users.
-- **Suggestion rules:** advisory only. Directory Department is matched case-insensitively by "contains" (legacy rules keep exact matching and show "Exact match (existing rule)", convertible in Edit), Job Title by contains; both stated conditions must hold (AND), at least one is required, and a missing Directory attribute never satisfies a condition. Matching users are SAP users uniquely linked to a Directory employee; ambiguous or unmatched users are never assigned.
+- **Suggestion rules:** advisory only. Directory Department is matched case-insensitively by "contains" (exact-match rules keep their stated matching semantics and show "Exact match (existing rule)", convertible in Edit), Job Title by contains; both stated conditions must hold (AND), at least one is required, and a missing Directory attribute never satisfies a condition. Matching users are SAP users uniquely linked to a Directory employee; ambiguous or unmatched users are never assigned.
 - **Rules UI:** table with matching-user counts, View Matches (search, select all for the filtered set, pagination, already-assigned flag) and assignment through the bulk add flow with explicit confirmation and audit.
 - **Members and analysis:** Settings "View Members" lists status, last confirmation and supports add and bulk removal; Access Analysis shows KPI tiles (Members, Compared, Distinct roles, Common roles, Potential deviations) and a Has role / Missing role drilldown over exactly the compared users. Patterns are labelled Common, Shared and Uncommon.
 - **Validation:** Linux only (backend unit and Playwright); native Windows behaviour is unverified.

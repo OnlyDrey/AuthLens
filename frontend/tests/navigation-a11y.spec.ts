@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers } from './support'
+import { headers, postConfiguration } from './support'
 let directory: string
 const roles = `FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,CHILD_AGR_TEXT,TCODE,TTEXT
 MM,ZC:MM:A,Alpha purchasing,ZS:A1,MM - Purchasing,MIGO,Goods movement
@@ -16,12 +16,12 @@ test.beforeEach(async ({ request, context }) => {
   // New tabs do not inherit sessionStorage in the test browser, so give them the same test session.
   await context.addInitScript(() => { try { sessionStorage.setItem('sap-lens-session', 'browser-test-session') } catch { /* optional */ } })
   await request.post('/api/configuration/reset', { headers })
-  directory = mkdtempSync(path.join(tmpdir(), 'sap-lens-nav-'))
+  directory = mkdtempSync(path.join(tmpdir(), 'authlens-nav-'))
   const roleFile = path.join(directory, 'roles.csv'), userFile = path.join(directory, 'users.csv')
   writeFileSync(roleFile, roles); writeFileSync(userFile, users)
   const settings = (await (await request.get('/api/configuration', { headers })).json()).settings
   settings.data_csv_path = roleFile; settings.user_csv_path = userFile
-  expect((await request.post('/api/configuration', { headers, data: settings })).ok()).toBeTruthy()
+  expect((await postConfiguration(request, settings)).ok()).toBeTruthy()
 })
 test.afterEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
@@ -29,7 +29,7 @@ test.afterEach(async ({ request }) => {
 })
 
 const main = (page: Page) => page.getByRole('navigation', { name: 'Main navigation', exact: true })
-const settings = (page: Page) => page.getByRole('region', { name: 'SAP Lens settings', exact: true })
+const settings = (page: Page) => page.getByRole('region', { name: 'AuthLens settings', exact: true })
 async function openSettings(page: Page) {
   await page.goto('/#session=browser-test-session')
   await page.getByRole('button', { name: 'Open settings', exact: true }).click()
@@ -117,6 +117,7 @@ test.describe('User Directory keyboard order', () => {
     const order = width >= 1024 ? wide : narrow
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/#session=browser-test-session')
+    if(width<1024)await page.getByRole('button',{name:'Open navigation',exact:true}).click()
     await main(page).getByRole('link', { name: 'User Access', exact: true }).click()
     await page.getByLabel('Search users', { exact: true }).fill('DEMO')
     await expect(page.getByLabel('Search users', { exact: true })).toHaveValue('DEMO')
@@ -199,7 +200,7 @@ test.describe('SAP username deep links', () => {
 test('SoD secondary navigation shows an icon for every view', { tag: '@a11y' }, async ({ page, request }) => {
   const settings = (await (await request.get('/api/configuration', { headers })).json()).settings
   settings.features.sod = true
-  await request.post('/api/configuration', { headers, data: settings })
+  await postConfiguration(request, settings)
   await page.goto('/#session=browser-test-session')
   await main(page).getByRole('link', { name: 'SoD', exact: true }).click()
   const links = page.getByRole('navigation', { name: 'SoD views', exact: true }).getByRole('link')

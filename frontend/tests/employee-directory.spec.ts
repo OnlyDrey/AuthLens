@@ -8,7 +8,7 @@ import {
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers } from './support'
+import { headers, postConfiguration } from './support'
 import { layoutMatrix } from './matrix'
 const columns =
   'Site;Name;SamAccountName;UserPrincipalName;Mail;Department;Title;Enabled;DistinguishedName;ManagerDN;ManagerName;ManagerSamAccountName;ManagerMail;ManagerDepartment;ManagerTitle;ManagerLookupStatus'
@@ -37,7 +37,7 @@ async function enable(request: APIRequestContext, value = true) {
   const current = await settings(request)
   current.features.employee_directory = value
   expect(
-    (await request.post('/api/configuration', { headers, data: current })).ok(),
+    (await postConfiguration(request, current)).ok(),
   ).toBeTruthy()
 }
 async function source(page: Page) {
@@ -50,7 +50,7 @@ async function source(page: Page) {
 }
 test.beforeEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
-  directory = mkdtempSync(path.join(tmpdir(), 'sap-lens-employees-'))
+  directory = mkdtempSync(path.join(tmpdir(), 'authlens-employees-'))
   csv = path.join(directory, 'Employees Éxport.csv')
   writeFileSync(
     csv,
@@ -69,7 +69,7 @@ test.beforeEach(async ({ request }) => {
   current.data_csv_path = path.resolve('tests/fixtures/role-catalogue-minimal.csv')
   current.user_csv_path = users
   expect(
-    (await request.post('/api/configuration', { headers, data: current })).ok(),
+    (await postConfiguration(request, current)).ok(),
   ).toBeTruthy()
 })
 test.afterEach(async ({ request }) => {
@@ -220,7 +220,7 @@ for (const { theme, width } of layoutMatrix([800, 1280])) {
       current.theme = theme
       expect(
         (
-          await request.post('/api/configuration', { headers, data: current })
+          await postConfiguration(request, current)
         ).ok(),
       ).toBeTruthy()
       await page.setViewportSize({ width, height: 1000 })
@@ -321,7 +321,9 @@ test('duplicate and missing email states remain distinct with diagnostics warnin
 })
 
 test('directory import and clear preserve independent catalogue filters, comparison and SAP generation', async ({ page, request }) => {
-  const before = (await (await request.get('/api/access/users/DEMO_EMPLOYEE', { headers })).json()).data_revision
+  // data_revision is boot.sap.directory: a directory publication advances only the directory part; the SAP generation stays.
+  const sapGeneration = async () => ((await (await request.get('/api/access/users/DEMO_EMPLOYEE', { headers })).json()).data_revision as string).split('.').slice(0, 2).join('.')
+  const before = await sapGeneration()
   await page.goto('/#session=browser-test-session')
   await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Role Lookup',exact:true}).click()
   const search = page.getByPlaceholder('Search roles by name or description...')
@@ -332,18 +334,18 @@ test('directory import and clear preserve independent catalogue filters, compari
   await page.getByRole('tab', { name: 'Employee Directory', exact: true }).click()
   await activateCSV(page,'employees',csv)
   await expect(page.getByRole('region', { name: 'Directory import preview' })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Back to SAP Lens', exact: true }).click()
+  await page.getByRole('button', { name: 'Back to AuthLens', exact: true }).click()
   await expect(search).toHaveValue('finance')
   await expect(page.getByRole('button', { name: 'Remove from comparison', exact: true })).toHaveCount(1)
-  expect((await (await request.get('/api/access/users/DEMO_EMPLOYEE', { headers })).json()).data_revision).toBe(before)
+  expect(await sapGeneration()).toBe(before)
   await page.getByRole('button', { name: 'Open settings', exact: true }).click()
   page.once('dialog', dialog => dialog.accept())
   await page.getByRole('button', { name: 'Clear source data', exact: true }).click()
   await expect(page.getByLabel('Employee Directory CSV location', { exact: true })).toHaveValue('')
-  await page.getByRole('button', { name: 'Back to SAP Lens', exact: true }).click()
+  await page.getByRole('button', { name: 'Back to AuthLens', exact: true }).click()
   await expect(search).toHaveValue('finance')
   await expect(page.getByRole('button', { name: 'Remove from comparison', exact: true })).toHaveCount(1)
-  expect((await (await request.get('/api/access/users/DEMO_EMPLOYEE', { headers })).json()).data_revision).toBe(before)
+  expect(await sapGeneration()).toBe(before)
 })
 
 test('explicit import, independent feature toggles, retained data and Diagnostics stay synchronized', async ({page,request}) => {
@@ -371,7 +373,9 @@ test('explicit import, independent feature toggles, retained data and Diagnostic
   expect(dependency.enabled).toBe(true); expect(dependency.loaded).toBe(true); expect(dependency.dependency_satisfied).toBe(false)
   await page.getByRole('button',{name:'Open settings',exact:true}).click()
   await page.getByRole('tab',{name:'Health & Diagnostics',exact:true}).click()
+  await page.getByRole('tab',{name:'Storage & Logs',exact:true}).click()
   await page.getByText('Source locations and storage details',{exact:true}).click()
+  await page.getByRole('tab',{name:'Source Health',exact:true}).click()
   const directoryCard=page.getByRole('region',{name:'Employee Directory CSV',exact:true});await directoryCard.getByText('Technical details',{exact:true}).click();await directoryCard.getByRole('button',{name:'Locations and diagnostics',exact:true}).click()
   await expect(page.getByRole('region',{name:'Employee Directory diagnostics'})).toContainText('Enable User–Role Mapping')
   await page.keyboard.press('Escape')
@@ -405,7 +409,7 @@ for (const { theme, width } of layoutMatrix([375,800,1280])) {
   test(`employee profile and compact date calendar visual QA ${theme} ${width}`,{ tag: '@visual' }, async({page,request},info)=>{
     await importDirectory(request); await enable(request)
     const current=await settings(request); current.theme=theme
-    expect((await request.post('/api/configuration',{headers,data:current})).ok()).toBeTruthy()
+    expect((await postConfiguration(request, current)).ok()).toBeTruthy()
     await page.setViewportSize({width,height:1000})
     await page.goto('/#session=browser-test-session')
     await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'User Access',exact:true}).click()

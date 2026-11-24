@@ -2,17 +2,17 @@ import { test, expect } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
-import { headers, openFilters, closeFilters, backendFixture } from './support'
+import { headers, openFilters, closeFilters, backendFixture, postConfiguration, goTo } from './support'
 let directory = ''
 test.beforeEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
-  directory = mkdtempSync(path.join(tmpdir(), 'sap-lens-ui-'))
+  directory = mkdtempSync(path.join(tmpdir(), 'authlens-ui-'))
   const source = path.join(directory, 'roles.csv')
   writeFileSync(source, 'FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,TCODE\nMM,ZC:MM:BUY:EN*,Purchasing,ZS:BUY,ME23N\nFI,ZC:FI:VIEW:*,Accounting,ZS:VIEW,FB03\n')
   const settings = (await (await request.get('/api/configuration', { headers })).json()).settings
   settings.data_csv_path = source
   settings.user_csv_path = backendFixture('user-access.csv')
-  expect((await request.post('/api/configuration', { headers, data: settings })).ok()).toBeTruthy()
+  expect((await postConfiguration(request, settings)).ok()).toBeTruthy()
 })
 test.afterEach(async ({ request }) => { await request.post('/api/configuration/reset', { headers }); rmSync(directory, { recursive: true, force: true }) })
 
@@ -72,7 +72,7 @@ for (const theme of ['dark', 'light']) for (const width of [1280, 800]) {
   test(`visual investigation surfaces ${theme} ${width}`, { tag: '@visual' }, async ({ page, request }, info) => {
     const settings = (await (await request.get('/api/configuration', { headers })).json()).settings
     settings.theme = theme
-    await request.post('/api/configuration', { headers, data: settings })
+    await postConfiguration(request, settings)
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/#session=browser-test-session')
     const shot = async (name: string) => {
@@ -80,8 +80,7 @@ for (const theme of ['dark', 'light']) for (const width of [1280, 800]) {
       const popup = page.locator('.combobox-popup'); if (await popup.count()) { const box = await popup.boundingBox(); expect(box!.x).toBeGreaterThanOrEqual(0); expect(box!.y).toBeGreaterThanOrEqual(0); expect(box!.x + box!.width).toBeLessThanOrEqual(width); expect(box!.y + box!.height).toBeLessThanOrEqual(900) }
       await page.screenshot({ path: info.outputPath(`${name}.png`), animations: 'disabled', fullPage: true })
     }
-    const nav = page.getByRole('navigation', { name: 'Main navigation' })
-    await nav.getByRole('link', { name: 'Role Lookup', exact: true }).click()
+    await goTo(page, 'Role Lookup')
     await expect(page.getByRole('button', { name: 'View details for Purchasing', exact: true })).toBeVisible()
     await shot('role-lookup')
     await page.getByRole('button', { name: 'View details for Purchasing', exact: true }).click()
@@ -93,13 +92,13 @@ for (const theme of ['dark', 'light']) for (const width of [1280, 800]) {
     await page.getByRole('button', { name: 'Compare now', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Back to roles', exact: false })).toBeVisible()
     await shot('role-comparison')
-    await nav.getByRole('link', { name: 'User Access', exact: true }).click()
+    await goTo(page, 'User Access')
     await expect(page.getByRole('link', { name: 'DEMO_ALFA', exact: true })).toBeVisible()
     await shot('user-access')
     await page.getByRole('link', { name: 'DEMO_ALFA', exact: true }).click()
     await expect(page.getByRole('region', { name: 'User details', exact: true })).toContainText('GROUP_A')
     await shot('user-details')
-    await nav.getByRole('link', { name: 'Release Roles', exact: true }).click()
+    await goTo(page, 'Release Roles')
     await page.getByRole('button',{name:'Table',exact:true}).click()
     await expect(page.getByRole('button', { name: 'Release role details', exact: true }).first()).toBeVisible()
     await openFilters(page)
@@ -219,7 +218,7 @@ for (const theme of ['dark', 'light']) test(`account evidence and keyboard compa
   settings.theme = theme
   settings.data_csv_path = path.join(directory, 'three-role-catalogue.csv')
   writeFileSync(settings.data_csv_path, 'FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,TCODE\nMM,ZC:MM:BUY:EN*,Purchasing,ZS:SHARED,ME23N\nFI,ZC:FI:VIEW:*,Accounting,ZS:SHARED,FB03\nSD,ZC:SD:VIEW:*,Sales,ZS:SHARED,VA03\nMM,ZC:MM:BUY:EN*,Purchasing,ZS:BUY,ME21N\n')
-  expect((await request.post('/api/configuration', { headers, data: settings })).ok()).toBeTruthy()
+  expect((await postConfiguration(request, settings)).ok()).toBeTruthy()
   await page.goto('/#session=browser-test-session')
   const nav = page.getByRole('navigation', { name: 'Main navigation' })
   await nav.getByRole('link', { name: 'User Access', exact: true }).click()

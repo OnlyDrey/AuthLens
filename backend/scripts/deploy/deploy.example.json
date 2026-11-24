@@ -1,0 +1,17 @@
+{
+  "Root": "C:\\ProgramData\\AuthLens",
+  "RepositoryPath": "C:\\Users\\example\\Git\\sap-lens",
+  "Remote": "origin",
+  "Branch": "experiment/dotnet-backend",
+  "ListenAddress": "192.0.2.10",
+  "Port": 18795,
+  "AllowedHosts": [
+    "lens.example.com",
+    "192.0.2.10"
+  ],
+  "TrustedProxies": [
+    "192.0.2.1"
+  ],
+  "ReadyTimeoutSeconds": 120,
+  "StopTimeoutSeconds": 90
+}
