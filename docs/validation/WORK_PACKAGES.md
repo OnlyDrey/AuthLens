@@ -8,11 +8,12 @@ work and actual test evidence; native Windows acceptance is listed separately an
 Status vocabulary: **Remaining implementation** · **Implemented and verified** (focused automated tests on this host passed) · **Awaiting native
 acceptance** (implemented; needs an installed service, SCM, SMB, elevation or an isolated machine) · **External blocker** · **Product-owner decision**.
 
-Environment of the 2026-11-24 Claude rounds: Windows 11 Pro developer workstation (not a server; no AuthLens service installed, no SMB shares, not
-elevated), .NET SDK 10.0.404, Node 24, Windows PowerShell 5.1 with Pester 5.9.1 (no PowerShell 7), Inno Setup 6 (compile probes only), Microsoft
-Edge and the repository-pinned Playwright Chromium (installed this round into the user cache with `npx playwright install chromium`). Python
-checks run in an isolated virtual environment outside the repository with `scripts/requirements-checks.txt` (PyYAML 6.0.3). Earlier rounds:
-Codex (installer, deployment, filters, accounts, checkpoint `dcbb38a`), Claude `68ee12b`, `e457ab6`.
+Environment of the 2026-11-24 Claude rounds: VM130 (`WINDOWS-VM`, Windows 11 Pro build 26300, WORKGROUP, 10.0.7.50), which also hosts the
+existing AuthLens 2.0.0-alpha.1 service (`NT SERVICE\AuthLens`, port 18795). Earlier wording called it a developer workstation without an
+AuthLens service; that was wrong. The sessions never installed, changed or stopped that service: they used temporary test drives, the
+isolated browser test host and read-only queries. .NET SDK 10.0.404, Node 24, Windows PowerShell 5.1 with Pester 5.9.1 (no PowerShell 7), Inno
+Setup 6, Microsoft Edge and the repository-pinned Playwright Chromium (user cache). Python checks ran in an isolated virtual environment outside
+the repository with `scripts/requirements-checks.txt`. Earlier rounds: Codex (installer, deployment, filters, accounts, checkpoint `dcbb38a`).
 
 Nothing was installed or changed machine-wide: no Windows Service, firewall rule, trusted root, registry key or system ACL. DASH1 was not touched.
 
@@ -79,13 +80,13 @@ post-installation network reconfiguration without automatic rollback (C9); a tra
 
 ### Release candidate
 
-**AuthLens 2.0.0 release candidate, NOT APPROVED** (native acceptance and FULL regression outstanding). Built on the development workstation with
+**AuthLens 2.0.0 release candidate, NOT APPROVED** (native acceptance and FULL regression outstanding). Built on VM130 with
 the canonical `build.ps1` (authorized release-candidate and installer build); nothing was installed, signed, tagged, uploaded or merged.
 
 | Item | Value |
 | --- | --- |
 | Source commit | `c780ff6d3f525d8589e3b64f29ffe99cdf4fa9fa` on `experiment/dotnet-backend` (clean; manifest `source_dirty: false`) |
-| Build directory | `<build root>\AuthLens-2.0.0-2026-11-24_1815-c780ff6` on the development workstation (outside the repository; binaries are not committed) |
+| Build directory | `C:\AuthLens\AuthLens-2.0.0-2026-11-24_1815-c780ff6` on VM130 (relocated from a user-profile root with before/after verification; binaries are not committed) |
 | Release folder | `build\AuthLens-2.0.0-20261124-181522-c780ff6-win-x64` (built `2026-11-24T18:15:22Z`, win-x64, .NET SDK 10.0.404, Node 24) |
 | Command | `.\build.ps1 -OutputRoot <build root> -TestFilter <focused>` |
 | Tests run by the build | Focused filter, recorded in `build-summary.json`: the deployment focused classes (`StartupTests`, `ApiTests`, `NetworkTests`, `ReverseProxyTests`, `SessionTests`, `AccountsTests`, `AccountCompatibilityTests`, `PersistenceTests`, `ApplicationBackupTests`, `LegacyRestoreTests`, `MaintenanceCommandsTests`, `V1CompatibilityTests`, `VersioningTests`, `V1DataMigrationTests`) plus `ServerSourcePolicyTests`, `DataSourcesTests`, `BackupCryptoTests`: **194 passed, 0 failed**. Not FULL |
@@ -192,7 +193,7 @@ gMSA/domain-account cases, and a lab certificate (and a second one without the c
 | --- | --- |
 | P0 release blockers (acceptance) | Native UNC/NTFS reads as the service identity; recovery-key service read under SCM; fresh install/upgrade/repair acceptance; encrypted cross-instance restore; certificate replacement under SCM |
 | Deferred by product decision | Dedicated domain account / gMSA provisioning (2.0.0 supports `NT SERVICE\AuthLens`; existing compatible identities preserved); historical organizational snapshot enrichment (provisionally 2.1.0) |
-| External blockers | SMB infrastructure, a domain and an isolated Windows Server VM are not available on the development workstation; native acceptance runs on the operator's VM ([runbook](WINDOWS_VM_ACCEPTANCE.md)) |
+| External blockers | SMB infrastructure, a domain and a second Windows VM are not available on VM130; native acceptance runs on the operator's VM ([runbook](WINDOWS_VM_ACCEPTANCE.md)) |
 | G-001 (P1) | Post-installation network configuration through Service Manager: implemented (Service Manager options 8/9, `-Action ChangeNetwork`), Pester-tested; native acceptance pending ([acceptance tracker](ACCEPTANCE_TRACKER.md#defects-and-gaps)) |
 | D-001 (P0), D-002 (P1) | Installed `Deploy-AuthLens.ps1` refused Setup configurations; Service Manager ignored custom data directories. Both corrected in implementation with Pester evidence on a Setup-shaped configuration and the installed tool layout; native acceptance pending |
 | P1 issues | Reviewer smoke on a server; restored-source reauthorization end to end; Linux host run of source tests |

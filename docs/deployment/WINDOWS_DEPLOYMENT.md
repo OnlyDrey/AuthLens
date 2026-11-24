@@ -1030,7 +1030,7 @@ The Server configuration must already specify the fixture root, private data/TLS
 legacy configuration or production service. Root security preparation does not create or replace certificates, keys or credentials.
 
 ```powershell
-$fixture = 'C:\AuthLens-Acceptance\installer-' + [guid]::NewGuid().ToString('N')
+$fixture = 'C:\AuthLens\server-test\installer-' + [guid]::NewGuid().ToString('N')
 $program = Join-Path $fixture 'desktop-program'
 $data = Join-Path $fixture 'desktop-data'
 $serverRoot = Join-Path $fixture 'server'
@@ -1065,7 +1065,7 @@ WebView2 acceptance remain pending until the operator records those results.
 ### 8. Server sources, recovery-key service access and Reviews (2.0.0 remediation)
 
 Run on a disposable installation from step 3, never on DASH1. Use synthetic CSVs (`backend/tests/AuthLens.Tests` fixtures or the CSV schemas)
-in a dedicated export folder such as `C:\AuthLens-Acceptance\sources` and, for UNC, a share on the same server
+in a dedicated export folder such as `C:\AuthLens\server-test\sources` and, for UNC, a share on the same server
 (`\\<host>\authlens-src`) and one on a second server. Grant the actual service identity (`NT SERVICE\AuthLens`, or for remote shares the
 computer account `DOMAIN\HOST$`; for custom/managed service accounts that account) **read** on the share and NTFS folder only. Record
 dataset counts/fingerprints and SoD period checksums before every failure step.

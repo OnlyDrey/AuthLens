@@ -22,7 +22,8 @@
   never overwritten. Nothing is installed, started or changed on this machine.
 
 .EXAMPLE
-  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.ps1 -Output C:\AuthLens-Acceptance\builds
+  # Candidates and releases use the root-level build.ps1 (output root C:\AuthLens), which runs this script; direct use is for diagnostics only.
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-release.ps1 -Output C:\AuthLens\diagnostics
 #>
 param(
     [string]$Output = '',

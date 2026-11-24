@@ -2,7 +2,7 @@
 
 **Status: procedure ready; not executed.** This is the ordered, operator-executed acceptance for a release candidate on a **disposable Windows
 VM**. Nothing here has been run natively by the development agent. Results recorded here are the only acceptance evidence; static checks, Pester
-with mocks, installer compilation and browser tests on the development workstation are not acceptance. The candidate stays **NOT APPROVED** until
+with mocks, installer compilation and browser tests are not acceptance, even when they run on the VM. The candidate stays **NOT APPROVED** until
 every mandatory scenario passes and the final regression ([§J](#j-final-regression-and-release-sequence)) is approved and green.
 
 Detailed background for each step is in [Windows deployment](../deployment/WINDOWS_DEPLOYMENT.md) (§8 items 8.1 to 8.14), [backup and
@@ -57,6 +57,12 @@ The runbook targets the **replacement candidate** recorded in the [acceptance tr
 network change). Do not run this runbook against the superseded first candidate.
 
 ### A1. Candidate integrity (mandatory)
+
+A candidate built by the canonical `build.ps1` has `build-summary.json` (identity, test filter, verification flags, relative artifact hashes).
+A candidate produced by calling `build-release.ps1` and `build-installers.ps1` directly (RC3-VM130) has none; its integrity rests on the release
+manifest, both `verify-release.ps1` copies, `SHA256SUMS`, `installers-SHA256SUMS`, `installer-manifest.json`, `installer-tools.json` and the
+recorded hashes, and `Test-AuthLensUpgradeReadiness.ps1` cannot be used for it (use the packaged `-Operation Upgrade -PreflightOnly`). Operator
+batches run as one unit; a `STOP-INTEGRITY` line ends the batch before any relocation or test.
 
 | | |
 | --- | --- |

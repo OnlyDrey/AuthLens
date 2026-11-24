@@ -4,7 +4,8 @@
 
 .DESCRIPTION
   Not a production deployment mechanism. The script:
-  1. Selects the newest complete release under -BuildsRoot (a folder written by build-release.ps1: build-manifest.json plus server\ with the
+  1. Selects the newest complete release under -BuildsRoot (default C:\AuthLens, the canonical build.ps1 output root: each run directory's
+     build\<release folder>; release folders directly under -BuildsRoot are also recognized. A release has build-manifest.json plus server\ with the
      single-file AuthLens.Api.exe and e_sqlite3.dll; earlier folder-publish releases with manifest.json and server-win-x64\ are still recognized),
      or the release given with -ReleasePath (a release folder, its server folder, or a plain publish folder).
   2. Validates the configuration before anything starts: the listen address is an IP assigned to this machine (not loopback or all interfaces),
@@ -19,14 +20,14 @@
 
   Environment-specific values (listen address, port, host names, trusted proxies, paths) are never built in: put them in a local JSON file that is
   not committed (start-server-test.local.json, git-ignored; copy start-server-test.example.json) or pass them as parameters. Lookup order for the
-  file: -ConfigFile, $env:AUTHLENS_TEST_CONFIG, C:\AuthLens-Acceptance\start-server-test.local.json, then
+  file: -ConfigFile, $env:AUTHLENS_TEST_CONFIG, C:\AuthLens\server-test\start-server-test.local.json, then
   start-server-test.local.json next to this script.
   An explicit parameter always wins over the file. The file holds no secrets: the certificate password stays in its own protected file.
 
 .EXAMPLE
   .\start-server-test.ps1 -DryRun
 .EXAMPLE
-  .\start-server-test.ps1 -ListenAddress 192.0.2.10 -Port 18791 -DataDirectory C:\AuthLens-Acceptance\server-test   # reserved example values
+  .\start-server-test.ps1 -ListenAddress 192.0.2.10 -Port 18791 -DataDirectory C:\AuthLens\server-test\data   # reserved example values
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File .\start-server-test.ps1 -Background     # detached; logs and PID file in -LogDirectory
   powershell -NoProfile -ExecutionPolicy Bypass -File .\start-server-test.ps1 -Stop           # stops the process recorded in the PID file
@@ -38,19 +39,21 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$BuildsRoot = 'C:\AuthLens-Acceptance\builds',
+    # Canonical build output root (build.ps1 run directories). Test runtime state lives under C:\AuthLens\server-test, never inside a run directory,
+    # a release folder or the installed application (C:\ProgramData\AuthLens). Every path can be overridden explicitly.
+    [string]$BuildsRoot = 'C:\AuthLens',
     [string]$ReleasePath = '',
     [string]$ListenAddress = '',
     [int]$Port = 18790,
     [string[]]$AllowedHosts = @(),
     [string[]]$TrustedProxies = @(),
-    [string]$DataDirectory = 'C:\AuthLens-Acceptance\server-test',
-    [string]$CertificatePath = 'C:\AuthLens-Acceptance\tls\server.pfx',
-    [string]$CertificatePasswordFile = 'C:\AuthLens-Acceptance\tls\cert-password',
+    [string]$DataDirectory = 'C:\AuthLens\server-test\data',
+    [string]$CertificatePath = 'C:\AuthLens\server-test\tls\server.pfx',
+    [string]$CertificatePasswordFile = 'C:\AuthLens\server-test\tls\cert-password',
     [switch]$DryRun,
     [switch]$Background,
     [switch]$Stop,
-    [string]$LogDirectory = 'C:\AuthLens-Acceptance\logs',
+    [string]$LogDirectory = 'C:\AuthLens\server-test\logs',
     [int]$ReadyTimeoutSeconds = 60,
     [string]$ConfigFile = ''
 )
@@ -105,8 +108,13 @@ function Resolve-ServerRelease {
         if ($candidate.Missing.Count -gt 0) { throw "Release '$full' is not a complete Server release; missing in $($candidate.Server): $($candidate.Missing -join ', ')." }
         return @{ Release = $candidate.Release; Server = $candidate.Server; Executable = (Join-Path $candidate.Server $script:ServerExecutable); Manifest = $candidate.Manifest; Layout = $candidate.Layout }
     }
-    if (-not (Test-Path -LiteralPath $BuildsRoot -PathType Container)) { throw "Builds folder '$BuildsRoot' does not exist. Build a release with build-release.ps1 -Output $BuildsRoot, or pass -ReleasePath." }
-    $candidates = foreach ($folder in Get-ChildItem -LiteralPath $BuildsRoot -Directory) {
+    if (-not (Test-Path -LiteralPath $BuildsRoot -PathType Container)) { throw "Builds folder '$BuildsRoot' does not exist. Build a release with build.ps1 -OutputRoot $BuildsRoot, or pass -ReleasePath." }
+    # Canonical run directories (build.ps1) hold their release folder under build\; a release folder directly under the root is also accepted.
+    $folders = foreach ($entry in Get-ChildItem -LiteralPath $BuildsRoot -Directory) {
+        $runBuild = Join-Path $entry.FullName 'build'
+        if (Test-Path -LiteralPath $runBuild -PathType Container) { Get-ChildItem -LiteralPath $runBuild -Directory } else { $entry }
+    }
+    $candidates = foreach ($folder in $folders) {
         $candidate = Get-ReleaseCandidate $folder.FullName
         if (-not $candidate) { Write-Verbose "Skipping $($folder.Name): no server folder"; continue }
         # The manifest is written last: an interrupted build has none.
@@ -268,7 +276,7 @@ function Start-BackgroundServer {
 function Invoke-ServerTestLauncher {
     param([string]$BuildsRoot, [string]$ReleasePath, [string]$ListenAddress, [int]$Port, [string[]]$AllowedHosts, [string]$DataDirectory,
           [string]$CertificatePath, [string]$CertificatePasswordFile, [switch]$DryRun, [string[]]$TrustedProxies = @(),
-          [switch]$Background, [switch]$Stop, [string]$LogDirectory = 'C:\AuthLens-Acceptance\logs', [int]$ReadyTimeoutSeconds = 60)
+          [switch]$Background, [switch]$Stop, [string]$LogDirectory = 'C:\AuthLens\server-test\logs', [int]$ReadyTimeoutSeconds = 60)
     if ($Stop) {
         try { return Stop-RecordedServer $LogDirectory } catch { [Console]::Error.WriteLine("start-server-test: $($_.Exception.Message)"); return 2 }
     }
@@ -313,7 +321,7 @@ $script:ConfigKeys = @('BuildsRoot', 'ReleasePath', 'ListenAddress', 'Port', 'Al
 
 function Find-LocalConfig([string]$ConfigFile) {
     if ($ConfigFile) { if (-not (Test-Path -LiteralPath $ConfigFile -PathType Leaf)) { throw "Configuration file '$ConfigFile' does not exist." }; return $ConfigFile }
-    foreach ($candidate in @($env:AUTHLENS_TEST_CONFIG, 'C:\AuthLens-Acceptance\start-server-test.local.json', (Join-Path $PSScriptRoot 'start-server-test.local.json'))) {
+    foreach ($candidate in @($env:AUTHLENS_TEST_CONFIG, 'C:\AuthLens\server-test\start-server-test.local.json', (Join-Path $PSScriptRoot 'start-server-test.local.json'))) {
         if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { return $candidate }
     }
     $null

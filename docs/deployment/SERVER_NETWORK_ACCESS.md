@@ -105,9 +105,9 @@ the proxy connects using a different, certificate-valid internal IP/name.
 Example: public `https://lens.example.com`, upstream `https://192.168.10.20:18795`, verified connector peer `192.168.10.30`:
 
 ```powershell
-& .\AuthLens.Api.exe --data-dir C:\AuthLens-Acceptance\server\data --network --listen 192.168.10.20 --port 18795 `
+& .\AuthLens.Api.exe --data-dir C:\AuthLens\server-test\data --network --listen 192.168.10.20 --port 18795 `
   --allowed-hosts 192.168.10.20 --proxy-hosts lens.example.com --trusted-proxies 192.168.10.30 `
-  --cert C:\AuthLens-Acceptance\tls\server.pfx --cert-password-file C:\AuthLens-Acceptance\tls\cert-password
+  --cert C:\AuthLens\server-test\tls\server.pfx --cert-password-file C:\AuthLens\server-test\tls\cert-password
 ```
 
 For managed Windows deployment set `AllowedHosts`, `ProxyHosts` and `TrustedProxies` in explicit deployment JSON. The test launcher supports

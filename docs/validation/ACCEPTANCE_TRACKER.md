@@ -15,7 +15,7 @@ Built on VM130 itself from `19a1113`; see the [RC3-VM130 build record](#rc3-vm13
 
 ### RC2 (superseded for VM130 acceptance; artifacts preserved)
 
-Built on the development workstation from the correction commit for D-001, D-002 and G-001 (`af744c9`); see the
+Built on VM130 by the agent session from the correction commit for D-001, D-002 and G-001 (`af744c9`); see the
 [RC2 build record](#rc2-build-record). Same product source as RC3-VM130 (see reconciliation) but a different artifact identity; no acceptance
 was run on it.
 
@@ -37,7 +37,7 @@ Not used for acceptance: D-001 affected too many installed administration and re
 | Item | Value |
 | --- | --- |
 | Source commit | `af744c9f807a7191213b75cec86ba34c6eb1f3f5` on `experiment/dotnet-backend` (manifest `source_dirty: false`) |
-| Build directory | `<build root>\AuthLens-2.0.0-2026-11-24_1926-af744c9` on the development workstation (separate from RC1; not committed) |
+| Build directory | `C:\AuthLens\AuthLens-2.0.0-2026-11-24_1926-af744c9` on VM130 (relocated 2026-11-24 from a user-profile root; 32 build-summary artifacts and `verify-release.ps1` verified before and after; not committed) |
 | Release folder | `build\AuthLens-2.0.0-20261124-192657-af744c9-win-x64`, built `2026-11-24T19:26:57Z`, win-x64 |
 | Command | `.\build.ps1 -OutputRoot <RC2 build root> -TestFilter <focused>` (canonical build; installers built by it) |
 | Tests run by the build | Same focused filter as RC1 (deployment focused classes plus `ServerSourcePolicyTests`, `DataSourcesTests`, `BackupCryptoTests`): **194 passed, 0 failed**. Not FULL |
@@ -56,15 +56,20 @@ Not used for acceptance: D-001 affected too many installed administration and re
 
 ### RC3-VM130 build record
 
-Reported by the operator from the VM130 build; the canonical location and the hashes are re-verified by the operator in Stage 1 batch 1
-(A1) before any test. Lower-case hashes below equal the operator-reported upper-case values.
+Reported by the operator from the VM130 build. The release and installers were produced by `build-release.ps1` and `build-installers.ps1`
+invoked directly, not by `build.ps1`, so the run directory has **no `build-summary.json`** (not fabricated). Lower-case hashes below equal the
+operator-reported upper-case values. Integrity evidence for this candidate: release manifest identity, the packaged and repository
+`verify-release.ps1`, `SHA256SUMS`, `installers-SHA256SUMS`, `installer-manifest.json`, the `installer-tools.json` helper hashes and the five
+recorded hashes.
 
 | Item | Value |
 | --- | --- |
 | Source commit | `19a1113adffe780630b52edba8f1ee8dc70bc110` on `experiment/dotnet-backend` |
-| Build | On VM130 with the canonical `build.ps1 -TestFilter (Get-ALTestFilter focused)`; UTC `2026-11-24T20:21:17.2986796Z`; win-x64; .NET SDK 10.0.404; Node.js 24.22.3 |
+| Build | On VM130 with `build-release.ps1 -TestFilter (Get-ALTestFilter focused)` and `build-installers.ps1` (lower-level scripts; deviation from the `build.ps1` standard); UTC `2026-11-24T20:21:17.2986796Z`; win-x64; .NET SDK 10.0.404; Node.js 24.22.3 |
 | Original output path | `C:\AuthLens-Acceptance\RC2-20261124-212116-19a1113` (non-canonical root and name; local time UTC+1) |
-| Canonical path | `C:\AuthLens\AuthLens-2.0.0-2026-11-24_2021-19a1113` (the name `build.ps1` derives from this identity). Relocation: **pending operator confirmation** (batch 1) |
+| Canonical path | `C:\AuthLens\AuthLens-2.0.0-2026-11-24_2021-19a1113` (the name `build.ps1` derives from the manifest identity), with `build\AuthLens-2.0.0-20261124-202117-19a1113-win-x64` and `installer\`. Already relocated by the operator; the original path no longer exists |
+| Pre-check (agent, read-only, 2026-11-24T20:45Z, on VM130) | Batch 1 section A in self-check mode: all five recorded artifacts, `installers-SHA256SUMS`, `installer-manifest.json`, the seven packaged helpers, packaged and repository `verify-release.ps1` (17 artifacts) and the helpers' equality with the repository at an unchanged commit verified. This validates the batch; A1 itself is recorded from the operator run |
+| Upgrade-readiness limitation | `Test-AuthLensUpgradeReadiness.ps1` requires `build-summary.json` (and a recovery report), which this manually orchestrated candidate lacks. Supported read-only substitute: the packaged `Install-AuthLens.ps1 -Mode Server -Operation Upgrade -PreflightOnly -Package <release>` plus the integrity checks above; the wrapper is not bypassed or fed fabricated metadata |
 | Tests run by the build | Standard focused filter: **151 passed, 0 failed, 0 skipped** |
 | Verification (operator-reported) | Secret scan 0 findings; release verification 17 artifacts; Server and Desktop publish, Server and Desktop installers passed; unsigned |
 
@@ -80,7 +85,7 @@ Reported by the operator from the VM130 build; the canonical location and the ha
 
 - `git diff af744c9 19a1113` changes only `docs/validation/ACCEPTANCE_TRACKER.md` and `docs/validation/WORK_PACKAGES.md`. Documentation is not a
   build input (the release `README.txt` comes from `backend/scripts/release-README.txt`, unchanged), so code, scripts, installer sources and
-  packaged helpers are identical. Artifact hashes differ because every artifact embeds the commit and build time and RC3 was built on another host.
+  packaged helpers are identical. Artifact hashes differ because every artifact embeds the commit and build time.
 - Test selection: RC1/RC2 used the standard focused classes **plus** `ServerSourcePolicyTests`, `DataSourcesTests` and `BackupCryptoTests`
   (194 = 151 + 43). RC3-VM130 used the standard `Get-ALTestFilter focused` (151). The 43 tests of those three classes passed on identical source
   (RC2 build on the workstation) but were not run for this artifact; batch 2 runs them natively on VM130 against the RC3 build outputs, together
@@ -88,18 +93,28 @@ Reported by the operator from the VM130 build; the canonical location and the ha
 - Operator note: the source-commit guard in an earlier manual PowerShell sequence reported a mismatch while later commands continued.
   Operator batches now run as one unit whose guards throw (AGENTS.md).
 
-### Build-root deviations (recorded, preserved)
+### Build-root deviations (corrected)
 
-RC1 (`<user profile>\AuthLens-RC\AuthLens-2.0.0-2026-11-24_1815-c780ff6`) and RC2 (`<user profile>\AuthLens-RC2\AuthLens-2.0.0-2026-11-24_1926-af744c9`)
-on the development workstation, and the original RC3 output under `C:\AuthLens-Acceptance`, used non-canonical roots. Their run-directory names
-follow the `build.ps1` convention except the original RC3 folder. They are preserved unchanged; relocation of the workstation candidates into
-`C:\AuthLens` needs approval. From now on only `C:\AuthLens` is used ([canonical Windows build](../deployment/WINDOWS_DEPLOYMENT.md#canonical-windows-build)).
+| Candidate | Original location | Canonical location | Verification |
+| --- | --- | --- | --- |
+| RC1 `c780ff6` | `<user profile>\AuthLens-RC\…` | `C:\AuthLens\AuthLens-2.0.0-2026-11-24_1815-c780ff6` | 32 build-summary artifacts and `verify-release.ps1` exit 0, before and after the move (agent, 2026-11-24) |
+| RC2 `af744c9` | `<user profile>\AuthLens-RC2\…` | `C:\AuthLens\AuthLens-2.0.0-2026-11-24_1926-af744c9` | Same, before and after |
+| RC3-VM130 `19a1113` | `C:\AuthLens-Acceptance\RC2-20261124-212116-19a1113` | `C:\AuthLens\AuthLens-2.0.0-2026-11-24_2021-19a1113` | Moved by the operator; integrity re-verified by batch 1 |
+
+An earlier run `C:\AuthLens\AuthLens-2.0.0-2026-11-24_0948-8ec7f77` (another session) is preserved untouched. From now on only `C:\AuthLens` is
+used ([canonical Windows build](../deployment/WINDOWS_DEPLOYMENT.md#canonical-windows-build)).
+
+**Environment correction.** The machine described in earlier reports as the "development workstation" is VM130 itself (`WINDOWS-VM`,
+10.0.7.50, WORKGROUP) with the existing AuthLens 2.0.0-alpha.1 service running as `NT SERVICE\AuthLens` on port 18795. Earlier statements that
+no AuthLens service existed on that host were wrong. The agent sessions did not install, stop, reconfigure or change that service, its
+configuration, data, keys or firewall rules: their test runs used temporary Pester drives, the isolated browser test host on 127.0.0.1:18745,
+and read-only service queries.
 
 ## Test environment
 
 | Item | Value |
 | --- | --- |
-| VM | VM130: Windows 11 Pro build 26300, WORKGROUP (not domain-joined), IPv4 10.0.7.50 (operator-reported; confirmed by batch 1) |
+| VM | VM130 (`WINDOWS-VM`): Windows 11 Pro build 26300, WORKGROUP (not domain-joined), IPv4 10.0.7.50 (confirmed read-only by the agent; recorded again by batch 1). Repository `C:\Users\<operator>\Git\AuthLens` |
 | Existing state | AuthLens 2.0.0-alpha.1 installed as a service with application data; port 18795 in use by it. Preserve its backups, keys and data |
 | Snapshot names | _to be recorded_ |
 | Operator | _to be recorded_ |
