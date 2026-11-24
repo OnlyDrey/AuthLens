@@ -56,38 +56,67 @@ public static class ServerSourceAuthorization
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         var root = Path.GetDirectoryName(Path.GetFullPath(host.DataDirectory).TrimEnd(Path.DirectorySeparatorChar))!;
         if (path.StartsWith(Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar, comparison)) throw new SourcePolicyException();
+        CheckNetworkSyntax(path); // lexical UNC rules are enforced before anything is stored
         lock (Gate)
         {
             var doc = Read(host);
-            var directory = DirectoryPath(host);
-            if (!Directory.Exists(directory))
-            {
-                if (OperatingSystem.IsWindows())
-                {
-                    var security = new DirectorySecurity(); security.SetAccessRuleProtection(true, false);
-                    foreach (var sid in new[] { WindowsIdentity.GetCurrent().User!, new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null) })
-                        security.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
-                    new DirectoryInfo(directory).Create(security);
-                }
-                else Directory.CreateDirectory(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            }
-            NoLinks(directory);
             doc.Files[source] = path;
-            var payload = JsonSerializer.Serialize(doc);
-            var temporary = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".tmp");
-            try
-            {
-                File.WriteAllText(temporary, JsonSerializer.Serialize(new Envelope(payload, Convert.ToHexStringLower(Sign(host, payload)))));
-                File.Move(temporary, Path.Combine(directory, "authority.json"), true);
-            }
-            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+            Write(host, doc);
         }
     }
-    public static void CheckNetworkTarget(string path)
+    /// <summary>The exact authorized path for one source, or null. Reads only the protected authority file, never the source location.</summary>
+    public static string? Approved(HostSettings host, string source)
+    {
+        lock (Gate) return Read(host).Files.TryGetValue(source, out var approved) ? approved : null;
+    }
+    /// <summary>Removes one source's exact authority. Configured paths, modes and durable snapshots are untouched; later live reads fail closed.</summary>
+    public static bool Revoke(HostSettings host, string source)
+    {
+        if (!V1DataSources.Names.ContainsKey(source)) throw new SourcePolicyException();
+        lock (Gate)
+        {
+            var doc = Read(host);
+            if (!doc.Files.Remove(source)) return false;
+            Write(host, doc);
+            return true;
+        }
+    }
+    private static void Write(HostSettings host, Document doc)
+    {
+        var directory = DirectoryPath(host);
+        if (!Directory.Exists(directory))
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                var security = new DirectorySecurity(); security.SetAccessRuleProtection(true, false);
+                foreach (var sid in new[] { WindowsIdentity.GetCurrent().User!, new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null) })
+                    security.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+                new DirectoryInfo(directory).Create(security);
+            }
+            else Directory.CreateDirectory(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        NoLinks(directory);
+        var payload = JsonSerializer.Serialize(doc);
+        var temporary = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            File.WriteAllText(temporary, JsonSerializer.Serialize(new Envelope(payload, Convert.ToHexStringLower(Sign(host, payload)))));
+            File.Move(temporary, Path.Combine(directory, "authority.json"), true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+    /// <summary>Lexical UNC rules only (no DNS, no SMB): server and share named, no administrative `$` share, no WebDAV `@` host.</summary>
+    public static void CheckNetworkSyntax(string path)
     {
         if (!OperatingSystem.IsWindows() || !path.StartsWith(@"\\", StringComparison.Ordinal)) return;
         var parts = path[2..].Split('\\');
         if (parts.Length < 3 || parts[0].Length == 0 || parts[1].Length == 0 || parts[1].EndsWith('$') || parts[0].Contains('@')) throw new SourcePolicyException();
+    }
+    public static void CheckNetworkTarget(string path)
+    {
+        if (!OperatingSystem.IsWindows() || !path.StartsWith(@"\\", StringComparison.Ordinal)) return;
+        CheckNetworkSyntax(path);
+        var parts = path[2..].Split('\\');
         // No SMB request is issued to an unapproved/public target. Enterprise DNS and SMB signing/referral policy remain host responsibilities.
         var addresses = Dns.GetHostAddresses(parts[0]);
         if (addresses.Length == 0 || addresses.Any(a => !IPAddress.IsLoopback(a) && !NetworkPolicy.IsPrivate(a))) throw new SourcePolicyException();

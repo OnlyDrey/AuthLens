@@ -17,6 +17,48 @@ public sealed class BackupCryptoTests
     public void Scrypt_matches_rfc_7914(string password, string salt, int n, int r, int p, string expected) =>
         Assert.Equal(expected, Convert.ToHexStringLower(Scrypt.Derive(Encoding.ASCII.GetBytes(password), Encoding.ASCII.GetBytes(salt), n, r, p, 64)));
 
+    [Fact]
+    public void Key_status_distinguishes_configuration_states_without_exposing_material()
+    {
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable(BackupKeys.EnvironmentVariable))) return; // host-level override would mask the data-directory pointer
+        var root = Directory.CreateTempSubdirectory("authlens-key-status-").FullName;
+        try
+        {
+            var data = Directory.CreateDirectory(Path.Combine(root, "data")).FullName;
+            var keys = Directory.CreateDirectory(Path.Combine(root, "keys")).FullName;
+            var path = Path.Combine(keys, "host.key");
+            Assert.Equal("not_configured", (string)BackupKeys.Status(data)["state"]!);
+            Assert.False((bool)BackupKeys.Status(data)["configured"]!);
+            var created = BackupKeys.Create(path, data);
+            Assert.Equal("usable", (string)created["state"]!); Assert.True((bool)created["usable"]!); Assert.True((bool)created["escrow_pending"]!);
+            var material = File.ReadAllText(path).Trim();
+            Assert.DoesNotContain(material, created.ToJsonString()); Assert.DoesNotContain(path, created.ToJsonString());
+            if (OperatingSystem.IsWindows())
+            {
+                var info = new FileInfo(path); var security = info.GetAccessControl();
+                var deny = new System.Security.AccessControl.FileSystemAccessRule(System.Security.Principal.WindowsIdentity.GetCurrent().User!, System.Security.AccessControl.FileSystemRights.ReadData, System.Security.AccessControl.AccessControlType.Deny);
+                security.AddAccessRule(deny); info.SetAccessControl(security);
+                try { var status = BackupKeys.Status(data); Assert.Equal("inaccessible", (string)status["state"]!); Assert.True((bool)status["configured"]!); Assert.False((bool)status["escrow_verified"]!); }
+                finally { security.RemoveAccessRule(deny); info.SetAccessControl(security); }
+            }
+            else
+            {
+                File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.GroupRead);
+                Assert.Equal("unsafe_permissions", (string)BackupKeys.Status(data)["state"]!);
+                File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+            File.WriteAllText(path, "not-a-key\n");
+            Assert.Equal("invalid", (string)BackupKeys.Status(data)["state"]!);
+            File.Delete(path);
+            var missing = BackupKeys.Status(data);
+            Assert.Equal("missing", (string)missing["state"]!); Assert.True((bool)missing["configured"]!); Assert.False((bool)missing["usable"]!);
+            Assert.Contains("do not create a new key", (string)missing["action"]!);
+            File.WriteAllText(Path.Combine(data, "backup-key-location.json"), "{");
+            Assert.Equal("location_unreadable", (string)BackupKeys.Status(data)["state"]!);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static byte[] Seal(byte[] plain, string passphrase, byte[]? host)
     {
         using var output = new MemoryStream();

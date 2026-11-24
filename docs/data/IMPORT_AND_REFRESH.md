@@ -100,6 +100,16 @@ policy refusal and parser/schema errors retain the last validated snapshot. Sour
 attempt separately from the durable snapshot; it does not claim current reachability without a read.
 Refresh can use the saved source without disclosing its path back to the browser.
 
+**Authorization status and revocation.** `GET /api/server/sources/{source}` (administrator only, `no-store`) reports the configured path,
+mode and `authorization` without reading the source or contacting a share: `none`, `managed` (upload copy), `approved_root`, `exact`,
+`required` (configured but needs authorization on this host, for example after restore or revocation) or `invalid` (path refused, or the
+protected authority file is tampered/unreadable; fails closed). The Data Sources panel shows this status. **Revoke authorization**
+(`DELETE /api/server/sources/{source}/authorize`) removes only that source's exact authority: the configured path, mode and last valid
+snapshot are retained, and later validation or refresh is refused (`policy_prohibited`) until an administrator authorizes the file again.
+Lexical UNC rules (named server and share, no administrative `$` share, no `@` WebDAV host) are enforced when authorizing, before anything
+is stored; DNS private-address checks run before any SMB read. Authorization and revocation are logged under `AuthLens.Sources` with the actor.
+Opening the panel selects **Local server file** or **Network file (UNC)** when such a path is configured, otherwise **Browser upload**.
+
 #### Data-source compatibility matrix
 
 Comparison basis: historical Python implementation at `604f21e` (`deployment.source_path`,
@@ -115,6 +125,22 @@ Historical code was inspected only; no Python service or fixtures were added to 
 | Browser uploads | Static managed uploads | Static multipart upload and durable managed copy | Native deployed UI smoke test |
 | Restore / restart | Saved source and durable snapshot; host source-root policy | Saved settings persist; host approval is independent; failed reads retain snapshots | AuthLens alpha and supported SAP Lens backup acceptance on Windows |
 | Unavailable/invalid source | Retain last valid data | Categorized refresh failures and durable snapshot retained | Denied ACL, disconnected share and recovery under SCM |
+
+Source-type compatibility (all four sources share one policy and pipeline; status per combination):
+
+| Combination | Implemented | Verified (focused tests, Windows host, not as a service) | Native Windows Service acceptance |
+| --- | --- | --- | --- |
+| Browser upload, Static | Yes | `DataSourcesTests` upload cases | Pending |
+| Local absolute path, Static and Dynamic, exact authorization | Yes | `DataSourcesTests.Administrator_authorizes_validates_and_activates_exact_server_file` (8 cases: 4 sources × 2 modes; restart, missing file, snapshot retained) | Pending (service identity NTFS read) |
+| Local path in operator-approved root | Yes | `DataSourcesTests`, `ServerSourcePolicyTests` | Pending |
+| Revocation, `required`/`invalid` status | Yes | `DataSourcesTests.Revoked_server_authority_fails_closed_and_preserves_configuration_and_snapshot`, `ServerSourcePolicyTests` | Pending |
+| UNC lexical policy (`$` share, `@` host, missing share) | Yes | `ServerSourcePolicyTests` (Windows only) | Pending |
+| UNC same-server and remote SMB read, Static and Dynamic | Yes (shared code path) | Not verifiable without SMB shares | **Pending, release blocker** |
+| Validate before activation, hash-bound activation | Yes | `DataSourcesTests` (changed file refused) | Pending |
+| Individual and Global Refresh, failure retains snapshot | Yes | `DataSourcesTests` | Pending under SCM |
+| Unauthorized (non-administrator) API access | Yes | `V1Auth.Permission` assertions in `ServerSourcePolicyTests` | Pending reviewer smoke test |
+| Restore requires reauthorization, path/mode/snapshot kept | Yes (authority excluded from backups) | Status `required` covered by unit test; end-to-end restore not run | **Pending** |
+| Native Linux absolute paths | Yes (same code path) | Not run in this round (Windows host) | n/a |
 
 No supported source type is intentionally dropped. Native UNC/service identity, restored-source and SoD
 evidence acceptance are release blockers until executed; focused local tests do not establish those results.

@@ -32,7 +32,10 @@ export function SourceManager({source,draft,onMode,onActivated,onClear,onFeature
  const runtime=useQuery({queryKey:['runtime-capabilities'],queryFn:()=>apiRequest<{deployment_mode:string;browser_upload:boolean}>('/api/runtime'),staleTime:Infinity})
  const browser=!!runtime.data?.browser_upload
  const server=runtime.data?.deployment_mode==='server'
- const [sourceKind,setSourceKind]=useState<'upload'|'local'|'unc'>('upload')
+ // A configured server path opens on its own source type; managed upload copies (hash-prefixed names) and new sources open on Browser upload.
+ const configuredKind=():'upload'|'local'|'unc'=>savedPath.startsWith('\\\\')?'unc':savedPath&&!/^[a-f0-9]{32}-/.test(savedPath.split(/[\\/]/).pop()||'')?'local':'upload'
+ const [sourceKind,setSourceKind]=useState<'upload'|'local'|'unc'>(configuredKind)
+ useEffect(()=>{setSourceKind(configuredKind())},[source]) // eslint-disable-line react-hooks/exhaustive-deps
  const uploadInput=useRef<HTMLInputElement>(null)
  const lastAttempt=useRef(savedPath),mounted=useRef(true)
  const {loading,activateSource,importPhase,report}=useApplicationData(),evidence=useSourceEvidence(source)

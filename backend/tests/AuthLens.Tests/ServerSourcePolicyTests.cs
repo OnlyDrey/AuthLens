@@ -32,18 +32,43 @@ public sealed class ServerSourcePolicyTests : IDisposable
     public void Arbitrary_browser_paths_are_denied(string path) => Assert.Throws<SourcePolicyException>(() => ServerSourcePolicy.Resolve(Host(), path));
 
     [Fact]
+    public void Authority_folder_name_matches_the_deployment_module()
+    {
+        if (!OperatingSystem.IsWindows()) return; // the deployment module (Get-ALSourceAuthorityDirectory) is Windows-only
+        var host = new HostSettings { DataDirectory = @"C:\ProgramData\AuthLens\data", AccessToken = "unused" };
+        // Same literal is asserted in backend/scripts/tests/Server-SourceAuthority.Tests.ps1.
+        Assert.Equal(@"C:\ProgramData\AuthLens\.authlens-source-policy-b15afebcdec30441", ServerSourceAuthorization.DirectoryPath(host), ignoreCase: true);
+    }
+
+    [Fact]
     public void Exact_authority_is_source_bound_host_bound_and_tamper_evident()
     {
         var host = Host();
         var path = Path.Combine(Path.GetTempPath(), "enterprise-" + Guid.NewGuid().ToString("N") + ".csv");
+        Assert.Equal("required", ServerSourcePolicy.Authorization(host, "roles", path));
+        Assert.Equal("none", ServerSourcePolicy.Authorization(host, "roles", ""));
         ServerSourceAuthorization.Approve(host, "roles", path);
         Assert.True(ServerSourceAuthorization.Allows(host, "roles", path));
+        Assert.Equal("exact", ServerSourcePolicy.Authorization(host, "roles", path));
+        Assert.Equal(path, ServerSourceAuthorization.Approved(host, "roles"));
+        if (OperatingSystem.IsWindows())
+        {   // lexical refusal before anything is stored or any DNS/SMB request: administrative share, WebDAV host, missing share
+            Assert.Throws<SourcePolicyException>(() => ServerSourceAuthorization.Approve(host, "users", @"\\fileserver\c$\exports\users.csv"));
+            Assert.Throws<SourcePolicyException>(() => ServerSourceAuthorization.Approve(host, "users", @"\\fileserver@SSL\share\users.csv"));
+            Assert.Null(ServerSourceAuthorization.Approved(host, "users"));
+        }
+        Assert.True(ServerSourceAuthorization.Revoke(host, "roles"));
+        Assert.False(ServerSourceAuthorization.Revoke(host, "roles"));
+        Assert.Equal("required", ServerSourcePolicy.Authorization(host, "roles", path));
+        ServerSourceAuthorization.Approve(host, "roles", path);
         Assert.False(ServerSourceAuthorization.Allows(host, "users", path));
         Assert.False(ServerSourceAuthorization.Allows(host, "roles", path + ".csv"));
         Assert.Throws<SourcePolicyException>(() => ServerSourceAuthorization.Allows(Host(), "roles", path)); // different protected host token
         var policy = Path.Combine(ServerSourceAuthorization.DirectoryPath(host), "authority.json");
         File.WriteAllText(policy, "{\"Payload\":\"{}\",\"Signature\":\"00\"}");
         Assert.Throws<SourcePolicyException>(() => ServerSourceAuthorization.Allows(host, "roles", path));
+        Assert.Equal("invalid", ServerSourcePolicy.Authorization(host, "roles", path)); // tampered authority fails closed in status too
+        Assert.Equal("admin", V1Auth.Permission("DELETE", "/api/server/sources/roles/authorize"));
         Assert.Equal("admin", V1Auth.Permission("GET", "/api/server/sources/roles"));
         Assert.Equal("admin", V1Auth.Permission("POST", "/api/server/sources/roles/authorize"));
     }

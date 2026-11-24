@@ -17,7 +17,21 @@ public static partial class V1DataSources
             var settings = await store.GetAsync(ct);
             var path = (string?)settings[PathField[source]] ?? "";
             // Description never tests the filesystem or contacts a share.
-            return Results.Ok(new { path, mode = (string?)settings["source_modes"]?[source], configured = path.Length > 0, host = Environment.MachineName });
+            // authorization: none, managed, approved_root, exact, required (reauthorize: restored or revoked), invalid, not_applicable (Desktop).
+            return Results.Ok(new { path, mode = (string?)settings["source_modes"]?[source], configured = path.Length > 0, host = Environment.MachineName,
+                authorization = ServerSourcePolicy.Authorization(host, source, path), network = path.StartsWith(@"\\", StringComparison.Ordinal) });
+        });
+        api.MapDelete("/server/sources/{source}/authorize", (string source, HttpContext http, HostSettings host) =>
+        {
+            if (host.Mode != HostMode.Server || !Names.ContainsKey(source)) return Detail(422, "Unknown server source.");
+            try
+            {
+                var revoked = ServerSourceAuthorization.Revoke(host, source);
+                http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("AuthLens.Sources").LogInformation("Server source authority revoked for {Source} by {Actor}; configuration and snapshot retained", source, Actors.Name(http));
+                return Results.Ok(new { revoked, data_modified = false });
+            }
+            catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException)
+            { return Detail(400, V1Refresh.Category(error).Message); }
         });
         api.MapPost("/server/sources/{source}/authorize", async (string source, HttpContext http, HostSettings host, CancellationToken ct) =>
         {

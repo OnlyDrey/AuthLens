@@ -71,6 +71,13 @@ somewhere else and verified.
 
 - **Status and fingerprint:** Settings > Backup & Restore > Overview, or `AuthLens.Api --data-dir <dir> --backup-key status`. The fingerprint
   identifies the key; the key itself is never shown or returned by any API.
+- **Status states:** `state` is `not_configured`, `usable` (with `escrow_pending` until a recovery copy is verified), `inaccessible` (a key
+  is configured but this process identity cannot read it, for example a key created by an administrator and not granted to the service
+  identity), `missing` (configured file absent: restore it from the recovery copy, never create a new key), `invalid`, `unsafe_permissions`
+  (non-Windows group/other bits) or `location_unreadable`. `configured` is true whenever a location is configured; only `usable` permits
+  encryption, and backup gates still require `escrow_verified`. The status carries an operator `action` text and never the key or its path.
+  Implemented and covered by `BackupCryptoTests.Key_status_distinguishes_configuration_states_without_exposing_material` (including a native
+  Windows ACL deny); actual service-identity provisioning remains Windows acceptance.
 - **Initial provisioning:** `--backup-key create <file>` (a new private key file, then used) or `--backup-key use <file>` (an existing key).
   An existing key is never replaced by these commands.
 - **Recovery copy:** `--backup-key export <file>` writes a new private file only; then **verify** it (Overview > verify recovery copy, or

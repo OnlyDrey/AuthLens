@@ -36,10 +36,7 @@ public static class ServerSourcePolicy
     {
         if (host.Mode != HostMode.Server) return path;
         var full = Canonical(path);
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        var roots = host.SourceRoots.Prepend(Path.Combine(host.DataDirectory, "sources"));
-        if (!roots.Any(root => full.StartsWith(Path.EndsInDirectorySeparator(Path.GetFullPath(root)) ? Path.GetFullPath(root) : Path.GetFullPath(root) + Path.DirectorySeparatorChar, comparison))
-            && !ServerSourceAuthorization.Allows(host, source, full))
+        if (!InApprovedRoot(host, full) && !ServerSourceAuthorization.Allows(host, source, full))
             throw new SourcePolicyException();
         ServerSourceAuthorization.CheckNetworkTarget(full);
         // Check every ancestor, including the approved directory. Never follow junctions or symlinks.
@@ -50,6 +47,32 @@ public static class ServerSourcePolicy
             if ((attributes & FileAttributes.ReparsePoint) != 0) throw new SourcePolicyException();
         }
         return full;
+    }
+
+    /// <summary>Lexical containment in the managed upload folder or an operator-approved root, at a directory boundary. No filesystem access.</summary>
+    public static bool InApprovedRoot(HostSettings host, string full)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return host.SourceRoots.Prepend(Path.Combine(host.DataDirectory, "sources")).Any(root =>
+            full.StartsWith(Path.EndsInDirectorySeparator(Path.GetFullPath(root)) ? Path.GetFullPath(root) : Path.GetFullPath(root) + Path.DirectorySeparatorChar, comparison));
+    }
+
+    /// <summary>How a configured path is authorized, without touching the source location: not_applicable (Desktop), none, managed, approved_root,
+    /// exact, required (reauthorization needed, e.g. after restore or revocation) or invalid (path or authority refused).</summary>
+    public static string Authorization(HostSettings host, string? source, string path)
+    {
+        if (host.Mode != HostMode.Server) return "not_applicable";
+        if (string.IsNullOrWhiteSpace(path)) return "none";
+        try
+        {
+            var full = Canonical(path);
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            var managed = Path.GetFullPath(Path.Combine(host.DataDirectory, "sources"));
+            if (full.StartsWith(Path.TrimEndingDirectorySeparator(managed) + Path.DirectorySeparatorChar, comparison)) return "managed";
+            if (InApprovedRoot(host, full)) return "approved_root";
+            return ServerSourceAuthorization.Allows(host, source, full) ? "exact" : "required";
+        }
+        catch (Exception error) when (error is SourcePolicyException or IOException or UnauthorizedAccessException) { return "invalid"; }
     }
 }
 

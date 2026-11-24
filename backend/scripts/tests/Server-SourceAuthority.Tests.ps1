@@ -11,6 +11,10 @@ Describe 'Protected server source authority provisioning' {
         (Split-Path $one -Leaf)|Should -Match '^\.authlens-source-policy-[a-f0-9]{16}$'
         Test-Path -LiteralPath $one|Should -BeFalse
     }
+    It 'derives the same folder name as ServerSourceAuthorization.DirectoryPath' -Skip:([IO.Path]::DirectorySeparatorChar -ne '\') {
+        # Same literal is asserted in ServerSourcePolicyTests.Authority_folder_name_matches_the_deployment_module.
+        Get-ALSourceAuthorityDirectory ([pscustomobject]@{DataDirectory='C:\ProgramData\AuthLens\data'}) | Should -Be 'C:\PROGRAMDATA\AUTHLENS\.authlens-source-policy-b15afebcdec30441'
+    }
     It 'provisions only a private test folder and refuses unrelated principals' -Skip:([IO.Path]::DirectorySeparatorChar -ne '\') {
         $root=Join-Path $TestDrive 'private-fixture'
         New-Item -ItemType Directory -Path $root|Out-Null

@@ -16,8 +16,8 @@ test('all source panels require explicit server authority and complete validatio
   await page.route(/\/api\/server\/sources\/(roles|users|employees|sod)(\/authorize|\/validate)?$/,async route=>{
    const url=route.request().url()
    if(url.endsWith('/authorize')){expect(route.request().postDataJSON().approve_host_access).toBe(true);authorizations++;await route.fulfill({json:{authorized:true}})}
-   else if(url.endsWith('/validate')){validations++;await route.fulfill({json:{records:3,sha256:'a'.repeat(64),revision:configuration.revision,message:'Validated without activation.'}})}
-   else await route.fulfill({json:{path:'',host:'SYNTHETIC-HOST'}})
+   else if(url.endsWith('/validate')){validations++;await route.fulfill({json:{records:3,sha256:'a'.repeat(64),revision:route.request().postDataJSON().revision,message:'Validated without activation.'}})}
+   else await route.fulfill({json:{path:'',host:'SYNTHETIC-HOST',authorization:'none'}})
   })
   await page.goto('/#session=browser-test-session')
   await page.getByRole('button',{name:'Open settings',exact:true}).click()
