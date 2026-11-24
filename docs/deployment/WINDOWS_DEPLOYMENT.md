@@ -996,6 +996,28 @@ The publish acceptance tests now run the single-file Server smoke workflow on Wi
 
 ## Canonical Windows build
 
+### Installer reliability remediation: local readiness
+
+The `8ec7f77` fresh-install report exposed a deployment-probe defect: `Get-ALServiceArguments` correctly
+omitted `--network` for loopback, but `Invoke-ALConfiguredHttp` selected a corporate AllowedHosts value.
+The runtime intentionally accepts only loopback authorities without network access (`HostSettings.HostAllowed`
+and `RequestBoundary`); its HTTP 421 rejection is correct. Probes now use the loopback literal for local-only
+bindings and a configured allowed authority for a specific LAN binding. Unknown hosts remain rejected.
+Wildcard listeners are refused before probing, consistent with the runtime's specific-private-interface policy.
+
+The local probe now requires the exact configured TLS leaf certificate and current validity. A request-local
+CLR callback compares the received certificate bytes to the configured PFX's public certificate; the password
+stays in its protected file and the key is loaded ephemerally. No unrestricted certificate-validation callback,
+redirect, default credentials, system proxy or global certificate bypass is used. TLS 1.2 is selected for the
+synchronous probe and the prior PowerShell process protocol setting is restored afterward. This proves local
+backend certificate identity, not corporate DNS/client trust or external reachability. Those remain separate
+acceptance checks. Deterministic HTTP 400/401/403/404/421 and TLS trust failures stop readiness immediately;
+startup/503 conditions retain the bounded readiness wait. Listener PID, product version and full SHA checks remain.
+
+Focused PowerShell coverage exercises the reported local/corporate-host mismatch, LAN and IPv6 authorities,
+wildcard refusal, immediate policy failure and exact/changed/expired certificate identity. Native HTTPS and
+installer acceptance are pending; this change has not been applied to the live server or packaged in a new release.
+
 From a clean committed checkout, run `.\build.ps1`. Windows PowerShell 5.1 or PowerShell 7,
 Git, .NET SDK 10, Node 24/25, npm, Python 3 and Inno Setup 6 are required. Use `-Iscc <absolute ISCC.exe>` for a nonstandard installation.
 The entry point orchestrates the existing release builder, verifier, release secret scan and installer builder. It never installs software or

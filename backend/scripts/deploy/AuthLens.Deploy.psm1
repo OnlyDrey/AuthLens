@@ -310,28 +310,83 @@ function Set-ALLink([string]$Link, [string]$Target) {
     Rename-Item -LiteralPath $staging -NewName (Split-Path $Link -Leaf)
 }
 
-# A readiness and identity probe of the local listener. TLS verification is skipped for this local probe only (it sends no credentials and reads
-# two public documents); clients and the reverse proxy validate the certificate as before.
-function Invoke-ALHttp([string]$Url, [string]$HostHeader = '') {
+function Initialize-ALPinnedHttp {
+    if('AuthLensDeployment.PinnedHttp' -as [type]){return}
+    # A CLR callback avoids running PowerShell on a TLS worker thread. Validation is per request,
+    # never a process-wide certificate bypass. The exact configured leaf and validity are required.
+    Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Net;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
+namespace AuthLensDeployment {
+ public sealed class ProbeResponse {
+  public int Status; public string Body = ""; public string Error = "";
+ }
+ public static class PinnedHttp {
+  public static bool Matches(X509Certificate certificate, byte[] expected, DateTime now) {
+   if(certificate == null || expected == null || expected.Length == 0) return false;
+   using(var leaf = new X509Certificate2(certificate)) {
+    if(now < leaf.NotBefore.ToUniversalTime() || now > leaf.NotAfter.ToUniversalTime()) return false;
+    var actual = leaf.RawData;
+    if(actual.Length != expected.Length) return false;
+    for(int i=0;i<actual.Length;i++) if(actual[i] != expected[i]) return false;
+    return true;
+   }
+  }
+  public static ProbeResponse Get(string url, string authority, byte[] expected) {
+   var uri = new Uri(url);
+   if(uri.Scheme != "https" || expected == null || expected.Length == 0) throw new InvalidOperationException("Pinned HTTPS required.");
+   var request = (HttpWebRequest)WebRequest.Create(uri);
+   request.Host = authority; request.Proxy = null; request.AllowAutoRedirect = false;
+   request.Credentials = null; request.UseDefaultCredentials = false; request.KeepAlive = false;
+   request.Timeout = 10000; request.ReadWriteTimeout = 10000;
+   request.ServerCertificateValidationCallback = (sender, certificate, chain, errors) => Matches(certificate, expected, DateTime.UtcNow);
+   HttpWebResponse response = null;
+   try { response = (HttpWebResponse)request.GetResponse(); }
+   catch(WebException error) {
+    response = error.Response as HttpWebResponse;
+    if(response == null) return new ProbeResponse { Error = error.Status.ToString() };
+   }
+   using(response) using(var reader = new StreamReader(response.GetResponseStream())) {
+    var buffer = new char[1048577]; int count=0, next;
+    while(count < buffer.Length && (next=reader.Read(buffer,count,buffer.Length-count)) > 0) count+=next;
+    if(count == buffer.Length) return new ProbeResponse { Error = "ResponseTooLarge" };
+    return new ProbeResponse { Status=(int)response.StatusCode, Body=new string(buffer,0,count) };
+   }
+  }
+ }
+}
+'@
+}
+
+function Invoke-ALHttp([string]$Url, [string]$HostHeader = '',[string]$CertificatePath='',[string]$CertificatePasswordFile='') {
     $ErrorActionPreference = 'Continue'
-    $headers = @()
-    if ($HostHeader) { $headers = @('--header', "Host: $HostHeader") }
-    $body = & curl.exe --silent --show-error --insecure --noproxy '*' --max-time 10 @headers --write-out "`n%{http_code}" $Url 2>&1
-    $lines = @($body | ForEach-Object { "$_" })
-    [pscustomobject]@{ Status = [int]($lines[-1]); Body = (($lines | Select-Object -SkipLast 1) -join "`n") }
+    if(-not $CertificatePath -or -not $CertificatePasswordFile){Stop-AL 'Readiness requires the configured TLS certificate identity.'}
+    Initialize-ALPinnedHttp
+    $certificate=$null;$password=$null;$protocol=[Net.ServicePointManager]::SecurityProtocol
+    try{
+        $password=[IO.File]::ReadAllText($CertificatePasswordFile).TrimEnd("`r","`n")
+        $certificate=[Security.Cryptography.X509Certificates.X509Certificate2]::new($CertificatePath,$password,[Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
+        [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
+        [AuthLensDeployment.PinnedHttp]::Get($Url,$HostHeader,$certificate.RawData)
+    }catch{Stop-AL 'Pinned HTTPS probe failed; verify the configured certificate, password-file access and local TLS listener.' 1}
+    finally{[Net.ServicePointManager]::SecurityProtocol=$protocol;if($certificate){$certificate.Dispose()};$password=$null}
 }
 
 function Invoke-ALConfiguredHttp($Config, [string]$Path) {
     # Connect directly to the configured listener with an already allowed host.
     # Never change DNS, host/origin policy or proxy configuration for a probe.
-    $hostName = @($Config.AllowedHosts | Where-Object { $_ -and $_ -ne '*' }) | Select-Object -First 1
     $listenIp=$null
-    if(-not $hostName -and [Net.IPAddress]::TryParse($Config.ListenAddress,[ref]$listenIp) -and [Net.IPAddress]::IsLoopback($listenIp)){$hostName=$Config.ListenAddress}
+    if(-not [Net.IPAddress]::TryParse($Config.ListenAddress,[ref]$listenIp)){Stop-AL 'Probe listener must be an IP address.'}
+    if($listenIp.Equals([Net.IPAddress]::Any) -or $listenIp.Equals([Net.IPAddress]::IPv6Any)){Stop-AL 'Wildcard listeners are not supported by the current runtime; select a specific private interface.'}
+    $hostName=if([Net.IPAddress]::IsLoopback($listenIp)){$Config.ListenAddress}else{@($Config.AllowedHosts|Where-Object{$_ -and $_ -ne '*'})|Select-Object -First 1}
     if (-not $hostName) { Stop-AL 'A configured allowed host is required for health inspection.' }
     $address=$Config.ListenAddress
     if($address.Contains(':')){$address='['+$address+']'}
     if($hostName.Contains(':')){$hostName='['+$hostName+']'}
-    Invoke-ALHttp "https://${address}:$($Config.Port)$Path" "$hostName`:$($Config.Port)"
+    Invoke-ALHttp "https://${address}:$($Config.Port)$Path" "$hostName`:$($Config.Port)" $Config.CertificatePath $Config.CertificatePasswordFile
 }
 
 # ---- journal and lock
@@ -615,6 +670,7 @@ function Wait-ALReady($Config, [string]$Commit, [string]$Version) {
         $listeners = @(Get-ALListener $Config.ListenAddress ([int]$Config.Port))
         if ($service.State -eq 'Running' -and $service.ProcessId -gt 0 -and $listeners -contains $service.ProcessId) {
             $ready = Invoke-ALConfiguredHttp $Config '/health/ready'
+            if($ready.Status -in @(400,401,403,404,421) -or ($ready.PSObject.Properties['Error'] -and $ready.Error -in @('TrustFailure','SecureChannelFailure','ResponseTooLarge'))){Stop-AL "Permanent readiness policy/TLS failure (HTTP $($ready.Status)); review access mode, authority and certificate. No timeout retry is appropriate." 1}
             if ($ready.Status -eq 200) {
                 $identityResponse = Invoke-ALConfiguredHttp $Config '/product-version.json'
                 if ($identityResponse.Status -ne 200) { Stop-AL 'Release identity could not be verified.' 1 }
@@ -744,7 +800,7 @@ function Invoke-ALDeploy($Config, [string]$ReleaseFolder, [string]$Commit, [swit
         service_binary_before = $(if ($adopt) { $service.PathName } else { '' }); identity_before = $null
     }
     if ($service.State -eq 'Running') {
-        $identity = Invoke-ALHttp "https://$($Config.ListenAddress):$($Config.Port)/product-version.json"
+        $identity = Invoke-ALConfiguredHttp $Config '/product-version.json'
         if ($identity.Status -eq 200) { $journal.identity_before = $identity.Body | ConvertFrom-Json }
     }
     Write-ALLog ("deploying {0} {1} from {2}; service {3} ({4}); {5} pending migration(s)" -f $manifest.version, $Commit, $(if ($previous) { $previous } else { '(none)' }), $service.State, $service.Account, @($schema.pending).Count)
