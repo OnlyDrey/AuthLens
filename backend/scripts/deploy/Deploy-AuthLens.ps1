@@ -19,6 +19,8 @@
     Health          Readiness and identity of the running server.
     Build           Build, test and verify a commit and publish it under releases\ (no service change).
     InstallService  Creates (or with -Reconfigure updates) the AuthLens service from the configuration. Needs -Yes.
+    ChangeNetwork   Validates (-DryRun returns the change summary), applies and verifies access mode, listener, port, hosts and trusted proxies with
+                    automatic restoration on failure; an installer-owned firewall rule needs -ApproveFirewall/-FirewallSources or -RemoveFirewall.
     ReplaceCertificate  Validates (-DryRun stops here), imports and switches the installed service to a new PFX with pinned readiness;
                     a failure restores the previous certificate. Needs -CertificateFile, -CertificatePasswordFile and -Yes.
     Rollback        Returns to the previous release (or -ToRelease), only when it can open the current data. Needs -Yes.
@@ -44,7 +46,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Status', 'Health', 'Build', 'Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'AuditAcl', 'ProtectAcl', 'RestoreAcl')]
+    [ValidateSet('Status', 'Health', 'Build', 'Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'AuditAcl', 'ProtectAcl', 'RestoreAcl')]
     [string]$Action = 'Status',
     [string]$ConfigFile = '',
     [string]$Branch = '',
@@ -57,6 +59,17 @@ param(
     [string]$KeyFile = '',
     [string]$CertificateFile = '',
     [string]$CertificatePasswordFile = '',
+    # ChangeNetwork: only the settings given are changed.
+    [ValidateSet('', 'Local', 'Corporate', 'ReverseProxy')][string]$AccessMode = '',
+    [string]$ListenAddress = '',
+    [int]$Port = 0,
+    [string[]]$AllowedHosts,
+    [string[]]$ProxyHosts,
+    [string[]]$TrustedProxies,
+    [string]$FirewallSources = '',
+    [string]$FirewallProfiles = 'Domain',
+    [switch]$ApproveFirewall,
+    [switch]$RemoveFirewall,
     [string]$AclBackup = '',
     [string]$AclBackupRoot = '',
     [string[]]$ApprovedAclRoot = @(),
@@ -85,7 +98,7 @@ function Test-Elevated {
 
 try {
     if($RecoveryAction -ne 'Auto' -and $Action -ne 'Recover'){Stop-AL 'RecoveryAction requires Action Recover.'}
-    $changing = $Action -in @('Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ProtectAcl', 'RestoreAcl') -and -not $DryRun
+    $changing = $Action -in @('Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestoreAcl') -and -not $DryRun
     if ($changing -and -not $Yes) { Stop-AL "$Action changes the service or its permissions; repeat with -Yes after reviewing -Action Status or -Action AuditAcl (or -DryRun)." }
     $config = Read-AuthLensSettings $ConfigFile
     # NTFS audit (read-only) of the installation's private state, releases and configuration. Exit code 0 when no broad principal can read private
@@ -143,8 +156,23 @@ try {
         'InstallService' { Install-ALService $config -Reconfigure:$Reconfigure; Write-Result (Get-ALStatus $config) 0 }
         'Restore' { Write-Result (Invoke-ALRestore $config $Backup $KeyFile) 0 }
         'Rollback' { Write-Result (Invoke-ALRollback $config $ToRelease) 0 }
-        'Recover' { Write-Result (Invoke-ALRecover $config -RecoveryAction $RecoveryAction) 0 }
+        'Recover' {
+            # An interrupted configuration change (network or certificate) is restored first; deployment journals are recovered as before.
+            $restored = Invoke-ALConfigurationRecover $config
+            if ($restored) { Write-Result $restored 0 }
+            Write-Result (Invoke-ALRecover $config -RecoveryAction $RecoveryAction) 0
+        }
         'ReplaceCertificate' { Write-Result (Invoke-ALReplaceCertificate $config $CertificateFile $CertificatePasswordFile -DryRun:$DryRun) 0 }
+        'ChangeNetwork' {
+            $requested = @{}
+            if ($AccessMode) { $requested.AccessMode = $AccessMode }
+            if ($ListenAddress) { $requested.ListenAddress = $ListenAddress }
+            if ($Port) { $requested.Port = $Port }
+            if ($PSBoundParameters.ContainsKey('AllowedHosts')) { $requested.AllowedHosts = $AllowedHosts }
+            if ($PSBoundParameters.ContainsKey('ProxyHosts')) { $requested.ProxyHosts = $ProxyHosts }
+            if ($PSBoundParameters.ContainsKey('TrustedProxies')) { $requested.TrustedProxies = $TrustedProxies }
+            Write-Result (Invoke-ALNetworkChange $config $requested $FirewallSources $FirewallProfiles -ApproveFirewall:$ApproveFirewall -RemoveFirewall:$RemoveFirewall -DryRun:$DryRun) 0
+        }
         'ProtectAcl' {
             if (-not $ConfigFile) { Stop-AL 'ProtectAcl requires an explicit -ConfigFile.' }
             $backupRoot = if ($AclBackupRoot) { $AclBackupRoot } else { Join-AL $config.WorkRoot 'acl-backups' }

@@ -391,9 +391,58 @@ release manifest unchanged and obtain the actual VM connection before continuing
   TLS, the Host allow-list, Origin/CSRF checks and the trusted-proxy restriction are the server's own and unchanged by the deployment.
 - Processes: only the service is stopped, through the SCM. A port held by another process (for example `start-server-test.ps1`) is reported and left alone.
 
+### Installed and repository execution contexts
+
+`Read-AuthLensSettings` derives the execution context from the configuration: with `RepositoryPath` it is a **repository** deployment (a source
+checkout that may build from Git); without it, as Server Setup publishes it, an **installed (packaged)** Server. Every installed action works on
+a Setup-published configuration (`Status`, `Health`, `InstallService`, `ReplaceCertificate`, `ChangeNetwork`, `Restore`, `Rollback`, `Recover`,
+`Deploy -Release`); only actions that build from source (`Build`, `Deploy` without `-Release`) refuse with "builds from a source repository". No
+repository path is invented and administrators never edit the Setup configuration. `-Action Status` reports `execution_context`. (Before this
+correction, defect D-001, every `Deploy-AuthLens.ps1` action refused Setup configurations because `RepositoryPath` was mandatory.) Status:
+Pester-tested on a Setup-shaped configuration and on a copy of the installed tool layout run outside the repository
+(`Packaged-Runtime.Tests.ps1`); native acceptance pending.
+
+### Installed network configuration change
+
+Status: implemented; Pester-tested with the platform layer mocked (`Server-NetworkChange.Tests.ps1`); native SCM, listener and firewall acceptance
+pending (8.15).
+
+Supported workflow for administrators: Start menu **AuthLens Service Manager** (the copy in `<Root>\app\setup\<package>\payload\<package>`, which
+finds and hash-verifies the installed tools beside it), option **8** (network status) and **9** (change). The menu asks for each setting (empty keeps
+it), validates, shows the consolidated current-to-proposed summary and applies only after typing `YES`. The same as commands:
+
+```powershell
+$manager = 'C:\ProgramData\AuthLens\app\setup\<package>\payload\<package>\Service-Manager.ps1'
+& $manager -Action NetworkStatus
+& $manager -Action ChangeNetwork -AccessMode Corporate -ListenAddress 10.20.30.40 -AllowedHosts 'lens.example.org,10.20.30.40'          # validates and prints the summary only
+& $manager -Action ChangeNetwork -AccessMode Corporate -ListenAddress 10.20.30.40 -AllowedHosts 'lens.example.org,10.20.30.40' -ApproveFirewall -FirewallSources 10.20.0.0/16 -FirewallProfiles Domain -Yes
+# Underlying installed entry point (same validation and transaction):
+& '<Root>\app\setup\<package>\tools\deploy\Deploy-AuthLens.ps1' -Action ChangeNetwork -ConfigFile <Root>\config\deploy.json -Port 18796 -DryRun
+```
+
+Settings: access mode (Local, Corporate, ReverseProxy), listening IP, port, allowed hosts, public proxy hosts, trusted proxies (lists are
+comma-separated; `-` in Service Manager clears a list). Data directory, identity, paths and certificate are refused here (certificates use
+`ReplaceCertificate`). Validation before any change: the access-mode rules of Setup and the runtime (`Get-ALServerAccessPlan`: loopback for Local,
+private interface and explicit hosts for Corporate, backend hosts, public proxy hosts and explicit trusted peers for Reverse Proxy, no wildcard
+binding), host syntax (no wildcards, URLs or paths), the address must be assigned to this machine, the port free or held by the service itself, and
+the packaged host's read-only `--server-preflight` with the proposed arguments (the **existing certificate** must cover the new hosts or listen IP).
+An unchanged proposal is refused. An installer-owned firewall rule that would no longer match a moved listener requires an explicit decision
+(`-ApproveFirewall -FirewallSources … [-FirewallProfiles Domain]` or `-RemoveFirewall`); administrator-created rules are never touched.
+
+The change uses the same recorded transaction as certificate replacement: `configuration-pending.json` keeps the previous configuration bytes,
+hash and command line; only the changed settings are replaced in the configuration file; the service command line is rebuilt from it (one
+configuration source; no manual ImagePath edit); the service restarts and readiness, listener ownership (the service process holds the new
+listener) and the release identity are verified on the new listener with the pinned existing certificate. Any failure before that restores the
+previous configuration and command line, restarts on them and reports the original error. The firewall step runs after readiness through the
+existing owned-firewall transaction; if it fails the service stays ready on the new configuration and the result reports
+`firewall_recovery_required` (recover with `Install-AuthLens.ps1 -Mode Server -Operation Firewall …`). An interrupted change is restored by the next
+`ChangeNetwork` or `ReplaceCertificate`, or explicitly by `Deploy-AuthLens.ps1 -Action Recover`. `InstallService -Reconfigure` remains for repository
+deployments and expert recovery only.
+
 ### Installed certificate replacement
 
-Status: implemented; Pester-tested with the platform layer mocked (`Server-CertificateReplacement.Tests.ps1`); native SCM/TLS acceptance pending (8.13).
+Status: implemented; Pester-tested with the platform layer mocked (`Server-CertificateReplacement.Tests.ps1`, including a Setup-shaped
+configuration); native SCM/TLS acceptance pending (8.13).
 
 ```powershell
 # Elevated. -DryRun validates the new PFX with the packaged host and changes nothing.
@@ -404,17 +453,17 @@ Status: implemented; Pester-tested with the platform layer mocked (`Server-Certi
 One recorded transaction: it refuses an interrupted deployment, a service outside the managed release link, a different service identity and a
 service command line that differs from the configuration. The packaged host's read-only `--server-preflight` validates the new PFX against the
 **unchanged** listener, hosts and proxies (SANs, private key, validity, EKU, key size) before anything changes. The PFX and password file are then
-imported create-only into a new protected `Root\tls\renew-<id>` directory and validated again; `certificate-pending.json` (deployment state)
+imported create-only into a new protected `Root\tls\renew-<id>` directory and validated again; `configuration-pending.json` (deployment state)
 records the previous configuration bytes, their hash and the previous command line. The configuration's two certificate settings are replaced
 atomically, the service identity receives read on the new files (`Grant-ALAccess`), the service restarts with the new command line and readiness
 is pinned to the new certificate and the current release identity. Any failure restores the previous configuration and command line, restarts on
 the previous certificate and reports the original error. An interrupted run is restored by the next `ReplaceCertificate` before anything else; a
 record for another configuration or with a damaged hash is retained for manual recovery. Previous TLS files are never deleted. Network settings,
 access mode, firewall, identity, data, accounts and keys are not changed, and no trusted root is added: distributing the new certificate to clients
-remains an administrator decision. Changing the listener, hosts or access mode after installation is not part of this action (edit the reviewed
-configuration and use `-Action InstallService -Reconfigure` under change control).
+remains an administrator decision. Network settings change through [the network configuration change](#installed-network-configuration-change).
 
-`-Action Status` additionally reports `certificate_replacement_pending` (an interrupted replacement awaits restoration) and
+`-Action Status` additionally reports `execution_context`, the current network settings and certificate, `configuration_change_pending` (an
+interrupted network or certificate change awaits restoration) and
 `backup_key_service_access`: `not_configured`, `readable`, `not_readable` (no explicit Allow read for the configured service identity, or a Deny),
 `missing`, `identity_unresolved` or `unknown` (the key's DACL is not readable by this session; run elevated). It reads the key file's DACL only and
 never opens the key. Status: Pester-tested on synthetic files (`Server-Diagnostics.Tests.ps1`).
@@ -809,8 +858,11 @@ separate authorization for service removal. No automatic recursive data removal 
 ## Local Service Manager
 
 The release includes `Service-Manager.ps1` beside `server/`; the Server installer adds a local administration shortcut. It invokes the packaged
-server binary directly, needs no SDK, opens no listener and never controls the service. Select the exact data directory and executable explicitly
-when operating an older installation. Key export/provisioning stays local-only; no browser export endpoint exists.
+server binary directly, needs no SDK and opens no listener; only the network change restarts the service (through the installed deployment
+tools). Without `-DataDirectory` it resolves the installation from Setup's verified registration (`HKLM\Software\AuthLens\Server` `ConfigFile`,
+then its `DataDirectory` or `Root\data` and `ServiceName`), so custom roots and data directories are honored; previously the shortcut always used
+`C:\ProgramData\AuthLens\data` (defect D-002). Select the exact data directory and executable explicitly when operating an older installation.
+Network status and changes (options 8 and 9) need the Start-menu copy beside the installed tools. Key export/provisioning stays local-only; no browser export endpoint exists.
 
 ```powershell
 $manager='C:\ProgramData\AuthLens\releases\current\Service-Manager.ps1'
@@ -1034,9 +1086,10 @@ dataset counts/fingerprints and SoD period checksums before every failure step.
 | 8.12 | Filtering and evidence integrity | Filter by Functional Group, Manager and exact usernames on Dashboard, User Access, Reviews and a frozen period; open **Open in Reviews** | Same scope at destination; frozen period checksum (`/api/sod/periods/<id>`) unchanged | Checksums before/after |
 
 | 8.13 | Certificate replacement | `Deploy-AuthLens.ps1 -Action ReplaceCertificate … -DryRun`, then `-Yes`; repeat with a certificate lacking the configured host SAN | Dry run changes nothing; replacement restarts on the new certificate (pinned readiness); the invalid certificate is refused before any change; a forced readiness failure restores the previous certificate | `operation-result.json`, `icacls` of the new TLS folder, `certificate-pending.json` absent |
+| 8.15 | Network configuration change | Service Manager option 9 (or `-Action ChangeNetwork`): add an allowed host; change the port with a firewall decision; propose an address not on the machine and a host the certificate lacks; force a readiness failure (occupy the new port after validation) | Summary shown before `YES`; valid changes restart and answer on the new listener; invalid proposals refused before any change; readiness failure restores the previous configuration; `configuration_change_pending: false` | Service Manager output, `Status` JSON before/after, `Get-NetFirewallRule` |
 | 8.14 | Setup review and progress | Run the Server wizard (fresh and upgrade) to the Ready page and through installation | Ready page lists storage, access mode, listener, hosts, certificate, firewall, service name/identity and (fresh) the post-install steps; Installing page explains the running transaction | Screenshots |
 
-Failure in 8.3, 8.5, 8.8, 8.9, 8.10 or 8.13 is a release blocker. Recovery: restore the pre-step backup of the disposable instance; never edit the
+Failure in 8.3, 8.5, 8.8, 8.9, 8.10, 8.13 or 8.15 is a release blocker. Recovery: restore the pre-step backup of the disposable instance; never edit the
 authority file by hand (it is HMAC-bound to the host token and data path and fails closed when modified).
 
 ## Post-installation infrastructure verification

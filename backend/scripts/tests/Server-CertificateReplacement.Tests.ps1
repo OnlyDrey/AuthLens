@@ -14,7 +14,8 @@ Describe 'Installed Server certificate replacement' {
         $script:NewCert = Join-Path $script:Root 'source\renewed.pfx'; $script:NewPassword = Join-Path $script:Root 'source\renewed-password'
         foreach ($file in $script:OldCert, $script:OldPassword, $script:NewCert, $script:NewPassword) { Set-Content $file 'synthetic' -Encoding ASCII }
         $script:ConfigFile = Join-Path $script:Root 'config\deploy.json'
-        @{ Root = $script:Root; RepositoryPath = $script:Root; ListenAddress = '127.0.0.1'; Port = 18795; AccessMode = 'Local'; AllowedHosts = @('localhost')
+        # Setup-shaped configuration: no RepositoryPath (defect D-001 made every installed action refuse it).
+        @{ Root = $script:Root; ListenAddress = '127.0.0.1'; Port = 18795; AccessMode = 'Local'; AllowedHosts = @('localhost')
            CertificatePath = $script:OldCert; CertificatePasswordFile = $script:OldPassword; ReadyTimeoutSeconds = 5 } | ConvertTo-Json | Set-Content $script:ConfigFile -Encoding UTF8
         $script:OriginalBytes = [IO.File]::ReadAllBytes($script:ConfigFile)
         $script:Config = Read-AuthLensSettings $script:ConfigFile
@@ -40,7 +41,7 @@ Describe 'Installed Server certificate replacement' {
         Mock -ModuleName AuthLens.Deploy Start-ALService {}
         Mock -ModuleName AuthLens.Deploy Set-ALServiceBinary {}
         Mock -ModuleName AuthLens.Deploy Wait-ALReady { [pscustomobject]@{ process_id = 43 } }
-        $script:Pending = Join-Path $script:Root 'deployment\certificate-pending.json'
+        $script:Pending = Join-Path $script:Root 'deployment\configuration-pending.json'
     }
 
     It 'validates a dry run with the packaged host and changes nothing' {
@@ -95,7 +96,7 @@ Describe 'Installed Server certificate replacement' {
         Mock -ModuleName AuthLens.Deploy Set-ALServiceBinary { param($Name, $BinaryPath) $calls.Add($BinaryPath) }.GetNewClosure()
         $script:WaitCount = 0
         Mock -ModuleName AuthLens.Deploy Wait-ALReady { $script:WaitCount++; if ($script:WaitCount -eq 1) { Stop-AL 'Permanent readiness policy/TLS failure (HTTP 421)' 1 }; [pscustomobject]@{ process_id = 44 } }
-        { Invoke-ALReplaceCertificate $script:Config $script:NewCert $script:NewPassword } | Should -Throw '*previous certificate was restored*HTTP 421*'
+        { Invoke-ALReplaceCertificate $script:Config $script:NewCert $script:NewPassword } | Should -Throw '*certificate replacement failed and the previous configuration was restored*HTTP 421*'
         [IO.File]::ReadAllBytes($script:ConfigFile) | Should -Be $script:OriginalBytes
         $calls.Count | Should -Be 2
         $calls[1] | Should -Be $script:ServicePath
@@ -108,7 +109,7 @@ Describe 'Installed Server certificate replacement' {
         # Simulate an interruption after the configuration switched: the pending record and the new configuration remain.
         $first = $null
         Mock -ModuleName AuthLens.Deploy Start-ALService { throw 'host interrupted' }
-        Mock -ModuleName AuthLens.Deploy Restore-ALCertificateReplacement { throw 'interrupted before restoration' }
+        Mock -ModuleName AuthLens.Deploy Restore-ALConfigurationChange { throw 'interrupted before restoration' }
         { Invoke-ALReplaceCertificate $script:Config $script:NewCert $script:NewPassword } | Should -Throw '*interrupted before restoration*'
         Test-Path $script:Pending | Should -BeTrue
         (Read-AuthLensSettings $script:ConfigFile).CertificatePath | Should -BeLike '*renew-*'
