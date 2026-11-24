@@ -36,7 +36,7 @@ public static class V1Refresh
             if (path is null || path.Length is < 1 or > 4096)
                 return Results.Json(new { detail = new[] { new { type = "string_too_short", loc = new[] { "body", "data_csv_path" }, msg = "String should have at least 1 character" } } }, statusCode: 422);
             path = path.Trim();
-            try { path = ServerSourcePolicy.Resolve(host, path); }
+            try { path = ServerSourcePolicy.Resolve(host, path, "roles"); }
             catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException)
             { return Results.Json(new { detail = Category(error).Message }, statusCode: 400); }
             if (path.Length == 0 || path.Contains("://", StringComparison.Ordinal) || path.Contains('\0') || !Path.IsPathFullyQualified(path))
@@ -137,7 +137,7 @@ public static class V1Refresh
             active.TryGetValue(source, out var current);
             try
             {
-                path = ServerSourcePolicy.Resolve(services.GetRequiredService<HostSettings>(), path);
+                path = ServerSourcePolicy.Resolve(services.GetRequiredService<HostSettings>(), path, source);
                 var profile = V1DataSources.ActiveProfile(settings, source) ?? throw new DomainValidationException("The source import profile is invalid. Review its column mapping and format.");
                 // Fast path: the file's records equal the active revision; nothing is staged.
                 var (rows, hash) = await Task.Run(() => Read(source, path, profile, ct), ct);
@@ -252,6 +252,8 @@ public static class V1Refresh
     {
         switch (error)
         {
+            case SourceChangedException: return ("source_changed", "The CSV changed since validation. Validate the source again; previous data is retained.");
+            case System.Net.Sockets.SocketException: return ("network_unavailable", "The network source name could not be resolved. Check enterprise DNS and connectivity; previous data is retained.");
             case SourcePolicyException: return ("policy_prohibited", error.Message);
             case FileNotFoundException or DirectoryNotFoundException: return ("missing", "The configured CSV is missing. Reconnect the share or choose an existing file.");
             case UnauthorizedAccessException: return ("access_denied", "The CSV could not be read. Check file and network-share permissions.");

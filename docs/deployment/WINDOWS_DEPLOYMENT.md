@@ -1,5 +1,17 @@
 # Windows deployment: SSH-driven test server and installers
 
+Server CSV sources are configured by an administrator in **Settings → Data Sources**: browser upload,
+absolute local server file or UNC file, with explicit source authorization and full validation before
+activation. See the [source policy and compatibility matrix](../data/IMPORT_AND_REFRESH.md#server-source-policy-remediation-awaiting-windows-acceptance).
+Deployment creates a protected `.authlens-source-policy-<data-path-hash>` sibling of the data directory
+for the configured service identity. This authority is excluded from application backups and does not
+grant NTFS or SMB source access. For a domain-joined virtual service account, remote shares normally see
+the computer account; custom domain/service accounts need their own share and NTFS rights. AuthLens
+does not change identities, grant broad permissions or store share credentials. A fresh or restored host
+may require source reauthorization while retaining configured paths, modes and durable snapshots.
+Real local/UNC reads as a Windows Service, including managed service accounts supported by the host,
+remain required acceptance tests; administrator-console success is insufficient.
+
 Controlled installation, update, restore and rollback of AuthLens Server and Desktop. Use verified packages, dedicated storage, explicit
 configuration and protected recovery material. Native and external acceptance boundaries are in [current status](../validation/STATUS.md).
 

@@ -30,6 +30,7 @@ public static partial class V1DataSources
 
     public static void Map(RouteGroupBuilder api)
     {
+        MapServerSources(api);
         api.MapPost("/configuration", async (HttpContext http, V1Settings store, IDbContextFactory<AuthLensDb> factory, HostSettings host, CancellationToken ct) =>
         {
             var body = await JsonNode.ParseAsync(http.Request.Body, cancellationToken: ct) as JsonObject;
@@ -129,8 +130,8 @@ public static partial class V1DataSources
             if (body?["revision"] is not JsonValue rv || !rv.TryGetValue<int>(out var revision) || (string?)body["mode"] is not ("static" or "dynamic") || path is null)
                 return Detail(422, "path, revision and mode (static or dynamic) are required.");
             if (path.Length == 0) return Detail(400, "Choose a CSV file. Use Clear source data to remove a dataset intentionally.");
-            try { path = ServerSourcePolicy.Resolve(host, path); }
-            catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException)
+            try { path = ServerSourcePolicy.Resolve(host, path, source); }
+            catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException or System.Net.Sockets.SocketException)
             {
                 services.GetRequiredService<ILoggerFactory>().CreateLogger("AuthLens.Sources").LogWarning("Source selection refused for {Source}: {Category}", source, V1Refresh.Category(error).Category);
                 return Detail(400, V1Refresh.Category(error).Message);
@@ -138,7 +139,7 @@ public static partial class V1DataSources
             if (!Path.IsPathFullyQualified(path)) return Detail(400, "Choose an absolute CSV file path.");
             if (host.Mode != HostMode.Server && !File.Exists(path)) return Detail(400, "CSV file not found. Choose an existing file or reconnect the network share.");
             return await ActivateAsync(services, http, source, path, path, Path.GetFileName(path), (string)body["mode"]!, body["profile"] as JsonObject,
-                (bool?)body["confirm_anomalies"] ?? false, revision, ct);
+                (bool?)body["confirm_anomalies"] ?? false, revision, ct, (string?)body["validated_sha256"]);
         });
 
         api.MapPost("/server/uploads/{source}/activate", async (string source, HttpContext http, IServiceProvider services, DatabaseOptions database, CancellationToken ct) =>
@@ -193,7 +194,7 @@ public static partial class V1DataSources
     }
 
     internal static async Task<IResult> ActivateAsync(IServiceProvider services, HttpContext http, string source, string importPath, string recordedPath, string fileName,
-        string mode, JsonObject? requestedProfile, bool confirm, int revision, CancellationToken ct)
+        string mode, JsonObject? requestedProfile, bool confirm, int revision, CancellationToken ct, string? expectedHash = null)
     {
         var store = services.GetRequiredService<V1Settings>();
         var queue = services.GetRequiredService<JobQueue>();
@@ -222,9 +223,9 @@ public static partial class V1DataSources
             if (csvProfile is null) return Detail(400, "The source import profile is invalid. Review its column mapping and format.");
 
             Job finished;
-            try { finished = await RunImportJobAsync(services, source, importPath, fileName, csvProfile, ct, settings); }
+            try { finished = await RunImportJobAsync(services, source, importPath, fileName, csvProfile, ct, settings, expectedHash); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-            { return Detail(400, error is UnauthorizedAccessException ? "Cannot read the CSV. Check your account permissions and network-share access." : "CSV file not found. Choose an existing file or reconnect the network share."); }
+            { return Detail(400, V1Refresh.Category(error).Message); }
             if (finished.Status == JobStatus.Cancelled) return Detail(409, "Data load canceled. Previous data and settings were retained.");
             if (finished.Status != JobStatus.Completed) return Detail(400, finished.Error ?? "The CSV could not be imported. Previous data is retained.");
             await using var db = await factory.CreateDbContextAsync(ct);
@@ -369,14 +370,24 @@ public static partial class V1DataSources
         return new((bool?)checks?["enabled"] ?? true, (int?)checks?["max_drop_percent"] ?? 30, (int?)checks?["min_previous_records"] ?? 20);
     }
 
-    internal static async Task<Job> RunImportJobAsync(IServiceProvider services, string source, string importPath, string fileName, CsvProfile profile, CancellationToken ct, JsonObject? settings = null)
+    internal static async Task<Job> RunImportJobAsync(IServiceProvider services, string source, string importPath, string fileName, CsvProfile profile, CancellationToken ct, JsonObject? settings = null, string? expectedHash = null)
     {
         var queue = services.GetRequiredService<JobQueue>();
         var gate = services.GetRequiredService<DataLoadGate>();
         var uploads = Path.Combine(services.GetRequiredService<DatabaseOptions>().DataDirectory, "uploads");
         Directory.CreateDirectory(uploads);
         var working = Path.Combine(uploads, $"{Guid.NewGuid():N}.csv");
-        File.Copy(importPath, working);
+        try
+        {
+            File.Copy(importPath, working);
+            if (expectedHash is not null)
+            {
+                using var input = File.OpenRead(working);
+                var actual = Convert.ToHexStringLower(await SHA256.HashDataAsync(input, ct));
+                if (!string.Equals(actual, expectedHash, StringComparison.Ordinal)) throw new SourceChangedException();
+            }
+        }
+        catch { TryDelete(working); throw; }
         settings ??= await services.GetRequiredService<V1Settings>().GetAsync(ct);
         var job = await queue.EnqueueAsync(ImportService.JobKind, JsonSerializer.Serialize(new ImportPayload(source, working, fileName, profile, ImportPolicy(settings)), Sources.Json), null, ct);
         gate.CurrentJob = job.Id;

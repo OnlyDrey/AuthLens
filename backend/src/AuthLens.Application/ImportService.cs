@@ -122,14 +122,7 @@ public sealed class ImportService(WriteCoordinator writer, IDbContextFactory<Aut
 
         // Validation by construction: the staged records must build the domain model the API will serve.
         var current = await snapshots.GetAsync(ct);
-        HashSet<string>? newKeys = null;
-        switch (payload.Source)
-        {
-            case Sources.Roles: CatalogueBuilder.Build(staged); break;
-            case Sources.Users: newKeys = Sources.ReviewKeys(UserDirectoryBuilder.Build(staged, current.Catalogue)); break;
-            case Sources.Sod: SodSource.Build(staged, report.Warnings.Where(w => !w.StartsWith("Optional field ", StringComparison.Ordinal))); break;
-            case Sources.Employees: _ = new Domain.Directory.EmployeeDirectory(staged, payload.FileName, contentHash, ""); break;
-        }
+        var newKeys = ValidateModel(payload.Source, staged, report.Warnings, current, payload.FileName, contentHash);
 
         await using var read = await factory.CreateDbContextAsync(ct);
         var active = await read.Datasets.AsNoTracking().FirstOrDefaultAsync(d => d.Source == payload.Source && d.Status == DatasetStatus.Active, ct);
@@ -153,6 +146,21 @@ public sealed class ImportService(WriteCoordinator writer, IDbContextFactory<Aut
             if (held) { target.Status = DatasetStatus.Held; return; }
             await ActivateAsync(db, target, active?.Id, removed, c);
         });
+    }
+
+    /// <summary>Shared full-dataset validation for source testing and activation; never publishes or changes evidence.</summary>
+    public static HashSet<string>? ValidateModel(string source, IReadOnlyList<IReadOnlyDictionary<string, string>> records, IEnumerable<string> warnings, Snapshot current, string fileName, string hash)
+    {
+        if (records.Count == 0) throw new DomainValidationException("The CSV contains no usable records. Previous data is retained.");
+        switch (source)
+        {
+            case Sources.Roles: CatalogueBuilder.Build(records); break;
+            case Sources.Users: return Sources.ReviewKeys(UserDirectoryBuilder.Build(records, current.Catalogue));
+            case Sources.Sod: SodSource.Build(records, warnings.Where(w => !w.StartsWith("Optional field ", StringComparison.Ordinal))); break;
+            case Sources.Employees: _ = new Domain.Directory.EmployeeDirectory(records, fileName, hash, ""); break;
+            default: throw new DomainValidationException("Unknown import source.");
+        }
+        return null;
     }
 
     /// <summary>Activation inside the caller's write transaction. Refuses if another revision was activated after this one was evaluated.</summary>

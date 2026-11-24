@@ -16,6 +16,9 @@ import {SodSourceInspection} from './SodSourceInspection'
 import {SourceMode} from './SourceMode'
 import {SourceDetailsDialog,SourceHealthSummary,useSourceEvidence} from './SourceStatus'
 import {DirectoryPreview} from './DirectoryPreview'
+import {ServerFileSource} from './ServerFileSource'
+import {Select} from '@/components/Shared/Select'
+import {FormField} from '@/components/Shared/Controls'
 
 const names={roles:'Role Catalogue',users:'User Access',employees:'Employee Directory',sod:'SoD Matrix'}
 export function SourceManager({source,draft,onMode,onActivated,onClear,onFeatures,inputRef,onCandidate,candidatePath}:{
@@ -24,10 +27,12 @@ export function SourceManager({source,draft,onMode,onActivated,onClear,onFeature
 }) {
  const savedPath=source==='roles'?draft.data_csv_path:source==='users'?draft.user_csv_path:source==='sod'?draft.sod_csv_path||'':draft.employee_csv_path||''
  const [path,setPath]=useState(candidatePath??savedPath),[pending,setPending]=useState(false),[feedback,setFeedback]=useState(''),[error,setError]=useState('')
- const [held,setHeld]=useState<{detail:HeldImport;path:string;mode:'static'|'dynamic';file?:File}|null>(null)
+ const [held,setHeld]=useState<{detail:HeldImport;path:string;mode:'static'|'dynamic';file?:File;hash?:string}|null>(null)
  const [preview,setPreview]=useState(false),[technical,setTechnical]=useState(false),[changes,setChanges]=useState(false),[hint,setHint]=useState('')
  const runtime=useQuery({queryKey:['runtime-capabilities'],queryFn:()=>apiRequest<{deployment_mode:string;browser_upload:boolean}>('/api/runtime'),staleTime:Infinity})
  const browser=!!runtime.data?.browser_upload
+ const server=runtime.data?.deployment_mode==='server'
+ const [sourceKind,setSourceKind]=useState<'upload'|'local'|'unc'>('upload')
  const uploadInput=useRef<HTMLInputElement>(null)
  const lastAttempt=useRef(savedPath),mounted=useRef(true)
  const {loading,activateSource,importPhase,report}=useApplicationData(),evidence=useSourceEvidence(source)
@@ -36,17 +41,17 @@ export function SourceManager({source,draft,onMode,onActivated,onClear,onFeature
  const busy=pending||loading,mode=draft.source_modes?.[source]||(source==='employees'||source==='sod'?'static':'dynamic')
  useEffect(()=>{setPath(candidatePath??savedPath);lastAttempt.current=candidatePath??savedPath},[candidatePath,savedPath,source])
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false}},[])
- const activate=async(selected:string,selectedMode=mode,file?:File,confirm=false)=>{
+ const profile:ImportProfile|undefined=source==='roles'?draft.import_profiles.find(p=>p.id===draft.active_import):source==='users'?draft.user_import_profiles.find(p=>p.id===draft.active_user_import):source==='sod'?draft.sod_import:undefined
+ const activate=async(selected:string,selectedMode=mode,file?:File,confirm=false,validatedHash?:string)=>{
   const chosen=selected.trim();if(!chosen&&!evidence.source?.configured)return
   lastAttempt.current=chosen;setPath(chosen);onCandidate(chosen);setError('');setFeedback('');setPending(true)
-  const profile:ImportProfile|undefined=source==='roles'?draft.import_profiles.find(p=>p.id===draft.active_import):source==='users'?draft.user_import_profiles.find(p=>p.id===draft.active_user_import):source==='sod'?draft.sod_import:undefined
   try{
-   const result=await activateSource(source,{path:chosen,mode:selectedMode,revision:draft.revision,profile,...(!chosen?{use_configured_source:true}:{}),...(confirm?{confirm_anomalies:true}:{})},file)
+   const result=await activateSource(source,{path:chosen,mode:selectedMode,revision:draft.revision,profile,...(!chosen?{use_configured_source:true}:{}),...(confirm?{confirm_anomalies:true}:{}),...(validatedHash?{validated_sha256:validatedHash}:{})},file)
    setHeld(null)
    // The Settings owner remains mounted when source tabs change; rebase there.
    onActivated(result)
    if(mounted.current){const change=result.refresh.sources.find(row=>row.source===source);setFeedback(`Completed · ${result.records.toLocaleString()} source records from ${result.file_name||chosen.split(/[\\/]/).pop()} · ${change?.added||0} added, ${change?.removed||0} removed, ${change?.modified||0} modified.`)}
-  }catch(cause){const suspicious=heldImport(cause);if(suspicious&&mounted.current){setHeld({detail:suspicious,path:chosen,mode:selectedMode,file});return}
+  }catch(cause){const suspicious=heldImport(cause);if(suspicious&&mounted.current){setHeld({detail:suspicious,path:chosen,mode:selectedMode,file,hash:validatedHash});return}
    if(mounted.current){setError(cause instanceof Error?cause.message:'CSV activation failed.')}if(file)throw cause}  // the attempted path stays in the field for correction or column mapping; the configured file and its data are never replaced by a failed attempt
   finally{if(mounted.current)setPending(false)}
  }
@@ -56,7 +61,7 @@ export function SourceManager({source,draft,onMode,onActivated,onClear,onFeature
    else{(inputRef as RefObject<HTMLInputElement>|undefined)?.current?.focus();setHint('Enter the absolute path of a CSV file this application can read and press Enter; the current file stays active until it validates.')}
   }
  return <section className="settings-card space-y-3" aria-label={`${names[source]} source management`}>
-  {held&&<Dialog title="Confirm a much smaller import" onClose={()=>setHeld(null)} footer={<><Button onClick={()=>setHeld(null)}>Keep current data</Button><Button variant="primary" loading={pending} onClick={()=>void activate(held.path,held.mode,held.file,true).catch(()=>undefined)}>Import anyway</Button></>}>
+  {held&&<Dialog title="Confirm a much smaller import" onClose={()=>setHeld(null)} footer={<><Button onClick={()=>setHeld(null)}>Keep current data</Button><Button variant="primary" loading={pending} onClick={()=>void activate(held.path,held.mode,held.file,true,held.hash).catch(()=>undefined)}>Import anyway</Button></>}>
    <div className="grid gap-3">
     <p>The new file is valid but differs sharply from the active {names[source]} data, which stays active until you confirm. If the export is incomplete, keep the current data and export again.</p>
     <ul aria-label="Triggered checks" className="list-disc pl-5">{held.detail.anomalies.map(item=><li key={item.message}>{item.message}</li>)}</ul>
@@ -65,13 +70,15 @@ export function SourceManager({source,draft,onMode,onActivated,onClear,onFeature
    </div>
   </Dialog>}
   <h2 className="settings-subheading">Source file</h2>
-  <p className="ui-description">Selecting a file automatically validates and imports the complete dataset. Invalid or empty files never replace active data. Cancel settings does not undo a completed import.</p>
-  {browser&&<BrowserSourceUpload source={source} disabled={busy} fileInput={uploadInput} onUpload={file=>activate(file.name,'static',file)}/>}
+  <p className="ui-description">Browser uploads validate and import the complete dataset in Static mode. Server files require explicit validation and activation. Invalid or empty files never replace active data. Cancel settings does not undo a completed import.</p>
+  {server&&<FormField label="Source type"><Select value={sourceKind} disabled={busy} onChange={event=>setSourceKind(event.target.value as 'upload'|'local'|'unc')}><option value="upload">Browser upload</option><option value="local">Local server file</option><option value="unc">Network file (UNC)</option></Select></FormField>}
+  {browser&&(!server||sourceKind==='upload')&&<BrowserSourceUpload source={source} disabled={busy} fileInput={uploadInput} onUpload={file=>activate(file.name,'static',file)}/>}
+  {server&&sourceKind!=='upload'&&<ServerFileSource source={source} kind={sourceKind} revision={draft.revision} profile={profile} disabled={busy} onActivate={(chosen,hash)=>activate(chosen,mode,undefined,false,hash)}/>}
   {browser&&<p className="ui-description">Configured source: {savedPath.split(/[\\/]/).pop()?.replace(/^[a-f0-9]{32}-/,'')||(evidence.source?.configured?'Configured (location redacted)':'Not configured')}. Loaded snapshot and last source check are shown below.</p>}
-  <details open={!browser||runtime.data?.deployment_mode!=='server'}><summary>Advanced server source path (optional)</summary>
+  {!server&&<details open={!browser}><summary>Advanced server source path (optional)</summary>
   {runtime.data?.deployment_mode==='server'&&<p className="ui-description">Only operator-approved CSV directories are allowed. The Windows Service account needs file and network-share read access. Refresh uses the configured source when its location is redacted.</p>}
   <SourceFileField label={source==='roles'?'CSV file location':source==='users'?'User CSV file location':source==='sod'?'SoD Matrix CSV location':'Employee Directory CSV location'} value={path} onChange={value=>{setPath(value);onCandidate(value)}} inputRef={inputRef} disabled={busy} browseDisabled={pending} browseLabel="Browse CSV" placeholder="Absolute local or server-visible CSV path" onCommit={force=>{if(force||path.trim()!==lastAttempt.current)void activate(path)}} onBrowse={browse} hideBrowse/>
-  </details>
+  </details>}
   {hint&&<p role="status" className="ui-description">{hint}</p>}
   <SourceMode value={mode} disabled={busy} onChange={onMode}/>
   {evidence.source?<SourceHealthSummary source={evidence.source}/>:<p role="status">Checking current source status…</p>}

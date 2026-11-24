@@ -58,12 +58,29 @@ Reports contain personal data and stay local. Diagnostic exports contain only al
 ### Server source policy remediation (awaiting Windows acceptance)
 
 All four CSV sources use one policy for path selection, preview, individual refresh and Global Refresh.
-Browser uploads remain Static and never authorize access to client-device paths. Administrator requests may
-select CSVs beneath `<data-dir>/sources` or an additional operator-approved directory. Configure the latter
+Browser uploads remain Static and never authorize access to client-device paths. In **Settings → Data Sources**,
+administrators choose **Browser upload**, **Local server file** or **Network file (UNC)** for each source.
+Server paths refer to the AuthLens host, not the browser computer. Enter the absolute CSV path, explicitly
+approve access to that exact file (and named SMB host/share), then **Test connection and validate source**.
+This reads the complete dataset as the running backend identity without activating it. **Activate validated
+source** imports a private copy only if its raw SHA-256 still matches. A changed file requires validation again.
+Normal source configuration does not require editing JSON, registry or environment variables.
+
+Exact-file authorization is source-specific and held in a protected sibling folder of the data directory,
+`.authlens-source-policy-<data-path-hash>`. Deployment provisions only this folder for the service identity;
+it grants no source/share access. The authority is authenticated to the protected host token and canonical
+data path, excluded from application backups and never inferred from restored settings. Changing the host
+token or data location requires reauthorization. Interrupted/invalid authority files fail closed; preserve
+them for operator review. The administrator can replace one source's exact authorization, not browse files
+or grant a whole directory. Application installation internals cannot be authorized through this interface.
+
+For compatibility, administrator requests may still select CSVs beneath `<data-dir>/sources` or an additional
+operator-approved directory. Configure the latter
 with deployment JSON `SourceDirectory` (passed as `--source-dir`), or `AUTHLENS_SOURCE_DIR`. Advanced hosts may
 provide `AUTHLENS_SOURCE_ROOTS` as a JSON array of absolute directories. Local directories and Windows UNC
 directories are supported; roots are host configuration, excluded from application backups and never changed
-by a browser. A restored external path requires approval on the destination host before a live read.
+by a browser. A restored external path requires approval on the destination host before a live read; its
+saved path, mode and durable snapshot remain intact while approval is pending.
 
 Use a dedicated export directory, not a drive containing unrelated confidential files. The actual service
 identity requires directory traversal and CSV read access; for UNC sources both share and NTFS permissions
@@ -71,9 +88,13 @@ must allow that identity. Virtual accounts normally authenticate remotely as the
 the effective identity with the domain administrator. No credentials are stored by this workflow, and the
 application does not change service accounts or grant filesystem access. Restart after host-policy changes.
 
-Paths must be absolute CSV paths, inside an approved directory at a directory boundary. Device paths,
+Paths must be absolute CSV paths, authorized exactly or inside an approved directory at a directory boundary. Device paths,
 alternate streams, traversal spellings, symbolic links and reparse points in any ancestor are refused.
-Operators must protect approved directory ancestors against untrusted replacement during reads. Network
+UNC targets must resolve only to private or loopback addresses; administrative `$` shares and WebDAV-style
+targets are refused. No SMB read is attempted until source authorization succeeds. Enterprise DNS, SMB
+signing, DFS referral policy and share administrators remain trusted host infrastructure; DNS validation
+does not pin the SMB session or replace host outbound-authentication policy. Protect source ancestors
+against untrusted replacement during reads. Network
 availability and ACL checks execute as the running service. Missing files, denied access, unavailable shares,
 policy refusal and parser/schema errors retain the last validated snapshot. Source status shows the last
 attempt separately from the durable snapshot; it does not claim current reachability without a read.

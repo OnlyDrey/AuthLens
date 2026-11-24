@@ -661,6 +661,7 @@ function Install-ALService($Config, [switch]$Reconfigure) {
 # key. Grants are added; existing permissions (administrators, the owner) are not removed.
 function Grant-ALAccess($Config) {
     $account = $Config.ServiceAccount
+    Initialize-ALSourceAuthorityDirectory $Config
     $grants = @(
         @($Config.DataDirectory, "${account}:(OI)(CI)M"), @($Config.ReleasesRoot, "${account}:(OI)(CI)RX"),
         @($Config.CertificatePath, "${account}:R"), @($Config.CertificatePasswordFile, "${account}:R")
@@ -671,6 +672,36 @@ function Grant-ALAccess($Config) {
         $result = Invoke-ALProcess 'icacls' @($grant[0], '/grant', $grant[1]) ''
         if ($result.ExitCode -ne 0) { Stop-AL "icacls could not grant $($grant[1]) on $($grant[0])." }
     }
+}
+
+# The web source authority is deliberately outside restorable application data. Same deterministic path as ServerSourceAuthorization.
+function Get-ALSourceAuthorityDirectory($Config) {
+    $data=[IO.Path]::GetFullPath($Config.DataDirectory).TrimEnd('\','/').ToUpperInvariant()
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try { $digest=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($data)))).Replace('-','').ToLowerInvariant().Substring(0,16) }
+    finally { $sha.Dispose() }
+    Join-AL ([IO.Path]::GetDirectoryName($data)) ('.authlens-source-policy-'+$digest)
+}
+
+function Initialize-ALSourceAuthorityDirectory($Config) {
+    $path=Get-ALSourceAuthorityDirectory $Config
+    $sid=([Security.Principal.NTAccount]::new($Config.ServiceAccount)).Translate([Security.Principal.SecurityIdentifier])
+    Test-ALPathTree $path
+    if(-not(Test-Path -LiteralPath $path)) {
+        $security=New-ALProtectedDirectorySecurity
+        $security.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,'Modify','ContainerInherit, ObjectInherit','None','Allow'))
+        New-ALDirectoryWithAcl $path $security
+    }
+    $acl=Get-Acl -LiteralPath $path
+    $allowed=@('S-1-5-18','S-1-5-32-544',$sid.Value)
+    $owners=$allowed+@([Security.Principal.WindowsIdentity]::GetCurrent().User.Value)
+    if(-not $acl.AreAccessRulesProtected -or $owners -notcontains $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value) { Stop-AL 'Source authority directory has unrecognized ownership or inheritance; explicit operator review is required.' }
+    foreach($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
+        if($rule.AccessControlType -eq 'Allow' -and $allowed -notcontains $rule.IdentityReference.Value) { Stop-AL 'Source authority directory grants access to an unrecognized principal; nothing was changed.' }
+    }
+    # Existing protected folders may belong to a previously configured service identity: refuse rather than adopt them.
+    $required=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]) | Where-Object { $_.IdentityReference.Value -eq $sid.Value -and $_.AccessControlType -eq 'Allow' -and ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Modify) -eq [Security.AccessControl.FileSystemRights]::Modify })
+    if(-not $required.Count) { Stop-AL 'Source authority directory lacks access for the configured service identity; explicit operator review is required.' }
 }
 
 # ---- status

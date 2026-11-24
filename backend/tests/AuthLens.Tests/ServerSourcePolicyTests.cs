@@ -32,6 +32,23 @@ public sealed class ServerSourcePolicyTests : IDisposable
     public void Arbitrary_browser_paths_are_denied(string path) => Assert.Throws<SourcePolicyException>(() => ServerSourcePolicy.Resolve(Host(), path));
 
     [Fact]
+    public void Exact_authority_is_source_bound_host_bound_and_tamper_evident()
+    {
+        var host = Host();
+        var path = Path.Combine(Path.GetTempPath(), "enterprise-" + Guid.NewGuid().ToString("N") + ".csv");
+        ServerSourceAuthorization.Approve(host, "roles", path);
+        Assert.True(ServerSourceAuthorization.Allows(host, "roles", path));
+        Assert.False(ServerSourceAuthorization.Allows(host, "users", path));
+        Assert.False(ServerSourceAuthorization.Allows(host, "roles", path + ".csv"));
+        Assert.Throws<SourcePolicyException>(() => ServerSourceAuthorization.Allows(Host(), "roles", path)); // different protected host token
+        var policy = Path.Combine(ServerSourceAuthorization.DirectoryPath(host), "authority.json");
+        File.WriteAllText(policy, "{\"Payload\":\"{}\",\"Signature\":\"00\"}");
+        Assert.Throws<SourcePolicyException>(() => ServerSourceAuthorization.Allows(host, "roles", path));
+        Assert.Equal("admin", V1Auth.Permission("GET", "/api/server/sources/roles"));
+        Assert.Equal("admin", V1Auth.Permission("POST", "/api/server/sources/roles/authorize"));
+    }
+
+    [Fact]
     public void Operator_policy_is_strict_and_separate_from_restorable_settings()
     {
         Assert.Empty(ServerSourcePolicy.Parse(null));
