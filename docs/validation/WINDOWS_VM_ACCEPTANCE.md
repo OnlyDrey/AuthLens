@@ -28,14 +28,14 @@ Package status is in the [work-package tracker](WORK_PACKAGES.md).
 | Clients | A domain workstation with Edge for browser steps |
 | Certificates | Lab PFX `lab-server.pfx` with SANs `lens.example.org` and `192.0.2.10`, its password in a separate file; a second PFX `lab-renewed.pfx` with the same SANs; a third PFX `lab-wrong-name.pfx` **without** those SANs (negative test) |
 | Software | None beyond Windows; the release is self-contained. WebView2 Runtime only for the Desktop check |
-| Candidate | The build folder from the build host (see the current candidate in the [acceptance tracker](ACCEPTANCE_TRACKER.md#candidates)), copied to `C:\AuthLens-RC\<build-directory>`; verify hashes first (A1) |
+| Candidate | The build folder from the build host (see the current candidate in the [acceptance tracker](ACCEPTANCE_TRACKER.md#candidates)), in the canonical run directory `C:\AuthLens\<run directory>` (built there or copied with the same name); verify hashes first (A1) |
 | Data | Synthetic CSV exports for every supported source (role catalogue, user–role mapping, user accounts, SoD matrix, Employee Directory); one malformed and one empty variant |
 | Accounts | Two AuthLens accounts created during the run: `admin.synthetic` (Administrator) and `reviewer.synthetic` (Reviewer) |
 
 Operator variables (set once per session):
 
 ```powershell
-$built   = 'C:\AuthLens-RC\<build-directory>'          # folder that contains build\ and installer\
+$built   = 'C:\AuthLens\<run directory>'                 # canonical build.ps1 run directory (contains build\ and installer\)
 $release = (Get-ChildItem "$built\build" -Directory | Where-Object Name -Like 'AuthLens-2.0.0-*-win-x64').FullName
 $tools   = (Get-ChildItem "$built\installer" -Directory -Filter 'installer-tools-*').FullName
 $server  = Join-Path "$built\installer" 'AuthLens-Server-2.0.0-Setup.exe'
@@ -43,7 +43,7 @@ $desktop = Join-Path "$built\installer" 'AuthLens-2.0.0-Setup.exe'
 $data    = 'C:\ProgramData\AuthLens\data'
 $config  = 'C:\ProgramData\AuthLens\config\deploy.json'
 $exe     = 'C:\ProgramData\AuthLens\releases\current\server\AuthLens.Api.exe'
-$evidence = 'C:\AuthLens-Evidence'; New-Item -ItemType Directory -Force $evidence | Out-Null
+$evidence = "C:\AuthLens\acceptance\$(Split-Path $built -Leaf)"; New-Item -ItemType Directory -Force $evidence | Out-Null
 # After installation (Setup stages the package under <Root>\app\setup\<package>):
 $package = Split-Path $release -Leaf
 $staged  = "C:\ProgramData\AuthLens\app\setup\$package"
@@ -150,7 +150,7 @@ offered to customers for 2.0.0; otherwise record it as not accepted and keep the
 
 ## H. Evidence package
 
-Zip `C:\AuthLens-Evidence` plus each scenario's JSON results and screenshots, named `<ID>-<description>`. Record in the tracker: VM image and
+Zip `C:\AuthLens\acceptance\<run directory>` plus each scenario's JSON results and screenshots, named `<ID>-<description>`. Record in the tracker: VM image and
 build, candidate commit, installer hashes, date, operator, and pass/fail per ID. Never include keys, passwords, certificates with private keys or
 activation codes.
 

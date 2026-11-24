@@ -905,14 +905,14 @@ requires isolated elevated SCM, compiled installer and interactive WebView2 acce
 
 Ground rules: an elevated **Windows PowerShell 5.1** prompt in a clean checkout of `experiment/dotnet-backend`; synthetic data first, a real backup
 only as a **copy** in an isolated root; existing installations, their folders, ports, certificates and
-firewall rules are never stopped, changed or reused. Keep the evidence files of each step under `C:\AuthLens-Acceptance\evidence` (no secrets,
-codes, passwords or keys in them).
+firewall rules are never stopped, changed or reused. Keep the evidence files of each step under `C:\AuthLens\acceptance\<run directory name>`
+(no secrets, codes, passwords or keys in them).
 
 ### 0. Baseline of the existing installations (read only)
 
 ```powershell
-New-Item -ItemType Directory -Force C:\AuthLens-Acceptance\evidence | Out-Null
-$ev = 'C:\AuthLens-Acceptance\evidence'
+$ev = 'C:\AuthLens\acceptance\<run directory name>'
+New-Item -ItemType Directory -Force $ev | Out-Null
 Get-CimInstance Win32_Service | Where-Object Name -eq 'AuthLens' |
   Select-Object Name, DisplayName, State, StartMode, StartName, PathName | ConvertTo-Json | Set-Content "$ev\00-services-before.json"
 Get-NetTCPConnection -State Listen | Select-Object LocalAddress, LocalPort, OwningProcess | Sort-Object LocalPort | Out-File "$ev\00-ports-before.txt"
@@ -924,12 +924,12 @@ For a fresh install, stop if the intended service/root already exists. For an up
 
 ```powershell
 git status --short; git rev-parse HEAD                                      # clean, expected commit
-Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force; $filter = Get-ALTestFilter focused
-& .\backend\scripts\build-release.ps1 -Output C:\AuthLens-Acceptance\builds -TestFilter $filter
-$release = Get-ChildItem C:\AuthLens-Acceptance\builds -Directory -Filter 'AuthLens-*-win-x64' | Sort-Object Name | Select-Object -Last 1
-& .\backend\scripts\verify-release.ps1 -ReleasePath $release.FullName *>&1 | Tee-Object "$ev\01-verify.txt"
-& .\backend\scripts\build-installers.ps1 -ReleasePath $release.FullName -Output C:\AuthLens-Acceptance\installers
-Get-ChildItem $release.FullName\server, $release.FullName\desktop | Select-Object Name, Length | Out-File "$ev\01-files.txt"
+Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force
+.\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)
+$run = '<C:\AuthLens\AuthLens-2.0.0-... run directory printed as "Summary: passed | ...">'
+$release = (Get-ChildItem "$run\build" -Directory -Filter 'AuthLens-*-win-x64').FullName
+& .\backend\scripts\verify-release.ps1 -ReleasePath $release *>&1 | Tee-Object "$ev\01-verify.txt"
+Get-ChildItem "$release\server", "$release\desktop", "$run\installer" | Select-Object Name, Length | Out-File "$ev\01-files.txt"
 ```
 
 Pass: `Release verified` for win-x64; `server\AuthLens.Api.exe` and `desktop\AuthLens.exe` exist; manifest product `AuthLens`, version
@@ -1255,11 +1255,24 @@ Git, .NET SDK 10, Node 24/25, npm, Python 3 and Inno Setup 6 are required. Use `
 The entry point orchestrates the existing release builder, verifier, release secret scan and installer builder. It never installs software or
 changes services. CI triggers, product version and runtime configuration are unchanged.
 
+**Mandatory standard.** Every Windows build and release candidate uses this script with the output root `C:\AuthLens`:
+
 ```powershell
-.\build.ps1
-.\build.ps1 -SkipTests                            # development only; summary explicitly records skipped tests
-.\build.ps1 -TestFilter 'FullyQualifiedName~VersioningTests' -OutputRoot C:\AuthLens-Development
+Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force
+.\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)
 ```
+
+| Rule | Value |
+| --- | --- |
+| Build entry point | Root-level `build.ps1` only; it orchestrates `build-release.ps1`, `verify-release.ps1`, the release secret scan, `build-installers.ps1` and branding verification. Do not run those directly for a candidate |
+| Output root | `C:\AuthLens` (the default). No RC, acceptance, development or user-profile roots without explicit approval |
+| Run directory | `C:\AuthLens\AuthLens-<version>-<UTC yyyy-MM-dd_HHmm>-<sha7>` (suffix `-02`, `-03` on a same-minute collision), containing `build\<release folder>`, `installer\`, `build-summary.json` (identity, tools, test filter and status, verification flags, relative artifact paths and hashes) and `build.log` |
+| Standard tests | `-TestFilter (Get-ALTestFilter focused)`: the deployment focused classes; record any additional classes explicitly in the acceptance tracker. FULL runs only with approval |
+| Acceptance evidence | `C:\AuthLens\acceptance\<run directory name>\` (beside, never inside, the run directory) |
+| Installed Server | `C:\ProgramData\AuthLens` (unchanged) |
+| Retention | Earlier run directories and their evidence are never overwritten, moved or deleted; a build moved from elsewhere keeps the canonical run-directory name derived from its `build-summary.json` identity |
+
+`-SkipTests` exists for local packaging experiments only and never produces a candidate.
 
 `-TestFilter` selects focused backend validation; the default release command runs the existing backend release test selection.
 Do not use a development build as evidence that full release acceptance passed.
@@ -1524,7 +1537,8 @@ any full regression; the packaging command below deliberately skips it.
 
 ```powershell
 # Repository: clean, committed experiment/dotnet-backend; native prerequisites from the canonical build section
-.\build.ps1 -SkipTests
+Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force
+.\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)
 # Select an explicit output whose build-summary.json status and verification fields passed; never blindly select the newest partial folder
 $built = 'C:\AuthLens\<verified-build-directory>'
 $release = (Get-ChildItem "$built\build" -Directory | Where-Object Name -Like 'AuthLens-*-win-x64').FullName

@@ -102,7 +102,7 @@ then reports any tracked file that contains them.
 | Server IP (a private address assigned to the VM) | `192.168.10.20` |
 | HTTPS port | `18795` (any free port) |
 | Test data directory (disposable, synthetic data only) | `C:\AuthLens-Acceptance\server-test` |
-| Releases built on the VM | `C:\AuthLens-Acceptance\builds\<name>` |
+| Builds on the VM (canonical) | `C:\AuthLens\AuthLens-<version>-<UTC time>-<sha7>\build\<release folder>` |
 | Certificate (PFX, SAN includes `192.168.10.20`) | `C:\AuthLens-Acceptance\tls\server.pfx` |
 | Certificate password file | `C:\AuthLens-Acceptance\tls\cert-password` |
 | Repository checkout | `C:\src\AuthLens` |
@@ -118,11 +118,14 @@ Prerequisites: .NET 10 SDK, Node.js 24 or 25, Git. PowerShell 5.1 or 7.
 ```powershell
 cd C:\src\AuthLens
 git fetch origin experiment/dotnet-backend; git checkout experiment/dotnet-backend; git pull --ff-only
-powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\build-release.ps1 -Output C:\AuthLens-Acceptance\builds
+Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force
+.\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)
 ```
 
-`-ExecutionPolicy Bypass` on the `powershell -File` call applies to that one process only; it changes no machine or user policy. `-Output` is the
-parent folder: each build creates a new folder `AuthLens-<version>-<UTC time>-<commit>-win-x64` inside it and never overwrites one.
+The [canonical Windows build](WINDOWS_DEPLOYMENT.md#canonical-windows-build) is mandatory: each build creates a new run directory
+`C:\AuthLens\AuthLens-<version>-<UTC yyyy-MM-dd_HHmm>-<sha7>` with the release folder under `build\` and the installers under `installer\`; it never
+overwrites one. The test launcher below still defaults to `-BuildsRoot C:\AuthLens-Acceptance\builds` (a legacy location); pass
+`-ReleasePath <run directory>\build\<release folder>` explicitly.
 
 `build-release.ps1` builds the solution (which builds the UI once, [build and publish flow](../development/README.md#build-and-publish-flow)), runs the tests, publishes both executables, validates the packages, writes `README.txt`,
 `build-manifest.json` and `SHA256SUMS`, and verifies them with `verify-release.ps1`. It **does not install or start anything**. A completed build
@@ -146,7 +149,8 @@ inside its application folder (`startup refused: The data directory must be outs
 replaced or deleted without touching data.
 
 ```powershell
-$release = Get-ChildItem C:\AuthLens-Acceptance\builds -Directory -Filter 'AuthLens-*' | Sort-Object { (Get-Item (Join-Path $_.FullName 'build-manifest.json')).LastWriteTime } | Select-Object -Last 1
+$run = 'C:\AuthLens\<reviewed run directory>'   # select explicitly; never the newest partial run
+$release = Get-Item (Get-ChildItem "$run\build" -Directory -Filter 'AuthLens-*-win-x64').FullName
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\src\AuthLens\backend\scripts\verify-release.ps1 -ReleasePath $release.FullName   # after copying a release, too
 Get-Content (Join-Path $release.FullName 'build-manifest.json') | Select-Object -First 12
 & (Join-Path $release.FullName 'server\AuthLens.Api.exe') --version
@@ -382,11 +386,11 @@ python scripts/check-secrets.py
 python scripts/check-workflows.py
 Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force
 $filter = Get-ALTestFilter focused
-# Produces a separate acceptance package; never installs or starts it.
-& .\backend\scripts\build-release.ps1 -Output C:\AuthLens-Acceptance\builds -TestFilter $filter
+# Produces the canonical acceptance package (release, installers, summary); never installs or starts it.
+.\build.ps1 -OutputRoot C:\AuthLens -TestFilter $filter
 if ($LASTEXITCODE) { throw 'Acceptance build failed' }
-$release = Get-ChildItem C:\AuthLens-Acceptance\builds -Directory -Filter 'AuthLens-*-win-x64' | Sort-Object Name | Select-Object -Last 1
-& .\backend\scripts\verify-release.ps1 -ReleasePath $release.FullName
+$run = 'C:\AuthLens\<run directory printed by build.ps1>'
+& .\backend\scripts\verify-release.ps1 -ReleasePath (Get-ChildItem "$run\build" -Directory -Filter 'AuthLens-*-win-x64').FullName
 ```
 
 Stop on a dirty checkout, unexpected branch, divergent history, failed checks or dirty manifest. Do not reset local changes or install a service

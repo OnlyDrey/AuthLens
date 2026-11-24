@@ -6,12 +6,18 @@ Failed (product). Procedures: [VM acceptance runbook](WINDOWS_VM_ACCEPTANCE.md).
 
 ## Candidates
 
-Internal identifiers only; the product version is 2.0.0 for both and nothing is branded RC.
+Internal identifiers only; the product version is 2.0.0 for every candidate and nothing is branded RC. Acceptance results belong to one exact
+artifact identity and are never transferred between candidates.
 
-### RC2 (current, under test)
+### RC3-VM130 (current, under test on VM130)
 
-Built from the correction commit for D-001, D-002 and G-001 (`af744c9`); see the [RC2 build record](#rc2-build-record). Accepted for controlled
-testing only; NOT APPROVED.
+Built on VM130 itself from `19a1113`; see the [RC3-VM130 build record](#rc3-vm130-build-record). Accepted for controlled testing only; NOT APPROVED.
+
+### RC2 (superseded for VM130 acceptance; artifacts preserved)
+
+Built on the development workstation from the correction commit for D-001, D-002 and G-001 (`af744c9`); see the
+[RC2 build record](#rc2-build-record). Same product source as RC3-VM130 (see reconciliation) but a different artifact identity; no acceptance
+was run on it.
 
 ### RC1 (superseded before acceptance)
 
@@ -48,11 +54,53 @@ Not used for acceptance: D-001 affected too many installed administration and re
 | `build-manifest.json` | 5,933 | `16c481948516af064dc5076337d5aab11be9c3f3c1f21d168d3f4b4d8aabe33a` |
 | `SHA256SUMS` | 1,769 | `7c5fe599e8fa08cb3f24b463e7125b22676c519096479b387e76dad821686305` |
 
+### RC3-VM130 build record
+
+Reported by the operator from the VM130 build; the canonical location and the hashes are re-verified by the operator in Stage 1 batch 1
+(A1) before any test. Lower-case hashes below equal the operator-reported upper-case values.
+
+| Item | Value |
+| --- | --- |
+| Source commit | `19a1113adffe780630b52edba8f1ee8dc70bc110` on `experiment/dotnet-backend` |
+| Build | On VM130 with the canonical `build.ps1 -TestFilter (Get-ALTestFilter focused)`; UTC `2026-11-24T20:21:17.2986796Z`; win-x64; .NET SDK 10.0.404; Node.js 24.22.3 |
+| Original output path | `C:\AuthLens-Acceptance\RC2-20261124-212116-19a1113` (non-canonical root and name; local time UTC+1) |
+| Canonical path | `C:\AuthLens\AuthLens-2.0.0-2026-11-24_2021-19a1113` (the name `build.ps1` derives from this identity). Relocation: **pending operator confirmation** (batch 1) |
+| Tests run by the build | Standard focused filter: **151 passed, 0 failed, 0 skipped** |
+| Verification (operator-reported) | Secret scan 0 findings; release verification 17 artifacts; Server and Desktop publish, Server and Desktop installers passed; unsigned |
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `AuthLens-Server-2.0.0-Setup.exe` | `9718614ff1186ce597985cba88ad7967f8bfba8cca8d5b94107ef4e17e4fc84c` |
+| `AuthLens-2.0.0-Setup.exe` (Desktop) | `305589c614cfaccba869bd9d8366b76885524e1468983bb367ddee0d2e558c48` |
+| `server\AuthLens.Api.exe` | `7309a99f32bffe340a773e14baed35cf34df999a09083562f888caadcb067b6a` |
+| `desktop\AuthLens.exe` | `6181981854527d41c9dec1a67880195cec78422780ab24170ac02465ff42f622` |
+| `build-manifest.json` | `92858ab9348edb716ddda820e8a540dc06e5d3ff0bbd05548d21061f6211fec3` |
+
+**Reconciliation with RC2 (`af744c9`):**
+
+- `git diff af744c9 19a1113` changes only `docs/validation/ACCEPTANCE_TRACKER.md` and `docs/validation/WORK_PACKAGES.md`. Documentation is not a
+  build input (the release `README.txt` comes from `backend/scripts/release-README.txt`, unchanged), so code, scripts, installer sources and
+  packaged helpers are identical. Artifact hashes differ because every artifact embeds the commit and build time and RC3 was built on another host.
+- Test selection: RC1/RC2 used the standard focused classes **plus** `ServerSourcePolicyTests`, `DataSourcesTests` and `BackupCryptoTests`
+  (194 = 151 + 43). RC3-VM130 used the standard `Get-ALTestFilter focused` (151). The 43 tests of those three classes passed on identical source
+  (RC2 build on the workstation) but were not run for this artifact; batch 2 runs them natively on VM130 against the RC3 build outputs, together
+  with the focused Pester suites for the packaged runtime, network change and certificate replacement. These are test runs, not acceptance.
+- Operator note: the source-commit guard in an earlier manual PowerShell sequence reported a mismatch while later commands continued.
+  Operator batches now run as one unit whose guards throw (AGENTS.md).
+
+### Build-root deviations (recorded, preserved)
+
+RC1 (`<user profile>\AuthLens-RC\AuthLens-2.0.0-2026-11-24_1815-c780ff6`) and RC2 (`<user profile>\AuthLens-RC2\AuthLens-2.0.0-2026-11-24_1926-af744c9`)
+on the development workstation, and the original RC3 output under `C:\AuthLens-Acceptance`, used non-canonical roots. Their run-directory names
+follow the `build.ps1` convention except the original RC3 folder. They are preserved unchanged; relocation of the workstation candidates into
+`C:\AuthLens` needs approval. From now on only `C:\AuthLens` is used ([canonical Windows build](../deployment/WINDOWS_DEPLOYMENT.md#canonical-windows-build)).
+
 ## Test environment
 
 | Item | Value |
 | --- | --- |
-| VM | _to be recorded from Stage 1 batch 1 output (OS, build, domain membership, IP)_ |
+| VM | VM130: Windows 11 Pro build 26300, WORKGROUP (not domain-joined), IPv4 10.0.7.50 (operator-reported; confirmed by batch 1) |
+| Existing state | AuthLens 2.0.0-alpha.1 installed as a service with application data; port 18795 in use by it. Preserve its backups, keys and data |
 | Snapshot names | _to be recorded_ |
 | Operator | _to be recorded_ |
 

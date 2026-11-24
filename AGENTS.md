@@ -33,7 +33,8 @@ builds or repeated development cycles. Validation levels define the recommended 
 
 - Analyze, implement and review code changes.
 - Identify the minimum necessary validation.
-- Provide exact PowerShell commands, including the correct working directory.
+- Provide exact PowerShell commands, including the correct working directory. A multi-step operator batch runs as one unit
+  (`& { $ErrorActionPreference = 'Stop'; ... }`) whose guards `throw`, so a failed precondition stops every later step of the batch.
 - Explain what each validation command checks.
 - Analyze test results and logs supplied by the user.
 - Fix identified issues and provide updated commands when needed.
@@ -103,6 +104,13 @@ Verified against `backend/` project files, `frontend/package.json` and configs.
 
 From the repository root ([development](docs/development/README.md)).
 
+- **Windows build and release output (mandatory):** only the root-level `build.ps1`, with `-OutputRoot C:\AuthLens`; the standard focused build is
+  `Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force; .\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)`.
+  It creates `C:\AuthLens\AuthLens-<version>-<UTC yyyy-MM-dd_HHmm>-<sha7>` (with `build\`, `installer\`, `build-summary.json`, `build.log`). Do
+  not call `build-release.ps1`/`build-installers.ps1` directly for candidates, and do not use other output roots (RC, acceptance, development or
+  user-profile folders) without explicit approval. Acceptance evidence goes to `C:\AuthLens\acceptance\<run directory name>`. The installed
+  Server root stays `C:\ProgramData\AuthLens`. Never move, rename or delete earlier candidates and their evidence. Details:
+  [canonical Windows build](docs/deployment/WINDOWS_DEPLOYMENT.md#canonical-windows-build).
 - .NET: `cd backend && dotnet build AuthLens.slnx -c Release`; tests `dotnet test tests/AuthLens.Tests -c Release --no-build --filter
   "FullyQualifiedName~<Class>"` (affected classes), the whole suite only as FULL. The build embeds `frontend/dist` as it is (built only when missing or with `-p:BuildFrontend=true`); release scripts always rebuild it once.
 - Scripts: `pwsh -NoProfile -Command "Invoke-Pester backend/scripts/tests"` (deployment state machine, test launcher),
