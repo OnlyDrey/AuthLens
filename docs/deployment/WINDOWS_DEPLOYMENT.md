@@ -379,6 +379,29 @@ release manifest unchanged and obtain the actual VM connection before continuing
   TLS, the Host allow-list, Origin/CSRF checks and the trusted-proxy restriction are the server's own and unchanged by the deployment.
 - Processes: only the service is stopped, through the SCM. A port held by another process (for example `start-server-test.ps1`) is reported and left alone.
 
+### Installed certificate replacement
+
+Status: implemented; Pester-tested with the platform layer mocked (`Server-CertificateReplacement.Tests.ps1`); native SCM/TLS acceptance pending (8.13).
+
+```powershell
+# Elevated. -DryRun validates the new PFX with the packaged host and changes nothing.
+.\Deploy-AuthLens.ps1 -Action ReplaceCertificate -CertificateFile 'D:\private-tls\renewed.pfx' -CertificatePasswordFile 'D:\private-tls\renewed-password' -DryRun
+.\Deploy-AuthLens.ps1 -Action ReplaceCertificate -CertificateFile 'D:\private-tls\renewed.pfx' -CertificatePasswordFile 'D:\private-tls\renewed-password' -Yes
+```
+
+One recorded transaction: it refuses an interrupted deployment, a service outside the managed release link, a different service identity and a
+service command line that differs from the configuration. The packaged host's read-only `--server-preflight` validates the new PFX against the
+**unchanged** listener, hosts and proxies (SANs, private key, validity, EKU, key size) before anything changes. The PFX and password file are then
+imported create-only into a new protected `Root\tls\renew-<id>` directory and validated again; `certificate-pending.json` (deployment state)
+records the previous configuration bytes, their hash and the previous command line. The configuration's two certificate settings are replaced
+atomically, the service identity receives read on the new files (`Grant-ALAccess`), the service restarts with the new command line and readiness
+is pinned to the new certificate and the current release identity. Any failure restores the previous configuration and command line, restarts on
+the previous certificate and reports the original error. An interrupted run is restored by the next `ReplaceCertificate` before anything else; a
+record for another configuration or with a damaged hash is retained for manual recovery. Previous TLS files are never deleted. Network settings,
+access mode, firewall, identity, data, accounts and keys are not changed, and no trusted root is added: distributing the new certificate to clients
+remains an administrator decision. Changing the listener, hosts or access mode after installation is not part of this action (edit the reviewed
+configuration and use `-Action InstallService -Reconfigure` under change control).
+
 ## Logs and artifacts
 
 | Where | What |
@@ -787,7 +810,12 @@ $data='C:\ProgramData\AuthLens\data'
 
 `CreateKey` is for an unconfigured installation only and never replaces a configured key. Export to separately secured recovery storage,
 then verify that copy before enabling automatic backups. Protect the full key directory; keep host and recovery keys out of data/releases/Git.
-For virtual accounts provision before service installation grants read access; existing-service grants require explicit reviewed Reconfigure.
+`CreateKey` resolves the installed service's logon identity (Win32_Service `StartName`: virtual account, LocalService, NetworkService, local or
+domain account, gMSA) and adds one explicit, non-inherited **Read** rule for it on the new key file only (no directory grant; LocalSystem needs
+none); an unresolvable identity is refused and nothing is granted. `Status` also reports whether the service identity can read the key (elevated).
+For an existing installation whose key predates this, run `& $manager -Action GrantKeyAccess -DataDirectory $data -Yes` (elevated; an optional
+`-Path` must be the configured key). Deployment and restore keep granting the same read access through `Grant-ALAccess`. Status: Pester-verified on
+a synthetic file ACL (LocalService SID); native service-identity read under SCM is acceptance 8.10.
 Do not change the service identity, regenerate a live key or weaken ACLs to make a key operation succeed. Accounts activation/recovery uses the
 existing one-use-code mechanism; a missing data directory or invalid administrator is refused. The browser can verify an entered recovery copy
 only after administrator/current-password reauthentication, with a session-bound one-use proof and CSRF; it cannot export or create the host key.
@@ -983,12 +1011,15 @@ dataset counts/fingerprints and SoD period checksums before every failure step.
 | 8.6 | Revocation | **Revoke authorization**, then refresh | `policy_prohibited`; path, mode and snapshot retained; status `required` | `/api/server/sources/<src>` JSON |
 | 8.7 | Restart and reboot | `Restart-Service AuthLens`; then reboot | Dynamic configuration and exact authority persist; refresh succeeds without browser uploads | Status JSON after each |
 | 8.8 | Restore to a fresh instance | Encrypted backup → restore into a second disposable instance | Paths, modes and snapshots restored; status `required` until re-authorized on the destination; nothing read before that | Status JSON + refresh history |
-| 8.9 | Recovery key under the service identity | `Service-Manager.ps1` → Status as administrator, then create a key as administrator **without** granting the service identity | Backup Overview shows **Configured but inaccessible** (`state: inaccessible`), not "Not configured"; key material and path absent from API/logs | `/api/backups` `key_provider` JSON, log grep |
-| 8.10 | Recovery key provisioning | Grant only read on the key file to the service identity (no broad ACL); restart; verify recovery copy | `state: usable`, then `escrow_verified: true`; upgrade/repair keep the key and ACL | `icacls` of key file before/after upgrade |
-| 8.11 | Reviews navigation | Sign in as Administrator and as Reviewer; open Reviews, each page, legacy `#/sod/reviews`, `#/sod/periods`, `#/sod/reports` bookmarks | Reviews visible for both; Bulk Review entry only with `review`; admin period operations hidden for Reviewer; legacy links land on Reviews | Screenshots light/dark at 375/1280 px |
+| 8.9 | Recovery key under the service identity | Create a key with the server CLI (`AuthLens.Api.exe --backup-key create <file> --data-dir <data>`, which grants nothing) as administrator, then Service Manager `Status` | Backup Overview shows **Configured but inaccessible** (`state: inaccessible`), not "Not configured"; key material and path absent from API/logs | `/api/backups` `key_provider` JSON, log grep |
+| 8.10 | Recovery key provisioning | `Service-Manager.ps1 -Action GrantKeyAccess -Yes` (or a fresh `CreateKey` after installation); `icacls` shows one explicit read for the service identity only; restart; verify recovery copy | `state: usable`, then `escrow_verified: true`; upgrade/repair keep the key and ACL | `icacls` of key file before/after upgrade |
+| 8.11 | Reviews navigation | Sign in as Administrator and as Reviewer; open Reviews, each page, legacy `#/sod/reviews`, `#/sod/periods`, `#/sod/reports` bookmarks; turn SoD off and confirm Reviews keeps the Overview with Account reviews | Reviews visible for both; Bulk Review entry only with `review`; admin period operations hidden for Reviewer; legacy links land on Reviews | Screenshots light/dark at 375/1280 px |
 | 8.12 | Filtering and evidence integrity | Filter by Functional Group, Manager and exact usernames on Dashboard, User Access, Reviews and a frozen period; open **Open in Reviews** | Same scope at destination; frozen period checksum (`/api/sod/periods/<id>`) unchanged | Checksums before/after |
 
-Failure in 8.3, 8.5, 8.8, 8.9 or 8.10 is a release blocker. Recovery: restore the pre-step backup of the disposable instance; never edit the
+| 8.13 | Certificate replacement | `Deploy-AuthLens.ps1 -Action ReplaceCertificate … -DryRun`, then `-Yes`; repeat with a certificate lacking the configured host SAN | Dry run changes nothing; replacement restarts on the new certificate (pinned readiness); the invalid certificate is refused before any change; a forced readiness failure restores the previous certificate | `operation-result.json`, `icacls` of the new TLS folder, `certificate-pending.json` absent |
+| 8.14 | Setup review and progress | Run the Server wizard (fresh and upgrade) to the Ready page and through installation | Ready page lists storage, access mode, listener, hosts, certificate, firewall, service name/identity and (fresh) the post-install steps; Installing page explains the running transaction | Screenshots |
+
+Failure in 8.3, 8.5, 8.8, 8.9, 8.10 or 8.13 is a release blocker. Recovery: restore the pre-step backup of the disposable instance; never edit the
 authority file by hand (it is HMAC-bound to the host token and data path and fails closed when modified).
 
 ## Post-installation infrastructure verification
@@ -1267,6 +1298,13 @@ existing nonstandard releases/deployment layouts need separate review rather tha
 paths are preserved and may be external, but cannot overlap each other or program/configuration/TLS/key/deployment storage. Long staged paths
 are rejected before permanent writes. Disk estimates include immutable staging/publication, backup size and temporary verification workspace.
 
+The Ready page is the consolidated configuration review: storage paths, access mode (fresh) or "existing configuration (preserved)" (upgrade),
+HTTPS listener and allowed hosts, proxy hosts and trusted peers when configured, certificate (with a note for generated self-signed certificates),
+firewall decision, Windows Service name and identity, what is created or preserved and, for a fresh installation, the post-install steps (activation,
+host key with service read access, recovery-copy verification). During the hidden transaction the Installing page states what is running and where
+its sanitized diagnostics are written. Status: compile-checked with ISCC on a probe that includes the production Pascal code and by
+`InnoIsolation.Tests.ps1`; native wizard run pending (8.14).
+
 Interactive Setup can author fresh root/data/backup paths, listening IP/port, host/proxy boundaries and existing PFX/password-file locations.
 Select **Configure a fresh Server through this wizard**. The temporary draft uses the same strict contract and host preflight as silent
 deployment. After approval, protected preparation publishes the exact reviewed bytes to `Root\config\deploy.json` using create-only semantics.
@@ -1286,7 +1324,7 @@ private receipt binding the reviewed draft to the canonical configuration and im
 changed configuration or key material refuses recovery rather than replacing keys. The service receives read access through the existing ACL
 transaction. Existing PEM configurations may retain explicit external files; fresh import deliberately requires PKCS12 and never relabels PEM.
 These paths have focused crypto/import/compiler checks; elevated ACL, native GUI/service TLS and cancellation/recovery acceptance remain pending.
-Renewal/replacement of an installed service certificate is still unimplemented; fresh import is not advertised as renewal.
+Replacement of an installed service certificate is a separate transaction ([installed certificate replacement](#installed-certificate-replacement)); fresh import is not advertised as renewal.
 
 `--server-preflight` is a non-listening command of the packaged Server. It uses the actual host/TLS policy, ephemeral certificate keys and read-only
 schema, SQLite integrity and foreign-key checks. It validates certificate SANs for configured backend hosts/listen IP (public proxy hosts are not
@@ -1396,7 +1434,7 @@ full-scope verification. A synthetic publish-to-lifecycle regression exercises t
 
 | Requirement | Status and reason | Next action |
 | --- | --- | --- |
-| Fresh configuration and TLS | Fresh generation/selection/import and create-only bound publication implemented; no automatic trusted-store modification | Installed-certificate renewal/replacement transaction remains incomplete; native GUI, ACL/service-key access and client-trust acceptance pending |
+| Fresh configuration and TLS | Fresh generation/selection/import and create-only bound publication implemented; installed-certificate replacement implemented (`-Action ReplaceCertificate`); no automatic trusted-store modification | Native GUI, ACL/service-key access, replacement under SCM and client-trust acceptance pending |
 | Dedicated account / gMSA creation | Blocked: existing SCM adapter has no secure password transport, account-logon-right or managed-password validation contract | Add validated credential/logon provisioning; preserve existing identities meanwhile |
 | Automatic firewall configuration | Source implementation covers approved creation, ownership-verified update/removal, retained transition journals and explicit completion/rollback recovery; loopback/wildcards/Public/Any refused | Native elevated rule/policy acceptance and uninstall integration remain pending |
 | Repair missing/corrupt components/service | Partial: CLI payload replacement, receipt-bound missing virtual-account registration and schema-2 interrupted-repair recovery implemented; damaged files retained | Older installations without receipts, missing manifests and password-backed missing accounts require manual review; GUI selection and native interruption/recovery rehearsal remain pending |

@@ -83,8 +83,10 @@ somewhere else and verified.
 - **Recovery copy:** `--backup-key export <file>` writes a new private file only; then **verify** it (Overview > verify recovery copy, or
   `--backup-key verify <file>`). Automatic backups stay disabled until a recovery copy has been verified.
 - **Windows Service Manager:** `backend\scripts\Service-Manager.ps1` (elevated) offers `Status`, `CreateKey`, `ExportKey`, `VerifyKey`,
-  `ActivationCode` and `RecoveryCode` against the packaged `AuthLens.Api.exe`, without restarting the service. Key values never appear in its output
-  or process arguments. Status: awaiting Windows acceptance.
+  `GrantKeyAccess`, `ActivationCode` and `RecoveryCode` against the packaged `AuthLens.Api.exe`, without restarting the service. Key values never
+  appear in its output or process arguments. `CreateKey` and `GrantKeyAccess` give the installed service identity one explicit read rule on the key
+  file only (least privilege; LocalSystem needs none; an unresolvable identity is refused); `Status` reports whether that identity can read it.
+  Status: ACL logic Pester-tested on synthetic files; awaiting Windows acceptance under SCM.
 
 ## Automatic backups (Scheduling tab)
 

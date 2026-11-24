@@ -395,6 +395,9 @@ Describe 'Service installation and host safety' {
         Mock -ModuleName $M New-Service { }
         Mock -ModuleName $M Invoke-ALProcess { @{ ExitCode = 0; Output = @() } }
         Mock -ModuleName $M Stop-ALService { throw 'no service is stopped' }
+        # Not under test here. On a non-elevated Windows host the real protected authority folder (SYSTEM, Administrators, service only) cannot
+        # be enumerated by Pester's TestDrive cleanup, which then failed every later Describe in this file (Server-SourceAuthority covers it).
+        Mock -ModuleName $M Initialize-ALSourceAuthorityDirectory { }
         Install-ALService $config
         Should -Invoke -ModuleName $M New-Service -Times 1 -ParameterFilter { $Name -eq 'AuthLens' }
         Should -Invoke -ModuleName $M Get-ALService -Times 0 -ParameterFilter { $Name -in 'SapLens2', 'sap-lens', 'SapLens' }

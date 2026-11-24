@@ -1069,6 +1069,112 @@ function Initialize-ALInstallation($Config) {
     }
 }
 
+# ---- installed certificate replacement
+
+function Get-ALCertificatePendingPath($Config) { Join-AL $Config.WorkRoot 'certificate-pending.json' }
+
+# A shallow copy of the configuration with selected settings replaced; the original object is never changed.
+function Copy-ALConfig($Config, [hashtable]$Changes) {
+    $copy = [ordered]@{}
+    foreach ($property in $Config.PSObject.Properties) { $copy[$property.Name] = $property.Value }
+    foreach ($key in $Changes.Keys) { $copy[$key] = $Changes[$key] }
+    [pscustomobject]$copy
+}
+
+# Replaces a file's bytes through a temporary file in the same directory (atomic on NTFS); no backup copy is left beside it.
+function Write-ALReplaceFile([string]$Path, [byte[]]$Bytes) {
+    $temporary = $Path + '.next-' + [guid]::NewGuid().ToString('N')
+    $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try { $stream.Write($Bytes, 0, $Bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
+    [IO.File]::Replace($temporary, $Path, [NullString]::Value) # $null would become "" (an invalid backup path)
+}
+
+# Replaces the TLS certificate of the installed Server as one recorded transaction. The new PFX is validated by the packaged host first
+# (--server-preflight: SANs for the configured hosts and listener, private key, validity, EKU and key size; read-only, no listener) and nothing changes
+# if it is refused. It is then imported create-only into a new protected Root\tls\renew-<id> directory and validated again; the configuration and the
+# service command line switch to the imported copy, the service identity receives read access, the service restarts and readiness is pinned to the
+# new certificate. Any failure restores the previous configuration bytes and command line and restarts on the previous certificate. Previous TLS files
+# are retained. Network settings, service identity, data, accounts and keys are unchanged; client trust of the new certificate stays an
+# administrator decision. An interrupted run leaves certificate-pending.json; the next ReplaceCertificate restores the previous certificate first.
+function Invoke-ALReplaceCertificate($Config, [string]$CertificateFile, [string]$PasswordFile, [switch]$DryRun) {
+    Assert-ALNoPendingRepair $Config
+    $journal = Read-ALJournal $Config
+    if ($journal -and $journal.phase -in $script:CriticalPhases) { Stop-AL 'An interrupted deployment requires -Action Recover before the certificate can be replaced.' 4 }
+    $pending = Get-ALCertificatePendingPath $Config
+    if (Test-Path -LiteralPath $pending) {
+        if ($DryRun) { Stop-AL 'An interrupted certificate replacement is recorded; run ReplaceCertificate without -DryRun to restore the previous certificate first.' 4 }
+        return Restore-ALCertificateReplacement $Config ([IO.File]::ReadAllText($pending) | ConvertFrom-Json) 'an interrupted certificate replacement was found'
+    }
+    foreach ($file in $CertificateFile, $PasswordFile) {
+        if (-not $file -or -not [IO.Path]::IsPathRooted($file) -or -not (Test-Path -LiteralPath $file -PathType Leaf)) { Stop-AL 'ReplaceCertificate needs -CertificateFile <absolute .pfx file> and -CertificatePasswordFile <absolute protected password file>.' }
+        if ((Get-Item -LiteralPath $file -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { Stop-AL 'Certificate files must not be reparse points; nothing was changed.' }
+    }
+    if ([IO.Path]::GetExtension($CertificateFile) -notin @('.pfx', '.p12')) { Stop-AL 'Certificate replacement requires a PFX/PKCS12 file; nothing was changed.' }
+    $service = Get-ALService $Config.ServiceName
+    if (-not $service.Exists) { Stop-AL "Service $($Config.ServiceName) is not installed; nothing was changed." }
+    if (-not (Test-ALServiceBinary $service.PathName $Config)) { Stop-AL 'The service runs outside the managed release link; the certificate was not changed.' }
+    if ($service.Account -ine $Config.ServiceAccount) { Stop-AL 'The service identity differs from the deployment configuration; nothing was changed.' }
+    if (@(Compare-ALServiceArguments @(@(Split-ALCommandLine $service.PathName) | Select-Object -Skip 1) @(Get-ALServiceArguments $Config)).Count) {
+        Stop-AL 'The service command line differs from the deployment configuration; review it (-Action Status) before replacing the certificate.'
+    }
+    $exe = Get-ALServiceExe $Config
+    $manifest = Get-Content -LiteralPath (Join-AL (Get-ALLink (Get-ALCurrentLink $Config)) 'build-manifest.json') -Raw | ConvertFrom-Json
+    $candidate = Copy-ALConfig $Config @{ CertificatePath = $CertificateFile; CertificatePasswordFile = $PasswordFile }
+    $probe = Invoke-ALMaintenance $exe (@('--server-preflight') + @(Get-ALServiceArguments $candidate))
+    if (-not $probe.validated -or -not $probe.read_only) { Stop-AL 'The packaged Server did not validate the new certificate for the configured hosts; nothing was changed.' }
+    if ($DryRun) { return [pscustomobject]@{ dry_run = $true; certificate_validated = $true; service = $Config.ServiceName; restart_required = $true; network_changed = $false } }
+    $tls = Copy-ALServerTlsMaterial $candidate (Join-AL (Join-AL $Config.Root 'tls') ('renew-' + [guid]::NewGuid().ToString('N')))
+    $next = Copy-ALConfig $Config @{ CertificatePath = $tls.certificate; CertificatePasswordFile = $tls.password_file }
+    $probe = Invoke-ALMaintenance $exe (@('--server-preflight') + @(Get-ALServiceArguments $next))
+    if (-not $probe.validated -or -not $probe.read_only) { Stop-AL 'The imported certificate copy did not validate; the service was not changed and the copy was retained for review.' 4 }
+    $previousBytes = [IO.File]::ReadAllBytes($Config.ConfigFile)
+    $record = [pscustomobject]@{
+        schema = 1; config_file = $Config.ConfigFile; previous_config = [Convert]::ToBase64String($previousBytes); previous_sha256 = (Get-ALInstallerBytesHash $previousBytes)
+        previous_binary = $service.PathName; previous_certificate = $Config.CertificatePath; certificate = $tls.certificate; password_file = $tls.password_file
+        started_utc = [DateTime]::UtcNow.ToString('o')
+    }
+    Write-ALInstallerPrivateBytes $pending ([Text.Encoding]::UTF8.GetBytes(($record | ConvertTo-Json -Depth 4)))
+    Write-ALLog "certificate replacement started: $($tls.certificate) (previous $($Config.CertificatePath) retained)"
+    try {
+        $raw = [Text.Encoding]::UTF8.GetString($previousBytes).TrimStart([char]0xfeff) | ConvertFrom-Json
+        $raw | Add-Member -NotePropertyName CertificatePath -NotePropertyValue $tls.certificate -Force
+        $raw | Add-Member -NotePropertyName CertificatePasswordFile -NotePropertyValue $tls.password_file -Force
+        Write-ALReplaceFile $Config.ConfigFile ([Text.Encoding]::UTF8.GetBytes(($raw | ConvertTo-Json -Depth 5)))
+        Grant-ALAccess $next
+        Stop-ALService $Config.ServiceName ([int]$Config.StopTimeoutSeconds)
+        Set-ALServiceBinary $Config.ServiceName (Get-ALBinaryPath $next)
+        Start-ALService $Config.ServiceName
+        $ready = Wait-ALReady $next $manifest.source_sha $manifest.version
+    } catch {
+        $reason = $_.Exception.Message
+        $null = Restore-ALCertificateReplacement $Config $record $reason
+        Stop-AL "Certificate replacement failed and the previous certificate was restored: $reason" 1
+    }
+    [IO.File]::Delete($pending)
+    Write-ALLog "service certificate replaced: $($tls.certificate)"
+    [pscustomobject]@{ replaced = $true; certificate = $tls.certificate; public_certificate = $tls.public_certificate; previous_certificate_retained = $Config.CertificatePath
+        process_id = $ready.process_id; trust_store_modified = $false; network_changed = $false }
+}
+
+# Restores the configuration bytes and service command line recorded before a certificate replacement and restarts on the previous certificate.
+# The record must belong to this configuration and its previous bytes must match their hash; otherwise it is retained for manual recovery.
+function Restore-ALCertificateReplacement($Config, $Record, [string]$Reason) {
+    if ($Record.schema -ne 1 -or [IO.Path]::GetFullPath([string]$Record.config_file) -ine [IO.Path]::GetFullPath($Config.ConfigFile)) { Stop-AL 'The pending certificate record does not belong to this configuration; it was retained for manual recovery.' 4 }
+    $bytes = [Convert]::FromBase64String([string]$Record.previous_config)
+    if ((Get-ALInstallerBytesHash $bytes) -ine $Record.previous_sha256) { Stop-AL 'The recorded previous configuration is damaged; certificate-pending.json was retained for manual recovery.' 4 }
+    Write-ALLog "restoring the previous certificate configuration: $Reason"
+    Write-ALReplaceFile $Config.ConfigFile $bytes
+    $previous = Read-AuthLensSettings $Config.ConfigFile
+    $manifest = Get-Content -LiteralPath (Join-AL (Get-ALLink (Get-ALCurrentLink $previous)) 'build-manifest.json') -Raw | ConvertFrom-Json
+    Stop-ALService $previous.ServiceName ([int]$previous.StopTimeoutSeconds)
+    Set-ALServiceBinary $previous.ServiceName ([string]$Record.previous_binary)
+    Start-ALService $previous.ServiceName
+    $ready = Wait-ALReady $previous $manifest.source_sha $manifest.version
+    [IO.File]::Delete((Get-ALCertificatePendingPath $previous))
+    Write-ALLog 'previous certificate restored and ready'
+    [pscustomobject]@{ replaced = $false; restored_previous = $true; certificate = $previous.CertificatePath; process_id = $ready.process_id; reason = $Reason }
+}
+
 # ---- restore (fresh installation + restore of an AuthLens or SAP Lens backup)
 
 # Restores a verified .slbak backup into this installation: the host key that sealed it is copied into <root>\keys (never overwritten) and

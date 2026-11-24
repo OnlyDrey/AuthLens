@@ -19,6 +19,8 @@
     Health          Readiness and identity of the running server.
     Build           Build, test and verify a commit and publish it under releases\ (no service change).
     InstallService  Creates (or with -Reconfigure updates) the AuthLens service from the configuration. Needs -Yes.
+    ReplaceCertificate  Validates (-DryRun stops here), imports and switches the installed service to a new PFX with pinned readiness;
+                    a failure restores the previous certificate. Needs -CertificateFile, -CertificatePasswordFile and -Yes.
     Rollback        Returns to the previous release (or -ToRelease), only when it can open the current data. Needs -Yes.
     Recover         Revalidates an owned fresh candidate or recovers an interrupted update. -RecoveryAction VerifyCandidate, Resume,
                     Rollback or Cancel selects an explicit supported action; rollback needs verified prerequisites. Needs -Yes.
@@ -42,7 +44,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Status', 'Health', 'Build', 'Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'AuditAcl', 'ProtectAcl', 'RestoreAcl')]
+    [ValidateSet('Status', 'Health', 'Build', 'Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'AuditAcl', 'ProtectAcl', 'RestoreAcl')]
     [string]$Action = 'Status',
     [string]$ConfigFile = '',
     [string]$Branch = '',
@@ -53,6 +55,8 @@ param(
     [string]$ToRelease = '',
     [string]$Backup = '',
     [string]$KeyFile = '',
+    [string]$CertificateFile = '',
+    [string]$CertificatePasswordFile = '',
     [string]$AclBackup = '',
     [string]$AclBackupRoot = '',
     [string[]]$ApprovedAclRoot = @(),
@@ -81,7 +85,7 @@ function Test-Elevated {
 
 try {
     if($RecoveryAction -ne 'Auto' -and $Action -ne 'Recover'){Stop-AL 'RecoveryAction requires Action Recover.'}
-    $changing = $Action -in @('Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ProtectAcl', 'RestoreAcl') -and -not $DryRun
+    $changing = $Action -in @('Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ProtectAcl', 'RestoreAcl') -and -not $DryRun
     if ($changing -and -not $Yes) { Stop-AL "$Action changes the service or its permissions; repeat with -Yes after reviewing -Action Status or -Action AuditAcl (or -DryRun)." }
     $config = Read-AuthLensSettings $ConfigFile
     # NTFS audit (read-only) of the installation's private state, releases and configuration. Exit code 0 when no broad principal can read private
@@ -140,6 +144,7 @@ try {
         'Restore' { Write-Result (Invoke-ALRestore $config $Backup $KeyFile) 0 }
         'Rollback' { Write-Result (Invoke-ALRollback $config $ToRelease) 0 }
         'Recover' { Write-Result (Invoke-ALRecover $config -RecoveryAction $RecoveryAction) 0 }
+        'ReplaceCertificate' { Write-Result (Invoke-ALReplaceCertificate $config $CertificateFile $CertificatePasswordFile -DryRun:$DryRun) 0 }
         'ProtectAcl' {
             if (-not $ConfigFile) { Stop-AL 'ProtectAcl requires an explicit -ConfigFile.' }
             $backupRoot = if ($AclBackupRoot) { $AclBackupRoot } else { Join-AL $config.WorkRoot 'acl-backups' }

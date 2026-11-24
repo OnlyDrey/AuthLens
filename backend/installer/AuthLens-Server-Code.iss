@@ -286,11 +286,44 @@ begin
   if PageID = ServerEditTls.ID then Result := (ServerCreatePage.SelectedValueIndex <> 1) or (ServerTlsModePage.SelectedValueIndex = 1);
 end;
 
-function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
+function ServerFreshInstall(): Boolean;
 begin
-  Result := 'Operation: ' + ServerValue('operation') + NewLine + 'AuthLens {#FullVersion}' + NewLine + 'Root: ' + ServerRoot + NewLine + 'Program staging: ' + WizardDirValue() + NewLine + 'Data preserved: ' + ServerValue('data_directory') + NewLine + 'Backups preserved: ' + ServerValue('backup_directory') + NewLine + 'Existing configuration, TLS, encryption keys, accounts and history are preserved.' + NewLine + 'New immutable payload/release and transaction evidence will be created. The owned service may stop/restart after verified backup and rollback checks.' + NewLine + 'No DNS, legacy installation or external proxy changes.';
-  if ServerFirewallPage.SelectedValueIndex = 1 then Result := Result + NewLine + 'Explicitly approved firewall: TCP ' + ServerValue('listen_address') + ':' + ServerValue('port') + ', sources ' + ServerFirewallScope.Values[0] + ', profiles ' + ServerFirewallScope.Values[1]
-  else Result := Result + NewLine + 'Firewall configuration preserved; no new rule.';
+  Result := ServerValue('operation') = 'fresh installation';
+end;
+
+function ServerAccessLabel(): String;
+begin
+  Result := 'Local access only (loopback)';
+  if ServerAccessPage.SelectedValueIndex = 1 then Result := 'Corporate network';
+  if ServerAccessPage.SelectedValueIndex = 2 then Result := 'Reverse proxy (private backend)';
+end;
+
+// Consolidated configuration review: every value comes from the validated plan (ServerValue) or the approved wizard choice; nothing is inferred.
+function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
+var Fresh: Boolean;
+begin
+  Fresh := ServerFreshInstall();
+  Result := 'Operation: ' + ServerValue('operation') + NewLine + 'Version: AuthLens {#FullVersion}' + NewLine + NewLine +
+    'Storage' + NewLine + Space + 'Root: ' + ServerRoot + NewLine + Space + 'Program staging: ' + WizardDirValue() + NewLine +
+    Space + 'Application data: ' + ServerValue('data_directory') + NewLine + Space + 'Predeployment backups: ' + ServerValue('backup_directory') + NewLine + NewLine + 'Network' + NewLine;
+  if Fresh and (ServerCreatePage.SelectedValueIndex = 1) then Result := Result + Space + 'Access mode: ' + ServerAccessLabel() + NewLine
+  else Result := Result + Space + 'Access mode: existing configuration (preserved)' + NewLine;
+  Result := Result + Space + 'HTTPS listener: ' + ServerValue('listen_address') + ':' + ServerValue('port') + NewLine +
+    Space + 'Allowed hosts: ' + ServerValue('allowed_hosts') + NewLine;
+  if ServerValue('proxy_hosts') <> '' then Result := Result + Space + 'Public proxy hosts: ' + ServerValue('proxy_hosts') + NewLine + Space + 'Trusted proxy peers: ' + ServerValue('trusted_proxies') + NewLine;
+  Result := Result + Space + 'Certificate: ' + ServerValue('certificate') + NewLine;
+  if Fresh and (ServerCreatePage.SelectedValueIndex = 1) and (ServerTlsModePage.SelectedValueIndex = 1) then
+    Result := Result + Space + 'Generated self-signed certificate: not trusted by clients until an administrator distributes it.' + NewLine;
+  if ServerFirewallPage.SelectedValueIndex = 1 then Result := Result + Space + 'Firewall: approved rule for TCP ' + ServerValue('listen_address') + ':' + ServerValue('port') + ', sources ' + ServerFirewallScope.Values[0] + ', profiles ' + ServerFirewallScope.Values[1] + NewLine
+  else Result := Result + Space + 'Firewall: configuration preserved; no new rule.' + NewLine;
+  Result := Result + NewLine + 'Windows Service' + NewLine + Space + 'Name: ' + ServerValue('service_name') + NewLine + Space + 'Identity: ' + ServerValue('service_account') + NewLine + NewLine;
+  if Fresh then Result := Result + 'A new configuration, imported TLS files and an empty data directory are created after approval. No existing data, service or SAP Lens installation is adopted.' + NewLine
+  else Result := Result + 'Existing configuration, TLS, encryption keys, accounts and history are preserved. A verified backup is taken before the owned service stops; rollback compatibility was checked.' + NewLine;
+  Result := Result + 'New immutable payload/release and transaction evidence will be created. No DNS, trusted-root, legacy installation or external proxy changes.';
+  if Fresh then Result := Result + NewLine + NewLine + 'After installation' + NewLine +
+    Space + '1. Create the first administrator with an activation code (AuthLens Service Manager).' + NewLine +
+    Space + '2. Create the host backup key with Service Manager; it grants the service identity read access to the key file only.' + NewLine +
+    Space + '3. Export the recovery copy, verify it in Settings, then configure server data sources.';
 end;
 
 function InstallerArguments(): String;
@@ -322,11 +355,6 @@ begin
     if not RunServerHelper('-PrepareOnly -CommitNewConfiguration -ImportTls -Package "' + ServerPackage() + '" -Yes', True) then begin Result := ServerError; Exit; end;
     ServerConfig := ServerValue('config_file'); ServerConfigHash := ServerValue('config_sha256');
   end else if not RunServerHelper('-PrepareOnly -Package "' + ServerPackage() + '" -Yes', False) then Result := ServerError;
-end;
-
-function ServerFreshInstall(): Boolean;
-begin
-  Result := ServerValue('operation') = 'fresh installation';
 end;
 
 function ServerRegistrationName(Param: String): String;
@@ -368,6 +396,6 @@ begin
     WizardForm.FinishedLabel.Caption := 'AuthLens {#FullVersion} transaction completed with service/API/TLS/database readiness checks.' + #13#10 +
       'Backend URL: ' + ServerAccessUrl('') + #13#10 +
       'Operation report: ' + ExpandConstant('{app}\setup\{#PackageName}\operation-result.json') + #13#10#13#10 +
-      'Retain the deployment journal, encrypted backups and recovery tools. Fresh installations still need administrator activation and host backup-key provisioning/escrow. External proxy, DNS and client trust remain separate acceptance checks.';
+      'Retain the deployment journal, encrypted backups and recovery tools. Fresh installations still need administrator activation and host backup-key provisioning/escrow (AuthLens Service Manager: Create initial host key grants the service read access). External proxy, DNS and client trust remain separate acceptance checks.';
   end;
 end;
