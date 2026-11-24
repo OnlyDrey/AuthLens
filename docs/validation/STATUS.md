@@ -54,6 +54,34 @@ journal-state diagnostics, hash-bound fresh metadata and preservation/refusal ch
 covered 44 Markdown files with zero failures. Real fresh installation, upgrade, SCM and recovery acceptance remain pending;
 synthetic installer compilation is not production-package or installation acceptance.
 
+The reusable `Test-AuthLensUpgradeReadiness.ps1` operator wrapper is implemented with fail-closed build/helper,
+installation/journal and independent recovery checks, supported read-only upgrade preflight and final unchanged-state
+comparison. User validation passed its original 20 focused tests and the 44-file documentation check, but actual VM
+readiness stopped in build identity with no service state observed. Read-only artifact inspection confirmed a wrapper
+contract defect: it accessed installer-manifest `schema`, which the actual producer does not emit. StrictMode raised a
+property error hidden by the generic failure code. The wrapper now validates the producer's unversioned contract and
+has producer-based regression coverage and safe granular diagnostics; the corrected focused tests now pass.
+The next user test run reported 25 passed and three failures in the identity mismatch cases. Source inspection found
+the dot-sourced producer's `$field` loop overwrote Pester's `$Field`, causing those cases to replace the executable
+object with a string. The fixture now contains the producer in a function scope and separates valid-structure identity
+mismatches from malformed executable metadata. Production structural validation remains unchanged; the fixture correction
+is covered by the corrected focused tests. Native readiness retry remains pending user execution.
+The subsequent user readiness run passed build/installer identity and checksums, packaged helper integrity and the
+existing installation/terminal journal. It refused independent recovery with `recovery_program_differs_from_active_release`;
+35 observed protected files and the service remained unchanged. The selected verified November 22 bundle predates
+the active alpha `8c6ea68` installation. Its old program must be preserved, not relabeled or accepted as a current rollback
+package; administrator manifest comparison and a new independently verified capture are the next checks. No upgrade is authorized.
+Final review against installer fix `21987b3` preserves the fail-closed exact helper comparison: current sources
+must refuse the older `4be34cb` packaged helpers. A new manually built and verified package is required for
+readiness against the updated helpers; the old build and recovery bundle remain unchanged. Readiness now also
+refuses explicit pending installer registration and binds schema-1 preflight journal paths to the observed
+installation journal. Neither the wrapper nor a future PASS authorizes an upgrade. See
+[read-only readiness](../deployment/WINDOWS_DEPLOYMENT.md#read-only-upgrade-readiness).
+Finalization passed 44 readiness, 10 build-helper and nine installer-preflight tests (63 total, zero failures
+or skips) on Windows PowerShell 5.1, plus source parsing and the 44-file documentation-link check. The
+readiness entry point was not run against an installed service; no application/installer build, native
+acceptance or full regression was executed.
+
 | Mandatory gate | Evidence boundary |
 | --- | --- |
 | Source/build identity | Clean SHA, version `2.0.0`, channel `stable`, file version `2.0.0.0`, manifests/checksums and secret scan must agree |

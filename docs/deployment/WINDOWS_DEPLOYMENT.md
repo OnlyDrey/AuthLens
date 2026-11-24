@@ -14,6 +14,7 @@ configuration and protected recovery material. Native and external acceptance bo
 | `scripts/deploy/deploy.example.json` | Configuration template (copy it outside the repository) |
 | `installer/AuthLens-Desktop.iss`, `installer/AuthLens-Server.iss`, `scripts/build-installers.ps1` | Inno Setup installers and their build script |
 | `installer/AuthLens-Transaction.iss`, `scripts/Install-AuthLens.ps1`, `scripts/deploy/AuthLens.Installer.ps1` | Manual installer transaction adapter; immutable payloads, Desktop recovery, Server delegation to the existing state machine |
+| `scripts/Test-AuthLensUpgradeReadiness.ps1` | Read-only operator pre-upgrade checks against an existing verified canonical build; never installs, approves or performs an upgrade |
 | `scripts/tests/AuthLens.Deploy.Tests.ps1`, `scripts/tests/deploy-windows.test.sh` | Pester (mocked operating system) and Bash (fake SSH, real PowerShell) tests |
 
 The bootstrap resolves the branch or commit **on the Windows host**, locks the full SHA, extracts the deployment scripts of exactly that commit with
@@ -588,6 +589,93 @@ canonical root, and import preserved certificates through the supported wizard w
 an old JSON file without reviewing its absolute paths. Verify HTTPS/SCM/data readiness and administrator access.
 If retry fails before readiness, stop; preserve both roots and all new evidence. Do not restore files over a live
 service. A verified rollback of an installed service is a separate, backup-bound recovery operation.
+
+### Read-only upgrade readiness
+
+`Test-AuthLensUpgradeReadiness.ps1` is an operator script, separate from the seven packaged installer helpers.
+Adding or changing this inspection wrapper alone does not require rebuilding an already verified package. It verifies
+the packaged helper bytes against the reviewed repository helper files; a changed packaged helper requires a matching
+reviewed build, not an override. Existing release artifacts are never rewritten.
+
+Run manually in Administrator PowerShell on the acceptance VM:
+
+```powershell
+Set-Location C:\Users\arkasa\Git\authlens
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+  -File .\backend\scripts\Test-AuthLensUpgradeReadiness.ps1 `
+  -BuildDirectory 'C:\AuthLens\REVIEWED-BUILD-DIRECTORY' `
+  -ExpectedSourceSha ((git rev-parse HEAD).Trim())
+```
+
+Select the actual verified build directory; no latest-build inference, rebuild, UAC request or prompt occurs.
+The example expects a build of the current checkout's committed SHA. Exact helper comparison intentionally
+refuses the older `4be34cb` package after installer fix `21987b3` changed packaged helpers. Preserve that
+package unchanged; use a new manually built, verified package matching the reviewed helpers. Updating this
+operator wrapper alone does not require repackaging when the seven helper files are unchanged.
+`-ConfigFile` optionally selects an existing configuration through the normal registration/ownership checks.
+`-RecoveryReport` optionally selects an existing backup-result JSON; otherwise the newest report in
+`build/lifecycle-work` is selected, and a failed latest report never silently falls back to an older successful one.
+
+The wrapper verifies build/installer identity and hashes, binds packaged helpers to the build summary and repository,
+checks the Running/Automatic virtual-account service, owned active release and terminal deployment journal,
+and verifies the independent recovery bundle's ACL, archive hash, selected config/TLS/recovery-key copies and
+unchanged protected source files. Recovery storage must not overlap installation, data, backup, build or repository
+storage. Retained recovery program metadata must match the active release. The supported
+`Install-AuthLens.ps1 -Mode Server -Operation Upgrade -PreflightOnly` then performs existing release, ACL, TLS-policy,
+database-integrity/foreign-key and schema/rollback checks. No preparation, transaction, file-output or approval flags are passed.
+The structured preflight result must use schema 1 and bind both its actual and expected journal paths to the
+installation's observed journal. New `SetupState=pending-verification` registration refuses readiness;
+older installations without that marker remain subject to the existing service, ownership and journal checks.
+Registration fingerprints also cover the new state marker and installer file version.
+
+Service PID/state/startup/identity/command line, registration, release pointer and observed protected file hashes
+are compared again, including after a caught failure. Raw exceptions, command lines, child output, private inventory
+and secret values are not printed. Only fixed diagnostic codes and a console JSON line prefixed
+`AUTHLENS-UPGRADE-READINESS:` are emitted. Exit `0` means the observed checks passed; exit `1` means failure/refusal.
+Missing input is a structured refusal, not an interactive prompt. The script itself creates no report files.
+
+**PASS does not authorize cutover or approve a release.** Unsigned diagnostic installers are reported as `NotSigned`;
+invalid signatures refuse. Snapshot availability is external and not inspected. A prior verified backup plus unchanged
+archive hash is not proof of backup freshness, successful restore or current business-record preservation. Those checks,
+a fresh backup when needed and actual native upgrade/recovery acceptance remain mandatory. The live database is not
+copied or hashed; normal concurrent application writes cannot be treated as a consistent file fingerprint.
+Focused Windows PowerShell 5.1 tests cover the wrapper contracts; no native acceptance is claimed.
+
+Metadata contracts are distinct: `build-summary.json` and the release `build-manifest.json` use schema 1;
+the current `build-installers.ps1` emits an unversioned installer manifest with exactly product, version, source SHA,
+branch, build timestamp, dirty-source flag, executable mapping and artifact inventory. Readiness validates that known
+contract instead of accessing a nonexistent installer `schema` property. Unsupported fields/schema declarations still
+refuse, and identity, dirty-source, executable isolation and hash binding remain mandatory. The original 20 wrapper
+tests passed but did not cover this producer contract; the actual VM run stopped before observing the installed service.
+The correction has regression coverage using the real metadata-construction block with synthetic inputs.
+The producer fixture runs in its own function scope: its `$field` loop must not overwrite Pester's case variables
+(PowerShell variable names are case-insensitive). Identity mismatch tests preserve a valid executable object;
+null/string/array mappings and missing executable members have separate structural-refusal tests. The first corrected
+contract test run reported 25 passed and three fixture-scope failures; the corrected focused suite now passes.
+
+Build checks now identify separate summary, inventory, release identity, installer identity, checksum and signature stages.
+Missing required fields and identity mismatches produce fixed field-specific codes (for example
+`installer_manifest_field_missing_source_sha` or `installer_manifest_mismatch_version`). Malformed JSON is reported as
+`metadata_json_invalid`. Unexpected failures include only exception type and script line number, never exception text,
+metadata values, invocation text or stack traces. No verified build output needs rewriting for this wrapper correction.
+
+Finalization validation on Windows PowerShell 5.1 passed 44 readiness tests, 10 build-helper tests and nine
+installer-preflight tests (63 total), with zero failures or skips. These tests use synthetic files, mocked
+service/registry reads and the current installer result writer; they never build or run an installer or
+inspect the installed Server. PowerShell parsing and the 44-file documentation-link check passed.
+Native readiness, recovery freshness and actual upgrade acceptance remain pending.
+
+To repeat only this focused selection from the repository root with Pester 5:
+
+```powershell
+Set-Location C:\Users\arkasa\Git\authlens
+Import-Module Pester -MinimumVersion 5.0
+Invoke-Pester -Path @(
+  'backend/scripts/tests/Upgrade-Readiness.Tests.ps1',
+  'backend/scripts/tests/Build-Workflow.Tests.ps1',
+  'backend/scripts/tests/Installer-Preflight.Tests.ps1'
+) -Output Detailed
+```
 
 ### Desktop and Server callback isolation
 
