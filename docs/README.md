@@ -12,7 +12,7 @@ AuthLens is a local-first SAP investigation and access-review application, with 
 | Security and network | [HTTPS, authentication, Origin, CSRF and proxies](deployment/SERVER_NETWORK_ACCESS.md) |
 | Recovery | [Backup and recovery](operations/BACKUP_AND_RECOVERY.md) |
 | Development | [Commands and validation](development/README.md), [CI policy](development/CI.md) |
-| Acceptance | [Acceptance guide](validation/README.md), [current status](validation/STATUS.md), [2.0.0 work packages](validation/WORK_PACKAGES.md) |
+| Acceptance | [Acceptance guide](validation/README.md), [current status](validation/STATUS.md), [2.0.0 work packages](validation/WORK_PACKAGES.md), [2.0.0 VM acceptance runbook](validation/WINDOWS_VM_ACCEPTANCE.md) |
 
 ## Quick start
 
