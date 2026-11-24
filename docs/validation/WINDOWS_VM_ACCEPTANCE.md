@@ -41,11 +41,21 @@ $tools   = (Get-ChildItem "$built\installer" -Directory -Filter 'installer-tools
 $server  = Join-Path "$built\installer" 'AuthLens-Server-2.0.0-Setup.exe'
 $desktop = Join-Path "$built\installer" 'AuthLens-2.0.0-Setup.exe'
 $data    = 'C:\ProgramData\AuthLens\data'
+$config  = 'C:\ProgramData\AuthLens\config\deploy.json'
 $exe     = 'C:\ProgramData\AuthLens\releases\current\server\AuthLens.Api.exe'
-$deploy  = 'C:\ProgramData\AuthLens\app\setup\<package>\payload\<package>\deploy\Deploy-AuthLens.ps1'   # or "$tools\deploy\Deploy-AuthLens.ps1"
-$manager = 'C:\ProgramData\AuthLens\releases\current\Service-Manager.ps1'
 $evidence = 'C:\AuthLens-Evidence'; New-Item -ItemType Directory -Force $evidence | Out-Null
+# After installation (Setup stages the package under <Root>\app\setup\<package>):
+$package = Split-Path $release -Leaf
+$staged  = "C:\ProgramData\AuthLens\app\setup\$package"
+$itools  = "$staged\tools"                                   # installed, hash-verified tools (Install-AuthLens.ps1, deploy\*)
+$manager = "$staged\payload\$package\Service-Manager.ps1"  # the Start-menu "AuthLens Service Manager" target
+$deploy  = "$itools\deploy\Deploy-AuthLens.ps1"             # affected by defect D-001 on Setup-created servers, see below
 ```
+
+**Known candidate defect D-001** ([acceptance tracker](ACCEPTANCE_TRACKER.md#defects-and-gaps)): on a server installed by Setup, `Deploy-AuthLens.ps1`
+refuses the Setup-published configuration ("Deployment setting 'RepositoryPath' is required"). Until a corrected candidate exists, use the
+packaged `Install-AuthLens.ps1` (`-Operation InspectState`, `-Recover`, `-Operation Repair`, `UninstallPlan`) and the direct service and HTTPS
+checks in B3; do not run C8, C9 or `Deploy-AuthLens.ps1 -Action Restore`. Record any `Deploy-AuthLens.ps1` run as D-001 evidence, not as a new defect.
 
 ### A1. Candidate integrity (mandatory)
 
@@ -62,7 +72,7 @@ $evidence = 'C:\AuthLens-Evidence'; New-Item -ItemType Directory -Force $evidenc
 | --- | --- | --- | --- | --- | --- |
 | B1 | Read-only preflight | `& "$tools\Install-AuthLens.ps1" -Mode Server -NetworkSuggestions -ResultFile "$evidence\B1-suggest.json"` | Suggests the assigned private IP and host names; nothing created under `C:\ProgramData\AuthLens` | `B1-suggest.json`, `dir C:\ProgramData` | None needed |
 | B2 | Fresh install, **Local** mode, review and progress (8.14) | `& $server /LOG="$evidence\B2-setup.log"`; choose *Configure a fresh Server*, root `C:\ProgramData\AuthLens`, *Local access only*, *Generate local HTTPS*; keep firewall *Preserve* | Each wizard step that validates shows the progress page naming the check; Ready page lists storage, access mode, listener `127.0.0.1:18795`, hosts, certificate (self-signed note), firewall preserved, service `AuthLens` / `NT SERVICE\AuthLens`, post-install steps; Installing page shows the transaction text; Finish shows the backend URL and operation report | Screenshots of every page; `B2-setup.log`; `app\setup\<package>\operation-result.json` | Revert `S0-clean` |
-| B3 | Service registration, identity and readiness | `Get-CimInstance Win32_Service -Filter "Name='AuthLens'" \| Select Name,StartName,StartMode,State,PathName`; `& $deploy -Action Status -ConfigFile C:\ProgramData\AuthLens\config\deploy.json`; `& $deploy -Action Health -ConfigFile …` | `StartName` = `NT SERVICE\AuthLens`, `Auto`, `Running`; `PathName` under `releases\current\server`; Status `binary_path_matches: true`, `ready: true`, `running_identity.version` = `2.0.0` and `source_sha` = candidate commit; `netstat -ano \| findstr 18795` shows only `127.0.0.1` | `B3-service.txt`, `B3-status.json`, `B3-health.json`, `B3-netstat.txt` | Revert `S0-clean` |
+| B3 | Service registration, identity and readiness | `Get-CimInstance Win32_Service -Filter "Name='AuthLens'" \| Select Name,StartName,StartMode,State,PathName`; `& "$itools\Install-AuthLens.ps1" -Mode Server -Operation InspectState -ConfigFile $config -ResultFile "$evidence\B3-state.json"`; `curl.exe -sk https://127.0.0.1:18795/health/ready`; `curl.exe -sk https://127.0.0.1:18795/product-version.json` (`-k` only because the generated certificate is not trusted; the thumbprint is recorded separately) | `StartName` = `NT SERVICE\AuthLens`, `Auto`, `Running`; `PathName` under `releases\current\server`; readiness HTTP 200; product identity `version` `2.0.0` and `source_sha` = candidate commit; `netstat -ano \| findstr 18795` shows only `127.0.0.1` | `B3-service.txt`, `B3-status.json`, `B3-health.json`, `B3-netstat.txt` | Revert `S0-clean` |
 | B4 | **Corporate** mode (from `S0-clean`) | Repeat B2 with *Corporate network*, listening IP `192.0.2.10`, allowed hosts `lens.example.org,192.0.2.10`, *Use an existing PFX* `lab-server.pfx`, approve exposure; firewall *authorize* with sources = client subnet, profile `Domain` | Ready page lists the approved firewall scope; one rule `AuthLens` scoped to `192.0.2.10:18795`, remote = client subnet, profile Domain; browser on the client opens `https://lens.example.org:18795`; `https://<other-name>:18795` is refused (Host check) | `Get-NetFirewallRule -DisplayName 'AuthLens*' \| Get-NetFirewallAddressFilter`, screenshots, B3 outputs | Revert `S0-clean` |
 | B5 | **Reverse Proxy** mode (from `S0-clean`) | Repeat B2 with *Reverse proxy*, backend IP `192.0.2.10`, public host `lens.example.org`, trusted proxy = proxy host IP; configure the proxy to forward to `https://192.0.2.10:18795` with the original Host | Requests through the proxy work; direct requests with a forged `X-Forwarded-*` from a non-trusted host are not trusted; `/health/ready` through the proxy = 200 | Proxy config export, `curl.exe -v` outputs, screenshots | Revert `S0-clean` |
 | B6 | Failed-install retry (from `S0-clean`) | Occupy the port first: `$l=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,18795);$l.Start()`; run B2; then `$l.Stop()` and run Setup again | First run refuses in preflight with a port diagnostic; no service created; retry succeeds; failed attempt evidence retained, never overwritten | Both Setup logs, `operation-result.json` of each, `Get-Service AuthLens` before/after | Revert `S0-clean` |

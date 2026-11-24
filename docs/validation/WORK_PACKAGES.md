@@ -1,5 +1,7 @@
 # AuthLens 2.0.0 remediation: work-package tracker
 
+Acceptance results are recorded in the [acceptance tracker](ACCEPTANCE_TRACKER.md).
+
 **Release status: NOT APPROVED.** This tracker lets the next agent resume without reconstructing earlier sessions. It records implemented
 work and actual test evidence; native Windows acceptance is listed separately and is never implied by focused tests.
 
@@ -60,7 +62,7 @@ repository; what remains is native acceptance, the external blockers and the pro
 | Directory traversal to the key | No folder grant by design; relies on the default *Bypass traverse checking* right; a hardened policy is diagnosed (`inaccessible`, `backup_key_service_access`) and needs a reviewed grant | Implemented and documented; native acceptance (C4) |
 | Actual service identity resolution | Service Manager reads `Win32_Service.StartName` and resolves virtual, built-in, local, domain and gMSA accounts to a SID; unresolvable identities are refused | Implemented (Pester); native acceptance (C5) |
 | Installer integration of key provisioning | Setup never creates keys (no key material in the installer transaction); the Ready and Finish pages direct to Service Manager `CreateKey`, which grants service read; upgrade preserves the key file ACL | Implemented as designed; native acceptance (B2, C5) |
-| Post-installation network configuration | `Deploy-AuthLens.ps1 -Action InstallService -Reconfigure` after a reviewed configuration edit, then restart and Health; Service Manager does not offer it and there is **no automatic rollback** | Supported manual procedure (limitation, not deferred silently); native check C9 |
+| Post-installation network configuration | `Deploy-AuthLens.ps1 -Action InstallService -Reconfigure` after a reviewed configuration edit, then restart and Health; Service Manager does not offer it and there is **no automatic rollback** | P1 gap G-001 (product owner): manual procedure only; correction in the next candidate |
 | Certificate replacement and rollback | `-Action ReplaceCertificate`: validation first, create-only import, recorded switch, pinned readiness, automatic restoration and interrupted-run restoration | Implemented (Pester 7 tests); native acceptance (C8) |
 | Installer responsiveness during certificate generation and preflight | Marquee progress page naming the running helper check (`c780ff6`) | Implemented (ISCC compile, `InnoIsolation`); native acceptance (B2) |
 | Meaningful progress reporting | Progress page for wizard checks, Installing-page transaction text, consolidated Ready page | Implemented; native acceptance (B2) |
@@ -191,7 +193,8 @@ gMSA/domain-account cases, and a lab certificate (and a second one without the c
 | P0 release blockers (acceptance) | Native UNC/NTFS reads as the service identity; recovery-key service read under SCM; fresh install/upgrade/repair acceptance; encrypted cross-instance restore; certificate replacement under SCM |
 | Deferred by product decision | Dedicated domain account / gMSA provisioning (2.0.0 supports `NT SERVICE\AuthLens`; existing compatible identities preserved); historical organizational snapshot enrichment (provisionally 2.1.0) |
 | External blockers | SMB infrastructure, a domain and an isolated Windows Server VM are not available on the development workstation; native acceptance runs on the operator's VM ([runbook](WINDOWS_VM_ACCEPTANCE.md)) |
-| Known limitation | Post-installation network reconfiguration is a manual reviewed procedure (`InstallService -Reconfigure`, restart, Health) without automatic rollback (runbook C9) |
+| P1 implementation gap G-001 | Post-installation network configuration through Service Manager (original remediation scope): today only a manual configuration edit plus `InstallService -Reconfigure` without validation or readiness-based rollback. Correction consolidated into the next candidate ([acceptance tracker](ACCEPTANCE_TRACKER.md#defects-and-gaps)) |
+| Confirmed defect D-001 | `Deploy-AuthLens.ps1` refuses Setup-published configurations (`RepositoryPath` required), so its actions, including certificate-replacement rollback, fail on Setup-created servers; reproduced on the workstation with a synthetic configuration. Fix in the next candidate |
 | P1 issues | Reviewer smoke on a server; restored-source reauthorization end to end; Linux host run of source tests |
 | P2 improvements | Persist an audit trail of source authorization beyond service logs; browser coverage of every filter screen; optional Windows DACL check of the key file inside the server's own key status (today the deployment ACL audit and `backup_key_service_access` cover it) |
 | Product-owner decisions | None open for 2.0.0 (snapshot enrichment deferred, virtual-account scope, global Overview counters: decided in the third round) |

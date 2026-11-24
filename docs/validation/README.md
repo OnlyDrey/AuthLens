@@ -1,7 +1,7 @@
 # Functional and deployment acceptance
 
 Use [current status](STATUS.md) to distinguish implemented functionality, focused automated verification and remaining native acceptance.
-The [2.0.0 work-package tracker](WORK_PACKAGES.md) lists the 18 remediation packages, their test evidence and the Windows backlog. The [2.0.0 VM acceptance runbook](WINDOWS_VM_ACCEPTANCE.md) is the ordered operator procedure for a release candidate on a disposable Windows VM.
+The [2.0.0 work-package tracker](WORK_PACKAGES.md) lists the 18 remediation packages, their test evidence and the Windows backlog. The [2.0.0 VM acceptance runbook](WINDOWS_VM_ACCEPTANCE.md) is the ordered operator procedure for a release candidate on a disposable Windows VM; results go into the [acceptance tracker](ACCEPTANCE_TRACKER.md).
 
 ## Functional acceptance
 
