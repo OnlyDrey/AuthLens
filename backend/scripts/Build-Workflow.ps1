@@ -9,15 +9,26 @@ function Invoke-AuthLensBuildProcess([string]$Executable, [string[]]$Arguments) 
     } finally { $ErrorActionPreference=$saved }
     $code
 }
-function New-AuthLensBuildDirectory([string]$OutputRoot, [datetime]$Timestamp, [string]$Commit) {
+function New-AuthLensBuildDirectory([string]$OutputRoot, [datetime]$Timestamp, [string]$Commit, [string]$Version) {
     if ($Commit -notmatch '^[0-9a-f]{40}$') { throw 'A full Git SHA is required.' }
-    $path = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ($Timestamp.ToUniversalTime().ToString('yyyyMMddTHHmmssfffffffZ')+'-'+$Commit.Substring(0,7))
-    # CreateDirectory alone permits reuse. A new directory and exclusive claim file prevent concurrent reuse.
-    if (Test-Path -LiteralPath $path) { throw "Build directory already exists: $path" }
-    $null = New-Item -ItemType Directory -Path $path -ErrorAction Stop
-    $claim = [IO.File]::Open((Join-Path $path '.build-claim'),[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-    $claim.Dispose()
-    $path
+    if ($Version -notmatch '^(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})(-(alpha|beta|rc)\.([1-9]\d{0,4}))?$') { throw 'A canonical AuthLens product version is required.' }
+    $root=[IO.Path]::GetFullPath($OutputRoot)
+    $name='AuthLens-'+$Version+'-'+$Timestamp.ToUniversalTime().ToString('yyyy-MM-dd_HHmm',[Globalization.CultureInfo]::InvariantCulture)+'-'+$Commit.Substring(0,7)
+    for($attempt=1; ;$attempt++){
+        $suffix=if($attempt -eq 1){''}else{'-'+$attempt.ToString('00',[Globalization.CultureInfo]::InvariantCulture)}
+        $path=Join-Path $root ($name+$suffix)
+        if(Test-Path -LiteralPath $path){continue}
+        # New-Item without -Force refuses an existing directory even if another process wins
+        # after Test-Path. Only that collision advances the suffix; all other failures propagate.
+        try{$null=New-Item -ItemType Directory -Path $path -ErrorAction Stop}
+        catch{
+            if($_.CategoryInfo.Category -eq [Management.Automation.ErrorCategory]::ResourceExists -and (Test-Path -LiteralPath $path)){continue}
+            throw
+        }
+        $claim=[IO.File]::Open((Join-Path $path '.build-claim'),[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        $claim.Dispose()
+        return $path
+    }
 }
 function Assert-AuthLensBuildIdentity($Manifest, $Identity) {
     foreach ($field in 'product','version','source_sha','branch','build_timestamp_utc') {

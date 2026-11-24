@@ -1010,10 +1010,18 @@ changes services. CI triggers, product version and runtime configuration are unc
 `-TestFilter` selects focused backend validation; the default release command runs the existing backend release test selection.
 Do not use a development build as evidence that full release acceptance passed.
 
-Each invocation generates one UTC timestamp and keeps its full Git SHA. Outputs are never reused:
+Each invocation generates one UTC timestamp and keeps its full Git SHA. The top-level run directory is
+`AuthLens-{version}-{yyyy-MM-dd_HHmm}-{shortSha}`: the canonical product version (including any prerelease
+suffix), UTC date/minute and first seven SHA characters. For example,
+`C:\AuthLens\AuthLens-2.0.0-2026-11-24_0948-8ec7f77`. An occupied name advances to `-02`, `-03`, etc.,
+including when another process claims it during creation. Existing files and directories are never reused,
+overwritten or renamed; non-collision creation failures stop the build. The exclusive `.build-claim` remains.
+The minute display affects only this directory name: summary, release and installer metadata retain the
+complete SHA and round-trip UTC timestamp with seven fractional-second digits. Internal release directory
+names, installer filenames and the layout below are unchanged:
 
 ```text
-C:\AuthLens\<UTC-timestamp>-<short-sha>\
+C:\AuthLens\AuthLens-<version>-<yyyy-MM-dd_HHmm>-<shortSha>\
   build\AuthLens-<version>-<timestamp>-<sha>-win-x64\
     desktop\AuthLens.exe
     server\AuthLens.Api.exe
@@ -1039,6 +1047,13 @@ The summary records tools, test status, checks, artifact hashes and failure reas
 version, full SHA, branch and timestamp. A failure returns nonzero and retains partial outputs/logs. Dirty checkout rejection happens before
 creating a build directory. Start a new build after a failure; never overwrite a partial directory. This is traceable orchestration, not a claim
 of byte-for-byte reproducible executable timestamps or compression output.
+
+Previously generated `<UTC-timestamp>-<short-sha>` run directories remain valid inputs to explicit-path
+inspection/readiness tooling. Consumers discover manifests and verify metadata rather than parsing the run
+directory name. They are not renamed or upgraded in place; older second-precision timestamp metadata remains
+accepted. Focused build-workflow tests cover stable/prerelease names, UTC/calendar independence, collision
+suffixes and a real provider creation race, retained legacy artifacts and precise metadata expressions. Native
+release packaging with this convention awaits a manual build; no application or installer was built for this change.
 
 ### Preparation diagnostics and remaining acceptance
 
@@ -1073,7 +1088,7 @@ Before upgrading, verify backups and the old build, record fingerprints and veri
 replacing the build-folder variable with the actual successful output:
 
 ```powershell
-$built = 'C:\AuthLens\<UTC-timestamp>-<short-sha>'
+$built = 'C:\AuthLens\AuthLens-<version>-<yyyy-MM-dd_HHmm>-<shortSha>'
 # Desktop: current user, selected isolated data profile, no service
 & "$built\installer\AuthLens-2.0.0-alpha.1-Setup.exe" /DIR="C:\AuthLens-Desktop-Acceptance\app" /DATADIR="C:\AuthLens-Desktop-Acceptance\data" /LOG="C:\AuthLens-Desktop-Acceptance\setup-upgrade.log"
 # Server: elevated operator, explicit isolated root/service/port/TLS in this configuration

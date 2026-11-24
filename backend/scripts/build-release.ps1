@@ -137,7 +137,7 @@ function Get-Artifacts([string]$Folder, [string[]]$Exclude) {
 $manifest = [ordered]@{
     schema = 1; product = 'AuthLens'; version = $version; channel = $channel; file_version = $fileVersion; ui_source_version = $uiVersion
     source_sha = $sha; source_dirty = $dirty; source_committed_at = $committed
-    branch = (& git -C $root rev-parse --abbrev-ref HEAD).Trim(); build_timestamp_utc = $built.ToString('yyyy-MM-ddTHH:mm:ssZ'); target_platform = $platform
+    branch = (& git -C $root rev-parse --abbrev-ref HEAD).Trim(); build_timestamp_utc = $built.ToString('o'); target_platform = $platform
     dotnet_sdk = $sdk; node = $nodeVersion
     publish = [ordered]@{ self_contained = $true; single_file = $true; trimmed = $false; native_aot = $false; compressed = $false
         server_native_libraries = 'beside the executable (e_sqlite3.dll, libSkiaSharp.dll)'; desktop_native_libraries = 'bundled, extracted to a temporary folder at start' }

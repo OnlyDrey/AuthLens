@@ -14,8 +14,8 @@ try {
     $branch=(& git -C $PSScriptRoot branch --show-current).Trim()
     $version=(Get-Content (Join-Path $PSScriptRoot 'backend/product-version.json') -Raw | ConvertFrom-Json).version
     $timestamp=[datetime]::UtcNow
-    $directory=New-AuthLensBuildDirectory $OutputRoot $timestamp $sha
-    $summary.identity=[ordered]@{product='AuthLens';version=$version;source_sha=$sha;branch=$branch;build_timestamp_utc=$timestamp.ToString('yyyy-MM-ddTHH:mm:ssZ')}
+    $directory=New-AuthLensBuildDirectory $OutputRoot $timestamp $sha -Version $version
+    $summary.identity=[ordered]@{product='AuthLens';version=$version;source_sha=$sha;branch=$branch;build_timestamp_utc=$timestamp.ToString('o')}
     Start-Transcript -Path (Join-Path $directory 'build.log') -NoClobber | Out-Null; $transcribing=$true
     if (-not $Iscc) { $Iscc=@("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe","$env:ProgramFiles\Inno Setup 6\ISCC.exe","$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1 }
     $summary.tools=@{powershell=$PSVersionTable.PSVersion.ToString();git=(& git --version | Out-String).Trim();dotnet=(& dotnet --version | Out-String).Trim();node=(& node --version | Out-String).Trim();npm=(& npm.cmd --version | Out-String).Trim();python=(& python --version | Out-String).Trim();iscc='unavailable'}

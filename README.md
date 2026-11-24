@@ -67,7 +67,11 @@ is `C:\AuthLens`; choose another with `-OutputRoot`:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -OutputRoot 'C:\AuthLens-Builds'
 ```
 
-Each run creates a new `<UTC-timestamp>-<short-sha>` directory under that output root:
+Each run creates a new `AuthLens-{version}-{yyyy-MM-dd_HHmm}-{shortSha}` directory under that output root,
+using the canonical version (including any prerelease suffix), UTC time and the first seven commit characters.
+For example: `C:\AuthLens\AuthLens-2.0.0-2026-11-24_0948-8ec7f77`. Collisions append `-02`, `-03`, etc.;
+existing directories are never reused or renamed. Manifests and build metadata retain the full timestamp precision
+and complete commit SHA. The internal layout is unchanged:
 
 | Location within the run directory | Contents |
 | --- | --- |
