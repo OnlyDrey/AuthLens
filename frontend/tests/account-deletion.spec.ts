@@ -1,7 +1,7 @@
 import {test,expect,type Page} from '@playwright/test'
 import {openSettings} from './support'
 
-const keeper={id:'keeper-id',username:'keeper',display_name:'Keeper',role:'administrator',enabled:true,revision:2,last_login:null}
+const keeper={id:'keeper-id',username:'keeper',display_name:'Keeper',role:'administrator',permissions:['read','export','profile','review','approve','admin','accounts'],enabled:true,revision:2,last_login:null}
 const temporary={id:'temporary-id',username:'temporary',display_name:'Temporary',role:'reviewer',enabled:true,revision:7,last_login:null}
 async function fixture(page:Page,fail=false){
  let users=[keeper,temporary],deletes=0

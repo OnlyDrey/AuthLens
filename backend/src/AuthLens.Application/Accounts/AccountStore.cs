@@ -522,8 +522,24 @@ public sealed partial class AccountStore
         Authorize(db, principal, "profile");
         var result = Public(Row(db, "SELECT * FROM users WHERE id=$1", principal.Id)!);
         foreach (var (key, value) in principal.Snapshot()) result[key] = value;
+        result["permissions"] = Permissions.Where(p => p.Value.Contains((string)result["role"]!)).Select(p => p.Key).Order(StringComparer.Ordinal).ToArray();
+        var theme = Scalar(db, "SELECT value FROM meta WHERE key=$1", "theme:" + principal.Id) as string;
+        result["theme"] = theme is "system" or "light" or "dark" ? theme : null;
         return result;
     });
+
+    /// <summary>Personal preference in the existing private account metadata store. No caller-supplied account identity.</summary>
+    public Task SetThemeAsync(Principal principal, string theme)
+    {
+        if (theme is not ("system" or "light" or "dark" or "default")) throw new AuthException("invalid_theme");
+        return Use(true, db =>
+        {
+            Authorize(db, principal, "profile");
+            if (theme == "default") Execute(db, "DELETE FROM meta WHERE key=$1", "theme:" + principal.Id);
+            else Execute(db, "INSERT INTO meta(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", "theme:" + principal.Id, theme);
+            return true;
+        });
+    }
 
     public Task<Dictionary<string, object?>> PolicyAsync(Principal actor)
     {

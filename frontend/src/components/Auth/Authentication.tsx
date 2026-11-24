@@ -1,26 +1,39 @@
-import {createContext,useCallback,useContext,useEffect,useState,type ReactNode,type FormEvent} from 'react'
+import {createContext,useCallback,useContext,useEffect,useRef,useState,type ReactNode,type FormEvent} from 'react'
 import {useQueryClient} from '@tanstack/react-query'
 import {ApiError,apiRequest,setSessionRole} from '@/api/client'
 import {Button} from '@/components/Shared/Button'
 import {FormField,Input,PasswordInput} from '@/components/Shared/Controls'
 import {ConfirmDialog} from '@/components/Shared/ConfirmDialog'
+import {Select} from '@/components/Shared/Select'
 import {Check,Circle,LogOut,LogIn,KeyRound,ShieldCheck} from 'lucide-react'
 import {Dialog} from '@/components/Shared/Dialog'
 import {DataTable,LoadingState,MetadataList,StatusBadge} from '@/components/Shared/Presentation'
 
-export interface Account {id:string;username:string;display_name:string;role:'administrator'|'reviewer'|'viewer';enabled:boolean;revision:number;last_login:number|null}
-interface Auth {user:Account|null;session:boolean;canAdmin:boolean;canReview:boolean;reload:()=>Promise<void>;logout:()=>Promise<void>}
-const Context=createContext<Auth>({user:null,session:false,canAdmin:true,canReview:true,reload:async()=>{},logout:async()=>{}})
+export interface Account {id:string;username:string;display_name:string;role:'administrator'|'reviewer'|'viewer';enabled:boolean;revision:number;last_login:number|null;permissions?:string[];theme?:'light'|'dark'|'system'|null;default_theme?:'light'|'dark'|'system'}
+interface Auth {user:Account|null;session:boolean;canAdmin:boolean;canReview:boolean;can:(permission:string)=>boolean;reload:()=>Promise<void>;logout:()=>Promise<void>}
+const Context=createContext<Auth>({user:null,session:false,canAdmin:false,canReview:false,can:()=>false,reload:async()=>{},logout:async()=>{}})
 export const useAuthentication=()=>useContext(Context)
+export function Permission({permission,children}:{permission:string;children:ReactNode}){
+ return useAuthentication().can(permission)?<>{children}</>:null
+}
 const messages:Record<string,string>={invalid_credentials:'Username or password was not accepted.',temporarily_throttled:'Too many attempts. Wait briefly before trying again.',invalid_activation:'The code is invalid, expired or exhausted. Request another code from the local administrator.',last_administrator:'Keep at least one enabled Administrator.',stale_user:'This account changed. Reload before saving.',password_length:'Use a passphrase of 12–1024 characters.'}
 const deletionMessages:Record<string,string>={cannot_delete_self:'You cannot delete your own account.',username_mismatch:'The account no longer matches your confirmation. Reload before deleting.',confirmation_required:'Confirm this action before continuing.'}
 export const authMessage=(error:unknown)=>error instanceof Error?(messages[error.message.split(' Reference:')[0]]||deletionMessages[error.message.split(' Reference:')[0]]||error.message):'The operation could not be completed.'
 
 export function AuthenticationGate({children}:{children:ReactNode}) {
  const qc=useQueryClient(),[ready,setReady]=useState(false),[session,setSession]=useState(false),[setup,setSetup]=useState(false),[user,setUser]=useState<Account|null>(null),[error,setError]=useState('')
- const reload=async()=>{
-  const next=await apiRequest<Account>('/api/auth/me');setSessionRole(next.role);setUser(next)
- }
+ const requestSequence=useRef(0)
+ const reload=useCallback(async()=>{
+  const sequence=++requestSequence.current,next=await apiRequest<Account>('/api/auth/me')
+  if(sequence===requestSequence.current){setSessionRole(next.role);setUser(next)}
+ },[])
+ useEffect(()=>{
+  if(!session||!user)return
+  const refresh=()=>{void reload().catch(()=>undefined)}
+  const timer=window.setInterval(refresh,30000)
+  window.addEventListener('focus',refresh)
+  return()=>{window.clearInterval(timer);window.removeEventListener('focus',refresh)}
+ },[session,user,reload])
  useEffect(()=>{
   let mounted=true
   void apiRequest<{provider:string;setup_required:boolean}>('/api/auth/state').then(async state=>{
@@ -37,14 +50,15 @@ export function AuthenticationGate({children}:{children:ReactNode}) {
    if(error instanceof ApiError&&error.kind==='session'){setReady(true);return}
    setError(authMessage(error))
   })
-  const expired=()=>{void qc.cancelQueries();qc.clear();setUser(null);setSessionRole(null)}
+  const expired=()=>{requestSequence.current++;void qc.cancelQueries();qc.clear();setUser(null);setSessionRole(null)}
   window.addEventListener('authlens-sign-in-required',expired)
   return()=>{mounted=false;window.removeEventListener('authlens-sign-in-required',expired)}
- },[qc])
- const logout=async()=>{try{await apiRequest('/api/auth/logout','POST')}catch(error){if(!(error instanceof ApiError&&error.status===401))throw error}void qc.cancelQueries();qc.clear();setUser(null);setSessionRole(null)}
+ },[qc,reload])
+ const logout=async()=>{try{await apiRequest('/api/auth/logout','POST')}catch(error){if(!(error instanceof ApiError&&error.status===401))throw error}requestSequence.current++;void qc.cancelQueries();qc.clear();setUser(null);setSessionRole(null)}
  if(!ready)return <div className="startup-screen"><div className="startup-card">{error?<><p role="alert">{error}</p><Button onClick={()=>location.reload()}>Retry connection</Button></>:<LoadingState/>}</div></div>
  if(session&&!user)return <Login setup={setup} onActivated={()=>setSetup(false)} onReady={async()=>{setSetup(false);await reload()}}/>
- return <Context.Provider value={{user,session,canAdmin:!session||user?.role==='administrator',canReview:!session||user?.role!=='viewer',reload,logout}}>{children}</Context.Provider>
+ const can=(permission:string)=>!session||!!user?.permissions?.includes(permission)
+ return <Context.Provider value={{user,session,canAdmin:can('admin'),canReview:can('review'),can,reload,logout}}>{children}</Context.Provider>
 }
 function Login({setup,onActivated,onReady}:{setup:boolean;onActivated:()=>void;onReady:()=>Promise<void>}){
  const [mode,setMode]=useState<'login'|'reset'|'recover'>(setup?'recover':'login'),[username,setUsername]=useState(''),[display,setDisplay]=useState(''),[password,setPassword]=useState(''),[code,setCode]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('')
@@ -81,7 +95,7 @@ const FeedbackText=({value}:{value:Feedback})=>value?<p role={value.kind} classN
 export function MyProfile({onClose}:{onClose:()=>void}){
  const auth=useAuthentication(),user=auth.user
  const [name,setName]=useState(user?.display_name||''),[current,setCurrent]=useState(''),[password,setPassword]=useState(''),[confirmation,setConfirmation]=useState('')
- const [sessions,setSessions]=useState<AccountSession[]|null>(null),[busy,setBusy]=useState<''|'profile'|'password'|'sessions'|'logout'>(''),[confirmOthers,setConfirmOthers]=useState(false)
+ const [sessions,setSessions]=useState<AccountSession[]|null>(null),[busy,setBusy]=useState<''|'profile'|'password'|'sessions'|'logout'|'theme'>(''),[confirmOthers,setConfirmOthers]=useState(false)
  const [profileFeedback,setProfileFeedback]=useState<Feedback>(null),[passwordFeedback,setPasswordFeedback]=useState<Feedback>(null),[sessionFeedback,setSessionFeedback]=useState<Feedback>(null)
  const load=useCallback(async()=>{const data=await apiRequest<{items:AccountSession[]}>('/api/auth/sessions');setSessions([...data.items].sort((a,b)=>Number(b.current)-Number(a.current)||b.seen-a.seen))},[])
  useEffect(()=>{void load().catch(e=>setSessionFeedback({kind:'alert',text:authMessage(e)}))},[load])
@@ -102,6 +116,10 @@ export function MyProfile({onClose}:{onClose:()=>void}){
    <FormField label="Display name" description={!trimmed?'Enter a display name.':undefined}><Input value={name} maxLength={120} autoComplete="name" required aria-invalid={!trimmed||undefined} onChange={e=>{setName(e.target.value);setProfileFeedback(null)}}/></FormField>
    <div className="account-actions"><FeedbackText value={profileFeedback}/><Button type="submit" variant="primary" size="compact" loading={busy==='profile'} disabled={(!!busy&&busy!=='profile')||!nameChanged||!trimmed}>Save changes</Button></div>
   </form>
+ </section>
+ <section className="account-section" aria-label="Personal appearance">
+  <FormField label="Personal theme"><Select value={user?.theme||'default'} disabled={!!busy} onChange={event=>{const theme=event.target.value;void run('theme',setProfileFeedback,async()=>{await apiRequest('/api/auth/preferences/theme','POST',{theme});await auth.reload();return 'Personal theme saved.'})}}><option value="default">Application default</option><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></Select></FormField>
+  <p className="ui-description">Applies only to your account across browsers and devices. Other sessions update within 30 seconds or when focused.</p>
  </section>
  <section className="account-section" aria-labelledby="password-security">
   <header><h3 id="password-security">Password and security</h3><p className="ui-description">Changing your password signs you out of every session, including this one.</p></header>

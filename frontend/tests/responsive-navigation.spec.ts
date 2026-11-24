@@ -57,7 +57,7 @@ test('profile icon opens a bounded keyboard-operable menu and the existing profi
 test('signed-in profile menu retains logout and opens no separate profile page',async({page})=>{
   let logout=false
   await page.route('**/api/auth/state',route=>route.fulfill({json:{provider:'local-sessions',setup_required:false}}))
-  await page.route('**/api/auth/me',route=>logout?route.fulfill({status:401,json:{detail:'authentication_required'}}):route.fulfill({json:{id:'synthetic',username:'synthetic',display_name:'Synthetic operator',role:'administrator',enabled:true,revision:1,last_login:null}}))
+  await page.route('**/api/auth/me',route=>logout?route.fulfill({status:401,json:{detail:'authentication_required'}}):route.fulfill({json:{id:'synthetic',username:'synthetic',display_name:'Synthetic operator',role:'administrator',permissions:['read','export','profile','review','approve','admin','accounts'],enabled:true,revision:1,last_login:null}}))
   await page.route('**/api/auth/sessions',route=>route.fulfill({json:{items:[]}}))
   await page.route('**/api/auth/logout',route=>{logout=true;return route.fulfill({json:{ok:true}})})
   await page.setViewportSize({width:390,height:844});await page.goto('/#session=browser-test-session')

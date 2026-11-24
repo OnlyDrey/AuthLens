@@ -1,4 +1,5 @@
 import {useReviewerName} from '@/hooks/useReviewerIdentity'
+import {Permission} from '@/components/Auth/Authentication'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Settings2, Trash2, UsersRound } from 'lucide-react'
@@ -127,10 +128,10 @@ export function FunctionalGroupPanel({ username }: { username: string }) {
       <div className="profile-group-header">
         <h2><UsersRound size={18} aria-hidden="true" />Functional Groups</h2>
         {current && (
-          <span className="inline-flex flex-wrap gap-2">
+          <Permission permission="admin"><span className="inline-flex flex-wrap gap-2">
             <Button variant={count ? 'secondary' : 'primary'} onClick={() => setEditing(true)} aria-label={count ? 'Add group' : 'Assign group'}>{count ? <Plus size={16} aria-hidden="true" /> : <UsersRound size={16} aria-hidden="true" />}{count ? 'Add group' : 'Assign group'}</Button>
             {count > 0 && <Button onClick={() => setEditing(true)} aria-label="Manage groups"><Settings2 size={16} aria-hidden="true" />Manage groups</Button>}
-          </span>
+          </span></Permission>
         )}
       </div>
       {query.isError ? <p role="alert">{message(query.error, 'Functional Group data is unavailable.')}</p> : !current ? <LoadingState /> : (
@@ -158,7 +159,7 @@ export function FunctionalGroupPanel({ username }: { username: string }) {
             <p className="fg-meta">Suggested (advisory): {data!.suggestion!.groups.filter(group => !group.already_member).map(group => group.group_name).join(', ')}</p>)}
           <p className="fg-meta">Business classification maintained in AuthLens. It does not change SAP access.</p>
           <EvidenceDisclosure title="About Functional Groups"><p className="ui-description">Functional Groups are maintained in AuthLens. A user can belong to several groups. Directory Department, Job Title and SAP User Group are imported and displayed separately.</p></EvidenceDisclosure>
-          {editing && data && <ManageGroupsDialog username={username} data={data} onClose={() => setEditing(false)} />}
+          <Permission permission="admin">{editing && data && <ManageGroupsDialog username={username} data={data} onClose={() => setEditing(false)} />}</Permission>
         </>
       )}
     </section>
@@ -192,8 +193,8 @@ export function FunctionalGroupReview({ username, department, title, manager, de
             {detectedAt && <div><dt>Change detected</dt><dd>{detectedAt}</dd></div>}
           </dl>
           <p className="ui-description">Classification only. This does not record a SAP role decision and never changes SAP access.</p>
-          <Button onClick={() => setOpen(true)}>{current.status === 'Needs review' ? 'Review Functional Groups' : 'Manage groups'}</Button>
-          {open && data && <ManageGroupsDialog username={username} data={data} changeId={changeId} onClose={() => setOpen(false)} />}
+          <Permission permission="admin"><Button onClick={() => setOpen(true)}>{current.status === 'Needs review' ? 'Review Functional Groups' : 'Manage groups'}</Button>
+          {open && data && <ManageGroupsDialog username={username} data={data} changeId={changeId} onClose={() => setOpen(false)} />}</Permission>
         </>
       )}
     </section>

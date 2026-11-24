@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import {Permission} from '@/components/Auth/Authentication'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, CircleDashed, ClipboardCheck, Grid3x3, ListChecks, ShieldAlert, ShieldCheck, ShieldX, UserMinus, UsersRound, Wrench } from 'lucide-react'
 import { sod, type Filters } from '@/api/sod'
@@ -47,7 +48,7 @@ export function SodOverview() {
   return (
     <section className="grid min-w-0 gap-4" aria-label="SoD overview">
       {!g.available && <Card><AlertNote>Conflict analysis is unavailable ({g.reason === 'sod_disabled' ? 'SoD is turned off in Features' : g.reason === 'mapping_disabled' ? 'User–Role Mapping is disabled' : 'a supported SoD matrix, validated role catalogue and User–Role Mapping data are required'}). Missing evidence is not proof that no conflict exists.</AlertNote>
-        <Toolbar><Button onClick={() => change({ settings: true, settingsTarget: g.reason === 'mapping_disabled' || g.reason === 'sod_disabled' ? 'features' : 'sod' })}>Review configuration</Button></Toolbar></Card>}
+        <Permission permission="admin"><Toolbar><Button onClick={() => change({ settings: true, settingsTarget: g.reason === 'mapping_disabled' || g.reason === 'sod_disabled' ? 'features' : 'sod' })}>Review configuration</Button></Toolbar></Permission></Card>}
       {g.available&&g.review_coverage&&<Card aria-label="Access review completion"><p>{Object.values(g.review_coverage).reduce((sum,item)=>sum+item.reviewed,0)} / {Object.values(g.review_coverage).reduce((sum,item)=>sum+item.total,0)} access-review items covered across the current context</p><p className="ui-description">Manual and derived coverage count once. Formal risk acceptance and evidence-verified remediation remain separate.</p></Card>}
       {g.available && <section className="dashboard-workspace sod-overview-cards" aria-label="SoD key figures">
           <section className="dashboard-section min-w-0 rounded-card bg-surface p-4" aria-label="Conflicts">

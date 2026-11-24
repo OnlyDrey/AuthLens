@@ -154,7 +154,7 @@ export function ThemeEditor({
 
       <div className="grid md:grid-cols-2 gap-3">
         <label className="text-sm font-medium">
-          Theme
+          Application default theme
           <SettingsSelect
             className={`${control} mt-1`}
             value={draft.theme}

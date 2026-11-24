@@ -44,6 +44,49 @@ public sealed class AccountsTests : IDisposable
     }
 
     [Fact]
+    public async Task Personal_theme_is_independent_for_reviewers_and_persists_across_sessions_and_store_restart()
+    {
+        var (store, clock) = NewStore();
+        var admin = await Bootstrap(store);
+        await store.CreateUserAsync(admin, "reviewer", "Reviewer", "reviewer", Password);
+        var reviewer = (await store.LoginAsync("reviewer", Password, "browser-one")).Principal;
+        Assert.Null((await store.MeAsync(reviewer))["theme"]);
+        await store.SetThemeAsync(admin, "dark");
+        await store.SetThemeAsync(reviewer, "light");
+        var other = (await store.LoginAsync("reviewer", Password, "browser-two")).Principal;
+        Assert.Equal("light", (await store.MeAsync(other))["theme"]);
+        Assert.Equal("dark", (await store.MeAsync(admin))["theme"]);
+        Assert.DoesNotContain("admin", (string[])(await store.MeAsync(reviewer))["permissions"]!);
+        Assert.Contains("profile", (string[])(await store.MeAsync(reviewer))["permissions"]!);
+        await store.LogoutAsync(reviewer);
+        var restarted = new AccountStore(store.StorePath, clock); restarted.Prepare();
+        reviewer = (await restarted.LoginAsync("reviewer", Password, "browser-three")).Principal;
+        Assert.Equal("light", (await restarted.MeAsync(reviewer))["theme"]);
+        await restarted.SetThemeAsync(reviewer, "system");
+        Assert.Equal("system", (await store.MeAsync(other))["theme"]);
+        await restarted.SetThemeAsync(reviewer, "default");
+        Assert.Null((await store.MeAsync(other))["theme"]);
+        await Assert.ThrowsAsync<AuthException>(() => restarted.SetThemeAsync(reviewer, "invalid"));
+    }
+
+    [Fact]
+    public async Task Personal_theme_http_uses_only_authenticated_identity_and_rejects_target_account_fields()
+    {
+        await using var server = await StartServer();
+        var admin = await Bootstrap(server.Store);
+        await server.Store.CreateUserAsync(admin, "reviewer", "Reviewer", "reviewer", Password);
+        await server.Post("/api/auth/login", new { username = "reviewer", password = Password });
+        var me = JsonNode.Parse(await server.Client.GetStringAsync("/api/auth/me"))!;
+        var presentation = JsonNode.Parse(await server.Client.GetStringAsync("/api/presentation"))!;
+        Assert.Equal((string?)presentation["settings"]!["theme"], (string?)me["default_theme"]);
+        Assert.Equal(HttpStatusCode.OK, (await server.Post("/api/auth/preferences/theme", new { theme = "light" })).StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await server.Post("/api/auth/preferences/theme", new { theme = "dark", user_id = admin.Id })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await server.Post("/api/configuration/theme", new { theme = "dark" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await server.Post("/api/refresh")).StatusCode);
+        Assert.Null((await server.Store.MeAsync(admin))["theme"]);
+    }
+
+    [Fact]
     public async Task Recovery_copy_authorization_requires_password_and_expires_is_session_bound_and_single_use()
     {
         var (store, clock) = NewStore();

@@ -174,7 +174,20 @@ public static partial class V1Auth
             return Json(new { ok = true, login_required = true });
         }, signedIn: false);
 
-        Route("GET", "/auth/me", async (_, store, actor) => Json(await store.MeAsync(actor)));
+        Route("GET", "/auth/me", async (http, store, actor) =>
+        {
+            var result = await store.MeAsync(actor);
+            result["default_theme"] = (string?)(await http.RequestServices.GetRequiredService<V1Settings>().GetAsync(http.RequestAborted))["theme"];
+            return Json(result);
+        });
+        Route("POST", "/auth/preferences/theme", async (http, store, actor) =>
+        {
+            if (await Read(http) is not { } body) return Invalid();
+            var theme = body.Text("theme", 1, 10);
+            if (!body.Done()) return Invalid();
+            await store.SetThemeAsync(actor, theme);
+            return Json(await store.MeAsync(actor));
+        });
         Route("POST", "/auth/backup-reauth", async (http, store, actor) =>
         {
             if (await Read(http) is not { } body) return Invalid();

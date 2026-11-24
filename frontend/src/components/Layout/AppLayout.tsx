@@ -64,6 +64,7 @@ export function AppLayout({
   })
   const [savedFeedback, setSavedFeedback] = useState(false)
   const [settingsOpen, setSettingsOpen] = useHistoryValue('settings')
+  useEffect(()=>{if(!auth.can('admin')&&settingsOpen)setSettingsOpen(false)},[auth,settingsOpen,setSettingsOpen])
   // Settings is large but must exist early (it opens itself on first launch and listens for the native bridge). It loads as its own chunk right after the first render instead of inside the entry bundle, and then stays mounted so drafts survive.
   const [settingsMounted, setSettingsMounted] = useState(false)
   useEffect(() => { setSettingsMounted(true) }, [])
@@ -144,12 +145,12 @@ export function AppLayout({
           <div className="hidden min-w-0 lg:block">{navigation}</div>
 
           <div className="app-utilities">
-            <div><IconButton label={isDark?'Switch to light mode':'Switch to dark mode'} variant="ghost" disabled={!auth.canAdmin||themeBusy||settingsOpen} loading={themeBusy} onClick={()=>{setErr(null);setThemeBusy(true);void onToggleTheme().catch(e=>setErr(e instanceof Error?e.message:'Could not save the theme.')).finally(()=>setThemeBusy(false))}}>{!themeBusy&&(isDark?<Sun size={17} aria-hidden="true"/>:<Moon size={17} aria-hidden="true"/>)}</IconButton></div>
+            <div><IconButton label={isDark?'Switch to light mode':'Switch to dark mode'} variant="ghost" disabled={themeBusy||settingsOpen} loading={themeBusy} onClick={()=>{setErr(null);setThemeBusy(true);void onToggleTheme().catch(e=>setErr(e instanceof Error?e.message:'Could not save the theme.')).finally(()=>setThemeBusy(false))}}>{!themeBusy&&(isDark?<Sun size={17} aria-hidden="true"/>:<Moon size={17} aria-hidden="true"/>)}</IconButton></div>
             <Tooltip label={auth.session?'My Profile':'Reviewer profile'}><Popover label={auth.session?'My Profile':'Reviewer profile'} triggerLabel={auth.session?'My Profile':'Reviewer profile'} trigger={<UserRound size={20} aria-hidden="true"/>} triggerSize="icon" triggerVariant="ghost" preferredWidth={240} className="ui-popover-menu">
               {close=><div className="grid gap-2"><Button className="justify-start text-left" onClick={()=>{close();setProfileOpen(true)}}><UserRound size={16} aria-hidden="true"/>{auth.session?'Profile & sessions':'Edit reviewer profile'}</Button>{auth.session&&<Button className="justify-start text-left" onClick={()=>{close();void auth.logout().catch(e=>setErr(e instanceof Error?e.message:'Could not sign out.'))}}><LogOut size={16} aria-hidden="true"/>Sign out</Button>}</div>}
             </Popover></Tooltip>
-            <div><IconButton disabled={!auth.canAdmin} label="Open settings" tooltip="Settings" variant="ghost" onClick={()=>setSettingsOpen(true)}><Settings size={17} aria-hidden="true"/></IconButton></div>
-            <div><IconButton label={busy?'Refreshing data':'Refresh role data from CSV'} tooltip="Refresh data" variant="ghost" disabled={!auth.canAdmin||busy||settingsOpen} loading={busy} onClick={()=>void handleRefresh()}>{!busy&&<RefreshCw size={17} aria-hidden="true"/>}</IconButton></div>
+            {auth.can('admin')&&<div><IconButton label="Open settings" tooltip="Settings" variant="ghost" onClick={()=>setSettingsOpen(true)}><Settings size={17} aria-hidden="true"/></IconButton></div>}
+            {auth.can('admin')&&<div><IconButton label={busy?'Refreshing data':'Refresh role data from CSV'} tooltip="Refresh data" variant="ghost" disabled={busy||settingsOpen} loading={busy} onClick={()=>void handleRefresh()}>{!busy&&<RefreshCw size={17} aria-hidden="true"/>}</IconButton></div>}
           </div>
         </div>
 

@@ -1,4 +1,5 @@
 import { migrateTransactionFilters } from '@/lib/savedFilterMigration'
+import {Permission} from '@/components/Auth/Authentication'
 import { ASSIGNMENT_BANDS, LEGACY_ASSIGNMENT_BANDS } from '@/lib/assignmentBands'
 import { Button } from './Button'
 import { Popover } from './Popover'
@@ -239,22 +240,22 @@ export function SavedFilters({
           <Button disabled={!selected || busy} onClick={load}>
             Load
           </Button>
-          <input
+          <Permission permission="admin"><input
             className={inputClass}
             aria-label="Saved filter name"
             placeholder="Filter name"
             maxLength={80}
             value={name}
             onChange={(e) => setName(e.target.value)}
-          />
+          /></Permission>
           <div className="saved-filter-actions">
-          <Button
+          <Permission permission="admin"><Button
             disabled={!name.trim() || busy || !!result.error}
             onClick={() => save(false)}
           >
             <Save size={15} aria-hidden="true" />
             Save as new
-          </Button>
+          </Button></Permission>
           {(
             <Button
               variant="ghost"
@@ -272,7 +273,7 @@ export function SavedFilters({
           )}
           </div>
           {selected && (
-            <>
+            <Permission permission="admin">
               <Button
                 disabled={busy || !name.trim()}
                 onClick={() => save(true)}
@@ -310,7 +311,7 @@ export function SavedFilters({
                 <Trash2 size={15} aria-hidden="true" />
                 Delete
               </Button>
-            </>
+            </Permission>
           )}
           {(message || result.error) && (
             <p role="status">{message || result.error?.message}</p>

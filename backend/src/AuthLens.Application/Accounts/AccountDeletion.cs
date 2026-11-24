@@ -46,6 +46,7 @@ public sealed partial class AccountStore
             Execute(db, "DELETE FROM one_time WHERE user_id=$1", identity);
             Execute(db, "DELETE FROM sessions WHERE user_id=$1", identity);
             Execute(db, "DELETE FROM users WHERE id=$1", identity);
+            Execute(db, "DELETE FROM meta WHERE key=$1", "theme:" + identity);
             Audit(db, actor, "user.delete", identity, new()
             {
                 ["id"] = identity, ["role"] = row["role"], ["enabled"] = row["enabled"], ["revision"] = row["revision"],

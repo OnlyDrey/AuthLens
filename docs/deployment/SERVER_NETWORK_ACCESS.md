@@ -6,6 +6,40 @@ data, keys and certificates; deployment does not infer credentials, TLS or exist
 
 ## 1. Hosting boundary
 
+### Personal appearance and effective UI permissions
+
+Authenticated account themes are personal (`light`, `dark`, `system`, or application-default fallback).
+The header toggle saves only the signed-in account; **My Profile → Personal theme** also offers System
+and Application default. Preferences live in the existing private account store metadata and survive
+sign-out, restart and account-store backups. Deleting an account removes its live personal preference.
+Application theme and palettes remain administrative defaults; Desktop/shared-token mode keeps its
+existing local application preference. The authenticated theme is loaded before the application shell
+and applied before paint. A stored browser hint is only an initial appearance hint, never account authority.
+
+The account response supplies effective permissions from the backend permission map. Settings and Global
+Refresh are absent when `admin` is unavailable; account and source management remain inside the guarded
+Settings container. Personal appearance needs only `profile`. Review and export permissions are unchanged.
+Account sessions refresh on window focus and every 30 seconds, synchronizing personal appearance and
+permissions across browsers/devices. Permission changes remain enforced on every API request immediately;
+the UI is a convenience, never an authorization boundary. An open Settings view closes when administrative
+permission is lost. Direct API calls still require the existing authorization and CSRF checks.
+
+Focused account tests cover independent users, session/restart persistence, default fallback and attempts
+to target another account. Native deployed UI acceptance remains separate from isolated browser tests.
+
+| UI boundary reviewed | Effective permission and behavior |
+| --- | --- |
+| Main navigation and read-only user/access/risk views | Existing read access retained |
+| Settings, imports, source management, backup/restore, account management | Settings container requires `admin`; account APIs additionally require `accounts` |
+| Header Global Refresh | Hidden without `admin`; API authorization unchanged |
+| Personal appearance and profile | Own account only, `profile`; no administrative access needed |
+| Saved Filters | Reading/loading/clearing retained; shared save/rename/delete controls require `admin` |
+| Functional Group membership management | Add/manage and mutation dialogs require existing `admin`; classification reads retained |
+| SoD periods | Create/delete/recapture require `admin`; transition controls require existing `approve`; frozen-evidence rules unchanged |
+| SoD review decisions and remediation | Existing `review` checks retained; Reviewer workflow unchanged |
+| Exports and reports | Existing `export` permission remains available to all defined account roles; no permission expansion |
+| Direct API and route access | Existing request boundary, CSRF and store authorization remain authoritative |
+
 - Default: loopback only. Desktop always uses `127.0.0.1` and an OS-assigned port.
 - Network Server requires `--network`, one specific private `--listen` address, a fixed port, a usable certificate and explicit `--allowed-hosts`.
 - All-interface, public, multicast and loopback addresses are refused for network mode. Hostnames are exact; wildcards are refused.
