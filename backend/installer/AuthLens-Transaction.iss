@@ -14,6 +14,8 @@ begin
   if Code <> 0 then begin
     Detail := 'No diagnostic returned; retain the Setup log.';
     LoadStringFromFile(Diagnostic, Detail);
+    // Keep the dialog concise. Sanitized structural diagnostics remain in the file/result.
+    if Pos(#10, String(Detail)) > 0 then Detail := AnsiString(Copy(String(Detail), 1, Pos(#10, String(Detail)) - 1));
     RaiseException('AuthLens transaction failed (exit ' + IntToStr(Code) + '). ' + UTF8Decode(Detail) + ' Retain the operation result, Setup log, staged tools and any existing journal.');
   end;
   AfterInstallerSuccess();

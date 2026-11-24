@@ -31,6 +31,7 @@ param(
     [string]$ExpectedConfigSha256='',
     [string]$DiagnosticFile='',
     [string]$SetupMetadataFile='',
+    [string]$FailedPreflightReceipt='',
     [switch]$Yes
 )
 Set-StrictMode -Version 3.0
@@ -38,6 +39,30 @@ $ErrorActionPreference='Stop'
 $stage='helper verification'
 $operationId=[guid]::NewGuid().ToString('N')
 $journalPath=''
+$buildIdentity='unavailable (package not verified)'
+$installerPublicErrors=@()
+function Get-InstallerTechnicalDiagnostic([Management.Automation.ErrorRecord]$Failure) {
+    # ErrorRecord.ToString(), PositionMessage and CategoryInfo.ToString() can contain invocation
+    # text, targets and arbitrary secret values. Keep only structural fields and safe runtime messages.
+    $message='[REDACTED arbitrary exception message]'
+    $publicErrors=Get-Variable -Name installerPublicErrors -ValueOnly -ErrorAction SilentlyContinue
+    if($Failure.Exception.Message -in @($publicErrors)){$message=$Failure.Exception.Message}
+    if($Failure.Exception.Message -in @("The property 'Sum' cannot be found on this object. Verify that the property exists.","The property 'Sum' cannot be found on this object.")){$message=$Failure.Exception.Message}
+    $id=($Failure.FullyQualifiedErrorId -split ',')[0]
+    if($id -notin @('PropertyNotFoundStrict','PropertyNotFoundException','UnexpectedError','RuntimeException','ParameterBindingException','CommandNotFoundException')){$id='[REDACTED nonstandard error ID]'}
+    $source=if($Failure.InvocationInfo.ScriptName){Split-Path $Failure.InvocationInfo.ScriptName -Leaf}else{'[interactive]'}
+    if($source -notmatch '^AuthLens\.[A-Za-z]+\.ps(?:1|m1)$|^Install-AuthLens\.ps1$'){$source='[external script]'}
+    $frames=@()
+    foreach($frame in ($Failure.ScriptStackTrace -split "`r?`n")){
+        if($frame -match '^at (.*), (.*): line (\d+)$'){
+            $name=$Matches[1];$path=Split-Path $Matches[2] -Leaf;$line=$Matches[3]
+            if($name -notmatch '^(?:[A-Za-z]+-AL[A-Za-z]+|<ScriptBlock>)$'){$name='[external function]'}
+            if($path -notmatch '^AuthLens\.[A-Za-z]+\.ps(?:1|m1)$|^Install-AuthLens\.ps1$'){$path='[external script]'}
+            $frames+="at $name, ${path}: line $line"
+        }elseif($frame){$frames+='[external frame redacted]'}
+    }
+    "Exception type: $($Failure.Exception.GetType().FullName)`nException message: $message`nFullyQualifiedErrorId: $id`nCategoryInfo: $($Failure.CategoryInfo.Category); $($Failure.Exception.GetType().Name) (target omitted)`nSource script: $source`nLine: $($Failure.InvocationInfo.ScriptLineNumber)`nScript stack trace:`n$($frames -join "`n")`nInstallation stage: $stage`nOperation ID: $operationId`nBuild identity: $buildIdentity"
+}
 function Get-InstallerJournalState {
     $present=[bool]($journalPath -and (Test-Path -LiteralPath $journalPath -PathType Leaf -ErrorAction SilentlyContinue))
     $status=if($present){'present'}elseif($journalPath){'not_created_or_unavailable'}else{'not_resolved'}
@@ -65,6 +90,7 @@ function Write-InstallerResult($Value) {
     }
 }
 try {
+    if($FailedPreflightReceipt -and (-not $PreflightOnly -or $Mode -ne 'Server' -or $PrepareOnly -or $Recover -or $Operation -notin @('Auto','Install'))){throw 'Failure evidence retry is read-only fresh Server preflight only.'}
     if($Operation -notin @('Auto','Install','Upgrade','Repair','Uninstall','UninstallPlan','Firewall','FirewallRemove')){$stage='argument validation';throw 'Unknown installer operation. Use Auto, Install, Upgrade, Repair, Uninstall, Firewall, FirewallRemove or UninstallPlan.'}
     if($ResultFile -and (Test-Path -LiteralPath $ResultFile)){throw 'A previous installer result exists; it will not be overwritten.'}
     if (-not $Yes -and -not ($ResolveOnly -or $PreflightOnly -or $Operation -eq 'UninstallPlan')) { throw 'Installation requires explicit -Yes after reviewing the selected paths and configuration.' }
@@ -81,6 +107,7 @@ try {
         }
     } else { throw 'Packaged installer helper integrity manifest is missing.' }
     Import-Module (Join-Path $PSScriptRoot 'deploy\AuthLens.Deploy.psm1') -Force
+    $installerPublicErrors=@(Get-ALInstallerPublicErrors)
     $stage='configuration and prerequisites'
     if ($Mode -eq 'Server') {
         if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Server Setup requires an elevated operator session.' }
@@ -90,6 +117,12 @@ try {
         if($FirewallRollback -and -not($Recover -and $ApproveFirewall)){Stop-AL 'Firewall rollback requires explicit recovery and security approval.'}
         $resolved=Resolve-ALServerSetupConfiguration $ConfigFile $InstallRoot
         $config=$resolved.Config; $InstallRoot=$resolved.ProgramDirectory
+        if($Package -and -not $Recover){
+            $stage='package verification'
+            $verifiedBuild=Get-ALInstallerPackage $Package
+            $buildIdentity='AuthLens '+$verifiedBuild.version+'; source_sha='+$verifiedBuild.source_sha+'; target=win-x64 (verified manifest)'
+            $stage='configuration and prerequisites'
+        }
         $firewall=$null
         if(-not $Recover -and ($FirewallSources -or $ApproveFirewall -or $Operation -in @('Firewall','FirewallRemove'))){
             if(-not $ApproveFirewall -and -not $PreflightOnly){Stop-AL 'Firewall changes require explicit security approval.'}
@@ -119,6 +152,7 @@ try {
             $result=[pscustomobject]@{operation_id=$operationId;operation='configuration selected; preflight pending';root=$config.Root;program_directory=$InstallRoot;config_file=$config.ConfigFile;config_sha256=$resolved.ConfigSha256;data_directory=$config.DataDirectory;backup_directory=$config.BackupRoot;listen_address=$config.ListenAddress;port=$config.Port;service_name=$config.ServiceName;service_account=$config.ServiceAccount;certificate=$config.CertificatePath;allowed_hosts=@($config.AllowedHosts);proxy_hosts=@($config.ProxyHosts);trusted_proxies=@($config.TrustedProxies)}
         }
         elseif($PreflightOnly -or $Operation -eq 'UninstallPlan'){
+            $stage='Server installation preflight'
             if($Operation -in @('Uninstall','UninstallPlan')){$result=Get-ALServerUninstallPlan $resolved}
             elseif($Operation -eq 'Repair'){$result=Get-ALServerRepairPlan $resolved $Package}
             elseif($Operation -in @('Firewall','FirewallRemove')){
@@ -126,7 +160,7 @@ try {
                 $result.operation='firewall scope/ownership review'
                 $result|Add-Member -NotePropertyName firewall -NotePropertyValue $firewall
             }
-            else{$result=Get-ALServerSetupPlan $resolved $Package $(if($Operation -eq 'UninstallPlan'){'Auto'}else{$Operation})}
+            else{$result=Get-ALServerSetupPlan $resolved $Package $(if($Operation -eq 'UninstallPlan'){'Auto'}else{$Operation}) $SetupMetadataFile $FailedPreflightReceipt}
         }
         elseif ($Recover) {
             if(Test-ALInstallerFirewallRecoveryNeeded $config){
@@ -193,17 +227,30 @@ try {
     }
     exit 0
 } catch {
-    # Never include invocation text, configuration content, stack dumps or arbitrary parser errors.
+    $failure=$_
+    $technical=Get-InstallerTechnicalDiagnostic $failure
     $known=@('Unknown installer operation. Use Auto, Install, Upgrade, Repair, Uninstall, Firewall, FirewallRemove or UninstallPlan.','A previous installer result exists; it will not be overwritten.','Select only one recovery, resolve, preflight or preparation mode.','Server lifecycle options are not Desktop options.','Installation requires explicit -Yes after reviewing the selected paths and configuration.','Packaged installer helper integrity manifest is missing.','Installer helper integrity verification failed.','Installer helper inventory is incomplete or unexpected.','Invalid installer helper path.','Server Setup requires an elevated operator session.','Recover and PrepareOnly cannot be combined.')
-    $reason=if ($_.Exception.GetType().Name -eq 'DeployException' -or $_.Exception.Message -in $known) { $_.Exception.Message } else { 'Prerequisite/helper/configuration error ('+$_.Exception.GetType().Name+'). Review the explicit configuration and packaged helper integrity.' }
+    $reason=if ($failure.Exception.Message -in $known -or $failure.Exception.Message -in $installerPublicErrors) { $failure.Exception.Message } else { 'Prerequisite/helper/configuration error ('+$failure.Exception.GetType().Name+'). Review the explicit configuration and packaged helper integrity.' }
     $reason=[regex]::Replace($reason,'(?i)(password|token|secret|credential|passphrase)\s*[:=]\s*[^\s;,]+','$1=[REDACTED]')
-    $diagnostic="Stage: $stage. $reason "+(Get-InstallerJournalState).message
-    Write-Host ('Installer refused or failed: '+$diagnostic)
+    $summary="Stage: $stage. $reason "+(Get-InstallerJournalState).message
+    $diagnostic=$summary+"`n"+$technical
+    Write-Host ('Installer refused or failed: '+$summary)
+    Write-Host $technical
+    $diagnosticWritten=$false
     if ($DiagnosticFile) {
-        try { $stream=[IO.File]::Open($DiagnosticFile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None); $writer=[IO.StreamWriter]::new($stream); try { $writer.Write($diagnostic) } finally { $writer.Dispose() } } catch { Write-Host 'Diagnostic file could not be created; existing evidence was not overwritten.' }
+        try { $stream=[IO.File]::Open($DiagnosticFile,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None); $writer=[IO.StreamWriter]::new($stream); try { $writer.Write($diagnostic) } finally { $writer.Dispose() }; $diagnosticWritten=$true } catch { Write-Host 'Diagnostic file could not be created; existing evidence was not overwritten.' }
     }
     $code=if($stage -like '*transaction'){4}else{2}
-    if ($_.Exception.PSObject.Properties['ExitCode']) { $code=$_.Exception.ExitCode }
-    try{Write-InstallerResult @{schema=1;operation_id=$operationId;status='refused_or_failed';exit_code=$code;stage=$stage;message=$reason;diagnostic_file=$DiagnosticFile;deployment_journal=$journalPath}}catch{Write-Host 'Structured result could not be persisted; existing evidence was retained.'}
+    if ($failure.Exception.PSObject.Properties['ExitCode']) { $code=$failure.Exception.ExitCode }
+    try{
+        Write-InstallerResult @{schema=1;operation_id=$operationId;status='refused_or_failed';exit_code=$code;stage=$stage;message=$reason;technical_diagnostic=$technical;diagnostic_file=$DiagnosticFile;deployment_journal=$journalPath}
+        # Create-only evidence for a later, explicitly selected read-only retry. Never certify a
+        # transaction failure or an old result, and never infer a transaction from an expected path.
+        if($Mode -eq 'Server' -and $stage -eq 'Server installation preflight' -and $code -eq 2 -and $SetupMetadataFile -and $diagnosticWritten -and -not $FailedPreflightReceipt -and -not (Get-InstallerJournalState).exists){
+            $evidenceStage=Split-Path $SetupMetadataFile
+            if($ResultFile -ine (Join-Path $evidenceStage 'operation-result.json') -or $DiagnosticFile -ine (Join-Path $evidenceStage 'transaction-diagnostic.txt') -or $PSScriptRoot -ine (Join-Path $evidenceStage 'tools')){throw 'Evidence paths are not this packaged Setup stage.'}
+            Write-ALFailedPreflightEvidence $resolved $Package $evidenceStage $operationId
+        }
+    }catch{Write-Host 'Result or failure receipt could not be persisted; existing evidence was retained. Explicit recovery review is required.'}
     exit $code
 }

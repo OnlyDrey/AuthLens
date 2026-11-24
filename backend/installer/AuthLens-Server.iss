@@ -46,7 +46,7 @@ Compression=lzma2
 SolidCompression=yes
 SetupIconFile={#ProductIcon}
 UninstallDisplayIcon={app}\setup\{#PackageName}\payload\{#PackageName}\server\AuthLens.Api.exe
-UninstallDisplayName=AuthLens Server
+UninstallDisplayName={code:ServerRegistrationName}
 CloseApplications=no
 RestartApplications=no
 VersionInfoVersion={#NumericVersion}
@@ -68,7 +68,7 @@ Source: "{#RepoRoot}\LICENSE.md"; DestDir: "{app}\setup\{#PackageName}"; Flags: 
 Name: "{group}\AuthLens Service Manager"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -File ""{app}\setup\{#PackageName}\payload\{#PackageName}\Service-Manager.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\setup\{#PackageName}\payload\{#PackageName}\server\AuthLens.Api.exe"
 
 [Registry]
-Root: HKLM; Subkey: "{#VersionKey}"; ValueType: string; ValueName: "FileVersion"; ValueData: "{#NumericVersion}"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "{#VersionKey}"; ValueType: string; ValueName: "SetupState"; ValueData: "pending-verification"; Flags: uninsdeletekey; Check: ServerFreshInstall
 
 [Run]
 Filename: "{code:ServerAccessUrl}"; Description: "Open the verified AuthLens backend URL"; Flags: shellexec postinstall skipifsilent; Check: ServerAccessUsable

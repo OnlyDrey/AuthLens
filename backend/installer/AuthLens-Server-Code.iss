@@ -126,6 +126,7 @@ begin
   if not Result then begin
     Detail := 'No diagnostic returned; retain the automatic Setup log and the private temporary reports.';
     LoadStringFromFile(Diagnostic, Detail);
+    if Pos(#10, String(Detail)) > 0 then Detail := AnsiString(Copy(String(Detail), 1, Pos(#10, String(Detail)) - 1));
     ServerError := 'Server preparation refused (exit ' + IntToStr(Code) + '). No service was changed. ' + UTF8Decode(Detail);
     Log(ServerError);
   end;
@@ -281,12 +282,26 @@ begin
   end else if not RunServerHelper('-PrepareOnly -Package "' + ServerPackage() + '" -Yes', False) then Result := ServerError;
 end;
 
+function ServerFreshInstall(): Boolean;
+begin
+  Result := ServerValue('operation') = 'fresh installation';
+end;
+
+function ServerRegistrationName(Param: String): String;
+begin
+  Result := 'AuthLens Server';
+  if ServerFreshInstall() then Result := Result + ' (pending verification; recovery required)';
+end;
+
 procedure AfterInstallerSuccess();
 begin
   // Persist discovery hints only after the shared deployment transaction returned verified success.
   if not RegWriteStringValue(HKLM, '{#VersionKey}', 'Root', ServerRoot) or
      not RegWriteStringValue(HKLM, '{#VersionKey}', 'ProgramDirectory', ExpandConstant('{app}')) or
-     not RegWriteStringValue(HKLM, '{#VersionKey}', 'ConfigFile', ServerConfig) then
+     not RegWriteStringValue(HKLM, '{#VersionKey}', 'ConfigFile', ServerConfig) or
+     not RegWriteStringValue(HKLM, '{#VersionKey}', 'FileVersion', '{#NumericVersion}') or
+     not RegWriteStringValue(HKLM, '{#VersionKey}', 'SetupState', 'verified') or
+     not RegWriteStringValue(HKLM, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{{#AppIdGuid}}_is1', 'DisplayName', 'AuthLens Server') then
     RaiseException('Server transaction succeeded but installer discovery registration failed. Retain the verified service and transaction evidence; review registration before retrying.');
   ServerVerified := True;
 end;

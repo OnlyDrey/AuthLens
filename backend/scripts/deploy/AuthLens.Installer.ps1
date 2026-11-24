@@ -204,7 +204,85 @@ function Assert-ALFreshSetupMetadata([string]$App,[string]$Stage,[string]$Packag
     }
 }
 
-function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto','Install','Upgrade','Repair')][string]$Operation='Auto',[string]$SetupMetadataFile='') {
+function Get-ALInstallerFileBytes([object[]]$Files) {
+    # Measure-Object emits no object for an empty pipeline in Windows PowerShell 5.1.
+    # An explicit Int64 accumulator preserves StrictMode and rejects invalid Length properties.
+    [long]$bytes=0
+    foreach($file in $Files){$bytes += [long]$file.Length}
+    $bytes
+}
+
+function Get-ALInstallerPublicErrors {
+    # Only literal product errors from the verified helper sources are safe to echo verbatim.
+    # Interpolated errors may contain configuration values or child-process output.
+    foreach($name in 'AuthLens.Installer.ps1','AuthLens.Deploy.psm1','AuthLens.Paths.ps1','AuthLens.Acl.ps1'){
+        $tokens=$null;$errors=$null
+        $ast=[Management.Automation.Language.Parser]::ParseFile((Join-AL $PSScriptRoot $name),[ref]$tokens,[ref]$errors)
+        if($errors.Count){Stop-AL 'Installer helper source could not be parsed.'}
+        foreach($command in $ast.FindAll({param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Stop-AL'},$true)){
+            if($command.CommandElements.Count -gt 1 -and $command.CommandElements[1] -is [Management.Automation.Language.StringConstantExpressionAst]){$command.CommandElements[1].Value}
+        }
+    }
+}
+
+function Assert-ALFailedPreflightOwner([string]$Path) {
+    Test-ALPathTree $Path
+    $acl=Get-Acl -LiteralPath $Path
+    if($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -notin @('S-1-5-18','S-1-5-32-544')){Stop-AL 'Failed Setup evidence requires administrative ownership.'}
+    $write=[long]852310 -bor [long]1073741824 -bor [long]268435456
+    foreach($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])){
+        if($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -notin @('S-1-5-18','S-1-5-32-544') -and ([long]$rule.FileSystemRights -band $write)){Stop-AL 'Failed Setup evidence permits non-administrative mutation.'}
+    }
+}
+
+function Get-ALFailedPreflightInventory($Resolved,[string]$Package,[string]$Stage) {
+    Test-ALPathTree $Stage
+    $null=Assert-ALAclPlan @([pscustomobject]@{Path=$Stage;Class='private';Role='failed Setup evidence';Recurse=$true}) 'Failed Setup evidence'
+    Assert-ALFailedPreflightOwner $Stage
+    foreach($directory in @(Get-ALAclItems $Stage|Where-Object PSIsContainer)){Assert-ALFailedPreflightOwner $directory.FullName}
+    $tools=Join-AL $Stage 'tools'
+    $toolItems=@(Get-ALAclItems $tools)
+    $toolFiles=@($toolItems|Where-Object {-not $_.PSIsContainer}|ForEach-Object{$_.FullName.Substring($tools.Length+1).Replace('\','/')}|Sort-Object)
+    if(($toolFiles -join '|') -cne ((@($script:InstallerTools)+@('installer-tools.json')|Sort-Object) -join '|') -or
+        @($toolItems|Where-Object{$_.PSIsContainer -and $_.FullName -ine $tools -and $_.FullName -ine (Join-AL $tools 'deploy')}).Count){Stop-AL 'Failed Setup helper inventory contains unrelated entries.'}
+    $paths=@($Resolved.Config.ConfigFile,(Join-AL $Package 'build-manifest.json'),(Join-AL $Stage 'setup-metadata.ini'),(Join-AL $Stage 'operation-result.json'),(Join-AL $Stage 'transaction-diagnostic.txt'),(Join-AL $Stage 'tools/installer-tools.json'))
+    foreach($relative in $script:InstallerTools){$paths+=Join-AL $Stage ('tools/'+$relative)}
+    foreach($path in $paths){
+        Test-ALPathTree $path
+        if(-not(Test-Path -LiteralPath $path -PathType Leaf)){Stop-AL 'Failed Setup evidence file is missing; no files were adopted.'}
+        Assert-ALFailedPreflightOwner $path
+        [pscustomobject]@{path=[IO.Path]::GetFullPath($path);sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()}
+    }
+}
+
+function Write-ALFailedPreflightEvidence($Resolved,[string]$Package,[string]$Stage,[string]$OperationId) {
+    Assert-ALFreshSetupMetadata $Resolved.ProgramDirectory $Stage $Package (Join-AL $Stage 'setup-metadata.ini')
+    $inventory=@(Get-ALFailedPreflightInventory $Resolved $Package $Stage)
+    $proof=@{schema=1;operation_id=$OperationId;files=$inventory}|ConvertTo-Json -Depth 6
+    $stream=[IO.File]::Open((Join-AL $Stage 'preflight-failure.json'),[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    $writer=[IO.StreamWriter]::new($stream)
+    try{$writer.Write($proof)}finally{$writer.Dispose()}
+}
+
+function Assert-ALFailedPreflightEvidence($Resolved,[string]$Package,[string]$Receipt) {
+    $stage=Split-Path (Split-Path $Package)
+    if([IO.Path]::GetFullPath($Receipt) -ine (Join-AL $stage 'preflight-failure.json')){Stop-AL 'Failure receipt is outside this Setup stage.'}
+    Test-ALPathTree $Receipt
+    Assert-ALFailedPreflightOwner $Receipt
+    $proof=Get-Content -LiteralPath $Receipt -Raw -Encoding UTF8|ConvertFrom-Json
+    $result=Get-Content -LiteralPath (Join-AL $stage 'operation-result.json') -Raw -Encoding UTF8|ConvertFrom-Json
+    if($proof.schema -ne 1 -or $proof.operation_id -notmatch '^[a-f0-9]{32}$' -or $proof.operation_id -cne $result.operation_id -or
+        $result.status -cne 'refused_or_failed' -or $result.stage -cne 'Server installation preflight' -or $result.exit_code -ne 2 -or
+        $result.deployment_journal_exists -ne $false -or $result.deployment_journal_status -cne 'not_created_or_unavailable' -or
+        $result.deployment_journal_expected -ine (Get-ALJournalPath $Resolved.Config) -or (Test-Path -LiteralPath (Get-ALJournalPath $Resolved.Config))){Stop-AL 'Failure evidence does not prove a pre-deployment preflight refusal; explicit recovery is required.'}
+    $actual=@(Get-ALFailedPreflightInventory $Resolved $Package $stage)
+    if(@($proof.files).Count -ne $actual.Count){Stop-AL 'Failure evidence inventory is incomplete.'}
+    for($i=0;$i -lt $actual.Count;$i++){
+        if($proof.files[$i].path -cne $actual[$i].path -or $proof.files[$i].sha256 -cne $actual[$i].sha256){Stop-AL 'Failure evidence integrity changed; no files were adopted.'}
+    }
+}
+
+function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto','Install','Upgrade','Repair')][string]$Operation='Auto',[string]$SetupMetadataFile='',[string]$FailedPreflightReceipt='') {
     $config=$Resolved.Config
     Assert-ALServerSetupFingerprint $Resolved $Resolved.ConfigSha256
     # Nothing here initializes paths, locks, journals, databases, keys or services.
@@ -236,6 +314,12 @@ function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto'
             $expected=Join-AL (Join-AL (Join-AL (Join-AL $app 'setup') $name) 'payload') $name
             $stage=Join-AL (Join-AL $app 'setup') $name
             $allowed=@('setup')
+            $stageAllowed=@('payload','tools','LICENSE.md','setup-metadata.ini')
+            if($FailedPreflightReceipt){
+                if(-not $SetupMetadataFile){Stop-AL 'Failure retry requires the original Setup metadata receipt.'}
+                Assert-ALFailedPreflightEvidence $Resolved $Package $FailedPreflightReceipt
+                $stageAllowed+=@('operation-result.json','transaction-diagnostic.txt','preflight-failure.json')
+            }
             if($SetupMetadataFile){
                 Assert-ALFreshSetupMetadata $app $stage $Package $SetupMetadataFile
                 $allowed+=@('unins000.exe','unins000.dat')
@@ -243,7 +327,7 @@ function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto'
             if(-not $Package -or [IO.Path]::GetFullPath($Package).TrimEnd('\','/') -ine [IO.Path]::GetFullPath($expected) -or
                 @(Get-ChildItem -LiteralPath $app -Force|Where-Object Name -notin $allowed).Count -or
                 @(Get-ChildItem -LiteralPath (Join-AL $app 'setup') -Force|Where-Object Name -ne $name).Count -or
-                @(Get-ChildItem -LiteralPath $stage -Force|Where-Object Name -notin @('payload','tools','LICENSE.md','setup-metadata.ini')).Count -or
+                @(Get-ChildItem -LiteralPath $stage -Force|Where-Object Name -notin $stageAllowed).Count -or
                 @(Get-ChildItem -LiteralPath (Join-AL $stage 'payload') -Force|Where-Object Name -ne $name).Count){Stop-AL 'Fresh program directory is populated beyond this verified Setup payload; explicit recovery is required.'}
         }
         if(Test-Path -LiteralPath $config.Root){
@@ -268,8 +352,8 @@ function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto'
         $staging=Join-AL (Join-AL (Join-AL (Join-AL (Join-AL $config.Root 'app') 'setup') (Split-Path $Package -Leaf)) 'payload') (Split-Path $Package -Leaf)
         $packagePath=[IO.Path]::GetFullPath($Package).TrimEnd('\','/')
         foreach($file in $payloadFiles){if((Join-AL $staging $file.FullName.Substring($packagePath.Length+1)).Length -ge 248){Stop-AL 'Staged payload exceeds the supported Windows PowerShell path length. Choose a shorter dedicated root; no file was moved.'}}
-        $bytes=($payloadFiles|Measure-Object Length -Sum).Sum
-        $dataBytes=if(Test-Path -LiteralPath $config.DataDirectory){(@(Get-ALTreeFiles $config.DataDirectory)|Measure-Object Length -Sum).Sum}else{0}
+        $bytes=Get-ALInstallerFileBytes $payloadFiles
+        $dataBytes=if(Test-Path -LiteralPath $config.DataDirectory){Get-ALInstallerFileBytes @(Get-ALTreeFiles $config.DataDirectory)}else{[long]0}
         $needed=@{}
         foreach($entry in @(@($config.Root,([long]$bytes*2+64MB)),@($config.BackupRoot,([long]$dataBytes*2+64MB)),@([IO.Path]::GetTempPath(),([long]$dataBytes*2+64MB)))){
             $drive=[IO.Path]::GetPathRoot($entry[0]).ToUpperInvariant()

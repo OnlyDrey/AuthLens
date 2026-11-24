@@ -457,6 +457,101 @@ update and binary recovery in a disposable fixture. It does not register or test
 
 #### Recovery of the failed production installation (manual, not automatic)
 
+The empty-data byte measurement defect is reproduced on Windows PowerShell 5.1 with StrictMode:
+`(@() | Measure-Object Length -Sum).Sum` raises `PropertyNotFoundException`. Installer storage planning now
+uses an explicit `Int64` accumulator for both payload and data files, returning numeric zero for empty
+collections. No other `Measure-Object`/`.Sum` expressions were found in the installer/deployment tooling.
+This is the leading explanation for the reported `4be34cb` fresh-install failure, **not proven historical
+causation**: its original exception stack was not retained. The packaged Server preflight and configuration
+wrapper contract are unchanged; callers still pass the wrapper to planning and its `Config` to service arguments.
+
+Unexpected adapter failures now retain sanitized structural diagnostics in the diagnostic file, structured
+result and console, including exception type/message, error ID/category, source script/line, stack frames,
+stage, operation ID and verified manifest identity (or explicitly unavailable before verification).
+Arbitrary exception messages, error IDs, target objects, invocation text, external paths/functions and
+potential secret-bearing values are redacted; literal product errors extracted from verified helper source
+and the known empty-`Sum` runtime message are retained verbatim. Interpolated product errors are redacted too.
+The transaction dialog shows only the concise first line. Evidence is create-only and independent of a
+deployment journal. A diagnostic/result write failure is reported without overwriting earlier evidence.
+
+New adapters can write `preflight-failure.json` only after a pre-deployment Server preflight refusal,
+with a newly written diagnostic/result and the original valid Setup metadata. The receipt binds the
+operation ID and exact configuration, release manifest, helper manifest, seven helper files, metadata,
+result and diagnostic hashes. It requires administrative ownership, no non-administrative mutation rights,
+private ACL checks and physical paths. It is an ownership/integrity receipt within the trusted administrator
+boundary, not a signature or proof against a malicious administrator. Failure to record it leaves normal refusal in place.
+
+An explicit **read-only diagnostic retry** may select that receipt, without changing the original evidence:
+
+```powershell
+# On a disposable acceptance VM only, after reviewing the retained evidence; use its actual stage/config.
+Set-Location C:\Users\arkasa\Git\authlens
+$stage = 'C:\ProgramData\AuthLens\app\setup\REVIEWED-PACKAGE-NAME'
+powershell.exe -NoProfile -NonInteractive -File "$stage\tools\Install-AuthLens.ps1" `
+  -Mode Server -Operation Install -PreflightOnly `
+  -ConfigFile 'C:\ProgramData\AuthLens\config\deploy.json' `
+  -Package "$stage\payload\REVIEWED-PACKAGE-NAME" `
+  -SetupMetadataFile "$stage\setup-metadata.ini" `
+  -FailedPreflightReceipt "$stage\preflight-failure.json"
+```
+
+No output-file paths are needed: stdout reports the retry. Package verification, empty fresh-data checks,
+service identity, configuration, ACL, TLS/runtime/schema and storage checks still run. An actual journal,
+unknown stage files, changed bytes, unsafe ownership or missing receipt refuses. A journal's expected path
+is never evidence that a transaction exists. This option cannot deploy, prepare, recover or repair.
+Same-payload GUI Setup still refuses overwrite. Old failures without a receipt are not retroactively certified.
+Inno may update `unins000.dat` after the receipt checkpoint; changed metadata must refuse rather than be
+rehashed to manufacture ownership. Use the manual preservation/recovery procedure below in those cases.
+
+Fresh Inno uninstall registration cannot be deferred while retaining its supported uninstall lifecycle and
+the metadata checkpoint. New Server installers therefore use the uninstall display name
+`AuthLens Server (pending verification; recovery required)` and product `SetupState=pending-verification`.
+Only the successful shared transaction callback publishes the normal display name, version/discovery hints
+and verified state. A failure or crash leaves an explicit incomplete state when registration survives;
+Setup does not delete data, remove registration or declare a service deployment successful. Existing
+verified upgrade registration is not marked as a fresh install. Native timing, failure/exit behavior and
+final registry state still require acceptance; pending registration is not permission to uninstall or rerun Setup.
+
+Focused validation for this fix uses Windows PowerShell 5.1 (Pester 5.9.1). From the repository root:
+
+```powershell
+Set-Location C:\Users\arkasa\Git\authlens
+Import-Module Pester -MinimumVersion 5.9.1
+$checks = New-PesterConfiguration
+$checks.Run.Path = @(
+  'backend/scripts/tests/Installer-FailureRecovery.Tests.ps1',
+  'backend/scripts/tests/Server-Setup.Tests.ps1',
+  'backend/scripts/tests/Installer-Preflight.Tests.ps1'
+)
+$checks.Run.PassThru = $true
+$checks.Output.Verbosity = 'Detailed'
+# These files do not use TestRegistry; useful in a registry-restricted test sandbox.
+$checks.TestRegistry.Enabled = $false
+$result = Invoke-Pester -Configuration $checks
+if ($result.FailedCount -or $result.FailedContainersCount) { throw 'Focused installer checks failed.' }
+python scripts/check-docs.py
+git diff --check
+```
+
+The six-file focused set (the three files above plus `AuthLens.Installer.Tests.ps1`,
+`InnoIsolation.Tests.ps1` and `Installer-PublishedRelease.Tests.ps1`) passed 94 tests with one opt-in native
+Desktop acceptance case skipped on Windows PowerShell 5.1. Both installer scripts compiled with synthetic
+alpha/stable payloads; none was executed. Pester's initial XML export was blocked by sandbox WMI access;
+the host rerun exported its report successfully. The final helper-inventory tightening passed all 57 tests
+in the two affected planning/recovery files. The documentation checker passed all 44 Markdown files.
+
+These checks cover byte accounting, read-only planning, diagnostics, evidence integrity and source registration
+contracts; they do not establish SCM/GUI acceptance. After separate approval to build and accept a fixed package,
+use a snapshotted disposable Windows VM and retain Setup logs/results. Test absent and existing-empty data
+directories; inject a preflight exception before journal creation and verify nonzero failure, useful sanitized
+evidence, pending ARP/product registration and no service/database/journal. Test receipt retry with unchanged
+bytes, then altered diagnostics/helpers/metadata, an unrelated file and a real journal; every unsafe variant
+must refuse and preserve evidence. Verify the unchanged wrapper contract and packaged read-only preflight
+identity/schema flags. Finally test successful fresh install and verified upgrade with populated synthetic
+data, normal registration, HTTPS/SCM readiness and unchanged data. Check post-Setup registry state, not just
+the callback checkpoint. A complete release rebuild and native installer execution are awaiting approval;
+do not run these acceptance cases on the affected server.
+
 For operation `ffa76a83733446358f2a708a65e27c67`, **do not rerun Setup, invoke the uninstaller, delete files,
 invent a deployment journal or use deployment recovery against a nonexistent journal**. First preserve an
 independent, access-protected copy of the complete failed root, including TLS private material/password files,

@@ -72,6 +72,7 @@ Describe 'Compiled Inno installer isolation' {
             $code | Should -Match "ServerValue\('operation'\) <> 'fresh installation'"
             $code | Should -Match 'GetSHA256OfFile'
             $code | Should -Match 'SetupMetadataFile'
+            $code | Should -Match ([regex]::Escape('Software\Microsoft\Windows\CurrentVersion\Uninstall\{B961C010-9B53-4514-9D2A-73A4641E4AAF}_is1'))
         }
     }
 }

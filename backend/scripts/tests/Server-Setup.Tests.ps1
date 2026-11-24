@@ -137,6 +137,24 @@ Describe 'Read-only Setup planning and guarded lifecycle operations' {
     It 'does not add the network exposure flag for local HTTPS' {
         @(Get-ALServiceArguments $resolved.Config)|Should -Not -Contain '--network'
     }
+    It 'plans an existing empty data directory under StrictMode without modifying it' {
+        Set-StrictMode -Version Latest
+        New-Item -ItemType Directory $resolved.Config.DataDirectory|Out-Null
+        (Get-ALServerSetupPlan $resolved $package Install).read_only|Should -BeTrue
+        @(Get-ChildItem $resolved.Config.DataDirectory -Force).Count|Should -Be 0
+    }
+    It 'includes populated upgrade data in the backup space requirement' {
+        $script:Kind='upgrade'
+        New-Item -ItemType Directory $resolved.Config.DataDirectory|Out-Null
+        [IO.File]::WriteAllBytes((Join-Path $resolved.Config.DataDirectory 'authlens.sqlite3'),(New-Object byte[] 123))
+        $script:exactBytes=192MB+2*(Get-ALInstallerFileBytes @(Get-ALTreeFiles $package))+4*123
+        Mock -ModuleName AuthLens.Deploy Get-ALInstallerFreeBytes {$script:exactBytes-1}
+        {Get-ALServerSetupPlan $resolved $package Upgrade}|Should -Throw '*Insufficient free storage*'
+        Mock -ModuleName AuthLens.Deploy Get-ALInstallerFreeBytes {$script:exactBytes}
+        (Get-ALServerSetupPlan $resolved $package Upgrade).read_only|Should -BeTrue
+        Get-ALInstallerFileBytes @(Get-ALTreeFiles $resolved.Config.DataDirectory)|Should -Be 123
+        (Get-Item (Join-Path $resolved.Config.DataDirectory 'authlens.sqlite3')).Length|Should -Be 123
+    }
     It 'omits an empty extra-host list in local HTTPS instead of emitting a valueless command option' {
         $resolved.Config.AllowedHosts=@()
         @(Get-ALServiceArguments $resolved.Config)|Should -Not -Contain '--allowed-hosts'
@@ -233,6 +251,40 @@ Describe 'Read-only Setup planning and guarded lifecycle operations' {
     }
     It 'does not trust a metadata receipt from another staging directory' {
         {Assert-ALFreshSetupMetadata (Join-Path $root 'app') (Join-Path $root 'app/setup/current') $package (Join-Path $TestDrive 'foreign.ini')}|Should -Throw '*outside this payload*'
+    }
+    It 'retries only an explicitly selected verified preflight failure and preserves all retained evidence' {
+        $name=Split-Path $package -Leaf
+        $app=Join-Path $root 'app';$stage=Join-Path $app ('setup/'+$name)
+        $staged=Join-Path $stage ('payload/'+$name)
+        New-Item -ItemType Directory -Force (Join-Path $staged 'server')|Out-Null
+        Set-Content (Join-Path $staged 'server/AuthLens.Api.exe') 'synthetic package'
+        $script:PackageManifest|ConvertTo-Json|Set-Content (Join-Path $staged 'build-manifest.json')
+        foreach($file in 'unins000.exe','unins000.dat'){Set-Content (Join-Path $app $file) ('synthetic '+$file)}
+        $metadata=Join-Path $stage 'setup-metadata.ini'
+        $lines=@('[AuthLensSetup]','schema=1',('manifest_sha256='+(Get-FileHash (Join-Path $staged 'build-manifest.json')).Hash.ToLowerInvariant()))
+        foreach($file in 'unins000.exe','unins000.dat'){$lines+=($file+'='+(Get-FileHash (Join-Path $app $file)).Hash.ToLowerInvariant())}
+        $lines|Set-Content $metadata -Encoding ASCII
+        $id=[guid]::NewGuid().ToString('N')
+        @{schema=1;operation_id=$id;status='refused_or_failed';stage='Server installation preflight';exit_code=2;deployment_journal_exists=$false;deployment_journal_status='not_created_or_unavailable';deployment_journal_expected=(Get-ALJournalPath $resolved.Config)}|ConvertTo-Json|Set-Content (Join-Path $stage 'operation-result.json')
+        Set-Content (Join-Path $stage 'transaction-diagnostic.txt') 'sanitized synthetic diagnostic'
+        foreach($relative in @('installer-tools.json','Install-AuthLens.ps1','verify-release.ps1','deploy/AuthLens.Deploy.psm1','deploy/Deploy-AuthLens.ps1','deploy/AuthLens.Paths.ps1','deploy/AuthLens.Acl.ps1','deploy/AuthLens.Installer.ps1')){
+            $target=Join-Path $stage ('tools/'+$relative)
+            New-Item -ItemType Directory -Force (Split-Path $target)|Out-Null
+            Set-Content $target ('synthetic '+$relative)
+        }
+        Mock -ModuleName AuthLens.Deploy Assert-ALFailedPreflightOwner {}
+        Write-ALFailedPreflightEvidence $resolved $staged $stage $id
+        $receipt=Join-Path $stage 'preflight-failure.json'
+        $before=@(Get-ChildItem $app -Recurse -File|ForEach-Object{(Get-FileHash $_.FullName).Hash})
+        {Get-ALServerSetupPlan $resolved $staged Install $metadata}|Should -Throw '*populated beyond*'
+        (Get-ALServerSetupPlan $resolved $staged Install $metadata $receipt).read_only|Should -BeTrue
+        {Write-ALFailedPreflightEvidence $resolved $staged $stage $id}|Should -Throw
+        @(Get-ChildItem $app -Recurse -File|ForEach-Object{(Get-FileHash $_.FullName).Hash})|Should -Be $before
+        Set-Content (Join-Path $stage 'unrelated.txt') 'sentinel'
+        {Get-ALServerSetupPlan $resolved $staged Install $metadata $receipt}|Should -Throw '*populated beyond*'
+        Get-Content (Join-Path $stage 'unrelated.txt')|Should -Be 'sentinel'
+        Add-Content (Join-Path $stage 'transaction-diagnostic.txt') 'tampered'
+        {Get-ALServerSetupPlan $resolved $staged Install $metadata $receipt}|Should -Throw '*integrity changed*'
     }
     It 'detects known legacy services by name without adopting or changing them' {
         Mock -ModuleName AuthLens.Deploy Get-ALService {param($Name) [pscustomobject]@{Exists=($Name-eq 'SapLens')}}
