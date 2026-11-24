@@ -1227,6 +1227,182 @@ key for read-only preflight; administrator key readability alone is not proof of
 Recovery-key provisioning and native service backup/restore acceptance are separate mandatory gates. Native
 SCM and Inno recovery acceptance are pending; the live failed installation has not been modified.
 
+### Reconciling an interrupted first installation that was corrected manually
+
+Status: procedure prepared from source inspection and a read-only self-test of R1 on VM130; not yet executed on the affected host.
+
+Case (DASH1, 2026-11-24): a fresh Setup of a `8ec7f77` package installed and started the service, then readiness failed (HTTP 421) and the
+journal stopped at `manual_recovery_required` with no previous release and no pre-deployment backup. An operator then corrected the listener
+and service arguments by hand and restored data. The service is ready, but the journal still blocks Setup, repair and later deployments.
+
+Root cause: in `8ec7f77` the readiness probe used the first configured allowed host as the Host authority even for a loopback listener, and
+that build had no access-mode consistency rules, so a loopback listener with corporate allowed hosts was accepted by preflight and refused only
+by the started service (421 misdirected request). Current sources probe a loopback listener with its own address and Setup-authored
+configurations carry an explicit access mode whose rules refuse that combination (`Get-ALServerAccessPlan`); configurations without
+`AccessMode` (Auto) still are not checked for that combination.
+
+`8ec7f77` treats `manual_recovery_required` as final and has no `-RecoveryAction`, so its own staged tools cannot reconcile. Use the
+hash-verified packaged tools of a newer verified candidate (RC3-VM130 `19a1113`, copied unchanged to `C:\AuthLens\<run directory>`). They
+reconcile the **installed** release in place with `-RecoveryAction VerifyCandidate`; they install nothing. Do not delete, rename or edit the
+journal, and do not edit the Setup registry key.
+
+| Batch | Changes | Purpose |
+| --- | --- | --- |
+| R1 | None (evidence folder only) | Every VerifyCandidate precondition plus the additional checks below, as one unit; any failure stops |
+| R2 | A new encrypted backup in `BackupRoot` | Recoverable copy of the current data, verified, before the journal changes |
+| R3 | The journal phase (history appended) and `config\installed-product.json` | `Install-AuthLens.ps1 -Mode Server -Recover -RecoveryAction VerifyCandidate`; the running service is not stopped or restarted |
+| R4 | None | Journal `complete`, history preserved, Status `recovery_needed: false`, read-only upgrade preflight |
+
+R1 checks: RC3 tool inventory and helper hashes; journal run, commit, version, phase and history (copied to evidence); no repair, uninstall,
+firewall or configuration pending operation; active release pointer equals the journal's `to_release`, inside `ReleasesRoot`, published-release
+verification and manifest identity; service exists, runs as the configured identity, and its command line equals the configuration; the
+service process owns the listener; access plan and probe authority; NTFS audit; the data-ownership marker written by the original fresh
+install; the installed release's read-only `--server-preflight` (TLS, key, database integrity, schema, no pending migrations); HTTPS readiness
+and runtime identity pinned to the configured certificate; key status, newest backups, installed-product receipt and Setup registration
+(informational).
+
+```powershell
+# DASH1 reconciliation, batch R1: read-only precondition check for Recover -RecoveryAction VerifyCandidate. Changes nothing on the installation.
+$rc3       = 'C:\AuthLens\AuthLens-2.0.0-2026-11-24_2021-19a1113'      # RC3-VM130 run directory copied unchanged to DASH1 (only its packaged tools are used)
+$config    = 'C:\ProgramData\AuthLens\config\deploy.json'               # DASH1 deployment configuration
+$evidence  = 'C:\AuthLens\acceptance\DASH1-reconcile-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')
+New-Item -ItemType Directory -Force $evidence | Out-Null
+& {
+  $ErrorActionPreference = 'Stop'
+  $journalRun    = '20261124-101158-installer-840e61e7'
+  $journalCommit = '8ec7f77b35b23d8c295e119bc6e4128b0681f67d'
+  $toolsInventorySha = '41ed60a8df9e711ece1bd98d33e1c2c7685e0422c07f7d7d51eced9f3fa40ff5'   # RC3 installer-tools.json
+  $results = [Collections.Generic.List[object]]::new()
+  function Add-Check([string]$Name, [bool]$Ok, [string]$Detail) { $results.Add([pscustomobject]@{ check = $Name; ok = $Ok; detail = $Detail }); '{0,-4} {1}: {2}' -f $(if ($Ok) { 'PASS' } else { 'FAIL' }), $Name, $Detail }
+  function Test-Step([string]$Name, [scriptblock]$Body) { try { $r = & $Body; Add-Check $Name ([bool]$r.ok) ([string]$r.detail) } catch { Add-Check $Name $false ("error: " + $_.Exception.Message) } }
+  if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole('Administrators')) { throw 'STOP: run elevated.' }
+  "DASH1 reconciliation R1 (read-only) on $env:COMPUTERNAME at $([DateTime]::UtcNow.ToString('o'))"
+
+  # 1. RC3 packaged tools: exact inventory and helper hashes, before any of them is loaded.
+  $toolsDirs = @(Get-ChildItem -LiteralPath (Join-Path $rc3 'installer') -Directory -Filter 'installer-tools-*')
+  if ($toolsDirs.Count -ne 1) { throw "STOP: expected one installer-tools folder under $rc3\installer." }
+  $tools = $toolsDirs[0].FullName
+  if ((Get-FileHash -LiteralPath (Join-Path $tools 'installer-tools.json') -Algorithm SHA256).Hash.ToLower() -ne $toolsInventorySha) { throw 'STOP: installer-tools.json is not the RC3-VM130 inventory.' }
+  foreach ($entry in @(([IO.File]::ReadAllText((Join-Path $tools 'installer-tools.json')) | ConvertFrom-Json).files)) {
+    if ((Get-FileHash -LiteralPath (Join-Path $tools ($entry.path -replace '/', '\')) -Algorithm SHA256).Hash.ToLower() -ne $entry.sha256) { throw "STOP: packaged helper $($entry.path) differs from its inventory." }
+  }
+  'PASS tools: RC3 packaged helpers verified'
+  Import-Module (Join-Path $tools 'deploy\AuthLens.Deploy.psm1') -Force
+  $cfg = Read-AuthLensSettings $config
+  "Configuration: context=$($cfg.ExecutionContext) root=$($cfg.Root) service=$($cfg.ServiceName) identity=$($cfg.ServiceAccount) listen=$($cfg.ListenAddress):$($cfg.Port) hosts=$(@($cfg.AllowedHosts).Count) proxies=$(@($cfg.TrustedProxies).Count) access_mode=$($cfg.AccessMode)"
+
+  # 2. Journal identity and state (a copy is kept as evidence; the original is not touched).
+  $journalPath = Get-ALJournalPath $cfg
+  Copy-Item -LiteralPath $journalPath -Destination (Join-Path $evidence 'journal-before.json')
+  $j = Read-ALJournal $cfg
+  Test-Step 'journal identity' { @{ ok = ($j.run -eq $journalRun -and $j.commit -eq $journalCommit -and $j.version -eq '2.0.0'); detail = "run=$($j.run) commit=$($j.commit) version=$($j.version)" } }
+  Test-Step 'journal state' { @{ ok = ($j.phase -eq 'manual_recovery_required' -and -not $j.from_release -and -not $j.service_binary_before -and $j.service_state_before -eq 'Missing'); detail = "phase=$($j.phase) from_release='$($j.from_release)' service_before=$($j.service_state_before) backup=$(if ($j.backup) { 'present' } else { 'none' }) history=$((@($j.history) | ForEach-Object { $_.phase }) -join '>')" } }
+
+  # 3. No competing operation.
+  Test-Step 'no pending operations' {
+    $markers = @('repair-pending.json', 'uninstall-pending.json', 'firewall-pending.json', 'configuration-pending.json', 'certificate-pending.json') | Where-Object { Test-Path -LiteralPath (Join-Path $cfg.WorkRoot $_) }
+    $fw = Test-ALInstallerFirewallRecoveryNeeded $cfg
+    @{ ok = (-not $markers -and -not $fw); detail = "markers=$($markers -join ',') firewall_recovery=$fw" } }
+
+  # 4. Active release target, manifest and artifact integrity.
+  Test-Step 'active release' {
+    $current = Get-ALLink (Get-ALCurrentLink $cfg); $target = [IO.Path]::GetFullPath([string]$j.to_release)
+    $m = Get-Content -LiteralPath (Join-AL $target 'build-manifest.json') -Raw | ConvertFrom-Json
+    $verified = (Test-ALPublishedRelease $target).Verified
+    @{ ok = ($current -ieq $target -and (Test-ALPathWithin $target $cfg.ReleasesRoot) -and $verified -and $m.product -ceq 'AuthLens' -and $m.source_sha -ceq $journalCommit -and $m.version -ceq '2.0.0'); detail = "current=$current to_release=$target verified=$verified manifest=$($m.version) $($m.source_sha)" } }
+
+  # 5. Windows service: identity, managed command line and listener ownership.
+  $svc = Get-ALService $cfg.ServiceName
+  Test-Step 'service' { @{ ok = ($svc.Exists -and $svc.State -eq 'Running' -and $svc.Account -ieq $cfg.ServiceAccount -and (Test-ALServiceBinary $svc.PathName $cfg)); detail = "exists=$($svc.Exists) state=$($svc.State) account=$($svc.Account) command_line_matches_config=$(Test-ALServiceBinary $svc.PathName $cfg)" } }
+  Test-Step 'listener ownership' { $pids = @(Get-ALListener $cfg.ListenAddress ([int]$cfg.Port)); @{ ok = ($pids.Count -ge 1 -and @($pids | Where-Object { $_ -ne $svc.ProcessId }).Count -eq 0); detail = "listener pids=$($pids -join ',') service pid=$($svc.ProcessId)" } }
+
+  # 6. Network access mode and the host boundary the readiness probe will use.
+  Test-Step 'access mode' { $a = Get-ALServerAccessPlan $cfg; @{ ok = $true; detail = "mode=$($a.access_mode) network=$($a.network_access) probe_authority=$($a.probe_authority) (Auto = configuration without AccessMode; rules are not enforced in Auto)" } }
+
+  # 7. NTFS: no broad access to private state; required SYSTEM/Administrators access.
+  Test-Step 'ACL audit' { $r = Get-ALAclReport (Get-ALAclPlan $cfg); @{ ok = [bool]$r.safe; detail = $(if ($r.safe) { 'safe' } else { Format-ALAclFindings $r }) } }
+
+  # 8. Data ownership evidence written by the original fresh install (required: data is never adopted).
+  Test-Step 'data ownership marker' {
+    $marker = Join-AL $cfg.DataDirectory '.authlens-owned-data.json'
+    if (-not (Test-Path -LiteralPath $marker)) { return @{ ok = $false; detail = 'missing (VerifyCandidate refuses; see gap G-006 in the tracker)' } }
+    $o = Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json
+    @{ ok = ($o.schema -eq 1 -and $o.product -ceq 'AuthLens' -and $o.root -ieq $cfg.Root -and $o.data_directory -ieq $cfg.DataDirectory -and $o.instance_id -match '^[a-f0-9]{32}$'); detail = "root=$($o.root) data=$($o.data_directory) instance=$($o.instance_id)" } }
+
+  # 9. Read-only TLS, key and database/schema proof by the installed release itself (the same probe VerifyCandidate uses).
+  $exe = Join-AL ([IO.Path]::GetFullPath([string]$j.to_release)) 'server\AuthLens.Api.exe'
+  Test-Step 'server preflight' {
+    $p = Invoke-ALMaintenance $exe (@('--server-preflight') + @(Get-ALServiceArguments $cfg))
+    @{ ok = ($p.validated -and $p.read_only -and $p.data_modified -eq $false -and $p.source_sha -ceq $journalCommit -and $p.version -ceq '2.0.0' -and $p.schema.compatible -and @($p.schema.pending).Count -eq 0); detail = "validated=$($p.validated) read_only=$($p.read_only) data_modified=$($p.data_modified) schema_compatible=$($p.schema.compatible) pending=$(@($p.schema.pending).Count) applied=$(@($p.schema.applied).Count)" } }
+
+  # 10. Pinned HTTPS readiness and runtime identity (certificate pinned to the configured PFX).
+  Test-Step 'pinned readiness' {
+    $ready = Invoke-ALConfiguredHttp $cfg '/health/ready'; $id = Invoke-ALConfiguredHttp $cfg '/product-version.json'
+    $identity = if ($id.Status -eq 200) { $id.Body | ConvertFrom-Json } else { $null }
+    @{ ok = ($ready.Status -eq 200 -and $identity -and $identity.source_sha -ceq $journalCommit -and $identity.version -ceq '2.0.0'); detail = "ready=$($ready.Status) identity=$(if ($identity) { "$($identity.version) $($identity.source_sha)" } else { $id.Status })" } }
+
+  # 11. Data protection (informational here; R2 requires a verified backup taken after these checks).
+  try { $k = Invoke-ALMaintenance $exe @('--backup-key', 'status', '--data-dir', $cfg.DataDirectory); "INFO key status: $(($k | ConvertTo-Json -Compress -Depth 3) -replace '"fingerprint":"[0-9a-f]+"', '"fingerprint":"<recorded>"')" } catch { "INFO key status: unavailable ($($_.Exception.Message))" }
+  $latest = Get-ChildItem -LiteralPath (Join-AL $cfg.DataDirectory 'backups') -Filter '*.slbak' -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc | Select-Object -Last 1
+  "INFO newest application backup: $(if ($latest) { "$($latest.Name) $($latest.LastWriteTimeUtc.ToString('o'))" } else { 'none' }); predeploy backups: $(@(Get-ChildItem -LiteralPath $cfg.BackupRoot -ErrorAction SilentlyContinue).Count)"
+  "INFO installed-product.json present: $(Test-Path -LiteralPath (Join-AL (Join-AL $cfg.Root 'config') 'installed-product.json'))"
+  $reg = try { Get-ItemProperty 'HKLM:\Software\AuthLens\Server' -ErrorAction Stop } catch { $null }
+  "INFO Setup registration: $(if ($reg) { "SetupState=$($reg.PSObject.Properties['SetupState'].Value) ConfigFile=$([bool]$reg.PSObject.Properties['ConfigFile'])" } else { 'none' })"
+
+  $results | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $evidence 'R1-checks.json') -Encoding UTF8
+  $failed = @($results | Where-Object { -not $_.ok })
+  if ($failed.Count) { throw "STOP: $($failed.Count) precondition(s) failed: $(($failed.check) -join ', '). Do not run R2/R3; send this transcript." }
+  'R1 RECONCILIATION PRECONDITIONS MET. Next: R2 (verified backup), then R3 (VerifyCandidate) with operator approval.'
+} *>&1 | Tee-Object -FilePath (Join-Path $evidence 'R1-transcript.txt')
+```
+
+R2, R3 and R4 reuse `$rc3`, `$config` and set `$evidence` to the R1 evidence folder. Run each only after the previous one ended without `STOP`.
+
+```powershell
+# R2: verified encrypted backup of the current data with the installed release (the same commands a deployment runs before it stops anything).
+& {
+  $ErrorActionPreference = 'Stop'
+  $tools = (Get-ChildItem -LiteralPath (Join-Path $rc3 'installer') -Directory -Filter 'installer-tools-*').FullName
+  Import-Module (Join-Path $tools 'deploy\AuthLens.Deploy.psm1') -Force
+  $cfg = Read-AuthLensSettings $config; $j = Read-ALJournal $cfg
+  $exe = Join-AL ([IO.Path]::GetFullPath([string]$j.to_release)) 'server\AuthLens.Api.exe'
+  $b = Invoke-ALMaintenance $exe @('--backup-local', $cfg.BackupRoot, '--data-dir', $cfg.DataDirectory)
+  $v = Invoke-ALMaintenance $exe @('--backup-verify', $b.file, '--data-dir', $cfg.DataDirectory)
+  if (-not $v.verified -or $v.sha256 -ne $b.sha256) { throw 'STOP: the backup could not be verified; do not continue.' }
+  "R2 backup verified: $($b.file) sha256=$($b.sha256) size=$($b.size)"
+} *>&1 | Tee-Object -FilePath (Join-Path $evidence 'R2-transcript.txt')
+
+# R3: supported reconciliation (operator-approved). A refusal keeps manual_recovery_required and changes nothing else.
+& {
+  $ErrorActionPreference = 'Stop'
+  $tools = (Get-ChildItem -LiteralPath (Join-Path $rc3 'installer') -Directory -Filter 'installer-tools-*').FullName
+  $result = Join-Path $evidence 'R3-result.json'; $diagnostic = Join-Path $evidence 'R3-diagnostic.txt'
+  $ErrorActionPreference = 'Continue'
+  & (Join-Path $PSHOME 'powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $tools 'Install-AuthLens.ps1') -Mode Server -Recover -RecoveryAction VerifyCandidate -ConfigFile $config -ResultFile $result -DiagnosticFile $diagnostic -Yes
+  $code = $LASTEXITCODE; $ErrorActionPreference = 'Stop'
+  "Install-AuthLens exit $code"; if (Test-Path -LiteralPath $result) { Get-Content -LiteralPath $result }
+  if ($code -ne 0) { throw "STOP: VerifyCandidate refused (exit $code). The journal remains manual_recovery_required; send $result and $diagnostic." }
+} *>&1 | Tee-Object -FilePath (Join-Path $evidence 'R3-transcript.txt')
+
+# R4: read-only confirmation.
+& {
+  $ErrorActionPreference = 'Stop'
+  $tools = (Get-ChildItem -LiteralPath (Join-Path $rc3 'installer') -Directory -Filter 'installer-tools-*').FullName
+  Import-Module (Join-Path $tools 'deploy\AuthLens.Deploy.psm1') -Force
+  $cfg = Read-AuthLensSettings $config; $j = Read-ALJournal $cfg
+  "journal phase=$($j.phase) history=$((@($j.history) | ForEach-Object { $_.phase }) -join '>')"
+  if ($j.phase -ne 'complete') { throw 'STOP: the journal is not complete.' }
+  $s = Get-ALStatus $cfg
+  "status ready=$($s.ready) recovery_needed=$($s.recovery_needed) managed=$($s.binary_path_matches) running=$($s.running_identity.version) $($s.running_identity.source_sha)"
+  "installed-product.json present: $(Test-Path -LiteralPath (Join-AL (Join-AL $cfg.Root 'config') 'installed-product.json'))"
+} *>&1 | Tee-Object -FilePath (Join-Path $evidence 'R4-transcript.txt')
+```
+
+If the data-ownership marker is missing (for example because data was copied back manually), VerifyCandidate refuses by design ("data is
+never adopted"); that case is gap G-006 in the [acceptance tracker](../validation/ACCEPTANCE_TRACKER.md#defects-and-gaps) and has no supported
+reconciliation yet. After R3 the Setup registry key still shows the pending-verification state written by the failed Setup (gap G-005); the
+next successful Setup upgrade rewrites it. Do not edit it by hand.
+
 ### Access-mode details
 
 Deployment configuration accepts `AccessMode`: `Local`, `Corporate`, `ReverseProxy`, or compatibility

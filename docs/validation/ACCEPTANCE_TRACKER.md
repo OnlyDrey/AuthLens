@@ -168,6 +168,39 @@ VM is still required and is tracked by the scenario rows above.
 | D-002 | Product defect (P1) | 2026-11-24, packaged-runtime audit (source inspection) | The Start-menu Service Manager shortcut passes no `-DataDirectory`, and Service Manager defaulted to `C:\ProgramData\AuthLens\data`, so on a custom root or data directory key and code operations targeted the wrong (possibly new) directory | Hard-coded default instead of the installation's configuration | Without `-DataDirectory`, Service Manager resolves the configuration Setup registered (`HKLM\Software\AuthLens\Server` `ConfigFile`) and uses its `DataDirectory` (or `Root\data`) and `ServiceName` | Corrected in implementation (`Packaged-Runtime.Tests.ps1`); native pending (C3 to C7 on a custom root) |
 | G-001 | Implementation gap (P1, original remediation scope) | Product owner, 2026-11-24 | No supported post-installation network configuration: manual JSON edit plus `InstallService -Reconfigure` without validation or rollback | Not implemented in the first remediation | Service Manager options 8/9 (`NetworkStatus`, `ChangeNetwork`) over `Deploy-AuthLens.ps1 -Action ChangeNetwork`: validation (access-mode rules, assigned address, port ownership, packaged-host preflight with the existing certificate), consolidated summary, explicit confirmation, recorded transaction shared with certificate replacement, readiness/listener/identity verification, automatic restoration, interrupted-run recovery (`Recover`), explicit owned-firewall decision | Implemented: `Server-NetworkChange.Tests.ps1` (7 tests); native pending (C9, 8.15) |
 
+### DASH1 interrupted first installation (2026-11-24)
+
+Reported by the operator; DASH1 is not a candidate under test and is not modified by the agent.
+
+| Item | Finding |
+| --- | --- |
+| State | Service `AuthLens` running as `NT SERVICE\AuthLens`, installed `2.0.0` `8ec7f77`, readiness `ready`; journal `20261124-101158-installer-840e61e7` phase `manual_recovery_required` (history backup > switched > starting > verifying > manual_recovery_required), no previous release, no backup. RC3 Setup refused the upgrade in read-only preflight (exit 4, journal barrier); nothing was changed |
+| Journal `to_release` | Reported as `AuthLens-2.0.0-20261124-094806-8c6ea68-win-x64`; the `8ec7f77` build produced `AuthLens-2.0.0-20261124-094806-8ec7f77-win-x64` (8c6ea68 is the alpha.1 commit). R1 verifies the actual pointer, folder and manifest |
+| Root cause (D-003) | `8ec7f77` probed readiness with the first allowed host even for a loopback listener and had no access-mode consistency rules, so a loopback listener with corporate hosts passed preflight and failed with HTTP 421 after the service was installed. Current sources probe loopback with its own address; Setup-authored configurations carry an access mode whose rules refuse the combination. Residual: configurations without `AccessMode` (Auto) are not checked for it |
+| Existing capability | Current tools (RC3 `19a1113`) support this case: `Recover -RecoveryAction VerifyCandidate` revalidates a running owned fresh candidate without a previous release or backup (Pester `Deployment-Recovery`: "fixes forward a running owned fresh candidate..."). `8ec7f77` itself cannot: it treats `manual_recovery_required` as final and has no recovery choices |
+| Procedure | [Reconciling an interrupted first installation](../deployment/WINDOWS_DEPLOYMENT.md#reconciling-an-interrupted-first-installation-that-was-corrected-manually): R1 read-only preconditions, R2 verified backup, R3 VerifyCandidate (no service restart), R4 confirmation. R1 was self-tested read-only on VM130 (all probes executed; identity checks correctly refused VM130's own completed journal) |
+| Status | Not run on DASH1. Prerequisite: the R1 data-ownership marker check; if it fails, reconciliation is blocked by G-006 |
+
+### VM130 upgrade alpha.1 to RC3-VM130 (observation)
+
+Operator functional test passed; formal evidence pending. Agent read-only observation during the R1 self-test (2026-11-24T21:29Z): journal
+`20261124-211931-installer-ab89b53f` phase `complete` (backup > stopping > switched > starting > verifying > complete) from
+`AuthLens-2.0.0-alpha.1-20261123-120358-8c6ea68-win-x64` with a pre-deployment backup; service running as `NT SERVICE\AuthLens`, command line
+equals the configuration, listener owned by the service, ACL audit safe, `--server-preflight` validated (schema compatible, 6 applied, none
+pending), pinned readiness 200 with runtime identity `2.0.0 19a1113`, Setup registration `verified`. Host key usable, recovery copy not yet
+verified (backups blocked until it is). B7 stays **Not run** until the operator's evidence batch.
+
 ## Required corrections for the next candidate
 
-None open. New findings from RC2 acceptance are added above and consolidated before any further candidate.
+Gaps from the DASH1 investigation (not implemented; proposals for the next candidate, subject to approval):
+
+| ID | Class | Gap | Proposed correction | Focused tests |
+| --- | --- | --- | --- | --- |
+| D-003 | Product defect (fixed in current sources; residual) | Loopback listener with non-loopback allowed hosts passes preflight in Auto mode | Refuse in preflight when the probe authority the readiness check will use is not accepted by the configured host policy (all modes, including Auto); Setup shows the reason before installing | Access plan and `Wait-ALReady` probe authority for loopback + corporate hosts in Auto, Local and Corporate; Setup preflight refusal before any service change |
+| G-003 | Implementation gap (P1) | Service Manager has no deployment-recovery workflow; Setup only says recovery is required | Service Manager option: show journal phase/history and offer only the actions valid for the state (VerifyCandidate when running, owned, no previous release; Resume when stopped; Rollback only with a verified previous release and backup; Cancel only at prepared/backup); run `Install-AuthLens.ps1 -Recover -RecoveryAction` after a summary and confirmation | State-matrix tests: each journal shape offers exactly its valid actions; refused actions never change the journal |
+| G-004 | Implementation gap (P2) | The completion entry records only the phase, not which recovery action or operator reconciled it | Append action, actor, configuration and manifest hashes and the result operation ID to the history entry | Journal history contents after VerifyCandidate, Resume and Rollback |
+| G-005 | Implementation gap (P2) | After CLI recovery the Setup registry key keeps `SetupState=pending-verification` and lacks `ConfigFile`/`Root`; readiness refuses until a Setup run rewrites it | Bind a supported registration update to a successful VerifyCandidate (same values Setup writes), never a manual edit | Registration before/after recovery; readiness wrapper accepts the reconciled registration |
+| G-006 | Implementation gap (P1, conditional) | No supported reconciliation when the fresh-install data-ownership marker is gone (for example data copied back manually) | Explicit, audited "adopt verified restored data" path bound to a verified backup identity and the existing instance, never automatic | Missing/invalid marker refusal stays; adoption only with matching verified backup evidence |
+| T-001 | Test gap | VerifyCandidate is not tested against a journal written by an older build (`manual_recovery_required` as terminal, no `-RecoveryAction` era) with a configuration without `AccessMode`/`RepositoryPath` and service arguments changed manually afterwards | Add the cases: consistent manual correction completes and preserves history; inconsistent command line, changed pointer, manifest/commit mismatch, pending markers and missing marker refuse | `Deployment-Recovery.Tests.ps1` |
+
+New findings from RC3 acceptance are added above and consolidated before any further candidate.
