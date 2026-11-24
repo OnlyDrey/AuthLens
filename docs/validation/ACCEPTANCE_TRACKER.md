@@ -10,8 +10,8 @@ Internal identifiers only; the product version is 2.0.0 for both and nothing is 
 
 ### RC2 (current, under test)
 
-Built from the correction commit for D-001, D-002 and G-001; identity, hashes and test filter are recorded in
-[RC2 build record](#rc2-build-record) once the build has passed. Until then RC2 does not exist and no acceptance runs.
+Built from the correction commit for D-001, D-002 and G-001 (`af744c9`); see the [RC2 build record](#rc2-build-record). Accepted for controlled
+testing only; NOT APPROVED.
 
 ### RC1 (superseded before acceptance)
 
@@ -28,7 +28,25 @@ Not used for acceptance: D-001 affected too many installed administration and re
 
 ### RC2 build record
 
-Pending: written after the canonical build of the correction commit passes.
+| Item | Value |
+| --- | --- |
+| Source commit | `af744c9f807a7191213b75cec86ba34c6eb1f3f5` on `experiment/dotnet-backend` (manifest `source_dirty: false`) |
+| Build directory | `<build root>\AuthLens-2.0.0-2026-11-24_1926-af744c9` on the development workstation (separate from RC1; not committed) |
+| Release folder | `build\AuthLens-2.0.0-20261124-192657-af744c9-win-x64`, built `2026-11-24T19:26:57Z`, win-x64 |
+| Command | `.\build.ps1 -OutputRoot <RC2 build root> -TestFilter <focused>` (canonical build; installers built by it) |
+| Tests run by the build | Same focused filter as RC1 (deployment focused classes plus `ServerSourcePolicyTests`, `DataSourcesTests`, `BackupCryptoTests`): **194 passed, 0 failed**. Not FULL |
+| Verification | `build-summary.json` status `passed`; release, secrets, installers and branding `true`; `verify-release.ps1` (repository and packaged copy) exit 0, 17 artifacts; installer hashes equal `installers-SHA256SUMS` and `installer-manifest.json`; shipped `AuthLens.Deploy.psm1`, `Deploy-AuthLens.ps1` and `Service-Manager.ps1` equal the commit's sources |
+| Focused Pester before the build (Windows PowerShell 5.1, Pester 5.9.1) | 20 deployment/installer suites: **255 passed, 0 failed** (includes `Packaged-Runtime`, `Server-NetworkChange`, `Server-CertificateReplacement`, `Service-Manager`, `InnoIsolation` compiling all installer variants) |
+| Unsigned | Code signing is a separate authorized step |
+
+| Artifact | Size (bytes) | SHA-256 |
+| --- | --- | --- |
+| `installer\AuthLens-Server-2.0.0-Setup.exe` | 93,410,825 | `ed0dd3cf194d7f9e1d5d3b37e63a0276b7f035827057eec7e24166472624d99b` |
+| `installer\AuthLens-2.0.0-Setup.exe` (Desktop) | 93,406,953 | `311fd6d8a730baf45ae7dcf15e10348cbd60ff90c94ca7f16cee74028b3a457d` |
+| `server\AuthLens.Api.exe` | 123,305,575 | `ca5af577d9fbd84cce6bfb1a1f112450bd9b8141adaaddee534d3e1a7cd8bf03` |
+| `desktop\AuthLens.exe` | 178,506,366 | `c38bc1039bbbc262f833ee0beba304b07d5299735a56105025cd2634d2360e23` |
+| `build-manifest.json` | 5,933 | `16c481948516af064dc5076337d5aab11be9c3f3c1f21d168d3f4b4d8aabe33a` |
+| `SHA256SUMS` | 1,769 | `7c5fe599e8fa08cb3f24b463e7125b22676c519096479b387e76dad821686305` |
 
 ## Test environment
 

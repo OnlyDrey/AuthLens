@@ -1,6 +1,6 @@
 # AuthLens 2.0.0 remediation: work-package tracker
 
-Acceptance results are recorded in the [acceptance tracker](ACCEPTANCE_TRACKER.md).
+Acceptance results are recorded in the [acceptance tracker](ACCEPTANCE_TRACKER.md). Current candidate: **RC2** from `af744c9` (corrects D-001, D-002, G-001); the RC1 record below (`c780ff6`) is kept for traceability and is superseded.
 
 **Release status: NOT APPROVED.** This tracker lets the next agent resume without reconstructing earlier sessions. It records implemented
 work and actual test evidence; native Windows acceptance is listed separately and is never implied by focused tests.
