@@ -15,6 +15,8 @@ var
   ServerGenerateTls: Boolean;
   ServerSuggestedListen, ServerSuggestedHosts: String;
   ServerLastAccess: Integer;
+  ServerProgress: TOutputProgressWizardPage;
+  ServerInNextClick: Boolean;
 
 function ServerAccessMode(): String;
 begin
@@ -112,8 +114,18 @@ begin
   ServerPayloadReady := True;
 end;
 
+// What the hidden helper is doing, shown on a marquee progress page while the wizard waits (certificate generation and preflight take time).
+function ServerHelperActivity(Flags: String): String;
+begin
+  Result := '';
+  if Pos('-GenerateTlsDraft', Flags) > 0 then Result := 'Generating a local HTTPS certificate (3072-bit RSA) and validating the configuration...'
+  else if Pos('-ResolveOnly', Flags) > 0 then Result := 'Validating the deployment configuration and detecting the existing installation...'
+  else if Pos('-PreflightOnly', Flags) > 0 then Result := 'Running read-only preflight: package identity, ownership, ACLs, address and port, TLS, database and schema...'
+  else if Pos('-PrepareOnly', Flags) > 0 then Result := 'Preparing protected directories and the reviewed configuration...';
+end;
+
 function RunServerHelper(Flags: String; NeedPlan: Boolean): Boolean;
-var Arguments, Diagnostic, Report, RequestedDir: String; Detail: AnsiString; Code: Integer;
+var Arguments, Diagnostic, Report, RequestedDir: String; Detail: AnsiString; Code: Integer; Shown: Boolean;
 begin
   EnsureServerTools();
   ServerAttempt := ServerAttempt + 1;
@@ -134,7 +146,18 @@ begin
   Arguments := Arguments + ' -DiagnosticFile "' + Diagnostic + '" -ResultFile "' + Report + '"';
   Arguments := Arguments + ServerFirewallArguments();
   if NeedPlan then Arguments := Arguments + ' -PlanFile "' + ServerPlanFile + '"';
-  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Arguments, '', SW_HIDE, ewWaitUntilTerminated, Code) then Code := 4;
+  // Progress pages may be shown only from NextButtonClick; elsewhere (initial suggestions, silent Setup, PrepareToInstall) the helper runs as before.
+  Shown := ServerInNextClick and not WizardSilent and (ServerHelperActivity(Flags) <> '');
+  if Shown then begin
+    ServerProgress.SetText(ServerHelperActivity(Flags), 'The wizard stays open until the check finishes; nothing is installed in this step.');
+    ServerProgress.ProgressBar.Style := npbstMarquee;
+    ServerProgress.Show;
+  end;
+  try
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Arguments, '', SW_HIDE, ewWaitUntilTerminated, Code) then Code := 4;
+  finally
+    if Shown then ServerProgress.Hide;
+  end;
   if LoadStringFromFile(Report, Detail) then Log(UTF8Decode(Detail));
   Result := Code = 0;
   if not Result then begin
@@ -236,6 +259,7 @@ begin
     ServerFirewallScope.Values[0] := ExpandConstant('{param:FIREWALLSOURCES|}');
     ServerFirewallScope.Values[1] := ExpandConstant('{param:FIREWALLPROFILES|Domain}');
   end;
+  ServerProgress := CreateOutputProgressPage('AuthLens Server', 'Working');
   ServerValidationPage := CreateOutputMsgPage(ServerFirewallScope.ID, 'Read-only preflight', 'Validation runs before confirmation and system provisioning', 'The helper verifies package identity, installation/service ownership, directory isolation, ACLs, assigned address, port ownership and staging/backup storage. The packaged host validates HTTPS/proxy policy, certificate names/private key/expiry, database integrity and schema without initializing data. Upgrade rollback compatibility is checked. Backup verification, service-identity key access and actual TLS/readiness are repeated in the protected transaction.');
   if not WizardSilent then begin
     if RunServerHelper('-NetworkSuggestions', True) then begin
@@ -248,6 +272,8 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+  ServerInNextClick := True;
+  try
   if (CurPageID = ServerAccessPage.ID) and (ServerLastAccess <> ServerAccessPage.SelectedValueIndex) then begin
     ServerLastAccess := ServerAccessPage.SelectedValueIndex;
     ServerEditProxy.Values[0] := ''; ServerEditProxy.Values[1] := '';
@@ -271,6 +297,9 @@ begin
     if Result then Result := ResolveServerWizard();
   end;
   if (CurPageID = ServerValidationPage.ID) or ((CurPageID = wpReady) and not ServerPreflighted) then Result := PreflightServerWizard();
+  finally
+    ServerInNextClick := False;
+  end;
   if not Result then SuppressibleMsgBox(ServerError, mbError, MB_OK, IDOK);
 end;
 

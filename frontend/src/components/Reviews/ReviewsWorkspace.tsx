@@ -2,7 +2,7 @@ import { ClipboardList, ShieldCheck, UserCheck } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchConfiguration } from '@/api/configuration'
 import { apiRequest } from '@/api/client'
-import { scopeParams, sod, type ContextInfo } from '@/api/sod'
+import { emptyFilters, scopeParams, sod, type ContextInfo } from '@/api/sod'
 import { useHistoryValue, useViewHistory, reviewsHref, userAccessHref, type ReviewsView } from '@/hooks/useViewHistory'
 import { availableReviewsViews, REVIEWS_VIEWS } from '@/lib/navigationItems'
 import { SecondaryNavigation } from '@/components/Shared/Navigation'
@@ -64,7 +64,7 @@ function AccountReviewLink({ primary = false }: { primary?: boolean }) {
 
 interface QueueSummary extends ContextInfo { total: number; counts: Record<string, number> }
 
-/** Landing page: the existing work-queue counters (same endpoint, filters and definitions as the Work Queue), then direct entry points. */
+/** Landing page: global work-queue counters for the selected review context (same endpoint and definitions as the Work Queue, without its filters), then direct entry points. */
 function ReviewsOverview({ sodEnabled }: { sodEnabled: boolean }) {
   return (
     <section className="grid min-w-0 gap-4" aria-label="Reviews overview">
@@ -81,7 +81,8 @@ function AccessReviewsOverview() {
     { change } = useViewHistory(),
     { canReview } = useAuthentication(),
     filtered = hasStoredFilters({ queue: filters as Record<string, string | boolean | number | string[]> })
-  const params = scopeParams(context, filters, { offset: 0, limit: 1 })
+  // Overview counters are global within the selected review context and the signed-in account's authorized data; the Work Queue keeps its own filtered counters.
+  const params = scopeParams(context, emptyFilters, { offset: 0, limit: 1 })
   const summary = useQuery({ queryKey: ['sod-queue', 'users', params.toString()], queryFn: () => sod<QueueSummary>('/api/sod/queue/users', params) })
   const data = summary.data, counts = data?.counts ?? {}
   const all = counts.all ?? 0, complete = counts.complete ?? 0
@@ -105,8 +106,8 @@ function AccessReviewsOverview() {
           <Kpi label="Removal recommended" value={(counts.removal ?? 0).toLocaleString()} tone={stateTone('Removal recommended', counts.removal ?? 0)} onClick={() => open('remediation')} navigates />
           <Kpi label="Completion" value={all ? `${Math.floor((complete / all) * 100)}%` : '–'} progress={{ value: complete, max: all, label: `${complete} of ${all} users complete` }} />
         </section>
-        {filtered && <p role="note" className="flex flex-wrap items-center gap-2"><StatusBadge tone="info">Filtered</StatusBadge>Counters follow the active Work Queue filters. <Button size="compact" onClick={() => open('queue')}>Review filters in Work Queue</Button></p>}
-        <p className="ui-description">Counters use the Work Queue definitions for the selected review context and the Work Queue filters: a user is complete when every role, activity and risk access-review item in scope is decided. {data.frozen ? 'This period is a frozen snapshot; its population and decisions are read only.' : 'Current evidence is live and changes with imported data.'}</p>
+        {filtered && <p role="note" className="flex flex-wrap items-center gap-2"><StatusBadge tone="info">Work Queue filters active</StatusBadge>The Work Queue currently shows a filtered subset of these users. <Button size="compact" onClick={() => open('queue')}>Open filtered Work Queue</Button></p>}
+        <p className="ui-description" data-testid="access-review-scope">Scope: every SAP user in the selected review context. Work Queue filters do not apply here; the Work Queue shows its own filtered counters. A user is complete when every role, activity and risk access-review item is decided. {data.frozen ? 'This period is a frozen snapshot; its population and decisions are read only.' : 'Current evidence is live and changes with imported data.'}</p>
       </>}
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" aria-label="Review workflows">
         {entries.filter(entry => !entry.review || canReview).map(entry => {
@@ -140,6 +141,7 @@ function AccountReviewsOverview() {
     <Card aria-label="Account reviews">
       <h2 className="flex items-center gap-2 text-base font-semibold"><UserCheck size={16} aria-hidden="true" />Account reviews</h2>
       <p className="ui-description">Account Review in User Access checks SAP accounts against Employee Directory and license evidence (validity, locks, technical users, position changes). Its decisions are account findings, separate from SoD access-review decisions on roles, activities and risks, and are not included in the access-review counters.</p>
+      <p className="ui-description" data-testid="account-review-scope">Scope: every SAP account you can access. Filters on the Account Review page do not apply here; Account Review shows its own filtered counters.</p>
       {result.isError ? <ErrorState error={result.error} onRetry={() => void result.refetch()} title="Account Review progress could not be loaded" />
         : !data ? <LoadingState />
         : !data.loaded ? <p className="ui-description" role="status">No SAP user data is loaded yet.</p>

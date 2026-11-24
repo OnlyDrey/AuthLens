@@ -374,7 +374,19 @@ release manifest unchanged and obtain the actual VM connection before continuing
 
 - One service: `AuthLens`. Unrelated services are never adopted, stopped or changed.
 - Account: the service's own virtual account (`NT SERVICE\<name>`), no password. Grants are added, never removed: modify on the data directory
-  (inherited), read and execute on `ReleasesRoot`, read on the certificate, its password file and the backup key file.
+  (inherited), read and execute on `ReleasesRoot`, read on the certificate, its password file and the backup key file. Path traversal to these
+  files relies on the default *Bypass traverse checking* right (SeChangeNotifyPrivilege, held by Everyone and service accounts by default); no
+  folder above a key or certificate is granted to the service. A hardened policy that removes that right makes the key `inaccessible`
+  (diagnosed by `backup_key_service_access` and the key status) and requires a reviewed traverse grant; it is not added automatically.
+
+#### Supported service identities (2.0.0 product decision)
+
+| Identity | 2.0.0 support |
+| --- | --- |
+| `NT SERVICE\AuthLens` (virtual account) | **Primary supported identity.** Fresh Setup always uses it; deployment, key provisioning, source authority and ACL audit are built for it. Local and UNC source access under it is a mandatory acceptance requirement (UNC uses the computer account `DOMAIN\HOST$` on the remote share). |
+| LocalSystem, LocalService, NetworkService | Not offered by Setup. An existing service with one of these identities is preserved and checked (never reconfigured); key access resolves them (LocalSystem needs no grant). Not part of 2.0.0 acceptance. |
+| Existing local or domain account, existing gMSA | Compatible only when the service already exists with it: upgrades preserve and verify the identity and Service Manager grants key read to it. Not created, changed or validated by AuthLens; no password is ever handled. Not part of 2.0.0 acceptance. |
+| New dedicated domain account or gMSA provisioning | **Deferred** (not in 2.0.0): no credential transport, logon-right or managed-password validation is introduced. |
 - Command line (no secret): `AuthLens.Api.exe --data-dir … --network --listen … --port … --allowed-hosts … --cert … --cert-password-file … [--trusted-proxies …]`.
   TLS, the Host allow-list, Origin/CSRF checks and the trusted-proxy restriction are the server's own and unchanged by the deployment.
 - Processes: only the service is stopped, through the SCM. A port held by another process (for example `start-server-test.ps1`) is reported and left alone.
@@ -1307,8 +1319,10 @@ The Ready page is the consolidated configuration review: storage paths, access m
 HTTPS listener and allowed hosts, proxy hosts and trusted peers when configured, certificate (with a note for generated self-signed certificates),
 firewall decision, Windows Service name and identity, what is created or preserved and, for a fresh installation, the post-install steps (activation,
 host key with service read access, recovery-copy verification). During the hidden transaction the Installing page states what is running and where
-its sanitized diagnostics are written. Status: compile-checked with ISCC on a probe that includes the production Pascal code and by
-`InnoIsolation.Tests.ps1`; native wizard run pending (8.14).
+its sanitized diagnostics are written. While a wizard step runs the hidden helper (local certificate generation, configuration resolution,
+read-only preflight, preparation), a marquee progress page names the running check instead of leaving the window unresponsive-looking; silent
+Setup and the initial network suggestion are unchanged. Status: compile-checked with ISCC on a probe that includes the production Pascal code and
+by `InnoIsolation.Tests.ps1`; native wizard run pending (8.14).
 
 Interactive Setup can author fresh root/data/backup paths, listening IP/port, host/proxy boundaries and existing PFX/password-file locations.
 Select **Configure a fresh Server through this wizard**. The temporary draft uses the same strict contract and host preflight as silent

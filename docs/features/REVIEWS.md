@@ -44,9 +44,13 @@ correct Reviews page.
 
 ## Overview
 
-**SoD access reviews** (while SoD is enabled): the landing page shows the Work Queue counters from the same endpoint, definitions, review context and Work Queue filters
-(`/api/sod/queue/users`): Total users, Needs review, Complete, Removal recommended and Completion (complete / total users). A user is complete
-when every role, activity and risk access-review item in scope is decided. Counters are not combined across review contexts. Workflow cards
+Product decision (2.0.0): Overview counters are **global** within the selected review context and the signed-in account's authorized data;
+filtered detail views (Work Queue, Account Review) keep their own filtered counters. Each card states its scope.
+
+**SoD access reviews** (while SoD is enabled): the landing page shows the Work Queue counters from the same endpoint and definitions
+(`/api/sod/queue/users`) for the selected review context **without** the Work Queue filters: Total users, Needs review, Complete, Removal
+recommended and Completion (complete / total users). When Work Queue filters are active, a note says so and opens the filtered Work Queue. A user
+is complete when every role, activity and risk access-review item is decided. Counters are not combined across review contexts. Workflow cards
 lead to each page; Bulk Review is shown only with the effective `review` permission.
 
 **Account reviews** (always): counters from the existing Account Review endpoint (`/api/account-review?limit=1`, its `summary`) for the whole SAP
@@ -89,7 +93,8 @@ creation and administrative period operations remain hidden without permission (
 
 ## Historical organizational evidence (recommendation, not implemented)
 
-**Implemented today: nothing in this section.** The evidence contract, snapshot schema and checksums are unchanged; no enrichment is authorized.
+**Implemented today: nothing in this section.** Product decision: deferred to a future release (provisionally 2.1.0). The 2.0.0 evidence
+contract, snapshot schema and checksums are unchanged and existing frozen snapshots are never rewritten.
 
 Frozen period snapshots do not record Functional Group membership or manager relationships. Organizational filters in a frozen context use
 **current** membership; the UI states this. Changing the evidence contract requires product-owner approval. Recommended design:

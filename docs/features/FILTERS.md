@@ -327,7 +327,7 @@ Manager uses direct reports only (no recursion); exact usernames are normalized,
 | Employee Directory (Settings) | Yes | Yes | Yes | Only reliably linked SAP identities when filtered |
 | SoD Overview | Yes | Yes | Yes | |
 | SoD Risk/Activity Matrix, Access Explorer | Yes | Yes | Yes | Via `subjectFilterFields` (pages with a username field) |
-| Reviews Work Queue, Bulk Review, Remediation | Yes | Yes | Yes | Shared SoD filter slot; Reviews Overview counters follow Work Queue filters |
+| Reviews Work Queue, Bulk Review, Remediation | Yes | Yes | Yes | Shared SoD filter slot; Reviews Overview counters are global for the review context (product decision), the Work Queue keeps filtered counters |
 | Review Periods, Reports and Evidence | Yes | Yes | Yes | Current membership, labeled; frozen evidence is not changed |
 | Role Lookup | No (intentional) | No | No | Role catalogue has no user population; **Review assigned users** opens the queue by exact role |
 | Data Health | No (intentional) | No | No | Source integrity is global |
