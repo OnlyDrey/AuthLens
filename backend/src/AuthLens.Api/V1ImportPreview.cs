@@ -96,6 +96,7 @@ public static partial class V1ImportPreview
             return Json(report);
         }
         // v1: the user preview names CSV validation failures; every other failure (and every failure of the other routes) is the route's fixed message.
+        catch (SourcePolicyException error) { return Detail(400, error.Message); }
         catch (DomainValidationException error) when (users && !headers) { return Detail(400, error.Message); }
         catch (Exception error) when (error is DomainValidationException or IOException or UnauthorizedAccessException or InvalidDataException
                                       or ArgumentException or NotSupportedException or System.Text.DecoderFallbackException or CsvFormatException)
@@ -155,19 +156,9 @@ public static partial class V1ImportPreview
         return errors.Count > before ? null : new CsvProfile(id!, version, delimiter, encoding, mapping);
     }
 
-    /// <summary>Desktop: the path as given (CsvImport requires an absolute .csv path). Server: only a file inside the server's own source folder, after
-    /// resolving links, so a browser can never make the server read another file.</summary>
+    /// <summary>All previews use the same operator-approved source policy as activation and refresh.</summary>
     internal static string Confine(HttpContext http, string path)
     {
-        var host = http.RequestServices.GetRequiredService<HostSettings>();
-        if (host.Mode != HostMode.Server) return path;
-        if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("Use a server-visible absolute source path.");
-        var root = Path.GetFullPath(Path.Combine(host.DataDirectory, "sources")) + Path.DirectorySeparatorChar;
-        var full = Path.GetFullPath(path);
-        var info = new FileInfo(full);
-        var resolved = info.LinkTarget is not null ? info.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? full : full;
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        if (!full.StartsWith(root, comparison) || !resolved.StartsWith(root, comparison)) throw new ArgumentException("CSV source is outside the configured source directory.");
-        return full;
+        return ServerSourcePolicy.Resolve(http.RequestServices.GetRequiredService<HostSettings>(), path);
     }
 }

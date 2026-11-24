@@ -16,12 +16,13 @@ public sealed class DataSourcesTests : IAsyncLifetime
     private readonly string _token = HostSettings.NewToken();
     private WebApplication _app = null!;
     private HttpClient _client = null!;
+    private IReadOnlyList<string> _sourceRoots = [];
 
     public Task InitializeAsync() => StartAsync(HostMode.Server);
 
     private async Task StartAsync(HostMode mode)
     {
-        _app = AuthLensHost.Build(new HostSettings { DataDirectory = Path.Combine(_root, "data"), Port = 0, AccessToken = _token, JsonConsoleLogging = false, PrincipalName = "importer", Mode = mode });
+        _app = AuthLensHost.Build(new HostSettings { DataDirectory = Path.Combine(_root, "data"), SourceRoots = _sourceRoots, Port = 0, AccessToken = _token, JsonConsoleLogging = false, PrincipalName = "importer", Mode = mode });
         await _app.StartAsync();
         _client = new HttpClient { BaseAddress = new Uri(_app.Urls.First()) };
         _client.DefaultRequestHeaders.Add(RequestBoundary.TokenHeader, _token);
@@ -67,6 +68,67 @@ public sealed class DataSourcesTests : IAsyncLifetime
     }
 
     private string[] StoredSources() => Directory.Exists(Path.Combine(_root, "data", "sources")) ? Directory.GetFiles(Path.Combine(_root, "data", "sources")) : [];
+
+    [Fact]
+    public async Task Operator_approval_is_required_again_when_a_persisted_external_source_moves_to_a_new_host_policy()
+    {
+        var folder = Directory.CreateDirectory(Path.Combine(_root, "external")).FullName;
+        _sourceRoots = [folder];
+        await RestartAsync(HostMode.Server);
+        var path = Path.Combine(folder, "roles.csv"); await File.WriteAllTextAsync(path, Csv.Roles(3));
+        var selected = await Send(new HttpRequestMessage(HttpMethod.Post, "/api/data-sources/roles/select")
+        { Content = JsonContent.Create(new { path, revision = await Revision(), mode = "dynamic" }) });
+        Assert.Equal(HttpStatusCode.OK, selected.Item1);
+        _sourceRoots = []; await RestartAsync(HostMode.Server);
+        var refresh = await Send(new HttpRequestMessage(HttpMethod.Post, "/api/refresh"));
+        var result = refresh.Body["refresh"]!["sources"]!.AsArray().Single(r => (string?)r!["source"] == "roles")!;
+        Assert.Equal("policy_prohibited", (string?)result["category"]);
+        Assert.True((bool)result["previous_preserved"]!);
+        Assert.Equal(3, JsonNode.Parse(await _client.GetStringAsync("/api/roles"))!.AsArray().Count);
+        var diagnostics = JsonNode.Parse(await _client.GetStringAsync("/api/diagnostics"))!;
+        Assert.DoesNotContain(path, diagnostics.ToJsonString());
+    }
+
+    [Theory]
+    [InlineData("roles")]
+    [InlineData("users")]
+    [InlineData("sod")]
+    [InlineData("employees")]
+    public async Task Server_approved_sources_refresh_after_restart_and_preserve_data_on_missing_or_invalid_input(string source)
+    {
+        var settings = (await Configuration())["settings"]!.AsObject();
+        settings["features"]!["employee_directory"] = true;
+        settings["features"]!["sod"] = true;
+        Assert.Equal(HttpStatusCode.OK, (await Send(new HttpRequestMessage(HttpMethod.Post, "/api/configuration") { Content = JsonContent.Create(settings) })).Item1);
+        var folder = Directory.CreateDirectory(Path.Combine(_root, "data", "sources")).FullName;
+        var path = Path.Combine(folder, "operator.csv");
+        var csv = source switch
+        {
+            "roles" => Csv.Roles(3), "users" => Csv.Users([("SYNTHETIC", "ZC:SYN")]), "sod" => Csv.Sod(),
+            _ => string.Join(';', AuthLens.Domain.Directory.EmployeeDirectory.Headers) + "\n" +
+                string.Join(';', "HQ", "Synthetic", "SYNTHETIC", "synthetic@example.invalid", "synthetic@example.invalid", "Finance", "Analyst", "True", "CN=Synthetic,OU=Staff", "", "", "", "", "", "", "Resolved") + "\n",
+        };
+        await File.WriteAllTextAsync(path, csv);
+        async Task<(HttpStatusCode Status, JsonNode Body)> Select(bool configured = false) => await Send(new HttpRequestMessage(HttpMethod.Post, $"/api/data-sources/{source}/select")
+        { Content = JsonContent.Create(new { path = configured ? "" : path, use_configured_source = configured, revision = await Revision(), mode = "dynamic" }) });
+        var first = await Select();
+        Assert.True(first.Status == HttpStatusCode.OK, first.Body.ToJsonString());
+        var count = (int)first.Body["records"]!;
+        await RestartAsync(HostMode.Server);
+        Assert.Equal(HttpStatusCode.OK, (await Select(true)).Status);
+        var refresh = await Send(new HttpRequestMessage(HttpMethod.Post, "/api/refresh"));
+        var result = refresh.Body["refresh"]!["sources"]!.AsArray().Single(r => (string?)r!["source"] == source)!;
+        Assert.Equal("unchanged", (string?)result["status"]);
+        await File.WriteAllTextAsync(path, "invalid\n");
+        Assert.Equal(HttpStatusCode.BadRequest, (await Select(true)).Status);
+        File.Delete(path);
+        refresh = await Send(new HttpRequestMessage(HttpMethod.Post, "/api/refresh"));
+        result = refresh.Body["refresh"]!["sources"]!.AsArray().Single(r => (string?)r!["source"] == source)!;
+        Assert.Equal("missing", (string?)result["category"]);
+        Assert.True((bool)result["previous_preserved"]!);
+        var preview = JsonNode.Parse(await _client.GetStringAsync($"/api/data-sources/{source}/preview"))!;
+        Assert.Equal(count, (int)preview["total"]!);
+    }
 
     [Theory]
     [InlineData(false)]

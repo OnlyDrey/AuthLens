@@ -55,6 +55,55 @@ Reports contain personal data and stay local. Diagnostic exports contain only al
 
 ## Scheduled refresh
 
+### Server source policy remediation (awaiting Windows acceptance)
+
+All four CSV sources use one policy for path selection, preview, individual refresh and Global Refresh.
+Browser uploads remain Static and never authorize access to client-device paths. Administrator requests may
+select CSVs beneath `<data-dir>/sources` or an additional operator-approved directory. Configure the latter
+with deployment JSON `SourceDirectory` (passed as `--source-dir`), or `AUTHLENS_SOURCE_DIR`. Advanced hosts may
+provide `AUTHLENS_SOURCE_ROOTS` as a JSON array of absolute directories. Local directories and Windows UNC
+directories are supported; roots are host configuration, excluded from application backups and never changed
+by a browser. A restored external path requires approval on the destination host before a live read.
+
+Use a dedicated export directory, not a drive containing unrelated confidential files. The actual service
+identity requires directory traversal and CSV read access; for UNC sources both share and NTFS permissions
+must allow that identity. Virtual accounts normally authenticate remotely as the computer account; confirm
+the effective identity with the domain administrator. No credentials are stored by this workflow, and the
+application does not change service accounts or grant filesystem access. Restart after host-policy changes.
+
+Paths must be absolute CSV paths, inside an approved directory at a directory boundary. Device paths,
+alternate streams, traversal spellings, symbolic links and reparse points in any ancestor are refused.
+Operators must protect approved directory ancestors against untrusted replacement during reads. Network
+availability and ACL checks execute as the running service. Missing files, denied access, unavailable shares,
+policy refusal and parser/schema errors retain the last validated snapshot. Source status shows the last
+attempt separately from the durable snapshot; it does not claim current reachability without a read.
+Refresh can use the saved source without disclosing its path back to the browser.
+
+#### Data-source compatibility matrix
+
+Comparison basis: historical Python implementation at `604f21e` (`deployment.source_path`,
+`validate_server_sources`, source selection and CSV lifecycle), current .NET routes and focused tests.
+Historical code was inspected only; no Python service or fixtures were added to the active application.
+
+| Contract | Python reference | Current .NET implementation | Remaining acceptance |
+| --- | --- | --- | --- |
+| Role Catalogue / SAP role extract | Upload and confined server path; Static/Dynamic | Shared import pipeline, approved local/UNC source roots, individual/Global Refresh | Actual Windows Service local/UNC reads |
+| User–Role Mapping / SAP user extract | Independent upload/path and modes | Same shared policy and pipeline | Actual Windows Service local/UNC reads |
+| Employee Directory | Fixed schema, upload/path, Static/Dynamic, durable snapshot | Shared policy includes directory preview/import and refresh; fixed schema retained | Restored alpha backup with real service identity |
+| SoD Matrix | Upload/path, modes, matrix validation and retained review evidence | Shared policy; existing fingerprint, held-import and revision/approval paths retained | Review periods, frozen evidence and decisions across live matrix replacement |
+| Browser uploads | Static managed uploads | Static multipart upload and durable managed copy | Native deployed UI smoke test |
+| Restore / restart | Saved source and durable snapshot; host source-root policy | Saved settings persist; host approval is independent; failed reads retain snapshots | AuthLens alpha and supported SAP Lens backup acceptance on Windows |
+| Unavailable/invalid source | Retain last valid data | Categorized refresh failures and durable snapshot retained | Denied ACL, disconnected share and recovery under SCM |
+
+No supported source type is intentionally dropped. Native UNC/service identity, restored-source and SoD
+evidence acceptance are release blockers until executed; focused local tests do not establish those results.
+
+Acceptance in a disposable Windows Service installation must cover every source with local and UNC files,
+Static and Dynamic modes, individual and Global Refresh, restart and restore, administrator versus reviewer
+requests, denied ACLs, unavailable shares, malformed/empty files and recovery. Record dataset fingerprints,
+SoD period/evidence fingerprints and decisions before failures/replacements and verify their preservation.
+Never perform this test against the retained DASH1 installation.
+
 **Settings → Runtime & Scheduling** can run the same refresh automatically. The backend schedules it, so no browser tab has to be open, and every run is the normal refresh: Dynamic sources are re-read, Static sources are not, a changed source is validated before it replaces the previous one, and any failure keeps the previously validated data.
 
 - **Schedule.** Enable it, then choose a daily time (HH:MM, 24-hour) or an advanced five-field cron expression (`minute hour day-of-month month day-of-week`; lists, ranges, steps and `JAN`/`MON` names; Sunday is 0 or 7; day-of-month and weekday are OR-ed like standard cron). Runs must be at least 5 minutes apart. The page explains the schedule in words and lists the next runs before you apply it.

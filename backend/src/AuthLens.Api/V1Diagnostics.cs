@@ -110,11 +110,21 @@ public static class V1Diagnostics
             employees["attempted_path"] = "";
         }
         sources.Add(employees);
+        var recentReports = await db.RefreshReports.AsNoTracking().OrderByDescending(r => r.TimestampUtc).Take(5).ToListAsync(ct);
+        foreach (var source in sources.OfType<JsonObject>())
+        {
+            var attempt = recentReports.SelectMany(r => (JsonNode.Parse(r.Json)?["sources"] as JsonArray ?? []).OfType<JsonObject>())
+                .FirstOrDefault(r => (string?)r["source"] == (string?)source["id"] && (string?)r["status"] is "failed" or "updated" or "unchanged");
+            if (attempt is null) continue;
+            source["last_attempted_check"] = attempt["checked_at"]?.DeepClone();
+            source["availability"] = (string?)attempt["status"] == "failed" ? (string?)attempt["category"] ?? "invalid" : "available_at_last_load";
+            source["error"] = (string?)attempt["status"] == "failed" ? attempt["message"]?.DeepClone() : null;
+        }
         result["sources"] = sources;
 
         // csv_lifecycle.history: the retained refresh reports, newest first; identifiers only in the private view.
         var history = new JsonArray();
-        foreach (var row in await db.RefreshReports.AsNoTracking().OrderByDescending(r => r.TimestampUtc).Take(5).ToListAsync(ct))
+        foreach (var row in recentReports)
         {
             var stored = JsonNode.Parse(row.Json)!.AsObject();
             var item = new JsonObject();

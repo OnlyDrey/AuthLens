@@ -130,7 +130,7 @@ public sealed class ImportPreviewTests : IAsyncLifetime
         {
             var (status, detail) = await Post("/api/import/headers", new JsonObject { ["data_csv_path"] = path });
             Assert.Equal(HttpStatusCode.BadRequest, status);
-            Assert.Equal("Could not inspect the CSV header. Check path, encoding and delimiter.", (string)detail!["detail"]!);
+            Assert.Contains("Server source paths prohibited by policy", (string)detail!["detail"]!);
         }
         if (!OperatingSystem.IsWindows())
         {

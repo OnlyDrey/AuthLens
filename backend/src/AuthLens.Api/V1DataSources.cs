@@ -124,12 +124,19 @@ public static partial class V1DataSources
             if (!Names.ContainsKey(source)) return Detail(422, "Unknown source.");
             var body = await JsonNode.ParseAsync(http.Request.Body, cancellationToken: ct) as JsonObject;
             var path = ((string?)body?["path"])?.Trim();
+            if (body?["use_configured_source"] is JsonValue use && use.TryGetValue<bool>(out var useConfigured) && useConfigured)
+                path = (string?)(await services.GetRequiredService<V1Settings>().GetAsync(ct))[PathField[source]] ?? "";
             if (body?["revision"] is not JsonValue rv || !rv.TryGetValue<int>(out var revision) || (string?)body["mode"] is not ("static" or "dynamic") || path is null)
                 return Detail(422, "path, revision and mode (static or dynamic) are required.");
             if (path.Length == 0) return Detail(400, "Choose a CSV file. Use Clear source data to remove a dataset intentionally.");
-            // A browser on another device must never name files on the server: the server accepts uploads only.
-            if (host.Mode == HostMode.Server) return Detail(400, "On the server, upload the CSV file; server file paths are not accepted.");
-            if (!Path.IsPathFullyQualified(path) || !File.Exists(path)) return Detail(400, "CSV file not found. Choose an existing file or reconnect the network share.");
+            try { path = ServerSourcePolicy.Resolve(host, path); }
+            catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException)
+            {
+                services.GetRequiredService<ILoggerFactory>().CreateLogger("AuthLens.Sources").LogWarning("Source selection refused for {Source}: {Category}", source, V1Refresh.Category(error).Category);
+                return Detail(400, V1Refresh.Category(error).Message);
+            }
+            if (!Path.IsPathFullyQualified(path)) return Detail(400, "Choose an absolute CSV file path.");
+            if (host.Mode != HostMode.Server && !File.Exists(path)) return Detail(400, "CSV file not found. Choose an existing file or reconnect the network share.");
             return await ActivateAsync(services, http, source, path, path, Path.GetFileName(path), (string)body["mode"]!, body["profile"] as JsonObject,
                 (bool?)body["confirm_anomalies"] ?? false, revision, ct);
         });

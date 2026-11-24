@@ -34,14 +34,14 @@ export function SourceManager({source,draft,onMode,onActivated,onClear,onFeature
  const history=useQuery({queryKey:['refresh-history'],queryFn:()=>apiRequest<{items:(Omit<RefreshSummary,'sources'>&{sources?:RefreshSummary['sources']})[]}>('/api/data-sources/history')})
  const latest=report?.id?report:history.data?.items[0]?{...history.data.items[0],sources:history.data.items[0].sources||[]}:null
  const busy=pending||loading,mode=draft.source_modes?.[source]||(source==='employees'||source==='sod'?'static':'dynamic')
- useEffect(()=>{setPath(candidatePath??savedPath);lastAttempt.current=candidatePath??savedPath},[savedPath,source])
+ useEffect(()=>{setPath(candidatePath??savedPath);lastAttempt.current=candidatePath??savedPath},[candidatePath,savedPath,source])
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false}},[])
  const activate=async(selected:string,selectedMode=mode,file?:File,confirm=false)=>{
-  const chosen=selected.trim();if(!chosen)return
+  const chosen=selected.trim();if(!chosen&&!evidence.source?.configured)return
   lastAttempt.current=chosen;setPath(chosen);onCandidate(chosen);setError('');setFeedback('');setPending(true)
   const profile:ImportProfile|undefined=source==='roles'?draft.import_profiles.find(p=>p.id===draft.active_import):source==='users'?draft.user_import_profiles.find(p=>p.id===draft.active_user_import):source==='sod'?draft.sod_import:undefined
   try{
-   const result=await activateSource(source,{path:chosen,mode:selectedMode,revision:draft.revision,profile,...(confirm?{confirm_anomalies:true}:{})},file)
+   const result=await activateSource(source,{path:chosen,mode:selectedMode,revision:draft.revision,profile,...(!chosen?{use_configured_source:true}:{}),...(confirm?{confirm_anomalies:true}:{})},file)
    setHeld(null)
    // The Settings owner remains mounted when source tabs change; rebase there.
    onActivated(result)
@@ -67,8 +67,9 @@ export function SourceManager({source,draft,onMode,onActivated,onClear,onFeature
   <h2 className="settings-subheading">Source file</h2>
   <p className="ui-description">Selecting a file automatically validates and imports the complete dataset. Invalid or empty files never replace active data. Cancel settings does not undo a completed import.</p>
   {browser&&<BrowserSourceUpload source={source} disabled={busy} fileInput={uploadInput} onUpload={file=>activate(file.name,'static',file)}/>}
-  {browser&&<p className="ui-description">Active file: {savedPath.split(/[\\/]/).pop()?.replace(/^[a-f0-9]{32}-/,'')||'Not configured'}</p>}
+  {browser&&<p className="ui-description">Configured source: {savedPath.split(/[\\/]/).pop()?.replace(/^[a-f0-9]{32}-/,'')||(evidence.source?.configured?'Configured (location redacted)':'Not configured')}. Loaded snapshot and last source check are shown below.</p>}
   <details open={!browser||runtime.data?.deployment_mode!=='server'}><summary>Advanced server source path (optional)</summary>
+  {runtime.data?.deployment_mode==='server'&&<p className="ui-description">Only operator-approved CSV directories are allowed. The Windows Service account needs file and network-share read access. Refresh uses the configured source when its location is redacted.</p>}
   <SourceFileField label={source==='roles'?'CSV file location':source==='users'?'User CSV file location':source==='sod'?'SoD Matrix CSV location':'Employee Directory CSV location'} value={path} onChange={value=>{setPath(value);onCandidate(value)}} inputRef={inputRef} disabled={busy} browseDisabled={pending} browseLabel="Browse CSV" placeholder="Absolute local or server-visible CSV path" onCommit={force=>{if(force||path.trim()!==lastAttempt.current)void activate(path)}} onBrowse={browse} hideBrowse/>
   </details>
   {hint&&<p role="status" className="ui-description">{hint}</p>}
@@ -79,7 +80,7 @@ export function SourceManager({source,draft,onMode,onActivated,onClear,onFeature
   {error&&<p role="alert">Failed — {error} No source data was replaced.{savedPath?` The active file is unchanged: ${savedPath.split(/[\\/]/).pop()}.`:''}</p>}
   {source!=='roles'&&evidence.source?.enabled===false&&evidence.source.loaded&&<p className="ui-description">Imported data is retained while this feature is disabled. <Button variant="ghost" onClick={onFeatures}>Open Feature Settings</Button></p>}
   <div className="ui-toolbar">
-   <Button disabled={busy||!path.trim()} onClick={()=>void activate(path)} title="Explicitly revalidate the selected file, including Static sources; only a valid non-empty replacement is activated."><RefreshCw size={16} aria-hidden="true"/>Refresh source</Button>
+   <Button disabled={busy||(!path.trim()&&!evidence.source?.configured)} onClick={()=>void activate(path)} title="Explicitly revalidate the selected file, including Static sources; only a valid non-empty replacement is activated."><RefreshCw size={16} aria-hidden="true"/>Refresh source</Button>
    <Button disabled={!evidence.source?.loaded} onClick={()=>setPreview(true)}><Eye size={16} aria-hidden="true"/>Preview data</Button>
    <Button disabled={!latest?.id} onClick={()=>setChanges(true)} title="View the latest retained source change report."><FileDiff size={16} aria-hidden="true"/>View changes</Button>
    <Button disabled={!evidence.source} onClick={()=>setTechnical(true)}><Info size={16} aria-hidden="true"/>Technical source details</Button>

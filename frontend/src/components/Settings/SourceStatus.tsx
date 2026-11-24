@@ -12,7 +12,7 @@ import { useQuery } from '@tanstack/react-query'
 import { apiRequest } from '@/api/client'
 export interface SourceEvidence {
  id:string;name?:string;configured?:boolean;enabled?:boolean;mode?:string;configured_path?:string;loaded_path?:string;attempted_path?:string;availability?:string;assignments?:number
- last_successful_load:string|null;last_checked?:string|null;snapshot_available?:boolean;records?:number;error:string|null;loaded:boolean;loading:boolean
+ last_successful_load:string|null;last_checked?:string|null;last_attempted_check?:string|null;snapshot_available?:boolean;records?:number;error:string|null;loaded:boolean;loading:boolean
 }
 export function SourceDetailsDialog({source,onClose,children}:{source:SourceEvidence;onClose:()=>void;children?:ReactNode}) {
  return <Dialog title={`${source.name||'CSV source'} technical details`} onClose={onClose}><h3>Source status</h3><SourceHealthSummary source={source} includeSnapshot={false}/><h3>Storage</h3><MetadataList items={[
@@ -31,6 +31,7 @@ export function SourceHealthSummary({source,compact=false,includeSnapshot=true}:
  {label:'Last import / dataset activation',value:formatTimestamp(source.last_successful_load,'Not yet loaded')},
  ...(includeSnapshot?[{label:'Snapshot',value:source.snapshot_available===undefined?'Not checked':source.snapshot_available?'Durable snapshot available':'No durable snapshot'}]:[]),
  {label:'Last validated source check',value:formatTimestamp(source.last_checked,source.mode==='static'?'Not checked · Static source':'Not yet checked')},
+ {label:'Last source attempt',value:formatTimestamp(source.last_attempted_check,'Not yet checked')},
  ]}/>{source.availability&&<p className="ui-description">{sourceAvailability(source.availability)}</p>}{source.error&&source.enabled!==false&&<StatusBadge tone={source.loaded?'warning':'error'}>{source.loaded?'Warning':'Error'}</StatusBadge>}{source.error&&source.enabled!==false&&<p className="text-sm text-[var(--warning)]">Last load attempt: {source.error.replace(/_/g,' ')}. {source.loaded?'Previously validated data is retained.':'No prior valid data is available.'}</p>}</div>
 }
 /** Essential operational facts of one source: load status, record count and last import. Mode, snapshot and check evidence live in SourceTechnicalFacts. */

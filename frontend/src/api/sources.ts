@@ -2,7 +2,7 @@ import {apiRequest,applicationHeaders} from './client'
 import type {Configuration,ImportProfile} from './configuration'
 import type {RefreshSummary} from '@/components/Shared/RefreshReport'
 export type CSVSource='roles'|'users'|'employees'|'sod'
-export interface SourceSelection {path:string;revision:number;mode:'static'|'dynamic';profile?:ImportProfile;confirm_anomalies?:boolean}
+export interface SourceSelection {path:string;revision:number;mode:'static'|'dynamic';profile?:ImportProfile;confirm_anomalies?:boolean;use_configured_source?:boolean}
 export interface ImportAnomaly {rule:'drop'|'group_missing';metric:string;old:number;new:number;message:string;percent?:number;group?:string}
 /** A valid but suspicious replacement was staged and reported, not activated; it needs explicit confirmation. */
 export interface HeldImport {code:'import_needs_confirmation';source:CSVSource;message:string;anomalies:ImportAnomaly[];old:Record<string,number>;new:Record<string,number>}

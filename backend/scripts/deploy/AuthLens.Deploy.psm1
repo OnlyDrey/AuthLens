@@ -71,7 +71,7 @@ function Read-AuthLensSettings([string]$Path, [switch]$Packaged) {
     $config = [ordered]@{
         Root = $root; RepositoryPath = ''; Remote = 'origin'; Branch = 'experiment/dotnet-backend'; WorkRoot = $layout.WorkRoot; ReleasesRoot = $layout.ReleasesRoot
         BackupRoot = $layout.BackupRoot; ServiceName = $script:ServiceName; ServiceAccount = ''; ListenAddress = ''; Port = 0
-        AccessMode = 'Auto'; AllowedHosts = @(); ProxyHosts = @(); TrustedProxies = @(); DataDirectory = $layout.DataDirectory; CertificatePath = (Join-AL $layout.TlsRoot 'server.pfx')
+        AccessMode = 'Auto'; AllowedHosts = @(); ProxyHosts = @(); TrustedProxies = @(); SourceDirectory = ''; DataDirectory = $layout.DataDirectory; CertificatePath = (Join-AL $layout.TlsRoot 'server.pfx')
         CertificatePasswordFile = (Join-AL $layout.TlsRoot 'cert-password'); ReadyTimeoutSeconds = 120; StopTimeoutSeconds = 90
     }
     foreach ($p in $raw.PSObject.Properties) {
@@ -107,6 +107,7 @@ function Get-ALServiceArguments($Config) {
     $arguments+=@('--cert', $Config.CertificatePath, '--cert-password-file', $Config.CertificatePasswordFile)
     if (@($Config.TrustedProxies).Count -gt 0) { $arguments += @('--trusted-proxies', ($Config.TrustedProxies -join ',')) }
     if ($Config.PSObject.Properties['ProxyHosts'] -and @($Config.ProxyHosts).Count -gt 0) { $arguments += @('--proxy-hosts', ($Config.ProxyHosts -join ',')) }
+    if ($Config.PSObject.Properties['SourceDirectory'] -and $Config.SourceDirectory) { $arguments += @('--source-dir', [string]$Config.SourceDirectory) }
     $arguments
 }
 

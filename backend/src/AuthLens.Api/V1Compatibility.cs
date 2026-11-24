@@ -120,8 +120,7 @@ public static class V1Compatibility
         });
         api.MapGet("/runtime", (HttpContext http, HostSettings settings) => new
         {
-            // Browser uploads are migrated (Phase 2A). The .NET Desktop has no native file dialogs; WebView2 uses the browser file picker. A Server never
-            // accepts server file paths from a browser (selection answers 400), so its policy is the restrictive one.
+            // Browser uploads and operator-approved Server CSV roots use separate authorization boundaries.
             deployment_mode = settings.Mode == HostMode.Server ? "server" : "desktop", browser_upload = true, username = Actors.Name(http),
             role = settings.Authentication == AuthenticationMode.Accounts ? Actors.Current(http).Role : "",
             native_dialogs = false, source_path_policy = settings.Mode == HostMode.Server ? "configured_root" : "desktop_filesystem",

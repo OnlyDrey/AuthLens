@@ -11,8 +11,8 @@ namespace AuthLens.Api;
 
 /// <summary>Port of routers/employees.py and employee_preview.py. The directory is a versioned dataset (source <c>employees</c>) in the same
 /// staged, validated, atomically activated pipeline as the SAP sources, so every import is kept as history and a failed import never replaces the
-/// active directory. Employee Directory and User–Role Mapping feature switches gate enrichment exactly as in v1. Server file paths are never read
-/// on behalf of a browser: the directory arrives through the upload, like the other sources.</summary>
+/// active directory. Employee Directory and User–Role Mapping feature switches gate enrichment exactly as in v1. Server paths require
+/// operator approval through the shared source policy; browser uploads remain separate.</summary>
 public static class V1Employees
 {
     private static readonly string[] Filters = ["", "missing_email", "duplicate_email", "missing_identifier", "duplicate_identifier", "missing_manager", "ambiguous_manager", "matched", "unmatched"];
@@ -220,21 +220,21 @@ public static class V1Employees
         });
 
         // Desktop three-step import (v1): validate and preview a local CSV, then import exactly the previewed content (digest of the file bytes).
-        // A Server never reads server paths for a browser; there the directory arrives through the upload, like every other source.
+        // Server paths must satisfy the shared operator-approved policy, including directory ancestors.
         static async Task<(EmployeeDirectory? Directory, string Path, IResult? Refusal)> ReadLocal(HttpContext http, JsonObject body)
         {
-            if (http.RequestServices.GetRequiredService<HostSettings>().Mode == HostMode.Server)
-                return (null, "", Detail(400, "On the server, upload the Employee Directory CSV; server file paths are not accepted."));
             var path = ((string?)body["path"])?.Trim() ?? "";
             if (path.Length is 0 or > 4096 || !Path.IsPathFullyQualified(path)) return (null, path, Detail(400, "Choose an absolute Employee Directory CSV path."));
             try
             {
+                path = ServerSourcePolicy.Resolve(http.RequestServices.GetRequiredService<HostSettings>(), path);
                 if (new FileInfo(path).Length > EmployeeDirectory.MaxBytes) return (null, path, Detail(400, "Employee Directory CSV exceeds the 50 MB limit."));
                 var raw = await File.ReadAllBytesAsync(path, http.RequestAborted);
                 var rows = EmployeeDirectory.Parse(raw);
                 return (new EmployeeDirectory(rows, Path.GetFileName(path), EmployeeDirectory.Sha256(raw), DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'")), path, null);
             }
             catch (AuthLens.Domain.Csv.CsvFormatException error) { return (null, path, Detail(400, error.Message)); }
+            catch (ArgumentException error) { return (null, path, Detail(400, V1Refresh.Category(error).Message)); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             { return (null, path, Detail(400, "Cannot read Employee Directory CSV. Check the absolute path and file permissions.")); }
         }

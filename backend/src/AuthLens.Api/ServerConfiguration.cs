@@ -8,7 +8,7 @@ namespace AuthLens.Api;
 /// Unknown options are errors, so a typo never silently falls back to a default.</summary>
 public static class ServerConfiguration
 {
-    public static readonly string[] ValueOptions = ["--data-dir", "--listen", "--port", "--allowed-hosts", "--proxy-hosts", "--cert", "--cert-key", "--cert-password-file", "--auth", "--trusted-proxies", "--trusted-proxy-hops"];
+    public static readonly string[] ValueOptions = ["--data-dir", "--source-dir", "--listen", "--port", "--allowed-hosts", "--proxy-hosts", "--cert", "--cert-key", "--cert-password-file", "--auth", "--trusted-proxies", "--trusted-proxy-hops"];
     public static readonly string[] FlagOptions = ["--network", "--no-worker"];
 
     /// <summary>--help (-h) and --version: answered before any configuration is read, so they create no directory or token, open no certificate and
@@ -77,6 +77,8 @@ public static class ServerConfiguration
         Options (each also read from the environment variable shown; a command-line option wins):
           --data-dir <path>            AUTHLENS_DATA_DIR        Required. Absolute, local path (no network share). Created if missing.
           --listen <ip>                AUTHLENS_LISTEN          IP address to bind. Default 127.0.0.1. Non-loopback needs --network.
+          --source-dir <path>          AUTHLENS_SOURCE_DIR      Additional operator-approved CSV directory (local or UNC). No credentials.
+                                       AUTHLENS_SOURCE_ROOTS   Optional JSON array of additional approved CSV directories.
           --port <1-65535>             AUTHLENS_PORT            Default 18790.
           --network                    AUTHLENS_NETWORK=true    Allow LAN access: one private --listen address, --cert and --allowed-hosts.
           --allowed-hosts <a,b>        AUTHLENS_ALLOWED_HOSTS   Host names or addresses clients use (no wildcards). Required with --network.
@@ -171,6 +173,8 @@ public static class ServerConfiguration
         return new HostSettings
         {
             DataDirectory = Path.GetFullPath(dataDirectory), ListenAddress = listen, Port = port, NetworkAccess = network, AllowedHosts = hosts, Certificate = certificate,
+            SourceRoots = ServerSourcePolicy.Parse(System.Text.Json.JsonSerializer.Serialize(
+                ServerSourcePolicy.Parse(environment("AUTHLENS_SOURCE_ROOTS")).Concat(Get("--source-dir", "AUTHLENS_SOURCE_DIR") is { } sourceDirectory ? new[] { sourceDirectory } : []))),
             ProxyHosts = (Get("--proxy-hosts", "AUTHLENS_PROXY_HOSTS") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
             AccessToken = inspection ? HostSettings.NewToken() : Token(dataDirectory, environment), WorkerEnabled = !options.ContainsKey("--no-worker"), Authentication = auth,
             PrincipalName = environment("AUTHLENS_PRINCIPAL") ?? "server-operator", TrustedProxies = proxies, TrustedProxyHops = hops,

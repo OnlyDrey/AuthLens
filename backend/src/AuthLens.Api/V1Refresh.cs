@@ -23,8 +23,7 @@ public static class V1Refresh
 
     public static void Map(RouteGroupBuilder api)
     {
-        // Legacy single-path settings API (main.py read_settings/update_settings): the role catalogue path, the loader error and state. A Server never
-        // accepts a server file path from a browser (as for data-source selection); there it answers 400.
+        // Legacy single-path settings API uses the same operator-approved CSV policy as source selection.
         api.MapGet("/settings", async (V1Settings store, DataLoadGate gate, CancellationToken ct) => Results.Json(new
         {
             data_csv_path = (string?)(await store.GetAsync(ct))["data_csv_path"] ?? "", error = (string?)null, loading = gate.Loading.CurrentCount == 0,
@@ -37,7 +36,9 @@ public static class V1Refresh
             if (path is null || path.Length is < 1 or > 4096)
                 return Results.Json(new { detail = new[] { new { type = "string_too_short", loc = new[] { "body", "data_csv_path" }, msg = "String should have at least 1 character" } } }, statusCode: 422);
             path = path.Trim();
-            if (host.Mode == HostMode.Server) return Results.Json(new { detail = "A server does not read file paths sent by a browser. Upload the file in Data Sources." }, statusCode: 400);
+            try { path = ServerSourcePolicy.Resolve(host, path); }
+            catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException)
+            { return Results.Json(new { detail = Category(error).Message }, statusCode: 400); }
             if (path.Length == 0 || path.Contains("://", StringComparison.Ordinal) || path.Contains('\0') || !Path.IsPathFullyQualified(path))
                 return Results.Json(new { detail = "Enter a full local or network-share CSV path." }, statusCode: 400);
             var candidate = await store.GetAsync(ct);
@@ -136,6 +137,7 @@ public static class V1Refresh
             active.TryGetValue(source, out var current);
             try
             {
+                path = ServerSourcePolicy.Resolve(services.GetRequiredService<HostSettings>(), path);
                 var profile = V1DataSources.ActiveProfile(settings, source) ?? throw new DomainValidationException("The source import profile is invalid. Review its column mapping and format.");
                 // Fast path: the file's records equal the active revision; nothing is staged.
                 var (rows, hash) = await Task.Run(() => Read(source, path, profile, ct), ct);
@@ -250,8 +252,11 @@ public static class V1Refresh
     {
         switch (error)
         {
+            case SourcePolicyException: return ("policy_prohibited", error.Message);
             case FileNotFoundException or DirectoryNotFoundException: return ("missing", "The configured CSV is missing. Reconnect the share or choose an existing file.");
             case UnauthorizedAccessException: return ("access_denied", "The CSV could not be read. Check file and network-share permissions.");
+            case IOException io when (io.HResult & 0xffff) is 53 or 64 or 67 or 121 or 1231:
+                return ("network_unavailable", "The network source is unavailable. Check connectivity, the share and the Windows Service identity; previous data is retained.");
             case System.Text.DecoderFallbackException: return ("encoding", "The CSV encoding is invalid. Review the source encoding and import format.");
             case CsvFormatException: return ("malformed_csv", "The CSV has malformed quoting or records. Correct the export and validate it again.");
             case DomainValidationException or ArgumentException or InvalidDataException:

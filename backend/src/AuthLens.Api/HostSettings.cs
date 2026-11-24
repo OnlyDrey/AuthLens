@@ -20,6 +20,7 @@ public enum HostMode { Server, Desktop }
 public sealed class HostSettings
 {
     public required string DataDirectory { get; init; }
+    public IReadOnlyList<string> SourceRoots { get; init; } = [];
     public HostMode Mode { get; init; } = HostMode.Server;
     public IPAddress ListenAddress { get; init; } = IPAddress.Loopback;
     public int Port { get; init; } = 18790;

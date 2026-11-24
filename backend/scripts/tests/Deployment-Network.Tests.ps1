@@ -63,6 +63,11 @@ Describe 'Explicit Server access modes preserve the runtime contract' {
         $config.AllowedHosts=@('server.example.invalid')
         {Get-ALServerAccessPlan $config}|Should -Throw '*Local access requires*'
     }
+    It 'passes only an explicitly configured operator source directory to the service' {
+        $config | Add-Member NoteProperty SourceDirectory '\\files.example.invalid\exports\AuthLens'
+        $arguments=@(Get-ALServiceArguments $config)
+        $arguments[$arguments.IndexOf('--source-dir')+1]|Should -Be '\\files.example.invalid\exports\AuthLens'
+    }
     It 'enables corporate mode only for an explicit private interface and host policy' {
         $config.AccessMode='Corporate';$config.ListenAddress='10.0.7.50';$config.AllowedHosts=@('server.example.invalid')
         @(Get-ALServiceArguments $config)|Should -Contain '--network'

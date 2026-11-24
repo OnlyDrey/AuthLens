@@ -203,7 +203,8 @@ public static class V1SodInspection
             if (errors.Count > 0) return Results.Json(new { detail = errors }, statusCode: 422);
             string file;
             try { file = V1ImportPreview.Confine(http, path); }
-            catch (ArgumentException error) { return SodScope.Problem(400, error.Message); }
+            catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException)
+            { return SodScope.Problem(400, V1Refresh.Category(error).Message); }
             var profile = new CsvProfile("default", 1, delimiter, encoding, manual);
             var result = new JsonObject
             {
