@@ -103,7 +103,7 @@ batches run as one unit; a `STOP-INTEGRITY` line ends the batch before any reloc
 
 ### RC4 priority order
 
-Run on RC4 (see the [acceptance tracker](ACCEPTANCE_TRACKER.md#candidates)) in this order; stop and record a failure before continuing:
+Run on RC4 (`C:\AuthLens\AuthLens-2.0.0-2026-11-25_0807-37eadd5`, [build record](ACCEPTANCE_TRACKER.md#rc4-build-record); verify A1 against its hashes first) in this order; stop and record a failure before continuing:
 
 1. B13 – simulation leaves the persistent installation state unchanged (D-006).
 2. B14 – approval enforcement for every mutating deployment action.

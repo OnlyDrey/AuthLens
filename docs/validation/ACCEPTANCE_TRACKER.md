@@ -9,7 +9,14 @@ Failed (product). Procedures: [VM acceptance runbook](WINDOWS_VM_ACCEPTANCE.md).
 Internal identifiers only; the product version is 2.0.0 for every candidate and nothing is branded RC. Acceptance results belong to one exact
 artifact identity and are never transferred between candidates.
 
-### RC3-VM130 (current, under test on VM130)
+### RC4 (current candidate for native acceptance)
+
+Built on VM130 by the agent session with the canonical `build.ps1` from `37eadd5`, the first candidate with the corrections for D-004 to D-006,
+G-003 to G-005, G-007, WP19 and WP20; see the [RC4 build record](#rc4-build-record). Product version 2.0.0 (RC4 is an internal identifier).
+**NOT APPROVED**: native acceptance ([runbook priority order](WINDOWS_VM_ACCEPTANCE.md#rc4-priority-order)) and the final FULL regression are
+outstanding; D3 (UNC/SMB with the service identity) is a release blocker.
+
+### RC3-VM130 (superseded by RC4 for new acceptance; artifacts and evidence preserved)
 
 Built on VM130 itself from `19a1113`; see the [RC3-VM130 build record](#rc3-vm130-build-record). Accepted for controlled testing only; NOT APPROVED.
 Known defects present in this candidate (found 2026-11-25; corrected in the sources after RC3, not in this artifact): **D-006 (P0: `-DryRun` on
@@ -35,6 +42,30 @@ Not used for acceptance: D-001 affected too many installed administration and re
 | Desktop installer | `AuthLens-2.0.0-Setup.exe`, 93,397,477 bytes, SHA-256 `4df6a6c2b4fc25255fb1d8e880b559c25d5612f3a2632a1a6da41c62e25dde50` |
 | `server\AuthLens.Api.exe` | SHA-256 `6114e76c7db3a73af65d66511d64a50c5589d6f46c7f0a1a098280fbe7634b49` |
 | `build-manifest.json` | SHA-256 `5837d41be8a7b7b2621a55c873ced9166da8b2935a563e66fedfa0877bf5d282` |
+
+### RC4 build record
+
+| Item | Value |
+| --- | --- |
+| Source commit | `37eadd529ba81bf3a3602d7352128ab5de8497e7` on `experiment/dotnet-backend` (pushed; working tree clean before the build) |
+| Build | `Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force; .\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)` on VM130 from `C:\Users\arkasa\Git\AuthLens`; UTC `2026-11-25T08:07:58.1944720Z`; win-x64; .NET SDK 10.0.404, Node.js 24.22.3, npm 11.19.1, Windows PowerShell 5.1.26100.9818 |
+| Run directory | `C:\AuthLens\AuthLens-2.0.0-2026-11-25_0807-37eadd5` with `build\AuthLens-2.0.0-20261125-080758-37eadd5-win-x64`, `installer\`, `build-summary.json` (status `passed`), `build.log` |
+| Tests run by the build | Standard focused filter (14 classes): **151 passed, 0 failed, 0 skipped** |
+| Build verification (`build-summary.json`) | installers, secrets (secret scan), branding and release: all `true` |
+| Agent verification (read-only, 2026-11-25) | Manifest product AuthLens, version 2.0.0, file version 2.0.0.0, commit `37eadd5…`, not dirty, win-x64; all 32 artifacts in `build-summary.json` match size and SHA-256; packaged and repository `verify-release.ps1 -Scope Full`: 17 artifacts verified; `installers-SHA256SUMS` OK for both installers; 7 packaged helpers match `installer-tools.json`; the packaged tools contain the D-006 policy, G-004 audit, G-005 reconciliation and restart; `--schema-info` on an empty folder: compatible, 6 known migrations; executables report `2.0.0+37eadd5…`; installers unsigned, ProductVersion 2.0.0 |
+| Packaged tools | `installer\installer-tools-c50faa4915564d788c81dd0a4ce54271`, `installer-tools.json` SHA-256 `25e49fd4dc85a43d594bd8746069dd89f16da59645816a110bc57490003a6f20` |
+| Not done | Signing, tagging, publishing (not authorized); native acceptance; FULL regression |
+
+| Artifact | Size (bytes) | SHA-256 |
+| --- | --- | --- |
+| `installer\AuthLens-Server-2.0.0-Setup.exe` | 93,446,379 | `c0a93d7542a7b8136d9d90a529d14c05a0d90ad8a30ae23c31c1a0e74fb0156a` |
+| `installer\AuthLens-2.0.0-Setup.exe` (Desktop) | 93,408,097 | `d052972824abff450b6a36918604b29cbdcecb33ec09595215fb07e55a8b4b66` |
+| `server\AuthLens.Api.exe` | 123,317,863 | `941722a823321f5c327218e7484173af498d6e9995713f2f65c8b5be51bcee71` |
+| `desktop\AuthLens.exe` | 178,518,654 | `85f2ca1831014a3a45cc73c3a5e8b107626d14a179a90d5601aac8177b305223` |
+| `build-manifest.json` | 5,933 | `74f07479de9a9763a80f719dda286c853eacf9202c8e86bee0a2b402adc27185` |
+| `installer\installer-manifest.json` | 916 | `a1be5e99005e995dd7964b32411afefd108a2c031639924dd4d850626d55086a` |
+
+Earlier run directories (`…_0948-8ec7f77`, `…_1815-c780ff6` RC1, `…_1926-af744c9` RC2, `…_2021-19a1113` RC3-VM130) are unchanged.
 
 ### RC2 build record
 

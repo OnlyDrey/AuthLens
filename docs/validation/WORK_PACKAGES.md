@@ -1,6 +1,6 @@
 # AuthLens 2.0.0 remediation: work-package tracker
 
-Acceptance results are recorded in the [acceptance tracker](ACCEPTANCE_TRACKER.md). Current candidate: **RC3-VM130** from `19a1113` (same product source as RC2 `af744c9`, which corrects D-001, D-002, G-001); the RC1 record below (`c780ff6`) is kept for traceability and is superseded. Open work for the next candidate: WP19 and WP20 ([fourth round](#fourth-round-service-manager-usability-and-tls-lifecycle-wp19-wp20)).
+Acceptance results are recorded in the [acceptance tracker](ACCEPTANCE_TRACKER.md). Current candidate: **RC4** from `37eadd5` (run directory `C:\AuthLens\AuthLens-2.0.0-2026-11-25_0807-37eadd5`; NOT APPROVED, native acceptance pending). Previous: **RC3-VM130** from `19a1113` (same product source as RC2 `af744c9`, which corrects D-001, D-002, G-001); the RC1 record below (`c780ff6`) is kept for traceability and is superseded. Open work for the next candidate: WP19 and WP20 ([fourth round](#fourth-round-service-manager-usability-and-tls-lifecycle-wp19-wp20)).
 
 **Release status: NOT APPROVED.** This tracker lets the next agent resume without reconstructing earlier sessions. It records implemented
 work and actual test evidence; native Windows acceptance is listed separately and is never implied by focused tests.
@@ -179,7 +179,8 @@ Native acceptance for the next candidate: runbook scenarios C11 to C13, B11 and 
 
 | Item | Implemented | Focused evidence (VM130) |
 | --- | --- | --- |
-| G-004 recovery audit | `<WorkRoot>ecovery-audit.jsonl` (one line per acting recovery attempt: action, decision, outcome, operator from the process token or `null`, runs, phases, version, commit, manifest and configuration hashes, certificate replaced, redacted reason); recovery history entries carry action, run and operator; original entries kept; simulations and "nothing to recover" write nothing | `Recovery-AuditRegistration` (G-004 3 tests), `Deployment-DryRun` (no audit file) |
+| G-004 recovery audit | `<WorkRoot>
+ecovery-audit.jsonl` (one line per acting recovery attempt: action, decision, outcome, operator from the process token or `null`, runs, phases, version, commit, manifest and configuration hashes, certificate replaced, redacted reason); recovery history entries carry action, run and operator; original entries kept; simulations and "nothing to recover" write nothing | `Recovery-AuditRegistration` (G-004 3 tests), `Deployment-DryRun` (no audit file) |
 | G-005 Setup registration | After installer recovery: Setup's verified-success values written only with proven ownership (pending state, Inno uninstall entry, staged payload equals the recovered release); explicit outcome states; nothing invented | `Recovery-AuditRegistration` (G-005 3 tests on disposable HKCU keys; the machine registration is never touched) |
 | G-006 | **Deferred** to a later release; fail-safe refusal kept | — |
 | T-001 | Older-build journal fixture: consistent correction completes, five inconsistent states refused | `Recovery-AuditRegistration` (2 tests) |
