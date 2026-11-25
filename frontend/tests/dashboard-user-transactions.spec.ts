@@ -319,7 +319,10 @@ test('KPI navigation resets only its destination filters', async ({ page }) => {
     page.getByRole('link', { name: 'DEMO_ONE', exact: true }),
   ).toBeVisible()
   await goTo(page, 'Role Lookup')
-  await expect(roleSearch).toHaveValue('finance')
+  // BUG-08 (d0f57e8): main navigation is a page boundary, so Role Lookup opens fresh; the KPI itself only resets its destination.
+  await expect(roleSearch).toHaveValue('')
+  await roleSearch.fill('finance')
+  await expect(page.getByRole('article')).toHaveCount(1)
   await goTo(page, 'Dashboard')
   await page
     .getByRole('button', { name: 'Catalogue roles', exact: true })

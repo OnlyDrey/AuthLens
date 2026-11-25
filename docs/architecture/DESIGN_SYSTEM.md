@@ -95,7 +95,7 @@ Primary actions use the derived accessible action foreground. Secondary/outline 
 
 ## Forms, tables and feedback
 
-`FormField` associates the actual control ID with its label and keeps help/error descriptions out of the accessible name. `Input`, `SearchInput`, `Select` and `Combobox` share dimensions. Select owns its chevron; callers must not add another. Searchable controls use the existing portal combobox, not native datalists. Multi-value transaction entry remains the existing `TransactionFilter` with shared chips and operator buttons; no redundant generic MultiSelect was introduced.
+`FormField` associates the actual control ID with its label and keeps help/error descriptions out of the accessible name. `Input`, `SearchInput`, `Select` and `Combobox` share dimensions. Select owns its chevron; callers must not add another. On touch input (`pointerType` `touch`) Select leaves the platform picker alone instead of opening its custom popup, so iOS Safari never shows two lists (BUG-011). Searchable controls use the existing portal combobox, not native datalists. Multi-value transaction entry remains the existing `TransactionFilter` with shared chips and operator buttons; no redundant generic MultiSelect was introduced.
 
 Date entry remains `NorwegianDateInput`, with Norwegian labels, Monday-first floating calendar, keyboard navigation and DD.MM.YYYY entry. ISO date-only comparison and SAP maximum-date semantics remain unchanged.
 

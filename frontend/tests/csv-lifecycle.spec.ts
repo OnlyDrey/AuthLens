@@ -8,7 +8,7 @@ import {
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, postConfiguration } from './support'
+import { headers, postConfiguration, selectSettingsSection } from './support'
 import { layoutMatrix } from './matrix'
 import { matrix as sodMatrix } from './sod-fixture'
 const columns =
@@ -34,7 +34,7 @@ async function save(request: APIRequestContext, change: (config: any) => void) {
 }
 async function source(page: Page) {
   await page.getByRole('button', { name: 'Open settings', exact: true }).click()
-  await page.getByRole('tab', { name: 'Data Sources', exact: true }).click()
+  await selectSettingsSection(page, 'Data Sources')
 }
 async function refresh(page: Page) {
   await page
@@ -155,7 +155,7 @@ test('refresh reports full removals, traps dialog focus and retains history afte
   await expect(historyTable.getByRole('columnheader',{name:'Updated',exact:true})).toBeVisible()
   await expect(historyTable.locator('tbody tr').first().locator('td').nth(3)).toHaveText('2')
   await page.reload()
-  await page.getByRole('tab', { name: 'Data Sources', exact: true }).click()
+  await selectSettingsSection(page, 'Data Sources')
   await page.getByText('Recent refresh reports', { exact: true }).click()
   await expect(
     page
@@ -334,11 +334,9 @@ for (const { theme, width } of layoutMatrix([375, 800, 1280]))
         })
         .click()
       await page.screenshot({ path: info.outputPath('directory-import.png') });await page.keyboard.press('Escape')
-      await page.getByRole('tab', { name: 'Features', exact: true }).click()
+      await selectSettingsSection(page, 'Features')
       await page.screenshot({ path: info.outputPath('features.png') })
-      await page
-        .getByRole('tab', { name: 'Health & Diagnostics', exact: true })
-        .click()
+      await selectSettingsSection(page, 'Health & Diagnostics')
       await page.screenshot({ path: info.outputPath('diagnostics.png') })
       expect(
         await page.evaluate(

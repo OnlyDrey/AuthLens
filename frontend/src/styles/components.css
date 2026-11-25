@@ -1677,3 +1677,16 @@ table[data-nowrap] [data-wrap="groups"] { white-space:normal; min-width:12rem; m
   .host-file-modified { display:none; }
   .host-file-list { max-height:none; }
 }
+/* BUG-012 (WP29): one compact header row on phones. The brand shrinks and ellipsizes instead of pushing the utilities onto a second row (the
+   header was 116px tall at 390px); actions keep 44px touch targets (WCAG 2.5.5); the header respects safe-area insets (notch, rounded corners) when the page is
+   shown edge to edge. Desktop is unchanged. */
+header[role="banner"] { padding-top:env(safe-area-inset-top,0px); padding-left:env(safe-area-inset-left,0px); padding-right:env(safe-area-inset-right,0px); }
+@media (max-width:767px) {
+  header[role="banner"] .app-header-row { flex-wrap:nowrap; min-height:3.25rem; padding-block:var(--space-1); gap:var(--space-1); }
+  .app-header-row .app-brand { flex:1 1 0; min-width:0; gap:var(--space-2); }
+  .app-header-row .app-brand > div { min-width:0; }
+  .app-header-row .app-brand p { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; overflow-wrap:normal; }
+  .app-header-row .app-utilities { display:flex; flex-shrink:0; gap:0; }
+  .app-header-row .app-utilities .ui-button, .app-header-row .app-utilities button, .app-header-row > button { flex-shrink:0; min-width:44px; min-height:44px; }
+  .settings-workspace .settings-actions { padding-bottom:max(12px, env(safe-area-inset-bottom,0px)); }
+}
