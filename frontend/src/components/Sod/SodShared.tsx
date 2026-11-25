@@ -52,7 +52,7 @@ export function useSodContext(): [string, (value: string) => void] {
   return [value || 'current', set]
 }
 
-export interface SodSubject { user: string; risk?: string; activity?: string }
+export interface SodSubject { user: string; risk?: string; activity?: string; role?: string }
 /** Investigation target lives in view history: Back closes it, and it returns after visiting a role or user page. */
 export function useSodSubject(): [SodSubject | null, (value: SodSubject | null) => void] {
   const { view, change } = useViewHistory()

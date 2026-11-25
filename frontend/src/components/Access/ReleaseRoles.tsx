@@ -20,7 +20,8 @@ import { AssignmentDateFilters, emptyDates, dateParams, datesActive, type Assign
 import { ClearFilterButton } from '@/components/Shared/ClearFilterButton'
 import { Select } from '@/components/Shared/Select';
 import { useHistoryValue, type ReleaseDrill } from '@/hooks/useViewHistory';
-import { List, Grid3X3, Plus, Check, Copy, Download } from 'lucide-react';
+import { List, Grid3X3, Plus, Check, Copy, Download, ClipboardCheck } from 'lucide-react';
+import { useSodReviewAction } from '@/hooks/useSodReviewNavigation';
 import { useRecordNavigation, type RecordNavigationState } from "@/hooks/useRecordNavigation";
 import { DetailNavigation, AssignmentStatus, DetailButton } from "@/components/Shared/InvestigationNavigation";
 import { ReleaseFilter, ReleaseMultiFilter } from "./ReleaseFilter";
@@ -565,12 +566,7 @@ function ReleaseDetail({
                       </td>
                     )}
                     <td>
-                      <RoleIdentifier
-                        value={a.username}
-                        label="username"
-                        onOpen={() => onUser(a.username)}
-                        openLabel={`Open user ${a.username}`}
-                      />
+                      <div className="flex flex-wrap items-center gap-2"><SAPUserLink routeLink={false} reviewSupported={false} username={a.username} copyLabel="username" onOpen={() => onUser(a.username)} openLabel={`Open user ${a.username}`} /><ReleaseReviewButton username={a.username} role={a.role_name || drill.role || ''} /></div>
                     </td>
                     <td>{a.user_group || 'Unknown'}</td>
                     <td className="assignment-date">
@@ -609,6 +605,14 @@ function ReleaseDetail({
       <EvidenceNote />
     </section>
   )
+}
+
+/** BUG-02: review this user's role assignments in the shared review panel, with this release role in focus. Shown only when the user is
+ * reviewable (SoD enabled, an assignment in the current context); permissions and scope stay enforced by the review API. */
+function ReleaseReviewButton({ username, role }: { username: string; role: string }) {
+  const review = useSodReviewAction(username)
+  if (!review) return null
+  return <Button size="compact" aria-pressed={review.active} aria-label={`Review roles for ${username}`} onClick={() => review.toggle(role || undefined)}><ClipboardCheck size={14} aria-hidden="true" />{review.active ? 'Close review' : 'Review'}</Button>
 }
 
 /** Users holding one release role, within the list's validity scope and filters. Names are shown only when the user source carries them. */

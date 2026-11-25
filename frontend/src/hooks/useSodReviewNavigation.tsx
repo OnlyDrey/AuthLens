@@ -4,7 +4,7 @@ import {fetchConfiguration} from '@/api/configuration'
 import {sod} from '@/api/sod'
 import {useViewHistory} from './useViewHistory'
 
-type Navigation = {guard:(check:()=>boolean)=>()=>void;register:(user:string)=>()=>void; eligible:ReadonlySet<string>; active?:string; open:(user:string)=>void}
+type Navigation = {guard:(check:()=>boolean)=>()=>void;register:(user:string)=>()=>void; eligible:ReadonlySet<string>; active?:string; open:(user:string,role?:string)=>void; close:()=>void}
 const Context = createContext<Navigation | null>(null)
 
 /** One batch per rendered identity set, rather than a subject request from every table cell. */
@@ -30,15 +30,20 @@ export function SodReviewNavigationProvider({children}:{children:ReactNode}) {
   return result
  }})
  const eligible=useMemo(()=>new Set(enabled?available.data||[]:[]),[enabled,available.data])
- const open=(user:string)=>{if(eligible.has(user)&&(view.sodSubject?.user===user||!beforeSwitch.current||beforeSwitch.current()))change({sodSubject:{user},detailRole:null})}
- return <Context.Provider value={{guard,register,eligible,active:!view.detailRole&&!view.settings?view.sodSubject?.user:undefined,open}}>{children}</Context.Provider>
+ // BUG-02: a role context (Release role details) focuses that role's assignment in the same review panel; it never narrows what can be reviewed.
+ const open=(user:string,role?:string)=>{if(eligible.has(user)&&(view.sodSubject?.user===user||!beforeSwitch.current||beforeSwitch.current()))change({sodSubject:role?{user,role}:{user},detailRole:null})}
+ // BUG-01: the row control that opened the panel also closes it; only the review subject changes (search, filters and the selected user stay).
+ const close=()=>{if(!beforeSwitch.current||beforeSwitch.current())change({sodSubject:null})}
+ return <Context.Provider value={{guard,register,eligible,active:!view.detailRole&&!view.settings?view.sodSubject?.user:undefined,open,close}}>{children}</Context.Provider>
 }
 
 export function useSodReviewAction(user:string,supported=true){
  const navigation=useContext(Context), register=navigation?.register
  const identity=user.trim().toUpperCase()
  useEffect(()=>supported?register?.(identity):undefined,[register,identity,supported])
- return supported&&navigation?.eligible.has(identity)?{active:navigation.active===identity,open:()=>navigation.open(identity)}:undefined
+ if(!supported||!navigation?.eligible.has(identity))return undefined
+ const active=navigation.active===identity
+ return {active,open:(role?:string)=>navigation.open(identity,role),close:navigation.close,toggle:(role?:string)=>active?navigation.close():navigation.open(identity,role)}
 }
 
 /** The active review form owns this guard; it cannot clear a newer scope's protection. */

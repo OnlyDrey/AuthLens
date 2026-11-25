@@ -41,7 +41,9 @@ test('each role assignment of one user keeps its own decision when others are de
   expect(await pressed(page, 'ROLE_A2')).toEqual({ keep: 'false', remove: 'true', investigate: 'false' })
   // Persisted: reload and reopen.
   await page.reload()
-  await page.getByRole('button', { name: `Open ${names.a} in SoD Review`, exact:true }).click()
+  // BUG-01: the review control toggles; the reloaded view may already have the panel open from its history entry.
+  const review = page.getByRole('button', { name: `Open ${names.a} in SoD Review`, exact:true })
+  if (await review.getAttribute('aria-pressed') !== 'true') await review.click()
   expect(await pressed(page, 'ROLE_A1')).toEqual({ keep: 'false', remove: 'true', investigate: 'false' })
   expect(await pressed(page, 'ROLE_A2')).toEqual({ keep: 'false', remove: 'true', investigate: 'false' })
   expect(await pressed(page, 'ROLE_B')).toEqual({ keep: 'true', remove: 'false', investigate: 'false' })

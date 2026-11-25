@@ -11,7 +11,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { DisclosureChevron } from '@/components/Shared/DisclosureChevron'
 import { Layers, ShieldCheck, ListChecks, Check, ClipboardCheck, FlaskConical, History, Search, Trash2, Wrench } from 'lucide-react'
-import { emptyFilters, scopeParams, sod, sodPost, type ActivityDetail, type AssignmentRow, type DecisionEvent, type OverviewAssignment, type Subject, type ReviewCoverage,type RemediationVerification } from '@/api/sod'
+import { emptyFilters, scopeParams, sod, sodPost, type ActivityDetail, type AssignmentRow, type DecisionEvent, type OverviewAssignment, type Subject, type RemediationVerification } from '@/api/sod'
 import { useViewHistory, userHref } from '@/hooks/useViewHistory'
 import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 import { SidePanel } from '@/components/Shared/SidePanel'
@@ -41,11 +41,11 @@ import { useAssignmentQuickReview, QUICK_RATIONALE } from './useAssignmentQuickR
 const reviewerKey = 'sap-lens-sod-reviewer'
 const rememberedReviewer = () => { try { return sessionStorage.getItem(reviewerKey) || '' } catch { return '' } }
 
-const DECIDED = new Set(['Approved', 'Keep', 'Accepted', 'Conditional', 'Removal required', 'Rejected'])
-const progressOf = (rows: { decision?: string; acceptance?: string; review_coverage?: ReviewCoverage }[]) => rows.filter((row) => row.review_coverage?.reviewed ?? DECIDED.has((row.decision ?? row.acceptance) as string)).length
+// BUG-07: one counting rule shared with the user profile.
+import { progressOf } from '@/lib/reviewProgress'
 
 /** Unified review workspace for one SAP user: three independent review sections, history on demand and read-only supporting evidence. */
-type InvestigationProps = {context:string;user:string;risk?:string;activity?:string;onClose:()=>void;onScope?:(subject:{user:string})=>void}
+type InvestigationProps = {context:string;user:string;risk?:string;activity?:string;role?:string;onClose:()=>void;onScope?:(subject:{user:string})=>void}
 
 export function SodInvestigation(props:InvestigationProps){
  const [reviewTab,setReviewTab]=useState<Kind>('assignment')
@@ -56,7 +56,7 @@ export function SodInvestigation(props:InvestigationProps){
  </SidePanel>
 }
 
-function InvestigationContent({context,user,risk,activity,onScope,reviewTab,setReviewTab}:InvestigationProps & {reviewTab:Kind;setReviewTab:(tab:Kind)=>void}) {
+function InvestigationContent({context,user,risk,activity,role,onScope,reviewTab,setReviewTab}:InvestigationProps & {reviewTab:Kind;setReviewTab:(tab:Kind)=>void}) {
   const qc = useQueryClient(),
     { view: current, change } = useViewHistory(),
     [form, setForm] = useState<FormState | null>(null),
@@ -72,6 +72,10 @@ function InvestigationContent({context,user,risk,activity,onScope,reviewTab,setR
   const tabId=useId()
   const data = query.data
   useEffect(() => { if (form) formRef.current?.scrollIntoView?.({ block: 'nearest' }) }, [form])
+  // BUG-02: opened from a release role: show the role tab and bring that role's assignment into view (all items stay reviewable).
+  const roleMatch = (row: OverviewAssignment) => !!role && (row.role === role || row.catalogue_roles.includes(role))
+  useEffect(() => { if (role) setReviewTab('assignment') }, [role, setReviewTab])
+  useEffect(() => { if (role && query.data) document.querySelector<HTMLElement>('.sod-assignment-row[data-focused]')?.scrollIntoView?.({ block: 'nearest' }) }, [role, query.data])
   const simulate = async (removed: string[]) => {
     setError('')
     try { setSimulation(await sodPost('/api/sod/simulate', { context, user, removed })) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Simulation failed.') }
@@ -108,6 +112,7 @@ function InvestigationContent({context,user,risk,activity,onScope,reviewTab,setR
             {current.page !== 'reviews' && <OpenInReviewsButton size="compact" scope={{ usernames: [user] }} label="Open in Work Queue" />}
           </Toolbar>
           {data.account && <p className="ui-description flex flex-wrap items-center gap-x-2 gap-y-1"><span>Directory match</span><StatusBadge tone={data.account.directory_match === 'matched' ? 'success' : ['ambiguous', 'unmatched'].includes(data.account.directory_match) ? 'warning' : 'neutral'}>{sentenceCase(data.account.directory_match)}</StatusBadge><span>AD {data.account.ad_status}{data.account.lock_status ? ` · SAP ${data.account.lock_status}` : ''}</span></p>}
+          {role && <p className="ui-description" role="status">Opened from release role <code>{role}</code>{(overview?.assignments || []).some(roleMatch) ? '; its assignment is highlighted under Roles.' : '; this user has no reviewable assignment of it in this context.'}</p>}
           {scoped && <p className="ui-description" role="status">Showing only {risk ? `risk ${risk}` : `activity ${activity}`} and the evidence behind it.{onScope && <> <Button variant="ghost" onClick={() => onScope({ user })}>Show all review items for {user}</Button></>}</p>}
           <p className="ui-description">Potential conflict evidence, not effective authorization. Access review coverage can derive from current role or activity decisions. Formal risk acceptance and verified remediation remain separate; planned removals never change detected conflicts.</p>
         </section>
@@ -125,7 +130,7 @@ function InvestigationContent({context,user,risk,activity,onScope,reviewTab,setR
           {ok && <FormField label="Rationale (optional)"><Input value={quickRationale} maxLength={400} placeholder={QUICK_RATIONALE} onChange={(event) => setQuickRationale(event.target.value)} /></FormField>}
           {quickError && <p role="alert" className="text-[var(--error)]">{quickError}</p>}
           {assignments.map((row) => (
-            <AssignmentReviewRow key={row.id} user={user} context={context} row={row} description={context==='current'?describe(row.catalogue_roles):undefined} ok={ok} checked={picked.assignment.includes(row.id)} onCheck={() => pick('assignment', row.id)} pendingAction={quickBusy.get(row.id)}
+            <AssignmentReviewRow key={row.id} focused={roleMatch(row)} user={user} context={context} row={row} description={context==='current'?describe(row.catalogue_roles):undefined} ok={ok} checked={picked.assignment.includes(row.id)} onCheck={() => pick('assignment', row.id)} pendingAction={quickBusy.get(row.id)}
               onDecide={(decision) => quickDecide(row, decision)} onOpenRole={() => change({ detailRole: row.catalogue_roles[0] || row.role })}
               onTrack={row.decision === 'Removal required' ? () => setAction({ assignment: { id: row.id, role: row.role, valid_from: row.valid_from, valid_to: row.valid_to, user_group: row.user_group, interval_status: row.interval_status, tcodes: [], other_activities: row.activities, risks: row.risks, catalogue_roles: row.catalogue_roles, evidence_version: row.evidence_version, decision: row.decision, event: row.event } }) : undefined}
               history={<DecisionHistory kind="assignment" context={context} keyId={row.id} label="Assignment review history" />} transactions={tcodesOf.get(row.id) || []} />
@@ -208,12 +213,12 @@ function ReviewSection({ title, kind, done, total, ok, picked, keys, onPickAll, 
 }
 
 /** Collapsed: checkbox, copyable role, review status, icon decisions and an expand control. Expanded: transactions and activities, SAP User Group, validity, history and further actions. */
-function AssignmentReviewRow({ user,context,row, description, ok, checked, onCheck, pendingAction, onDecide, onOpenRole, onTrack, history, transactions }: { user:string;context:string;row: OverviewAssignment; description?: string; ok: boolean; checked: boolean; onCheck: () => void; pendingAction?: string; onDecide: (decision: 'Keep' | 'Remove' | 'Investigate') => void; onOpenRole: () => void; onTrack?: () => void; history: ReactNode; transactions: string[] }) {
+function AssignmentReviewRow({ focused, user,context,row, description, ok, checked, onCheck, pendingAction, onDecide, onOpenRole, onTrack, history, transactions }: { focused?: boolean; user:string;context:string;row: OverviewAssignment; description?: string; ok: boolean; checked: boolean; onCheck: () => void; pendingAction?: string; onDecide: (decision: 'Keep' | 'Remove' | 'Investigate') => void; onOpenRole: () => void; onTrack?: () => void; history: ReactNode; transactions: string[] }) {
   const busy=!!pendingAction
   const [open, setOpen] = useState(false), kept = row.decision === 'Keep', removed = row.decision === 'Removal required', investigating = row.decision === 'Investigate'
   const detailId = useId()
   return (
-    <li data-assignment-id={row.id} className="sod-review-row sod-assignment-row" data-expanded={open || undefined}>
+    <li data-assignment-id={row.id} className="sod-review-row sod-assignment-row" data-expanded={open || undefined} data-focused={focused || undefined}>
       <div className="sod-assignment-compact">
         {ok && <Checkbox checked={checked} onChange={onCheck} aria-label={`Select ${row.role}`}><span className="sr-only">Select</span></Checkbox>}
         <div className="sod-assignment-role"><RoleIdentifier value={row.role} onOpen={onOpenRole} openLabel={`Open catalogue role ${row.catalogue_roles[0] || row.role}`} />{description && <p className="sod-assignment-description" title={description}>{description}</p>}</div>
