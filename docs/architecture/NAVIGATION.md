@@ -30,6 +30,22 @@ Legacy primary paths continue to work. Secondary links preserve hash query param
 
 Existing identities, record navigation, role comparison, selected transaction codes, source settings and release drilldowns retain their current state contracts. Comparison controls and Account Review search/sort/review controls are bounded history metadata; result datasets and credentials are never stored there. Saved-filter definitions remain in their existing private store rather than URL query strings.
 
+## Filter lifecycle at page boundaries (BUG-08, after RC4)
+
+Main navigation to another module is a page boundary: every such visit opens the page fresh. Views of one module (the User Access pages) and the review workspace (SoD and Reviews, which share filters, subject and review context by design, see [Reviews](../features/REVIEWS.md#context-preservation)) keep their shared filters while you move between them. Pages that stay mounted
+(Role Lookup, User Access, Release Roles) remount, so search fields, temporary filters, selections and open records reset, and the page's
+temporary filter state in the view history (`catalogueArea`, `accessSubjectFilters`, `accountReviewFilters`, `userComparison`,
+`reviewFindings`, `assignmentBand`, `release`, `sodFilters`, `sodExplorer`, `bulkSelectMatching`) is cleared. Exceptions, by design:
+
+- **Contextual navigation** (Dashboard tiles, Open in Reviews, user, role and release links, KPI drill-downs) carries its explicit destination
+  context through `change()` and is not reset: an intentional destination is not a stale filter.
+- **Back and Forward** restore the history entry they return to, including its filters (an explicit return, not a silent restore).
+- **Saved Filters** stay stored and are applied again explicitly.
+- Opening or closing panels and dialogs, paging, sorting, refreshes, review decisions and theme changes never cross the boundary.
+- Review periods, frozen evidence and selected review contexts are data, not temporary filters, and are not touched.
+
+Browser spec `user-feedback-2026-11.spec.ts` (BUG-08) covers reset on a new visit and Back restoring the earlier entry.
+
 ## Content tabs
 
 `ContentTabs` owns a tablist and selected panel. `ContentTabList` is the same keyboard implementation for existing independently rendered panels, such as the three Data Source forms. Arrow Left/Right, Home and End select/focus a tab; Tab proceeds into the content. Import-source tab/panel IDs remain stable for recovery and direct source actions.

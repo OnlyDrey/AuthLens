@@ -83,7 +83,23 @@ selected period) and its evidence revision are never changed by these links; SoD
 Queue while a frozen period is selected keeps that period.
 
 Intentional exclusions: the Role Lookup list (a role catalogue without a user population; role details carry the exact role), SoD Role
-Conflicts (catalogue roles, not assignments), Release Roles (release governance, not access review) and Data Health (global source integrity).
+Conflicts (catalogue roles, not assignments) and Data Health (global source integrity). Release Roles has no Work Queue entry; its role details
+open the shared review panel per user instead (below).
+
+### Shared review panel entry points (BUG-01, BUG-02, BUG-07; after RC4)
+
+- **Toggle (BUG-01).** The row control that opens a user in the shared review panel (User Access, SoD tables, member lists) also closes it; it
+  keeps a stable name and reports its state with `aria-pressed`. Closing changes only the review subject: search, filters and the selected user
+  stay. Another user's control switches the open panel; the panel's own Close and Escape still work, and unsaved review input asks before it is
+  discarded.
+- **Release role details (BUG-02).** Each assignment row of a reviewable user has **Review** next to the username. It opens the same panel for that
+  user with the Roles tab selected and the release role's assignment highlighted (all of the user's items stay reviewable); users the review
+  does not cover show no action. Decisions use the existing review services, permissions and scope, enforced by the API.
+- **Profile progress (BUG-07).** User details show **Role review** with `reviewed/total roles reviewed` and the outcome breakdown (kept, removal
+  recommended — not yet removed in SAP —, under investigation, pending), from the same subject query and counting rule (`lib/reviewProgress.ts`)
+  as the panel's "Roles n/m" tab, in the selected review context. A row counts as reviewed when the server's review coverage says so, so
+  invalidated or outdated decisions are pending. The model records one current decision per assignment (not per reviewer), so progress is
+  assignment-level. It updates after a decision because the panel invalidates the shared query.
 
 ## Permissions
 

@@ -175,12 +175,26 @@ never deleted; every certificate change is a recorded transaction with rollback 
 
 Native acceptance for the next candidate: runbook scenarios C11 to C13, B11 and B12 ([runbook](WINDOWS_VM_ACCEPTANCE.md#c-security-and-administration-from-s1-snapshot-s2-admin-after-c4)).
 
+## Eighth round: release stabilization, acceptance harness and user feedback (WP21 to WP28, 2026-11-25)
+
+Source-level work after RC4 (`37eadd5`); RC4 stays the immutable packaged baseline. Results per scenario and per user-reported item are in the
+[acceptance tracker](ACCEPTANCE_TRACKER.md#rc4-native-results-on-vm130-2026-11-25).
+
+| Package | Implemented | Focused evidence |
+| --- | --- | --- |
+| WP21 acceptance harness | `backend/scripts/acceptance` (QA-001 to QA-016, QA-018): reason, simulation and mutation assertions, guarded B14 groups, Lifecycle prerequisites | Pester `Acceptance-Harness` 16; native B13 26/26 and B14 elevation 5/5 (non-elevated) |
+| WP22 recovery tooling | `backend/scripts/recovery` bundle and isolated restore rehearsal; `--fingerprint-data`; readiness diagnostics (QA-017, QA-019 to QA-032 except QA-028, deferred) | Pester `Recovery-Tooling` 3, `Upgrade-Readiness` 45; .NET `MaintenanceCommandsTests`; native restore rehearsal PASS |
+| WP23 investigations | D-007 confirmed and corrected (update provisions the source authority); D-008 audit gap corrected (named-account findings), VM130 ACE environmental | Pester `AuthLens.Deploy` 48, `Acl-NamedPrincipals`; native read-only Status/AuditAcl with the source tools |
+| WP24 native acceptance | A1, B1, B13, B14 (elevation), readiness, restore rehearsal, C12 (executable) passed; mutating scenarios need operator authorization; D-scenarios blocked (sign-in, D-007, remote SMB) | Acceptance tracker |
+| WP26 review workflows | BUG-01 toggle, BUG-02 Release role review, BUG-03 group navigation, BUG-07 profile progress | `user-feedback-2026-11.spec.ts`, `sod-evidence-modals.spec.ts`, `release-roles.spec.ts` |
+| WP27 sessions and preferences | BUG-04 inactivity warning, passive reads, explicit continue; BUG-05 verified with account-switching coverage | .NET `AccountsTests` 57; `session-timeout.spec.ts`, `personal-preferences.spec.ts`; unit `session-timing` |
+| WP28 filters and layout | BUG-06 content-sized group cells, BUG-08 page-boundary filter reset, BUG-10 whole-word label wrapping; BUG-09 not reproduced | `user-feedback-2026-11.spec.ts`; affected navigation and filter specs |
+| WP25 release assessment | RC5 decision and build record in the acceptance tracker | — |
 ## Seventh round: final remediation before RC4 (2026-11-25)
 
 | Item | Implemented | Focused evidence (VM130) |
 | --- | --- | --- |
-| G-004 recovery audit | `<WorkRoot>
-ecovery-audit.jsonl` (one line per acting recovery attempt: action, decision, outcome, operator from the process token or `null`, runs, phases, version, commit, manifest and configuration hashes, certificate replaced, redacted reason); recovery history entries carry action, run and operator; original entries kept; simulations and "nothing to recover" write nothing | `Recovery-AuditRegistration` (G-004 3 tests), `Deployment-DryRun` (no audit file) |
+| G-004 recovery audit | `<WorkRoot>\recovery-audit.jsonl` (one line per acting recovery attempt: action, decision, outcome, operator from the process token or `null`, runs, phases, version, commit, manifest and configuration hashes, certificate replaced, redacted reason); recovery history entries carry action, run and operator; original entries kept; simulations and "nothing to recover" write nothing | `Recovery-AuditRegistration` (G-004 3 tests), `Deployment-DryRun` (no audit file) |
 | G-005 Setup registration | After installer recovery: Setup's verified-success values written only with proven ownership (pending state, Inno uninstall entry, staged payload equals the recovered release); explicit outcome states; nothing invented | `Recovery-AuditRegistration` (G-005 3 tests on disposable HKCU keys; the machine registration is never touched) |
 | G-006 | **Deferred** to a later release; fail-safe refusal kept | — |
 | T-001 | Older-build journal fixture: consistent correction completes, five inconsistent states refused | `Recovery-AuditRegistration` (2 tests) |

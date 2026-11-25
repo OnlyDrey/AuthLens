@@ -133,6 +133,15 @@ Every `details/summary` uses one compact chevron control (24 px box, its own hov
 
 Product names stay in Title Case: main navigation, page and section titles, SoD workspace views and the decision names (Activity Review, Role Assignment Review, Risk Acceptance). Table headers, buttons, field labels, filter labels, helper text and chips use sentence case. Official SAP terms keep their SAP spelling, for example **SAP User Group**, **Release Group**, **Release Strategy**, T-code and Risk ID. Use the same label for the same concept on every page.
 
+## Text wrapping (BUG-10, after RC4)
+
+Labels (role categories and module names, KPI and chart labels, option names, group names, headings, metadata values) wrap at whole words with
+`overflow-wrap: break-word`: a label's minimum width is its longest word, so layouts cannot squeeze "Management" into "Managemen / t"; a single word
+longer than its box still breaks. Technical values (paths, hashes, transaction lists, raw CSV cells, technical details) keep
+`overflow-wrap: anywhere`. SAP identifiers are never wrapped or hyphenated (`RoleIdentifier` scales them down; the copy button writes the exact
+value). No automatic hyphenation is applied, so no arbitrary hyphens appear in Norwegian or English text. Sidebars do not hide overflow: their
+children are constrained to the sidebar width (BUG-09 was not reproduced with synthetic data; see the acceptance tracker).
+
 ## Responsive rules
 
 Desktop navbar utilities are compact icons on one row where space permits. At narrower widths, primary navigation gets its own row with visible destination labels. Utility accessible names remain available to touch assistive technology. User panels become one column; comparison filters go from five to three/two/one; compact summary counts wrap without becoming large KPI cards. Existing settings-sidebar behavior and source/table breakpoints are retained.
