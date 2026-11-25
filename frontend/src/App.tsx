@@ -37,10 +37,27 @@ export function App() {
   const sodEnabled = configuration.data?.settings.features?.sod !== false
   const [visited, setVisited] = useState(() => new Set([page]))
   const scrollPositions = useRef<Record<string, number>>({})
-  const navigate = (next: 'dashboard'|'roles'|'users'|'releases'|'sod'|'reviews') => { scrollPositions.current[page] = window.scrollY; setVisited(previous => new Set([...previous, next])); change({page:next, detailRole:null, settings:false}) }
+  // BUG-08: main navigation is a page boundary. Each visit through it opens the page fresh: pages kept mounted are remounted (their search and
+  // temporary filters reset) and the page's temporary filter state in the view history is cleared. Saved Filters stay stored and can be applied
+  // again. Contextual navigation (Dashboard tiles, Open in Reviews, user or role links) carries its explicit destination context through
+  // change() and is unaffected; Back and Forward restore the history entry they return to. Panels, modals, paging, sorting, refreshes, review
+  // decisions and theme changes never pass this boundary.
+  const [visits, setVisits] = useState<Record<string, number>>({})
+  const freshPage = (next: string): Record<string, unknown> => {
+    // Views of one module (User Access pages; SoD and Reviews as one review workspace) share their filters by design: only a module change resets.
+    const workspace = (value: string) => value === 'sod' || value === 'reviews' ? 'review' : value
+    if (workspace(page) === workspace(next) && !settingsOpen) return {}
+    setVisits(previous => ({ ...previous, [next]: (previous[next] || 0) + 1 }))
+    return next === 'roles' ? { catalogueArea: undefined }
+      : next === 'users' ? { accessSubjectFilters: undefined, accountReviewFilters: undefined, userComparison: undefined, reviewFindings: undefined, assignmentBand: undefined, user: '', userContext: {}, userTrail: [] }
+      : next === 'releases' ? { release: null, releaseContext: '', accessSubjectFilters: undefined }
+      : next === 'sod' || next === 'reviews' ? { sodFilters: undefined, sodExplorer: undefined, bulkSelectMatching: undefined, accountReviewFilters: undefined, reviewFindings: undefined }
+      : {}
+  }
+  const navigate = (next: 'dashboard'|'roles'|'users'|'releases'|'sod'|'reviews') => { scrollPositions.current[page] = window.scrollY; scrollPositions.current[next] = 0; setVisited(previous => new Set([...previous, next])); change({page:next, detailRole:null, settings:false, ...freshPage(next)} as never) }
   const [accessMode] = useHistoryValue('accessMode'), [sodView] = useHistoryValue('sodView'), [reviewsView] = useHistoryValue('reviewsView')
   /** A submenu entry opens one page of a module; unsaved Settings edits are confirmed first, like every other destination. */
-  const openPage = (next: 'users' | 'sod' | 'reviews', patch: Record<string, unknown>) => { if (settingsDirty() && !window.confirm(DISCARD_PROMPT)) return; scrollPositions.current[page] = window.scrollY; setVisited(previous => new Set([...previous, next])); change({ page: next, detailRole: null, settings: false, ...patch } as never) }
+  const openPage = (next: 'users' | 'sod' | 'reviews', patch: Record<string, unknown>) => { if (settingsDirty() && !window.confirm(DISCARD_PROMPT)) return; scrollPositions.current[page] = window.scrollY; setVisited(previous => new Set([...previous, next])); change({ page: next, detailRole: null, settings: false, ...freshPage(next), ...patch } as never) }
   const submenus = {
     users: USER_ACCESS_VIEWS.map(({ value, label, icon }) => ({ value, label, icon, href: userAccessHref(value), active: page === 'users' && !settingsOpen && (accessMode || 'directory') === value, onSelect: () => openPage('users', { accessMode: value, user: '', userContext: {} }) })),
     sod: SOD_VIEWS.map(({ value, label, icon }) => ({ value, label, icon, href: sodHref(value), active: page === 'sod' && !settingsOpen && (sodView || 'overview') === value, onSelect: () => openPage('sod', { sodView: value }) })),
@@ -93,12 +110,12 @@ export function App() {
       isDark={isDark}
       onToggleTheme={toggle}>
       {page === 'dashboard' && <Dashboard/>}
-      {page === 'sod' && <Suspense fallback={<LoadingState/>}><SodWorkspace/></Suspense>}
-      {page === 'reviews' && <Suspense fallback={<LoadingState/>}><ReviewsWorkspace/></Suspense>}
+      {page === 'sod' && <Suspense fallback={<LoadingState/>}><SodWorkspace key={visits.sod || 0}/></Suspense>}
+      {page === 'reviews' && <Suspense fallback={<LoadingState/>}><ReviewsWorkspace key={visits.reviews || 0}/></Suspense>}
       {visited.has('roles') && <div className={page==='roles'?'':'hidden'}>
       {showComparison
         ? <ComparisonView roleNames={selectedRoles} onBack={() => setShowComparison(false)} onRemove={name => setSelectedRoles(previous => previous.length > 2 ? previous.filter(role => role !== name) : previous)} />
-        : <RoleList key={`${dataGeneration}:${kpiNavigation?.roles || 0}`}
+        : <RoleList key={`${dataGeneration}:${kpiNavigation?.roles || 0}:${visits.roles || 0}`}
             initialArea={catalogueArea}
             onFilteredRoles={setCatalogueOrder}
             selectedRoles={selectedRoles}
@@ -108,9 +125,9 @@ export function App() {
           />
       }
       </div>}
-      {visited.has('users') && <div hidden={page!=='users'}><MappingAvailability><UserAccess key={`${JSON.stringify(userContext)}:${kpiNavigation?.users || 0}`} initialUser={selectedUser} initialRole={userContext.role} initialTcode={userContext.tcode} onRole={setDetailRole} onRelease={investigateRelease}/></MappingAvailability></div>}
-      {visited.has('releases') && <div hidden={page!=='releases'}><MappingAvailability><ReleaseRoles key={`${releaseContext}:${kpiNavigation?.releases || 0}`} initialRole={releaseDrill?.role || ''} onUser={user=>investigateUsers({user})}/></MappingAvailability></div>}
-      {sodEnabled&&subject&&!detailRole&&!settingsOpen&&<Suspense fallback={null}><SodInvestigation context={sodContext} user={subject.user} risk={subject.risk} activity={subject.activity} onClose={()=>setSubject(null)} onScope={setSubject}/></Suspense>}
+      {visited.has('users') && <div hidden={page!=='users'}><MappingAvailability><UserAccess key={`${JSON.stringify(userContext)}:${kpiNavigation?.users || 0}:${visits.users || 0}`} initialUser={selectedUser} initialRole={userContext.role} initialTcode={userContext.tcode} onRole={setDetailRole} onRelease={investigateRelease}/></MappingAvailability></div>}
+      {visited.has('releases') && <div hidden={page!=='releases'}><MappingAvailability><ReleaseRoles key={`${releaseContext}:${kpiNavigation?.releases || 0}:${visits.releases || 0}`} initialRole={releaseDrill?.role || ''} onUser={user=>investigateUsers({user})}/></MappingAvailability></div>}
+      {sodEnabled&&subject&&!detailRole&&!settingsOpen&&<Suspense fallback={null}><SodInvestigation context={sodContext} user={subject.user} risk={subject.risk} activity={subject.activity} role={subject.role} onClose={()=>setSubject(null)} onScope={setSubject}/></Suspense>}
       <RoleDetailPanel navigation={page === 'roles' && detailRole ? catalogueNavigation : undefined} parent={page === 'sod' ? 'SoD' : page === 'reviews' ? 'Reviews' : page === 'users' ? 'User Access' : page === 'releases' ? 'Release Roles' : 'Role Lookup'} roleName={detailRole} onClose={() => setDetailRole(null)} onUsers={role=>investigateUsers({role})} onTcodeUsers={tcode=>investigateUsers({tcode})}/>
     </AppLayout>
   )

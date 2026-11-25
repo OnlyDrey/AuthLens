@@ -16,7 +16,7 @@ test.beforeEach(async ({ request }) => {
 })
 test.afterEach(async ({ request }) => { await request.post('/api/configuration/reset', { headers }); rmSync(directory, { recursive: true, force: true }) })
 
-test('navbar retains lists, scoped detail boundaries and one assignment status filter', async ({ page }) => {
+test('navbar opens pages fresh (Back restores), scoped detail boundaries and one assignment status filter', async ({ page }) => {
   await page.goto('/#session=browser-test-session')
   const nav = page.getByRole('navigation', { name: 'Main navigation' })
   await expect(page.locator('header').getByRole('navigation', { name: 'Main navigation' })).toBeVisible()
@@ -34,8 +34,11 @@ test('navbar retains lists, scoped detail boundaries and one assignment status f
   await page.getByRole('button', { name: 'Back to users', exact: true }).click()
   await expect(search).toHaveValue('DEMO_ALFA')
   await nav.getByRole('link', { name: 'Release Roles', exact: true }).click()
+  await page.goBack()
+  await expect(search).toHaveValue('DEMO_ALFA')                      // Back restores the entry it returns to
+  await nav.getByRole('link', { name: 'Release Roles', exact: true }).click()
   await nav.getByRole('link', { name: 'User Access', exact: true }).click()
-  await expect(search).toHaveValue('DEMO_ALFA')
+  await expect(search).toHaveValue('')                               // BUG-08: a new visit through main navigation starts fresh
 })
 
 test('combobox keyboard, outside click, clearing, empty results and viewport anchoring', { tag: '@a11y' }, async ({ page }) => {

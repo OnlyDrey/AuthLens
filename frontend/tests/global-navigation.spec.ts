@@ -122,12 +122,13 @@ test('direct user and release investigations locate global position and handle r
   await expect(navigation).toContainText('51 of 125')
   await page.getByRole('button', { name: 'Back to Release Roles', exact: true }).click()
   await expect(page.getByRole('combobox', { name: 'Release assignment status', exact: true })).toHaveValue('all')
-  await destination(page, 'User Access')
+  // BUG-08: main navigation would open User Access fresh; Back returns to the open user record and its position.
+  for (let step = 0; step < 3 && !(await navigation.first().textContent({ timeout: 1000 }).catch(() => ''))?.includes('51 of 126'); step++) { await page.goBack(); await page.waitForTimeout(300) }
   await expect(navigation).toContainText('51 of 126')
   rows = rows.filter(row => !row.startsWith(user(50) + ','))
   writeFileSync(source, csv())
   await page.getByRole('button', { name: 'Refresh role data from CSV', exact: true }).click()
-  await expect(page.getByText('This record is missing or no longer matches these filters.', { exact: false })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'User details' }).getByText('This record is missing or no longer matches these filters.', { exact: false })).toBeVisible()
   await expect(navigation).toHaveCount(0)
   await expect(page.getByRole('alert').filter({ hasText: 'User not found' })).toBeVisible({ timeout: 15000 })
   await page.getByRole('button', { name: 'Back to users', exact: true }).click()
