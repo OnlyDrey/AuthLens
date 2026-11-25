@@ -19,12 +19,12 @@ and applied before paint. A stored browser hint is only an initial appearance hi
 The account response supplies effective permissions from the backend permission map. Settings and Global
 Refresh are absent when `admin` is unavailable; account and source management remain inside the guarded
 Settings container. Personal appearance needs only `profile`. Review and export permissions are unchanged.
-Account sessions refresh on window focus and every 30 seconds, synchronizing personal appearance and
+Account sessions refresh on window focus and every 30 seconds (passive reads that do not extend the inactivity lifetime), synchronizing personal appearance and
 permissions across browsers/devices. Permission changes remain enforced on every API request immediately;
 the UI is a convenience, never an authorization boundary. An open Settings view closes when administrative
 permission is lost. Direct API calls still require the existing authorization and CSRF checks.
 
-Focused account tests cover independent users, session/restart persistence, default fallback and attempts
+Focused account tests cover independent users, session/restart persistence, account switching in one browser (BUG-05, `session-timeout.spec.ts`), default fallback and attempts
 to target another account. Native deployed UI acceptance remains separate from isolated browser tests.
 
 | UI boundary reviewed | Effective permission and behavior |
@@ -81,6 +81,19 @@ account activation/recovery codes are local, one-use and expire. Bootstrap throu
 Sessions use host-only Secure, HttpOnly, SameSite=Strict cookies over HTTPS. Each account session has its own CSRF secret. The frontend echoes
 that value on writes in addition to same-origin enforcement. Session identifiers, CSRF values and one-time codes are stored as digests where applicable.
 Failed sign-ins are throttled. Unknown users receive the same password-verification path.
+
+**Inactivity and absolute session lifetime (BUG-04, after RC4).** The server ends a session after the policy's inactivity lifetime (default
+30 minutes, 5 minutes to 8 hours) or its absolute lifetime (default 12 hours, 1 to 24 hours; never shorter than the inactivity lifetime),
+whichever comes first; administrators change both in the account policy (`/api/auth/policy`, validated on the server). Expiry is enforced by
+the request boundary on every API call, so an expired session is refused (401) and cannot be revived. Only user activity moves the inactivity
+clock: reads the browser makes without recent user input (polling, refresh on focus, the session timer) carry `X-AuthLens-Activity: passive`
+and do not extend it, while writes and reads within a minute of real input do. Before an inactivity expiry the UI shows **Are you still
+there?** with a countdown and **Continue session** (an explicit `POST /api/auth/session/continue`) or **Sign out**; the warning starts a fifth of
+the inactivity lifetime before the end (at least one, at most five minutes, never more than the lifetime itself). The absolute lifetime is never
+extended; its warning offers only sign-out. On expiry the UI clears every cached query, shows the sign-in page with the reason, and submits
+nothing pending (an open review decision stays unsent). Other tabs follow a continue or sign-out within a second (BroadcastChannel) and otherwise
+on their next 30-second read. API responses are `no-store`. Covered by .NET `AccountsTests` (passive reads, activity, continue, absolute limit,
+invalid policy) and the browser spec `session-timeout.spec.ts`; native acceptance pending on a candidate that contains it.
 
 Permissions are enforced per route: viewers read/export, reviewers also record permitted decisions, administrators manage data/settings/accounts.
 Unknown writes are denied. Account management requires a real administrator session. Permanent deletion checks expected revision and exact username,

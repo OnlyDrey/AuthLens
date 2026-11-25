@@ -1,6 +1,7 @@
 import { recordSession, sessionSnapshot } from './session'
 import { blocksRequests } from '@/lib/sessionState'
 import { RevisionTracker } from '@/lib/dataRevision'
+import { isUserActive } from '@/lib/userActivity'
 import type {
   ModuleInfo,
   RoleSummary,
@@ -68,7 +69,7 @@ export function onDataRevision(listener: () => void): () => void {
 
 // Same-origin fetch keeps the desktop bundle small and needs no HTTP client dependency.
 const apiClient = {
-  async request<T>(path: string, method: string, body?: unknown, repeated = false): Promise<{ data: T }> {
+  async request<T>(path: string, method: string, body?: unknown, repeated = false, activity?: 'active' | 'passive'): Promise<{ data: T }> {
     // While the session is known to be invalid nothing is sent: no failing request storm, no write queued for later replay.
     if (blocksRequests(sessionSnapshot())) throw new ApiError(STALE_MESSAGE, 'session', 403)
     let response: Response
@@ -76,7 +77,8 @@ const apiClient = {
     const timer = method === 'GET' ? setTimeout(()=>controller.abort(),10000) : undefined
     try { response = await fetch(path, {
       method, signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', ...applicationHeaders() },
+      // BUG-04: reads without recent user input (polling, refetch on focus, timers) are passive and never extend the inactivity lifetime.
+      headers: { 'Content-Type': 'application/json', ...applicationHeaders(), ...(method === 'GET' ? { 'X-AuthLens-Activity': activity ?? (isUserActive() ? 'active' : 'passive') } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
       cache: 'no-store',
     }) } catch (error) { recordSession('network'); throw new ApiError(error instanceof DOMException&&error.name==='AbortError' ? 'The read request timed out. The backend may still be running; retry this read.' : 'AuthLens could not connect. Retry and check the backend service if the problem persists.', 'network') }
@@ -88,7 +90,7 @@ const apiClient = {
     try { data = text === '' ? undefined : JSON.parse(text) } catch { parsed = false }
     if (response.ok) recordSession('success')
     const seen = revisions.observe(response.headers.get('X-Data-Revision'))
-    if (seen === 'stale' && method === 'GET' && !repeated) return this.request<T>(path, method, body, true)
+    if (seen === 'stale' && method === 'GET' && !repeated) return this.request<T>(path, method, body, true, activity)
     if (seen === 'newer') for (const listener of [...revisionListeners]) listener()
     if (!response.ok) {
       const reference=response.headers.get('X-Request-ID')||''
@@ -154,4 +156,9 @@ export async function refreshData(): Promise<HealthResponse & {refresh?: import(
 
 export async function apiRequest<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   return (await apiClient.request<T>(path, method, body)).data
+}
+
+/** A background read that must not count as user activity (BUG-04), or one that explicitly does. */
+export async function apiRead<T>(path: string, activity: 'active' | 'passive'): Promise<T> {
+  return (await apiClient.request<T>(path, 'GET', undefined, false, activity)).data
 }

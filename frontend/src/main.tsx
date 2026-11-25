@@ -3,6 +3,7 @@ import { ApplicationDataProvider } from './state/ApplicationData'
 import { ViewHistory, initializeViewHistory } from './hooks/useViewHistory'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { installUserActivityTracking } from './lib/userActivity'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ModuleRegistryProvider } from './components/Modules/ModuleRegistry'
 import { StartupGate, FrontendRecoveryBoundary } from './components/Layout/StartupGate'
@@ -32,6 +33,7 @@ document.body.insertBefore(skipLink, rootElement)
 initializeViewHistory()
 installFocusReveal()
 
+installUserActivityTracking()
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>

@@ -44,6 +44,64 @@ public sealed class AccountsTests : IDisposable
     }
 
     [Fact]
+    public async Task Inactivity_expiry_ignores_passive_reads_honours_activity_and_explicit_continue_and_never_extends_the_absolute_lifetime()
+    {
+        var (store, clock) = NewStore();
+        var admin = await Bootstrap(store);
+        await store.UpdatePolicyAsync(admin, 0, idle: 600, absolute: 3600);
+        var (_, token, _) = await store.LoginAsync("admin", Password, "browser");
+        var principal = await store.SessionAsync(token);
+        var timing = await store.SessionTimingAsync(principal);
+        Assert.Equal(600L, timing["idle_seconds"]);
+        Assert.Equal(120L, timing["warning_seconds"]);                                          // a fifth of 10 minutes
+        Assert.Equal("inactivity", timing["reason"]);
+
+        // Background polling every few minutes for longer than the idle lifetime does not keep the session alive.
+        for (var i = 0; i < 4; i++) { clock.Advance(TimeSpan.FromSeconds(140)); await store.SessionAsync(token, touch: false); }
+        clock.Advance(TimeSpan.FromSeconds(41));                                                // 601 s without activity
+        Assert.Equal(401, (await Assert.ThrowsAsync<AuthException>(() => store.SessionAsync(token, touch: false))).Status);
+        Assert.Equal(401, (await Assert.ThrowsAsync<AuthException>(() => store.SessionAsync(token))).Status);   // and cannot be revived
+        await Assert.ThrowsAsync<AuthException>(() => store.ContinueSessionAsync(principal));
+
+        // User activity and the explicit continue move the inactivity clock.
+        var (_, second, _) = await store.LoginAsync("admin", Password, "browser");
+        var active = await store.SessionAsync(second);
+        clock.Advance(TimeSpan.FromSeconds(500)); await store.SessionAsync(second);              // activity at 500 s
+        clock.Advance(TimeSpan.FromSeconds(500)); await store.SessionAsync(second, touch: false);  // still valid at 1000 s
+        clock.Advance(TimeSpan.FromSeconds(90));
+        var continued = await store.ContinueSessionAsync(active);
+        Assert.Equal((double)continued["now"]! + 600, (double)continued["idle_expires_at"]!, 3);
+        var created = (double)continued["absolute_expires_at"]!;
+
+        // The absolute lifetime is never extended by activity or continuation.
+        for (var i = 0; i < 5; i++) { clock.Advance(TimeSpan.FromSeconds(420)); await store.ContinueSessionAsync(active); }   // 1090 + 2100 s < 3600 s
+        Assert.Equal(created, (double)(await store.SessionTimingAsync(active))["absolute_expires_at"]!, 3);
+        clock.Advance(TimeSpan.FromSeconds(3600));
+        await Assert.ThrowsAsync<AuthException>(() => store.SessionAsync(second));
+        Assert.Equal(60, AccountStore.WarningSeconds(300));
+        Assert.Equal(300, AccountStore.WarningSeconds(28800));
+        await Assert.ThrowsAsync<AuthException>(() => store.UpdatePolicyAsync(admin, 1, idle: 100, absolute: 3600));     // invalid values refused
+        await Assert.ThrowsAsync<AuthException>(() => store.UpdatePolicyAsync(admin, 1, idle: 7200, absolute: 3600));
+    }
+
+    [Fact]
+    public async Task Passive_activity_header_applies_only_to_reads_over_http_and_session_endpoints_report_and_continue()
+    {
+        await using var server = await StartServer();
+        var admin = await Bootstrap(server.Store);
+        await server.Post("/api/auth/login", new { username = "admin", password = Password });
+        using var passive = new HttpRequestMessage(HttpMethod.Get, "/api/auth/session");
+        passive.Headers.Add("X-AuthLens-Activity", "passive");
+        var timing = JsonNode.Parse(await (await server.Client.SendAsync(passive)).Content.ReadAsStringAsync())!;
+        Assert.Equal("inactivity", (string)timing["reason"]!);
+        Assert.True((double)timing["expires_at"]! > (double)timing["now"]!);
+        var continued = await server.Post("/api/auth/session/continue", new { });
+        Assert.Equal(HttpStatusCode.OK, continued.StatusCode);
+        Assert.NotNull(JsonNode.Parse(await continued.Content.ReadAsStringAsync())!["idle_expires_at"]);
+        _ = admin;
+    }
+
+    [Fact]
     public async Task Personal_theme_is_independent_for_reviewers_and_persists_across_sessions_and_store_restart()
     {
         var (store, clock) = NewStore();
