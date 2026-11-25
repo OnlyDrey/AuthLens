@@ -157,6 +157,7 @@ Status values: Not run · Passed · Failed · Blocked (environment). Evidence na
 | 3 | C9 | Post-installation network change (Service Manager) | Not run | | | |
 | 3 | C10 | Firewall, DNS, TLS, allowed hosts | Not run | | | |
 | 3 | D3, D7 | Same-server and remote UNC, unavailable share | Not run | | | |
+| 3 | D12 | Validation outcomes from the service (next candidate) | Not run | | | |
 | 4 | B6 to B10 | Failed-install retry, upgrade, repair, interrupted deployment, cleanup | Not run | | | |
 | 4 | E3 to E5 | Cross-instance restore, evidence integrity, SAP Lens backup migration | Not run | | | |
 | 4 | F9 | Service restart and VM reboot | Not run | | | |

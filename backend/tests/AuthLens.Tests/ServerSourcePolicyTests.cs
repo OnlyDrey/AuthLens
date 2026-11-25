@@ -32,6 +32,27 @@ public sealed class ServerSourcePolicyTests : IDisposable
     public void Arbitrary_browser_paths_are_denied(string path) => Assert.Throws<SourcePolicyException>(() => ServerSourcePolicy.Resolve(Host(), path));
 
     [Fact]
+    public void Refusals_name_the_reason_and_never_touch_a_UNC_path_before_authorization()
+    {
+        var folder = Directory.CreateDirectory(Path.Combine(_root, "exports")).FullName;
+        SourcePolicyFailure Failure(string path) => Assert.Throws<SourcePolicyException>(() => ServerSourcePolicy.Resolve(Host(), path)).Failure;
+        Assert.Equal(SourcePolicyFailure.NotAFile, Failure(folder));
+        Assert.Equal(SourcePolicyFailure.InvalidPath, Failure(Path.Combine(folder, "users.txt")));
+        Assert.Equal(SourcePolicyFailure.InvalidPath, Failure("relative.csv"));
+        Assert.Equal(SourcePolicyFailure.UnsafePath, Failure(Path.Combine(folder, "..", "exports", "users.csv")));
+        Assert.Equal(SourcePolicyFailure.Authorization, Failure(Path.Combine(folder, "users.csv")));
+        // A folder-like UNC path is refused lexically; no Directory.Exists or SMB access happens before authorization.
+        Assert.Equal(SourcePolicyFailure.InvalidPath, Failure(@"\\authlens-unresolvable.invalid\share\exports"));
+        var approved = Directory.CreateDirectory(Path.Combine(_root, "approved-dir")).FullName;
+        var named = Directory.CreateDirectory(Path.Combine(approved, "looks-like.csv")).FullName;
+        Assert.Equal(SourcePolicyFailure.NotAFile, Assert.Throws<SourcePolicyException>(() => ServerSourcePolicy.Resolve(Host(approved), named)).Failure);
+        Assert.Equal(("not_a_file", "invalid_path", "invalid_path", "policy_prohibited", "empty"), (
+            V1Refresh.Category(new SourcePolicyException(SourcePolicyFailure.NotAFile)).Category, V1Refresh.Category(new SourcePolicyException(SourcePolicyFailure.InvalidPath)).Category,
+            V1Refresh.Category(new SourcePolicyException(SourcePolicyFailure.UnsafePath)).Category, V1Refresh.Category(new SourcePolicyException()).Category,
+            V1Refresh.Category(new EmptySourceException()).Category));
+    }
+
+    [Fact]
     public void Authority_folder_name_matches_the_deployment_module()
     {
         if (!OperatingSystem.IsWindows()) return; // the deployment module (Get-ALSourceAuthorityDirectory) is Windows-only

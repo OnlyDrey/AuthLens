@@ -30,7 +30,7 @@ Nothing was installed or changed machine-wide: no Windows Service, firewall rule
 | 7 | Service Manager | Implemented; `GrantKeyAccess`, service-identity resolution, key-access status; RC2: network status/change (G-001), installation resolution from Setup registration (D-002) | `Service-Manager` (6 tests, real DACL on synthetic files) | Run elevated against an installed service |
 | 8 | Recovery keys and service permissions | Implemented: key states (`68ee12b`); least-privilege provisioning (this round) | `BackupCryptoTests` (earlier round), `Service-Manager`, `Server-Diagnostics` | Service-identity read under SCM (8.9, 8.10) |
 | 9 | Backup and restore | Implemented; restore copies and selects the key and re-grants service read (`Grant-ALAccess`); source authority excluded from backups by design | Earlier round `ApplicationBackupTests` | Encrypted backup and cross-instance restore (8.8) |
-| 10 | All server-side sources | Implemented | Earlier round: `ServerSourcePolicyTests`, `DataSourcesTests`, `server-source-configuration.spec.ts` | Service-identity reads (8.2) |
+| 10 | All server-side sources | Implemented; sixth round: precise validation outcomes (`not_a_file`, `invalid_path`, `empty`) and one-step **Validate and import** | Earlier round: `ServerSourcePolicyTests`, `DataSourcesTests`, `server-source-configuration.spec.ts`; sixth round: `DataSourcesTests`, `ServerSourcePolicyTests`, refresh, preview, reimport, directory, SoD metadata, backup and legacy restore classes (84), `server-source-configuration.spec.ts` | Service-identity reads (8.2) |
 | 11 | Local and UNC paths | Implemented (lexical + DNS policy, exact authority, revocation) | Earlier round (focused .NET) | **Blocker until run**: real SMB as the service (8.3, 8.5) |
 | 12 | Static/Dynamic and Global Refresh | Implemented | Earlier round (focused .NET) | Under SCM, restart, reboot (8.4, 8.7) |
 | 13 | Personal themes | Implemented (Codex `0817d57`) | Earlier round `personal-preferences.spec.ts` | Cross-browser on a server |
@@ -174,6 +174,19 @@ never deleted; every certificate change is a recorded transaction with rollback 
 | WP20 | .NET `CertificatePolicy`/`ServerPreflight`: required identities per access mode, bind IP not required unless allowed, allowed IP required, wildcard DNS, runtime and preflight agree. Pester `Server-Tls` (generation from the final configuration), `Server-NetworkChange` (listener change accepted when the IP is not an identity; an added identity the certificate lacks refused before any change with that identity named; combined network and certificate change with rollback), `Server-CertificateReplacement` (status fields, public export has no private key, upgrade/repair preserve), `Deployment-Recovery` (VerifyCandidate with a certificate completes; failure restores the previous certificate and phase; ordinary ReplaceCertificate still refused under the barrier), `Installer-Preflight` (imported certificate missing an identity refused before commit) |
 
 Native acceptance for the next candidate: runbook scenarios C11 to C13, B11 and B12 ([runbook](WINDOWS_VM_ACCEPTANCE.md#c-security-and-administration-from-s1-snapshot-s2-admin-after-c4)).
+
+## Sixth round: unified CSV import and server-side data sources (2026-11-25)
+
+Review of the existing implementation against the brief (all file-based sources, upload, local and UNC paths, Static and Dynamic, validation,
+security, integrity, Global Refresh, status, backup/restore/migration). Most of it was already implemented in earlier rounds and is
+verified by the focused tests listed in the [data-source coverage matrix](../data/IMPORT_AND_REFRESH.md#data-source-coverage-matrix).
+
+| Item | Result |
+| --- | --- |
+| Implemented | Validation outcomes distinguish a folder (`not_a_file`), an invalid or unsupported path (`invalid_path`), authorization required (`policy_prohibited`) and an empty dataset (`empty`, also in refresh results) instead of `access_denied`, a policy message or a generic `validation`; a UNC path is never touched before authorization. **Validate and import** in the server file panel validates as the service and imports exactly the validated content in one step; Test and Activate remain |
+| Verified existing | Shared policy and pipeline for all four sources, browser upload (Static), exact authorization and revocation, hash-bound activation, Static/Dynamic refresh semantics, last valid dataset kept, held suspicious imports, restart persistence, restore and legacy migration of snapshots, refresh reports |
+| Remaining gaps | Native Windows Service local/UNC reads (D2, D3, D6, D7, D12), restored-source reauthorization end to end (E3), persisted authorization audit trail (P2), source type shown in the compact source summary (the panel shows it in the source-type selector) |
+| Focused tests | .NET 84 passed (data sources, source policy, refresh, refresh reports, import preview, reimport, employee directory, SoD metadata, application backup, legacy restore); TypeScript check, ESLint (changed files) and `server-source-configuration.spec.ts` (bundled Chromium) passed; Python repository unit tests not run (PyYAML missing outside the isolated venv; no workflow changed) |
 
 ## Changes in the 2026-11-24 second round
 

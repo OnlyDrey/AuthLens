@@ -76,12 +76,13 @@ public static partial class V1DataSources
                 using (var input = File.OpenRead(temporary)) hash = Convert.ToHexStringLower(await SHA256.HashDataAsync(input, ct));
                 var (records, report) = Sources.Read(source, temporary, ct, profile);
                 var rows = await Task.Run(() => records.ToList(), ct);
+                if (rows.Count == 0) throw new EmptySourceException();
                 ImportService.ValidateModel(source, rows, report.Warnings, await services.GetRequiredService<SnapshotService>().GetAsync(ct), Path.GetFileName(path), hash);
                 services.GetRequiredService<ILoggerFactory>().CreateLogger("AuthLens.Sources").LogInformation("Server source validation succeeded for {Source} by {Actor}", source, Actors.Name(http));
                 return Results.Ok(new { status = "validated", records = rows.Count, sha256 = hash, revision = (int)settings["revision"]!, data_modified = false,
                     message = "Complete CSV validated under the running AuthLens process identity. No dataset was activated." });
             }
-            catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException or DomainValidationException or AuthLens.Domain.Csv.CsvFormatException or System.Net.Sockets.SocketException)
+            catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException or DomainValidationException or AuthLens.Domain.Csv.CsvFormatException or System.Net.Sockets.SocketException or InvalidDataException)
             {
                 var problem = V1Refresh.Category(error);
                 services.GetRequiredService<ILoggerFactory>().CreateLogger("AuthLens.Sources").LogWarning("Server source validation failed for {Source}: {Category}", source, problem.Category);

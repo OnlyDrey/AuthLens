@@ -139,6 +139,43 @@ public sealed class DataSourcesTests : IAsyncLifetime
         finally { Directory.Delete(external, true); }
     }
 
+    // Validate Source distinguishes the operator's situations from the running server process, without activating anything.
+    [Fact]
+    public async Task Source_validation_distinguishes_folder_invalid_path_authorization_missing_empty_and_valid()
+    {
+        await RestartAsync(HostMode.Server);
+        var external = Directory.CreateTempSubdirectory("authlens-validate-categories-").FullName;
+        try
+        {
+            async Task<(HttpStatusCode Status, JsonNode Body)> Validate(string path) =>
+                await Send(new HttpRequestMessage(HttpMethod.Post, "/api/server/sources/roles/validate") { Content = JsonContent.Create(new { path, revision = await Revision() }) });
+            async Task<(HttpStatusCode Status, JsonNode Body)> Authorize(string path) =>
+                await Send(new HttpRequestMessage(HttpMethod.Post, "/api/server/sources/roles/authorize") { Content = JsonContent.Create(new { path, approve_host_access = true }) });
+            var folder = await Validate(external);
+            Assert.Equal(("not_a_file", true), ((string)folder.Body["category"]!, (bool)folder.Body["previous_preserved"]!));
+            Assert.Contains("names a folder", (string)(await Authorize(external)).Body["detail"]!);
+            Assert.Equal("invalid_path", (string)(await Validate("relative.csv")).Body["category"]!);
+            Assert.Equal("invalid_path", (string)(await Validate(Path.Combine(external, "roles.txt"))).Body["category"]!);
+            Assert.Equal("invalid_path", (string)(await Validate(Path.Combine(external, "..", Path.GetFileName(external), "roles.csv"))).Body["category"]!);
+
+            var path = Path.Combine(external, "roles.csv");
+            await File.WriteAllTextAsync(path, Csv.Roles(3));
+            Assert.Equal("policy_prohibited", (string)(await Validate(path)).Body["category"]!); // not authorized yet
+            Assert.Equal(HttpStatusCode.OK, (await Authorize(path)).Status);
+            var valid = await Validate(path);
+            Assert.Equal(HttpStatusCode.OK, valid.Status);
+            Assert.Equal(("validated", false), ((string)valid.Body["status"]!, (bool)valid.Body["data_modified"]!)); Assert.True((int)valid.Body["records"]! > 0);
+
+            await File.WriteAllTextAsync(path, Csv.Roles(3).Split('\n')[0] + "\n"); // header only: an interrupted export
+            var empty = await Validate(path);
+            Assert.Equal(("empty", true), ((string)empty.Body["category"]!, (bool)empty.Body["previous_preserved"]!));
+            File.Delete(path);
+            Assert.Equal("missing", (string)(await Validate(path)).Body["category"]!);
+            Assert.Empty(JsonNode.Parse(await _client.GetStringAsync("/api/roles"))!.AsArray()); // validation never activated anything
+        }
+        finally { Directory.Delete(external, true); }
+    }
+
     private Task<(HttpStatusCode, JsonNode)> Upload(string source, string csv, int revision, bool confirm = false, string fileName = "export.csv", JsonObject? profile = null)
     {
         var form = new MultipartFormDataContent

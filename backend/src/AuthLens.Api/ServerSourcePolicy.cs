@@ -21,14 +21,17 @@ public static class ServerSourcePolicy
 
     public static string Canonical(string path)
     {
-        if (string.IsNullOrWhiteSpace(path) || path.Length > 4096 || !Path.IsPathFullyQualified(path) || path.Contains("://", StringComparison.Ordinal)
-            || path.Contains('\0') || !string.Equals(Path.GetExtension(path), ".csv", StringComparison.OrdinalIgnoreCase))
-            throw new SourcePolicyException();
+        if (string.IsNullOrWhiteSpace(path) || path.Length > 4096 || !Path.IsPathFullyQualified(path) || path.Contains("://", StringComparison.Ordinal) || path.Contains('\0'))
+            throw new SourcePolicyException(SourcePolicyFailure.InvalidPath);
+        if (!string.Equals(Path.GetExtension(path), ".csv", StringComparison.OrdinalIgnoreCase))
+            // A local folder is named as such; a UNC path is never touched before authorization (no outbound SMB authentication).
+            throw new SourcePolicyException(!path.StartsWith(@"\\", StringComparison.Ordinal) && !path.StartsWith("//", StringComparison.Ordinal) && Directory.Exists(path)
+                ? SourcePolicyFailure.NotAFile : SourcePolicyFailure.InvalidPath);
         var full = Path.GetFullPath(path);
         // On Windows refuse device paths and alternate data streams as well as traversal spellings.
         if (path.Split(['/', '\\']).Any(p => p is "." or "..") || OperatingSystem.IsWindows() &&
             (full.StartsWith(@"\\?\", StringComparison.Ordinal) || full.StartsWith(@"\\.\", StringComparison.Ordinal) || full[Path.GetPathRoot(full)!.Length..].Contains(':')))
-            throw new SourcePolicyException();
+            throw new SourcePolicyException(SourcePolicyFailure.UnsafePath);
         return full;
     }
 
@@ -44,7 +47,8 @@ public static class ServerSourcePolicy
         for (string? item = full; item is not null; item = Path.GetDirectoryName(item))
         {
             var attributes = File.GetAttributes(item); // preserves missing/access-denied errors; File.Exists would hide them
-            if ((attributes & FileAttributes.ReparsePoint) != 0) throw new SourcePolicyException();
+            if ((attributes & FileAttributes.ReparsePoint) != 0) throw new SourcePolicyException(SourcePolicyFailure.UnsafePath);
+            if (item == full && (attributes & FileAttributes.Directory) != 0) throw new SourcePolicyException(SourcePolicyFailure.NotAFile);
         }
         return full;
     }
@@ -76,5 +80,19 @@ public static class ServerSourcePolicy
     }
 }
 
-public sealed class SourcePolicyException() : ArgumentException("Server source paths prohibited by policy. An administrator must authorize this exact source in Data Sources, or the server operator must approve its directory. Browser uploads remain available.");
+/// <summary>Why a server source path was refused: authorization (the default: not authorized exactly or by an approved directory), an invalid path
+/// (not an absolute .csv path), a folder instead of a file, or an unsafe form (device path, alternate data stream, traversal, junction or link).</summary>
+public enum SourcePolicyFailure { Authorization, InvalidPath, NotAFile, UnsafePath }
+
+public sealed class SourcePolicyException(SourcePolicyFailure failure = SourcePolicyFailure.Authorization) : ArgumentException(failure switch
+{
+    SourcePolicyFailure.InvalidPath => "Enter the absolute path of a .csv file on the AuthLens server, for example D:\\Exports\\users.csv or \\\\server.domain.local\\share\\users.csv. Browser uploads remain available.",
+    SourcePolicyFailure.NotAFile => "The path names a folder, not a CSV file. Enter the complete path of the .csv file.",
+    SourcePolicyFailure.UnsafePath => "The path uses an unsupported form (device path, alternate data stream, traversal, junction or symbolic link). Use a plain path to the CSV file.",
+    _ => "Server source paths prohibited by policy. An administrator must authorize this exact source in Data Sources, or the server operator must approve its directory. Browser uploads remain available.",
+})
+{
+    public SourcePolicyFailure Failure { get; } = failure;
+}
+public sealed class EmptySourceException() : IOException("The CSV contains no usable records (empty or header only). Previous data is retained.");
 public sealed class SourceChangedException() : IOException("Source changed since validation.");

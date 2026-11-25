@@ -183,7 +183,7 @@ public sealed class RefreshTests : IAsyncLifetime
         var text = await response.Content.ReadAsStringAsync();
         Assert.True(response.IsSuccessStatusCode, text);
         var roles = Result(JsonNode.Parse(text)!.AsObject(), "roles");
-        Assert.Equal(("failed", "validation", true), ((string)roles["status"]!, (string)roles["category"]!, (bool)roles["previous_preserved"]!));
+        Assert.Equal(("failed", "empty", true), ((string)roles["status"]!, (string)roles["category"]!, (bool)roles["previous_preserved"]!));
         Assert.Equal(before, JsonNode.Parse(await _client.GetStringAsync("/api/roles"))!.AsArray().Count);
     }
 

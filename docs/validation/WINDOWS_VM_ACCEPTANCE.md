@@ -103,7 +103,7 @@ batches run as one unit; a `STOP-INTEGRITY` line ends the batch before any reloc
 
 ### Next-candidate scenarios (D-006, WP19, WP20; not applicable to RC3)
 
-Implemented in the sources after RC3 (`c077eaf` D-006, `6fbfd48` WP20, the WP19 commit); a candidate containing them needs build approval. Run
+Implemented in the sources after RC3 (`c077eaf` D-006, `6fbfd48` WP20, `928b6bc` WP19); a candidate containing them needs build approval. Run
 these only on a candidate whose build record lists them; on RC3 they are **Not applicable**, not failed. Never run B13's `-DryRun` commands with
 RC3 tools (D-006).
 
@@ -128,15 +128,16 @@ a row says otherwise. The source list and modes are in the [compatibility matrix
 | --- | --- | --- | --- | --- | --- |
 | D0 | Authority folder (8.1) | `icacls (Get-ChildItem C:\ProgramData\AuthLens -Force -Filter '.authlens-source-policy-*').FullName` | Protected; SYSTEM, Administrators, `NT SERVICE\AuthLens` Modify only | `D0-acl.txt` | — |
 | D1 | Browser upload | Settings → Data Sources → source → **Browser upload** → file | Import succeeds; snapshot counts shown | Screenshot, refresh history | — |
-| D2 | Local server path, Static and Dynamic (8.2) | **Local server file** → `C:\AuthLens-Sources\<file>.csv` → authorize → **Test connection and validate source** → **Activate validated source**; repeat in Dynamic mode | Validation reports records without activating; activation imports; status `Authorization: exact` | `/api/server/sources/<source>` JSON | — |
+| D2 | Local server path, Static and Dynamic (8.2) | **Local server file** → `C:\AuthLens-Sources\<file>.csv` → authorize → **Test connection and validate source** → **Activate validated source**; repeat in Dynamic mode with **Validate and import** (next candidate: one step, imports exactly the validated content) | Validation reports records without activating; activation imports; status `Authorization: exact` | `/api/server/sources/<source>` JSON | — |
 | D3 | Same-server and remote UNC (8.3) | As D2 with **Network file (UNC)** and each share; then try `\\<VM>\c$\…` and `\\<host>@SSL\…` | Reads succeed as the service identity; refused paths are rejected before SMB traffic | File-server audit/packet capture showing no request for refused targets | — |
 | D4 | Individual refresh and Global Refresh (8.4) | Change a Dynamic CSV; refresh that source; then Global Refresh | Changes appear only after validation; Static sources are skipped by Global Refresh | Refresh history export | — |
-| D5 | Missing and invalid files (8.5) | Rename the file; then replace with the empty and malformed variants; refresh each | `missing` / validation error; previous snapshot counts unchanged | Counts before/after | Restore the file |
+| D5 | Missing and invalid files (8.5) | Rename the file; then replace with the empty and malformed variants; refresh each | `missing`; header-only file `empty` (next candidate; RC3 reports `validation`); malformed `malformed_csv` or `headers`; previous snapshot counts unchanged | Counts before/after | Restore the file |
 | D6 | Denied access (8.5) | Remove the service identity's NTFS read (and on the remote share the computer account's); refresh | `access_denied`; snapshot unchanged | Refresh history | Restore permissions |
 | D7 | Unavailable share (8.5) | Disable the remote share or block SMB; refresh | `network_unavailable`; snapshot unchanged | Refresh history | Re-enable |
 | D8 | Authorization revocation (8.6) | **Revoke authorization**; refresh | `policy_prohibited`; path, mode and snapshot retained; status `required` | Source JSON | Re-authorize |
 | D9 | Restart and reboot persistence (8.7) | `Restart-Service AuthLens`; then reboot the VM | Dynamic configuration and authority persist; refresh succeeds without the browser | Source JSON after each | — |
 | D10 | Last valid dataset preserved | After D5 to D7, compare record counts with the last successful import | Identical | Counts | — |
+| D12 | Validation outcomes from the service (next candidate) | With **Test connection and validate source** enter in turn: the source folder itself, a `.txt` file, a relative path, an unauthorized CSV, a header-only CSV, a deleted CSV, then a valid one; repeat the folder case with a UNC folder path | `not_a_file` (folder named), `invalid_path`, `invalid_path`, `policy_prohibited` (authorization required), `empty`, `missing`, `validated` with record count; the UNC folder path is refused without any SMB connection (no outbound authentication in the remote share's security log) | Messages, share security log | — |
 | D11 | Employee Directory and Functional Groups | Activate the Employee Directory source; define two Functional Groups | Manager and Functional Group options populate User Access, SoD and Reviews filters | Screenshots | — |
 
 ## E. Backup and restore (from `S3-sources`)

@@ -60,11 +60,30 @@ Reports contain personal data and stay local. Diagnostic exports contain only al
 All four CSV sources use one policy for path selection, preview, individual refresh and Global Refresh.
 Browser uploads remain Static and never authorize access to client-device paths. In **Settings → Data Sources**,
 administrators choose **Browser upload**, **Local server file** or **Network file (UNC)** for each source.
-Server paths refer to the AuthLens host, not the browser computer. Enter the absolute CSV path, explicitly
-approve access to that exact file (and named SMB host/share), then **Test connection and validate source**.
-This reads the complete dataset as the running backend identity without activating it. **Activate validated
-source** imports a private copy only if its raw SHA-256 still matches. A changed file requires validation again.
-Normal source configuration does not require editing JSON, registry or environment variables.
+Server paths refer to the AuthLens host, not the browser computer. Enter the absolute CSV path and explicitly
+approve access to that exact file (and named SMB host/share). **Validate and import** (the normal flow, sources after RC3) reads the complete
+dataset as the running backend identity and then imports exactly that validated content (hash-bound; a suspicious reduction is still held
+for confirmation). **Test connection and validate source** only validates and changes nothing; **Activate validated source** imports a tested
+result later, only if its raw SHA-256 still matches. A changed file requires validation again. Normal source configuration does not require
+editing JSON, registry or environment variables.
+
+Validation runs in the AuthLens server process, so it proves access for the actual service identity, not for an administrator's PowerShell
+session. Outcomes (`category`; the last valid dataset is always kept, `previous_preserved: true`):
+
+| Category | Meaning |
+| --- | --- |
+| `validated` (status) | The source is accessible and complete; record count reported, nothing activated by a test |
+| `invalid_path` | Not an absolute `.csv` path, or an unsupported form (device path, alternate data stream, traversal, junction or symbolic link) |
+| `not_a_file` | The path names a folder; a local folder is detected, a UNC path is never touched before authorization |
+| `policy_prohibited` | Authorization required: not authorized exactly on this host or by an approved directory (also after restore or revocation) |
+| `missing` | The file does not exist (or the share path does not) |
+| `access_denied` | The service identity cannot read it (NTFS, or for UNC also the SMB share permission) |
+| `network_unavailable` | The share or server is unreachable, or its name does not resolve |
+| `malformed_csv`, `encoding`, `headers`, `dates`, `validation` | Invalid CSV format, encoding, missing required columns or mappings, invalid dates, other validation |
+| `empty` | No usable records (empty or header only) |
+| `source_changed` | The file changed while it was read or after validation |
+
+An unconfigured source shows its setup state (`authorization: none`, `configured: false`) and is counted separately by Global Refresh.
 
 Exact-file authorization is source-specific and held in a protected sibling folder of the data directory,
 `.authlens-source-policy-<data-path-hash>`. Deployment provisions only this folder for the service identity;
@@ -125,6 +144,37 @@ Historical code was inspected only; no Python service or fixtures were added to 
 | Browser uploads | Static managed uploads | Static multipart upload and durable managed copy | Native deployed UI smoke test |
 | Restore / restart | Saved source and durable snapshot; host source-root policy | Saved settings persist; host approval is independent; failed reads retain snapshots | AuthLens alpha and supported SAP Lens backup acceptance on Windows |
 | Unavailable/invalid source | Retain last valid data | Categorized refresh failures and durable snapshot retained | Denied ACL, disconnected share and recovery under SCM |
+
+#### Data-source coverage matrix
+
+Sources: the **SAP extract** is the Role Catalogue (SAP role/transaction extract) and the User–Role Mapping (SAP user/assignment extract);
+with the Employee Directory and the SoD Matrix these are all file-based sources (`Sources.All`); there are no others. Every source uses the
+same source policy (`ServerSourcePolicy`, `ServerSourceAuthorization`), validation endpoint, activation (`/api/data-sources/{source}/select`,
+multipart upload) and import pipeline (`ImportService`, staged and atomically activated dataset revisions); individual refresh and Global
+Refresh use the same resolution. Evidence: focused .NET tests on VM130 (Windows, not as a service) unless stated.
+
+| Capability | Role Catalogue | User–Role Mapping | Employee Directory | SoD Matrix | Evidence | Native acceptance |
+| --- | --- | --- | --- | --- | --- | --- |
+| Browser upload, Static | Yes | Yes | Yes | Yes | `DataSourcesTests` upload cases; `server-source-configuration.spec.ts` (panel) | D1 |
+| Local server file, Static and Dynamic | Yes | Yes | Yes | Yes | `DataSourcesTests.Administrator_authorizes_validates_and_activates_exact_server_file` (4 sources × 2 modes, restart, missing file) | D2 |
+| Network file (UNC), Static and Dynamic | Yes (same code path) | Yes | Yes | Yes | UNC lexical rules in `ServerSourcePolicyTests`; no SMB read is possible on VM130 | **D3, release blocker** |
+| Validate and import in one step (hash-bound) | Yes | Yes | Yes | Yes | `server-source-configuration.spec.ts` (all four panels) | D2 |
+| Validation outcomes (not configured, authorization required, missing, folder, invalid path, unsafe path, share unavailable, access denied, malformed, headers, empty, valid) | Yes | Yes | Yes | Yes | `DataSourcesTests.Source_validation_distinguishes_folder_invalid_path_authorization_missing_empty_and_valid`, `ServerSourcePolicyTests.Refusals_name_the_reason_and_never_touch_a_UNC_path_before_authorization`, category mapping | D5 to D7, D12 |
+| Static not reread by Global Refresh; Dynamic reread | Yes | Yes | Yes | Yes | `DataSourcesTests`, `RefreshTests` | D4 |
+| Failed or empty refresh keeps the last valid dataset | Yes | Yes | Yes | Yes | `RefreshTests.A_dynamic_source_whose_export_became_empty_keeps_its_data_on_refresh` (`empty`), `DataSourcesTests` | D5, D10 |
+| Partial success, per-source errors, View Changes only with changes | Yes | Yes | Yes | Yes | `RefreshTests`, `RefreshReportTests` | D4 |
+| Suspicious reduction held for confirmation | Yes | Yes | Yes | Yes | `SettingsReimportTests`, `DataSourcesTests` | D5 |
+| Exact authorization, revocation, `required` after restore | Yes | Yes | Yes | Yes | `DataSourcesTests.Revoked_server_authority_fails_closed_and_preserves_configuration_and_snapshot`, `ServerSourcePolicyTests` | D8, E3 |
+| Restart persistence (configuration, mode, snapshot) | Yes | Yes | Yes | Yes | `DataSourcesTests` restart cases | D9 |
+| Backup and restore, legacy migration | Yes | Yes | Yes | Yes | `ApplicationBackupTests`, `LegacyRestoreTests` (snapshots restored); the source authority is excluded from backups by design | E3, E5 |
+| Review and SoD evidence preserved across imports | n/a | Yes (review history) | n/a | Yes (fingerprints, revisions, stale reviews, approvals) | `SodSourceMetadataTests` (run in this round); the review and SoD suites were not rerun because their code is unchanged | E4 |
+| Administrator-only configuration | Yes | Yes | Yes | Yes | `ServerSourcePolicyTests` permission assertions | C2 smoke |
+
+Implemented in this round: precise validation categories (`not_a_file`, `invalid_path`, `empty`; `policy_prohibited` now means
+authorization required) and **Validate and import**. Remaining gaps: native Windows Service reads of local and UNC files (same-host and remote
+SMB), restored-source reauthorization end to end, and a persisted audit trail of source authorization beyond the service log (today
+authorization, revocation and validation are logged under `AuthLens.Sources` with the actor). Mocked or local tests never count as SMB or
+service-identity acceptance.
 
 Source-type compatibility (all four sources share one policy and pipeline; status per combination):
 

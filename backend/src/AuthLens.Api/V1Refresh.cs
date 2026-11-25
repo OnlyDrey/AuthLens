@@ -254,7 +254,10 @@ public static class V1Refresh
         {
             case SourceChangedException: return ("source_changed", "The CSV changed since validation. Validate the source again; previous data is retained.");
             case System.Net.Sockets.SocketException: return ("network_unavailable", "The network source name could not be resolved. Check enterprise DNS and connectivity; previous data is retained.");
+            case SourcePolicyException { Failure: SourcePolicyFailure.NotAFile }: return ("not_a_file", error.Message);
+            case SourcePolicyException { Failure: SourcePolicyFailure.InvalidPath or SourcePolicyFailure.UnsafePath }: return ("invalid_path", error.Message);
             case SourcePolicyException: return ("policy_prohibited", error.Message);
+            case EmptySourceException: return ("empty", error.Message);
             case FileNotFoundException or DirectoryNotFoundException: return ("missing", "The configured CSV is missing. Reconnect the share or choose an existing file.");
             case UnauthorizedAccessException: return ("access_denied", "The CSV could not be read. Check file and network-share permissions.");
             case IOException io when (io.HResult & 0xffff) is 53 or 64 or 67 or 121 or 1231:
@@ -263,6 +266,7 @@ public static class V1Refresh
             case CsvFormatException: return ("malformed_csv", "The CSV has malformed quoting or records. Correct the export and validate it again.");
             case DomainValidationException or ArgumentException or InvalidDataException:
                 var text = error.Message.PyLower();
+                if (text.Contains("no usable records")) return ("empty", "The CSV contains no usable records (empty or header only). Previous data is retained; use Clear source data to remove it intentionally.");
                 if (text.Contains("changed while being read")) return ("source_changed", "The CSV changed during validation. Wait for the external export to finish, then retry.");
                 if (text.Contains("row width") || text.Contains("malformed")) return ("malformed_csv", "CSV records do not match the expected structure. Review quoting, delimiters and row widths.");
                 if (new[] { "header", "mapped", "column" }.Any(text.Contains)) return ("headers", "Required headers or column mappings are invalid. Review this source’s CSV import format.");
