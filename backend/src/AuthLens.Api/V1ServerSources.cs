@@ -32,7 +32,10 @@ public static partial class V1DataSources
                 var configured = PathField.Values.Select(field => (string?)settings[field] ?? "");
                 return Results.Ok(new { host = Environment.MachineName, locations = ServerSourceBrowser.Locations(host, configured) });
             }
-            try { return Results.Ok(ServerSourceBrowser.Browse(host, path, q, all == true)); }
+            // Bounded: an unresponsive network location answers 503 after BrowseTimeout instead of holding the request (FILE-004). The enumeration
+            // itself is read-only and ends with the operating system's own SMB timeout.
+            try { return Results.Ok(await Task.Run(() => ServerSourceBrowser.Browse(host, path, q, all == true), ct).WaitAsync(ServerSourceBrowser.BrowseTimeout, ct)); }
+            catch (TimeoutException) { return Results.Json(new { detail = $"The location did not answer within {ServerSourceBrowser.BrowseTimeout.TotalSeconds:0} seconds from the AuthLens server.", category = "network_unavailable" }, statusCode: 503); }
             catch (SourcePolicyException error) when (error.Failure == SourcePolicyFailure.Authorization)
             { return Results.Json(new { detail = "This folder is not approved for browsing. An administrator can approve it under Approved folders; nothing was read from it.", category = "not_approved" }, statusCode: 403); }
             catch (SourcePolicyException error) { return Results.Json(new { detail = error.Message, category = error.Failure == SourcePolicyFailure.UnsafePath ? "unsafe_path" : "invalid_path" }, statusCode: 400); }

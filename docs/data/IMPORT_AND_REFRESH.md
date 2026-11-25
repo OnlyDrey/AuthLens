@@ -89,7 +89,9 @@ or stores SMB credentials, and never uses the browser user's sign-in.
 filesystem or network is touched, so an unapproved UNC path causes no SMB request; network targets must resolve to private addresses; every
 directory from the volume root down must be a plain directory (junctions and symbolic links are refused, and skipped inside listings); hidden,
 system and device entries are not listed; AuthLens private state (data, keys, TLS, backups, deployment state) is never listed even below a broad
-operator folder; listings are capped at 2,000 entries. API: `GET /api/server/sources/browse[?path=&q=&all=]`, `GET|POST|DELETE
+operator folder; listings are capped at 2,000 entries, and a location that does not answer within 15 seconds is reported as
+`network_unavailable` instead of holding the request. The picker also offers the last five folders selected in this browser (kept in the
+browser only; the server still enforces approval). API: `GET /api/server/sources/browse[?path=&q=&all=]`, `GET|POST|DELETE
 /api/server/sources/roots`.
 
 **Validate and import** (the normal flow) reads the complete dataset as the running backend identity and imports exactly that validated

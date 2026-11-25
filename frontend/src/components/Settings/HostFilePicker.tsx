@@ -19,6 +19,11 @@ const category = (error: unknown) => error instanceof ApiError ? (error.body as 
  * folders, as the AuthLens service identity (the backend enforces approval, links and private locations). Local and network (UNC) folders use one
  * experience. Selecting returns the persistent host path; nothing is read or imported here, and nothing can be deleted, renamed or moved.
  */
+/** Recently used host folders, kept in this browser only (folder paths, no file contents). The server still enforces approval on every listing. */
+const RECENT_KEY = 'authlens-host-recent-folders'
+function readRecent(): string[] { try { const value = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]'); return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string').slice(0, 5) : [] } catch { return [] } }
+function rememberRecent(folder: string) { try { localStorage.setItem(RECENT_KEY, JSON.stringify([folder, ...readRecent().filter(item => item.toLowerCase() !== folder.toLowerCase())].slice(0, 5))) } catch { /* optional convenience */ } }
+
 export function HostFilePicker({ initialPath = '', onSelect, onCancel }: { initialPath?: string; onSelect: (path: string) => void; onCancel: () => void }) {
   const client = useQueryClient()
   const start = initialPath ? (initialPath.toLowerCase().endsWith('.csv') ? parentFolder(initialPath) : initialPath) : ''
@@ -59,7 +64,7 @@ export function HostFilePicker({ initialPath = '', onSelect, onCancel }: { initi
       description={`Browsing ${host} as the AuthLens service. Files on your own device are uploaded with "Upload from this device" instead.`}
       footer={<>
         <Button onClick={onCancel}>Cancel</Button>
-        <Button variant="primary" disabled={!selected} onClick={() => onSelect(selected)}>Select</Button>
+        <Button variant="primary" disabled={!selected} onClick={() => { rememberRecent(parentFolder(selected)); onSelect(selected) }}>Select</Button>
       </>}>
       <div className="host-file-picker">
         <nav aria-label="Host locations" className="host-file-locations">
@@ -71,6 +76,11 @@ export function HostFilePicker({ initialPath = '', onSelect, onCancel }: { initi
                 {location.network ? <Network size={16} aria-hidden="true" /> : <HardDrive size={16} aria-hidden="true" />}<span>{location.name}</span>
                 <small>{location.kind === 'operator' ? 'Operator folder' : location.kind === 'approved' ? 'Approved folder' : 'Configured source'}</small>
               </button></li>)}</ul>}
+          {(() => { const known = new Set(locations.data?.locations.map(location => location.path.toLowerCase()) ?? []); const recent = readRecent().filter(path => !known.has(path.toLowerCase()))
+            return recent.length > 0 && <><p className="ui-description">Recently used</p><ul aria-label="Recently used folders">{recent.map(path => <li key={path}>
+              <button type="button" className="host-file-location" aria-current={folder === path ? 'location' : undefined} title={path} onClick={() => open(path)}>
+                {isNetworkPath(path) ? <Network size={16} aria-hidden="true" /> : <HardDrive size={16} aria-hidden="true" />}<span>{path.split(/[\\/]/).filter(Boolean).pop() ?? path}</span><small>Recent folder</small>
+              </button></li>)}</ul></> })()}
           <Button size="compact" variant="ghost" aria-expanded={manage} onClick={() => setManage(!manage)}><FolderCheck size={14} aria-hidden="true" />Approved folders</Button>
           {manage && <div className="grid gap-2" aria-label="Approved folders">
             {folders.data?.approved.length ? <ul className="grid gap-1">{folders.data.approved.map(path => <li key={path} className="flex min-w-0 items-center gap-2"><span className="host-file-path" title={path}>{path}</span><IconButton label={`Remove approval of ${path}`} onClick={() => void revoke(path)}><Trash2 size={14} /></IconButton></li>)}</ul> : <p className="ui-description">No administrator-approved folders.</p>}

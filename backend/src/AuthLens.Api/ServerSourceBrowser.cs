@@ -16,6 +16,8 @@ namespace AuthLens.Api;
 public static class ServerSourceBrowser
 {
     public const int MaxEntries = 2000;
+    /// <summary>Upper bound for one listing request, so an unavailable share cannot hold a request indefinitely.</summary>
+    public static readonly TimeSpan BrowseTimeout = TimeSpan.FromSeconds(15);
 
     public sealed record Entry(string Name, string Path, string Kind, long? Size, DateTimeOffset? Modified, bool Supported);
     public sealed record Crumb(string Name, string Path);
