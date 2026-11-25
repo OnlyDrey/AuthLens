@@ -151,6 +151,15 @@ Describe 'Read-only upgrade readiness input and artifact boundaries' {
             {Add-ReadinessFile $baseline $file}|Should -Throw '*protected_file_changed_during_check*'
             $baseline.files[$file]|Should -Be $before
         }
+        It 'names the category, side and file of a protected-file mismatch without its content (QA-017/021)' {
+            $file=Join-Path $root 'mismatch.txt';Set-Content $file 'SYNTHETIC_PRIVATE_MARKER'
+            $baseline=[pscustomobject]@{files=@{}}
+            $script:ReadinessMismatch=$null
+            {Add-ReadinessFile $baseline $file ('b'*64) ([ordered]@{category='config';side='installation source';file='config\installed-product.json'})}|Should -Throw '*protected_file_hash_mismatch*'
+            $script:ReadinessMismatch.category|Should -Be 'config'
+            $script:ReadinessMismatch.file|Should -Be 'config\installed-product.json'
+            ($script:ReadinessMismatch|ConvertTo-Json)|Should -Not -Match 'SYNTHETIC_PRIVATE_MARKER'
+        }
         It 'reports malformed JSON with a fixed code rather than its sensitive contents' {
             $file=Join-Path $root 'invalid.json';Set-Content $file '{"private":"SYNTHETIC_PRIVATE_MARKER"'
             try{Read-ReadinessJson $file;throw 'Expected refusal'}

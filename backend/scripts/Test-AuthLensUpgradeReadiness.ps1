@@ -72,10 +72,16 @@ function Get-ReadinessHash([string]$Path) {
     if(-not(Test-Path -LiteralPath $full -PathType Leaf)){Stop-Readiness 'required_file_missing'}
     (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant()
 }
-function Add-ReadinessFile($Baseline,[string]$Path,[string]$ExpectedHash='') {
+# QA-017/021: a mismatch names the protected file's category, side (bundle copy or installation source) and its path relative to the bundle or
+# installation root; never its content or hash material beyond this file's identity.
+$script:ReadinessMismatch=$null
+function Add-ReadinessFile($Baseline,[string]$Path,[string]$ExpectedHash='',$Context=$null) {
     $full=Resolve-ReadinessPath $Path
     $hash=Get-ReadinessHash $full
-    if($ExpectedHash -and ($ExpectedHash -notmatch '^[a-fA-F0-9]{64}$' -or $hash -ine $ExpectedHash)){Stop-Readiness 'protected_file_hash_mismatch'}
+    if($ExpectedHash -and ($ExpectedHash -notmatch '^[a-fA-F0-9]{64}$' -or $hash -ine $ExpectedHash)){
+        if($Context){$script:ReadinessMismatch=$Context}
+        Stop-Readiness 'protected_file_hash_mismatch'
+    }
     if($Baseline.files.ContainsKey($full) -and $Baseline.files[$full] -cne $hash){Stop-Readiness 'protected_file_changed_during_check'}
     $Baseline.files[$full]=$hash
 }
@@ -245,12 +251,17 @@ try {
     $result.checks+='existing installation and terminal journal';Write-Host 'PASS: existing installation and terminal journal'
 
     $result.stage='independent recovery evidence'
+    # QA-023: the selection is always reported; controlled acceptance passes -RecoveryReport explicitly (the acceptance harness requires it).
+    $result.recovery_report_selection='explicit'
     if(-not $RecoveryReport){
         $reports=Join-Path (Split-Path (Split-Path $PSScriptRoot)) 'build/lifecycle-work'
-        $latest=Get-ChildItem -LiteralPath $reports -File -Filter 'backup-result-*.json'|Sort-Object LastWriteTimeUtc -Descending|Select-Object -First 1
+        $latest=Get-ChildItem -LiteralPath $reports -File -Filter 'backup-result-*.json' -ErrorAction SilentlyContinue|Sort-Object LastWriteTimeUtc -Descending|Select-Object -First 1
         if(-not $latest){Stop-Readiness 'recovery_report_missing'}
         $RecoveryReport=$latest.FullName
+        $result.recovery_report_selection='latest_in_build_lifecycle_work (pass -RecoveryReport explicitly for controlled acceptance)'
+        Write-Host "WARNING: no -RecoveryReport given; using the newest report $($latest.Name). Pass -RecoveryReport explicitly for controlled acceptance."
     }
+    $result.recovery_report=Split-Path $RecoveryReport -Leaf
     $recovery=Read-ReadinessJson $RecoveryReport
     Add-ReadinessFile $baseline $RecoveryReport
     if($recovery.status -cne 'passed' -or -not(Test-ReadinessTrue $recovery.verified) -or
@@ -263,6 +274,12 @@ try {
     if(-not $audit.safe){Stop-Readiness 'recovery_acl_unverified'}
     $inventoryFile=Join-Path $bundle 'private-inventory.json'
     $inventory=Read-ReadinessJson $inventoryFile;Add-ReadinessFile $baseline $inventoryFile
+    # QA-022: recovery program identity against the active program, recorded before any comparison so a stale bundle is explained.
+    $recoveryManifestPath=Join-Path $bundle 'program/build-manifest.json'
+    $recoveryIdentity=if(Test-Path -LiteralPath $recoveryManifestPath){Read-ReadinessJson $recoveryManifestPath}else{$null}
+    $result.recovery_program=[ordered]@{source_sha=$(if($recoveryIdentity){$recoveryIdentity.source_sha}else{''});version=$(if($recoveryIdentity){$recoveryIdentity.version}else{''})}
+    $result.active_program=[ordered]@{source_sha=$old.source_sha;version=$old.version}
+    $result.recovery_program_matches_active=[bool]($recoveryIdentity -and $recoveryIdentity.source_sha -ceq $old.source_sha)
     if(-not @($inventory.files).Count -or @($inventory.files).Count -ne $recovery.private_files_verified){Stop-Readiness 'recovery_inventory_count_mismatch'}
     $pointerFile=Join-Path $config.DataDirectory 'backup-key-location.json'
     $pointer=Read-ReadinessJson $pointerFile;Add-ReadinessFile $baseline $pointerFile
@@ -275,8 +292,11 @@ try {
         $source=Resolve-ReadinessPath $entry.source
         if($copies.ContainsKey($copy) -or $entry.sha256 -notmatch '^[a-fA-F0-9]{64}$'){Stop-Readiness 'recovery_inventory_refused'}
         if(-not(Test-ALPathWithin $source $config.Root) -and -not(Test-ALPathWithin $source $config.ReleasesRoot) -and $source -notin @($selected.Values)){Stop-Readiness 'recovery_source_outside_reviewed_paths'}
-        Add-ReadinessFile $baseline $copy $entry.sha256
-        Add-ReadinessFile $baseline $source $entry.sha256
+        $relative=$copy.Substring($bundle.Length).TrimStart('\','/')
+        $category=($relative -split '[\\/]')[0]
+        $sourceRelative=if(Test-ALPathWithin $source $config.Root){$source.Substring($config.Root.TrimEnd('\','/').Length).TrimStart('\','/')}else{Split-Path $source -Leaf}
+        Add-ReadinessFile $baseline $copy $entry.sha256 ([ordered]@{category=$category;side='bundle copy';file=$relative})
+        Add-ReadinessFile $baseline $source $entry.sha256 ([ordered]@{category=$category;side='installation source (changed since the bundle was captured)';file=$sourceRelative})
         $copies[$copy]=$source
     }
     foreach($relative in $selected.Keys){
@@ -299,6 +319,12 @@ try {
     $passed=$true
 }catch{
     $result.failure_code=if($_.Exception.Data.Contains('AuthLensReadinessCode')){[string]$_.Exception.Data['AuthLensReadinessCode']}else{'unexpected_validation_error'}
+    if($result.failure_code -eq 'protected_file_hash_mismatch' -and $script:ReadinessMismatch){
+        $result.mismatch=$script:ReadinessMismatch
+        $hint=if($result.Contains('recovery_program_matches_active') -and -not $result.recovery_program_matches_active){'The recovery bundle captured another release; create a new bundle of the active installation.'}else{'The installation changed after the bundle was captured; create a new bundle.'}
+        $result.mismatch['action']=$hint
+        Write-Host "FAIL detail: $($script:ReadinessMismatch.category) / $($script:ReadinessMismatch.side) / $($script:ReadinessMismatch.file). $hint"
+    }
     $result.error_type=$_.Exception.GetType().Name
     $result.failure_line=$_.InvocationInfo.ScriptLineNumber
     # No exception text, invocation, stack, raw child output, configuration or private inventory is printed.

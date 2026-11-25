@@ -109,6 +109,7 @@ public static class ServerConfiguration
           --accounts-code                                         With --data-dir: issue a one-use initial administrator activation code locally.
               [--recover-administrator <username>]                 Instead issue a recovery code for an existing administrator; ends their sessions.
           --inspect-data                                          Inspect scratch copies of SQLite files and WAL without opening source databases.
+          --fingerprint-data                                      With --data-dir: integrity, foreign keys and per-table row fingerprints of scratch copies (no row content).
           --schema-info                                            With --data-dir: migrations this build knows and the database applied (read-only).
           --server-preflight                                       With explicit Server options: read-only TLS/network/schema/integrity and backup-key readiness; no listener, token or data initialization.
           --certificate-info                                       With explicit Server options: subject, issuer, validity, thumbprints, SANs and the

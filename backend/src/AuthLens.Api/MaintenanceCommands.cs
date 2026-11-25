@@ -24,12 +24,14 @@ namespace AuthLens.Api;
 /// <item><c>--restore FILE --replace-all-data --data-dir D</c>: stages and confirms an AuthLens or SAP Lens .slbak backup for this data directory
 /// with the same validation as Settings > Backup & Restore (host key from <c>--backup-key use</c>, or AUTHLENS_BACKUP_PASSPHRASE). It is applied at
 /// the next start, before the database opens, and rolled back by itself on failure. A new installation needs no recovery backup.</item>
+/// <item><c>--fingerprint-data --data-dir D</c>: integrity, foreign keys and per-table row fingerprints of private scratch copies (restore and
+/// upgrade verification); no row content, usernames or credentials.</item>
 /// <item><c>--adopt-legacy-database --data-dir D</c>: converts an unused SAP Lens database (sap-lens-v2.sqlite3) of D into authlens.sqlite3 with
 /// SQLite's backup API, verifies integrity, migration history and row counts, and only then gives the copy its name. The SAP Lens file is kept.</item>
 /// </list></summary>
 public static class MaintenanceCommands
 {
-    public static readonly string[] Names = ["--server-preflight", "--certificate-info", "--certificate-export-public", "--schema-info", "--inspect-data", "--backup-local", "--backup-verify", "--accounts-code", "--rebase-upload-paths", "--restore", "--adopt-legacy-database"];
+    public static readonly string[] Names = ["--server-preflight", "--certificate-info", "--certificate-export-public", "--schema-info", "--inspect-data", "--backup-local", "--backup-verify", "--accounts-code", "--rebase-upload-paths", "--restore", "--adopt-legacy-database", "--fingerprint-data"];
 
     public static bool Handles(string[] args) => Names.Any(args.Contains);
 
@@ -71,6 +73,7 @@ public static class MaintenanceCommands
             else if (args.Contains("--restore"))
                 result = RestoreArchive(data, Value("--restore") ?? throw new InvalidOperationException("--restore needs the archive path."), args.Contains("--replace-all-data"),
                     Environment.GetEnvironmentVariable("AUTHLENS_BACKUP_PASSPHRASE") ?? "");
+            else if (args.Contains("--fingerprint-data")) result = FingerprintData(data);
             else if (args.Contains("--inspect-data")) result = InspectData(data);
             else if (args.Contains("--schema-info")) result = SchemaInfo(data);
             else if (Value("--backup-local") is { } folder) result = BackupLocal(data, folder, DateTimeOffset.UtcNow);
@@ -367,6 +370,97 @@ public static class MaintenanceCommands
         {
             Directory.Delete(scratch, true);
         }
+    }
+
+    /// <summary>Read-only data fingerprints for restore and upgrade verification (WP22): integrity and foreign-key checks, then per table the row
+    /// count and a SHA-256 over every row in primary-key order, for the application and accounts stores. Works on private scratch copies (a
+    /// source that changes during the copy is refused), never on the original files. Prints no row content, usernames or credentials; the
+    /// accounts summary is only the number of users and of enabled administrators.</summary>
+    public static JsonObject FingerprintData(string data)
+    {
+        DatabaseOptions.ValidateLocal(data);
+        if (!Directory.Exists(data)) throw new InvalidOperationException("The data directory does not exist.");
+        var application = new DatabaseOptions { DataDirectory = data }.DatabasePath;
+        if (!File.Exists(application)) throw new InvalidOperationException("The active AuthLens database is missing.");
+        var accounts = AuthLens.Application.Accounts.AccountStore.For(data);
+        static string SharedHash(string path)
+        {
+            using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(input));
+        }
+        var scratch = Directory.CreateTempSubdirectory("authlens-fingerprint-").FullName;
+        try
+        {
+            var stores = new JsonObject();
+            foreach (var (name, database) in new[] { ("authlens.sqlite3", application), ("security/accounts.sqlite3", accounts) })
+            {
+                if (!File.Exists(database)) { stores[name] = null; continue; }
+                var target = Path.Combine(scratch, name.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                foreach (var suffix in new[] { "", "-wal", "-journal" })
+                {
+                    var input = database + suffix;
+                    if (!File.Exists(input)) continue;
+                    var before = SharedHash(input);
+                    using (var source = new FileStream(input, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    using (var copy = new FileStream(target + suffix, FileMode.CreateNew, FileAccess.Write)) source.CopyTo(copy);
+                    if (SharedHash(input) != before || SharedHash(target + suffix) != before)
+                        throw new InvalidOperationException("A store changed while it was copied; fingerprint a stopped or isolated data directory.");
+                }
+                stores[name] = FingerprintStore(target, name.StartsWith("security/", StringComparison.Ordinal));
+            }
+            return new JsonObject { ["read_only"] = true, ["mode"] = "stable-private-copy", ["stores"] = stores };
+        }
+        finally { SqliteConnection.ClearAllPools(); Directory.Delete(scratch, true); }
+    }
+
+    private static JsonObject FingerprintStore(string path, bool accountsStore)
+    {
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
+        connection.Open();
+        string Scalar(string sql) { using var c = connection.CreateCommand(); c.CommandText = sql; return Convert.ToString(c.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) ?? ""; }
+        var integrity = Scalar("PRAGMA integrity_check");
+        int violations; using (var fk = connection.CreateCommand()) { fk.CommandText = "PRAGMA foreign_key_check"; using var r = fk.ExecuteReader(); violations = 0; while (r.Read()) violations++; }
+        var names = new List<string>();
+        using (var list = connection.CreateCommand()) { list.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"; using var r = list.ExecuteReader(); while (r.Read()) names.Add(r.GetString(0)); }
+        var tables = new JsonObject();
+        foreach (var table in names)
+        {
+            var quoted = "\"" + table.Replace("\"", "\"\"") + "\"";
+            var columns = new List<(string Name, int Key)>();
+            using (var info = connection.CreateCommand()) { info.CommandText = $"PRAGMA table_info({quoted})"; using var r = info.ExecuteReader(); while (r.Read()) columns.Add((r.GetString(1), r.GetInt32(5))); }
+            var order = columns.Where(c => c.Key > 0).OrderBy(c => c.Key).Select(c => c.Name).ToList();
+            if (order.Count == 0) order = columns.Select(c => c.Name).ToList();
+            using var rows = connection.CreateCommand();
+            rows.CommandText = $"SELECT * FROM {quoted} ORDER BY " + string.Join(",", order.Select(c => "\"" + c.Replace("\"", "\"\"") + "\" COLLATE BINARY"));
+            using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+            long count = 0;
+            using (var reader = rows.ExecuteReader())
+                while (reader.Read())
+                {
+                    var row = new JsonArray();
+                    for (var i = 0; i < reader.FieldCount; i++)
+                        row.Add(reader.IsDBNull(i) ? null : reader.GetValue(i) switch { byte[] b => JsonValue.Create("blob:" + Convert.ToHexString(b)), long l => JsonValue.Create(l), double d => JsonValue.Create(d), var v => JsonValue.Create(Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture)) });
+                    var bytes = System.Text.Encoding.UTF8.GetBytes(row.ToJsonString());
+                    hash.AppendData(BitConverter.GetBytes((long)bytes.Length)); hash.AppendData(bytes); count++;
+                }
+            tables[table] = new JsonObject { ["count"] = count, ["sha256"] = Convert.ToHexStringLower(hash.GetHashAndReset()) };
+        }
+        var store = new JsonObject { ["integrity"] = integrity, ["foreign_key_violations"] = violations, ["tables"] = tables };
+        if (accountsStore && names.Contains("users"))
+        {
+            var userColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using (var info = connection.CreateCommand()) { info.CommandText = "PRAGMA table_info(users)"; using var r = info.ExecuteReader(); while (r.Read()) userColumns.Add(r.GetString(1)); }
+            store["users"] = long.Parse(Scalar("SELECT COUNT(*) FROM users"), System.Globalization.CultureInfo.InvariantCulture);
+            if (userColumns.Contains("enabled") && userColumns.Contains("role"))
+                store["enabled_administrators"] = long.Parse(Scalar("SELECT COUNT(*) FROM users WHERE enabled=1 AND role='administrator'"), System.Globalization.CultureInfo.InvariantCulture);
+        }
+        if (!accountsStore && names.Contains("Settings") && Scalar("SELECT Json FROM Settings WHERE Id=1") is { Length: > 0 } json)
+        {
+            var schedule = JsonNode.Parse(json)?["refresh_schedule"];
+            store["scheduled_refresh_enabled"] = schedule?["enabled"] is JsonValue enabled && enabled.TryGetValue<bool>(out var on) && on;
+        }
+        return store;
     }
 
     /// <summary>Stages and confirms a backup for this data directory without starting the server (fresh installation or offline restore).</summary>

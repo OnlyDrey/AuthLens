@@ -182,7 +182,7 @@ environment; `AuthLens.Acl.Native.Tests.ps1` and `AuthLens.Junction.Tests.ps1` r
 **Broad principals** (matched by well-known SID, so localized account names do not matter): Everyone `S-1-1-0`, Authenticated Users
 `S-1-5-11`, Users `S-1-5-32-545`, Interactive `S-1-5-4`, Network `S-1-5-2`, Anonymous Logon `S-1-5-7`, Guests `S-1-5-32-546`, Domain Users and
 Domain Guests (`S-1-5-21-…-513`/`-514`). An allow rule counts when it applies to the object itself or, on a folder, to new children
-(container/object inherit, also inherit-only): that is what a folder created later inherits. Deny rules and individual accounts are not findings.
+(container/object inherit, also inherit-only): that is what a folder created later inherits. Deny rules are not findings; individual accounts are reported separately as named-account review findings (below).
 *Read* is ReadData/ListDirectory, GENERIC_READ or GENERIC_ALL; *write* is any of WriteData/CreateFiles, AppendData/CreateDirectories, WriteEA,
 WriteAttributes, DeleteSubdirectoriesAndFiles, Delete, ChangePermissions, TakeOwnership, GENERIC_WRITE or GENERIC_ALL.
 
@@ -195,6 +195,16 @@ WriteAttributes, DeleteSubdirectoriesAndFiles, Delete, ChangePermissions, TakeOw
 `C:\ProgramData\AuthLens` with a protected DACL instead. A path that does not exist yet is reported (`exists: false`) without findings.
 Secure provisioning refuses a parent with broad delete/replacement or DACL/owner rights. `AuditAcl` reports every finding with path, role,
 principal, access, rights mask, inherited or explicit, and what it applies to.
+
+**Named accounts (D-008, after RC4).** An individual account that is neither broad nor expected (SYSTEM, Administrators, TrustedInstaller,
+CREATOR OWNER, OWNER RIGHTS, the configured service identity) and holds read or write on private material, or write on binaries, is reported per
+entry in `named_principals` and in the report's `named_principal_access` and `review_required` (the account name, and the remediation:
+`icacls <path> /remove:g <account>` after confirming the access is not deliberately approved). Such an account reads the recovery key, TLS
+password, API token and database from a non-elevated process, outside the UAC boundary that protects Administrators. `safe` keeps its meaning
+(no broad principal, required access present) because the installation gates rely on it; named accounts never make `safe` false, are never
+removed automatically, and ProtectAcl does not remove them. RC4 and earlier tools report only broad principals: on VM130 an explicit
+`windows-vm\<operator>` FullControl entry on `C:\ProgramData\AuthLens` (inherited by every private folder) was not reported (environmental
+configuration, not created by the product; see the acceptance tracker).
 
 This is a conservative allow-rule policy audit, not a Windows Authz effective-access calculation for every possible token. A broad allow remains
 a finding even when a deny might cancel it for a particular user; individual account membership is not expanded. Native fixtures verify the SID
@@ -448,6 +458,39 @@ by hand.
 **Data adoption (G-006, deferred).** A fresh installation whose data-ownership marker `.authlens-owned-data.json` is missing is still refused
 by recovery ("data is never adopted"). An audited adoption workflow is deferred to a later release; unknown or unowned data is never adopted
 automatically.
+
+### Recovery bundle, restore rehearsal and source authority (WP22, WP23; after RC4)
+
+Status: implemented after RC4 in the sources (Pester `Recovery-Tooling`, `Acl-NamedPrincipals`, `AuthLens.Deploy`, .NET
+`MaintenanceCommandsTests`); the restore rehearsal passed natively on VM130 against the RC3-VM130 bundle (acceptance tracker, WP22).
+
+- **Recovery bundle** `backend\scripts\recovery\New-AuthLensRecoveryBundle.ps1` (elevated; `-ConfigFile`, `-RecoveryRoot` default
+  `C:\AuthLens-Recovery`, `-ReportDirectory` default `<RecoveryRoot>\reports`). Captures, without stopping or reconfiguring the service, a
+  verified encrypted online backup of the installed release, the configuration, the configured TLS certificate and password file, the
+  configured recovery key, the `config`, `tls` and `keys` folders and the active program, in a new private folder; verifies the archive again
+  with the copied key; checks every source unchanged and the service (state, PID, command line, account, configuration) unchanged; refuses
+  storage that overlaps the installation, collisions and broad or unexpected named access on the bundle. One report per run
+  (`backup-result-<UTC>.json`, schema 2: program identity, file categories, service before/after); nothing is overwritten.
+- **Isolated restore rehearsal** `backend\scripts\recovery\Test-AuthLensRestoreRehearsal.ps1 -Bundle <bundle> -Verifier <AuthLens.Api.exe>`
+  (no elevation needed when the bundle ACL includes the operator). Verifies the archive with the copied key, stages it with `--restore`,
+  activates it in an owned process of the bundle's program on `127.0.0.1` and a free port with synthetic TLS and `--no-worker` (no import worker,
+  no refresh scheduler, no source authority), checks HTTPS readiness, runtime identity and the frontend, compares business, evidence and account
+  fingerprints with the archive and after a restart, and verifies that the active service, configuration, certificate, recovery key and archive
+  are unchanged. Only its own process is stopped. Report `restore-result.json` in the rehearsal folder.
+- **Data fingerprints** `AuthLens.Api.exe --fingerprint-data --data-dir <D>` (after RC4): integrity, foreign keys and per-table row counts and
+  SHA-256 of private scratch copies; no row content, usernames or credentials (accounts: user and enabled-administrator counts only).
+- These prove different things and are reported separately: archive integrity (`--backup-verify`), the recovery key (verification with the
+  copied key, escrow status in Service Manager), restore rehearsal (this script), backup freshness (the report time only), external escrow (an
+  operator copy outside the host) and the hypervisor snapshot (operator attestation; never verified by these tools).
+- **Upgrade readiness diagnostics** (`Test-AuthLensUpgradeReadiness.ps1`): reports `recovery_report_selection` (explicit, or the newest report in
+  `build\lifecycle-work` with a warning), `recovery_program` against `active_program`, and for `protected_file_hash_mismatch` the category,
+  side (bundle copy or installation source) and relative file, with the action (a new bundle). No content is printed.
+- **Source authority after an update (D-007).** Installations created before the web source authority existed and updated since had no
+  `.authlens-source-policy-*` folder, because only service installation, repair, restore and configuration changes provisioned it; the
+  service itself cannot create it in the protected root, so authorizing a server source failed. A deployment or Setup update now provisions
+  it before any change (create-only, the service identity's Modify right; an existing folder is validated and never widened; authorizations are
+  untouched). Status reports `source_authority: present|missing`, and the API answers 409 with this explanation instead of a generic error.
+  RC4 and earlier: run the installer Repair or `Deploy-AuthLens.ps1 -Action InstallService -Reconfigure -Yes` to provision it.
 
 ### Service restart
 
