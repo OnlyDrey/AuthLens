@@ -101,6 +101,34 @@ batches run as one unit; a `STOP-INTEGRITY` line ends the batch before any reloc
 | C9 | Post-install network change (8.15; Corporate install from B4) | `& $manager -Action ChangeNetwork -AllowedHosts 'lens.example.org,192.0.2.10,lens2.example.org'` (summary only), then with `-Yes`; `& $manager -Action ChangeNetwork -Port 18796 -ApproveFirewall -FirewallSources <client subnet> -FirewallProfiles Domain -Yes`; negative: `-ListenAddress 192.0.2.99` (not on the VM), a host the certificate lacks; forced failure: after the summary, occupy the new port from another elevated session (`$l=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Parse('192.0.2.10'),18797);$l.Start()`) and apply `-Port 18797 -RemoveFirewall -Yes` | Summary lists current and proposed values; valid changes answer on the new listener and the owned firewall rule follows; invalid proposals are refused before any change; the forced failure restores the previous configuration and command line; `& $deploy -Action Status` shows `configuration_change_pending: false` | Service Manager output, Status JSON before/after, `Get-NetFirewallRule -DisplayName 'AuthLens*' \| Get-NetFirewallPortFilter` | `& $deploy -Action Recover -ConfigFile $config -Yes` restores an interrupted change |
 | C10 | Firewall, DNS, TLS and allowed hosts | From the client: `Test-NetConnection lens.example.org -Port 18795`; `curl.exe -vk https://lens.example.org:18795/health/ready`; with a non-allowed Host header: `curl.exe -vk -H "Host: evil.example.org" https://192.0.2.10:18795/health/ready`; from a non-approved subnet | DNS resolves; TLS chain/name as configured (self-signed needs explicit trust); disallowed Host refused (HTTP 421/400); non-approved subnet blocked by the firewall | Outputs, `Get-NetFirewallRule` | — |
 
+### Acceptance harness (WP21)
+
+Use the maintained runner `backend\scripts\acceptance\Invoke-AuthLensAcceptance.ps1` (module `AuthLens.Acceptance.psm1`, cases in
+`backend\scripts\acceptance\cases`) instead of the ad-hoc `OP1`/`OP2`/`b13.ps1` scripts in the RC4 evidence folder (kept there as history; their
+results stand as recorded, with the assertion limits noted in the tracker). Every case states its execution context, expected exit code,
+expected refusal reason (and a forbidden one, so an unrelated refusal cannot pass), expected `simulation`/`changes_applied` fields and that the
+protected state stays unchanged; a group stops at the first unexpected mutation. Results: `<evidence>\<RunName>\results.json`; exit 0 passed, 1
+failed, 2 refused before running, 3 stopped on mutation.
+
+```powershell
+$runner = 'C:\Users\<operator>\Git\AuthLens\backend\scripts\acceptance\Invoke-AuthLensAcceptance.ps1'
+$built  = 'C:\AuthLens\AuthLens-2.0.0-2026-11-25_0807-37eadd5'
+# B13 (any context), B14 split into two guarded groups:
+powershell -NoProfile -ExecutionPolicy Bypass -File $runner -Operation B13 -Candidate $built -RunName B13-<n>
+powershell -NoProfile -ExecutionPolicy Bypass -File $runner -Operation B14Approval -Candidate $built -RunName B14-approval-<n>     # ELEVATED only
+powershell -NoProfile -ExecutionPolicy Bypass -File $runner -Operation B14Elevation -Candidate $built -RunName B14-elevation-<n>   # NON-elevated only
+# Lifecycle (B17 upgrade, C12, C14, B15 simulation check, B17 repair): elevated, state-changing, every prerequisite explicit.
+powershell -NoProfile -ExecutionPolicy Bypass -File $runner -Operation Lifecycle -Candidate $built -RunName Lifecycle-<n> -AuthorizeMutation `
+  -RecoveryReport <backup-result-*.json> -ReadinessReport <readiness output with AUTHLENS-UPGRADE-READINESS> -SnapshotAttestation '<Proxmox snapshot name>' `
+  -ExpectedInstalledSha <installed baseline commit> -VerifierExecutable <AuthLens.Api.exe with --fingerprint-data>
+```
+
+B14 elevation-refusal cases carry `-Yes`; the runner refuses them in an elevated session, and only cases whose inputs fail safely even if the
+gate were missing are run natively. Lifecycle refuses without `-AuthorizeMutation`, an explicit passed recovery report, a readiness PASS for the
+candidate younger than 24 hours that used an explicit report, verified escrow, the expected installed baseline, a terminal journal, the Setup
+hash from `build-summary.json` and a snapshot attestation (recorded as `operator_attested_not_verified`). The repair is validated read-only
+before the authorized stop; a refused plan starts the service again unchanged.
+
 ### RC4 priority order
 
 Run on RC4 (`C:\AuthLens\AuthLens-2.0.0-2026-11-25_0807-37eadd5`, [build record](ACCEPTANCE_TRACKER.md#rc4-build-record); verify A1 against its hashes first) in this order; stop and record a failure before continuing:

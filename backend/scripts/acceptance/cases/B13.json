@@ -1,0 +1,487 @@
+{
+  "scenario": "B13",
+  "context": "any",
+  "description": "Simulations leave the persistent installation state unchanged; unsupported -DryRun actions refuse before running. Recovery cases here cover the journal state of the installation under test only (a terminal journal does not cover interrupted-recovery simulation).",
+  "cases": [
+    {
+      "id": "Deploy-DryRun",
+      "args": [
+        "-Action",
+        "Deploy",
+        "-Release",
+        "{release}",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          0
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Deploy-DryRun-Yes",
+      "args": [
+        "-Action",
+        "Deploy",
+        "-Release",
+        "{release}",
+        "-DryRun",
+        "-Yes"
+      ],
+      "expect": {
+        "exit": [
+          0
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Recover-DryRun",
+      "args": [
+        "-Action",
+        "Recover",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          0,
+          2
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Recover-DryRun-Yes",
+      "args": [
+        "-Action",
+        "Recover",
+        "-DryRun",
+        "-Yes"
+      ],
+      "expect": {
+        "exit": [
+          0,
+          2
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Recover-VerifyCandidate-DryRun",
+      "args": [
+        "-Action",
+        "Recover",
+        "-RecoveryAction",
+        "VerifyCandidate",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          0,
+          2
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Recover-VerifyCandidate-DryRun-Yes",
+      "args": [
+        "-Action",
+        "Recover",
+        "-RecoveryAction",
+        "VerifyCandidate",
+        "-DryRun",
+        "-Yes"
+      ],
+      "expect": {
+        "exit": [
+          0,
+          2
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Recover-Resume-DryRun",
+      "args": [
+        "-Action",
+        "Recover",
+        "-RecoveryAction",
+        "Resume",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          0,
+          2
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Recover-Rollback-DryRun",
+      "args": [
+        "-Action",
+        "Recover",
+        "-RecoveryAction",
+        "Rollback",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          0,
+          2
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Recover-Cancel-DryRun",
+      "args": [
+        "-Action",
+        "Recover",
+        "-RecoveryAction",
+        "Cancel",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          0,
+          2
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "ReplaceCertificate-DryRun",
+      "args": [
+        "-Action",
+        "ReplaceCertificate",
+        "-CertificateFile",
+        "{cert_full}",
+        "-CertificatePasswordFile",
+        "{cert_full_password}",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          0
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "ReplaceCertificate-DryRun-Yes",
+      "args": [
+        "-Action",
+        "ReplaceCertificate",
+        "-CertificateFile",
+        "{cert_full}",
+        "-CertificatePasswordFile",
+        "{cert_full_password}",
+        "-DryRun",
+        "-Yes"
+      ],
+      "expect": {
+        "exit": [
+          0
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "ReplaceCertificate-MissingSAN-DryRun",
+      "args": [
+        "-Action",
+        "ReplaceCertificate",
+        "-CertificateFile",
+        "{cert_missing}",
+        "-CertificatePasswordFile",
+        "{cert_missing_password}",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "subject alternative names do not include",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "ChangeNetwork-DryRun",
+      "args": [
+        "-Action",
+        "ChangeNetwork",
+        "-Port",
+        "18796",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          0
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true,
+        "result_fields": {
+          "validated": true
+        }
+      }
+    },
+    {
+      "id": "ChangeNetwork-DryRun-Yes",
+      "args": [
+        "-Action",
+        "ChangeNetwork",
+        "-Port",
+        "18796",
+        "-DryRun",
+        "-Yes"
+      ],
+      "expect": {
+        "exit": [
+          0
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true,
+        "result_fields": {
+          "validated": true
+        }
+      }
+    },
+    {
+      "id": "ProtectAcl-DryRun",
+      "args": [
+        "-Action",
+        "ProtectAcl",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          0
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "ProtectAcl-DryRun-Yes",
+      "args": [
+        "-Action",
+        "ProtectAcl",
+        "-DryRun",
+        "-Yes"
+      ],
+      "expect": {
+        "exit": [
+          0
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "RestartService-DryRun",
+      "args": [
+        "-Action",
+        "RestartService",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          0
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "RestartService-DryRun-Yes",
+      "args": [
+        "-Action",
+        "RestartService",
+        "-DryRun",
+        "-Yes"
+      ],
+      "expect": {
+        "exit": [
+          0
+        ],
+        "reason": "SIMULATION \\(-DryRun\\): no change was made",
+        "simulation": true,
+        "changes_applied": false,
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "InstallService-DryRun",
+      "args": [
+        "-Action",
+        "InstallService",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "-DryRun is not supported for InstallService; nothing was run or changed",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "InstallService-DryRun-Yes",
+      "args": [
+        "-Action",
+        "InstallService",
+        "-DryRun",
+        "-Yes"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "-DryRun is not supported for InstallService; nothing was run or changed",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Restore-DryRun",
+      "args": [
+        "-Action",
+        "Restore",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "-DryRun is not supported for Restore; nothing was run or changed",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Rollback-DryRun",
+      "args": [
+        "-Action",
+        "Rollback",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "-DryRun is not supported for Rollback; nothing was run or changed",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Rollback-DryRun-Yes",
+      "args": [
+        "-Action",
+        "Rollback",
+        "-DryRun",
+        "-Yes"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "-DryRun is not supported for Rollback; nothing was run or changed",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "RestoreAcl-DryRun",
+      "args": [
+        "-Action",
+        "RestoreAcl",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "-DryRun is not supported for RestoreAcl; nothing was run or changed",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "ExportCertificate-DryRun",
+      "args": [
+        "-Action",
+        "ExportCertificate",
+        "-PublicCertificateFile",
+        "{scratch}\never-written.cer",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "-DryRun is not supported for ExportCertificate; nothing was run or changed",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Build-DryRun",
+      "args": [
+        "-Action",
+        "Build",
+        "-DryRun"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "-DryRun is not supported for Build; nothing was run or changed",
+        "state_unchanged": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "scenario": "B14-elevation",
+  "context": "non-elevated",
+  "description": "With -Yes from a NON-elevated session every approval-gated action refuses on the elevation gate before anything runs. Never run from an elevated terminal (the runner refuses). Inputs fail safely if the gate were missing. Actions whose inputs cannot fail safely (RestartService, ChangeNetwork, ReplaceCertificate, InstallService, ProtectAcl) are covered by the same single elevation gate in Deploy-AuthLens.ps1 and by Pester, not natively with -Yes.",
+  "cases": [
+    {
+      "id": "Recover-Yes",
+      "args": [
+        "-Action",
+        "Recover",
+        "-Yes"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "needs an elevated session",
+        "forbidden_reason": "changes the service or its permissions; repeat with -Yes",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Rollback-Yes-nonexistent",
+      "args": [
+        "-Action",
+        "Rollback",
+        "-ToRelease",
+        "{scratch}\nonexistent-release",
+        "-Yes"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "needs an elevated session",
+        "forbidden_reason": "changes the service or its permissions; repeat with -Yes",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Deploy-Yes-nonexistent",
+      "args": [
+        "-Action",
+        "Deploy",
+        "-Release",
+        "{scratch}\nonexistent-release",
+        "-Yes"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "needs an elevated session",
+        "forbidden_reason": "changes the service or its permissions; repeat with -Yes",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Restore-Yes-nonexistent",
+      "args": [
+        "-Action",
+        "Restore",
+        "-Backup",
+        "{scratch}\nonexistent.slbak",
+        "-Yes"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "needs an elevated session",
+        "forbidden_reason": "changes the service or its permissions; repeat with -Yes",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "RestoreAcl-Yes-nonexistent",
+      "args": [
+        "-Action",
+        "RestoreAcl",
+        "-AclBackup",
+        "{scratch}\nonexistent-acl",
+        "-Yes"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "needs an elevated session",
+        "forbidden_reason": "changes the service or its permissions; repeat with -Yes",
+        "state_unchanged": true
+      }
+    }
+  ]
+}
