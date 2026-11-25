@@ -7,6 +7,10 @@ using System.Text.Json;
 
 namespace AuthLens.Api;
 
+/// <summary>The protected source-authority folder is missing and this process may not create it (D-007). Nothing was authorized.</summary>
+public sealed class SourceAuthorityUnavailableException() : InvalidOperationException(
+    "The server source authority folder is missing and the service cannot create it, so nothing was authorized. An administrator provisions it with the Server installer's Repair or a supported upgrade (deployment tools after RC4), or with Deploy-AuthLens.ps1 -Action InstallService -Reconfigure -Yes. Browser uploads remain available.");
+
 /// <summary>Exact-file administrator authority. Outside restorable data, authenticated to this host token and data path.
 /// Restoring settings never grants filesystem authority. No directory browsing, share credentials or wildcard grants.</summary>
 public static class ServerSourceAuthorization
@@ -91,7 +95,9 @@ public static class ServerSourceAuthorization
                 var security = new DirectorySecurity(); security.SetAccessRuleProtection(true, false);
                 foreach (var sid in new[] { WindowsIdentity.GetCurrent().User!, new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null) })
                     security.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
-                new DirectoryInfo(directory).Create(security);
+                // The installed service cannot create folders in the protected installation root; deployment provisions this one (D-007).
+                try { new DirectoryInfo(directory).Create(security); }
+                catch (UnauthorizedAccessException) { throw new SourceAuthorityUnavailableException(); }
             }
             else Directory.CreateDirectory(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }

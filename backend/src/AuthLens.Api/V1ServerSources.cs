@@ -46,6 +46,7 @@ public static partial class V1DataSources
                 http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("AuthLens.Sources").LogInformation("Server source authority updated for {Source} by {Actor}; no source data activated", source, Actors.Name(http));
                 return Results.Ok(new { authorized = true, data_modified = false });
             }
+            catch (SourceAuthorityUnavailableException error) { return Detail(409, error.Message); }
             catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException)
             { return Detail(400, V1Refresh.Category(error).Message); }
         });

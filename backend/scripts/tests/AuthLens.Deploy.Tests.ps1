@@ -1,4 +1,4 @@
-# Pester 5 tests of the AuthLens Windows deployment state machine (scripts/deploy/AuthLens.Deploy.psm1). Every operating-system action (service
+﻿# Pester 5 tests of the AuthLens Windows deployment state machine (scripts/deploy/AuthLens.Deploy.psm1). Every operating-system action (service
 # control, the release link, HTTP, git, the server's maintenance commands) is mocked; folders live in TestDrive. Nothing is installed or started.
 BeforeAll {
     . (Join-Path $PSScriptRoot 'TestHelpers.ps1')
@@ -57,6 +57,7 @@ BeforeAll {
         Mock -ModuleName $M Get-ALListener { if ($script:State.Service -eq 'Running') { $script:State.Pid } }
         Mock -ModuleName $M Set-ALServiceBinary { param($Name, $BinaryPath) $script:Calls.Add('binary:' + $(if ($BinaryPath -eq (Get-ALBinaryPath $Config)) { 'managed' } else { 'original' })); $script:Expected = $BinaryPath }
         Mock -ModuleName $M Start-Sleep { }
+        Mock -ModuleName $M Initialize-ALSourceAuthorityDirectory { $script:Calls.Add('source-authority') }
         Mock -ModuleName $M Stop-Process { throw 'Stop-Process must never be called' }
         Mock -ModuleName $M Invoke-ALHttp {
             param($Url)
@@ -209,7 +210,7 @@ Describe 'Deployment' {
         Use-FakeHost $script:Config $script:Previous
         $script:State.Identity[$script:Target] = $script:New
         Invoke-Deploy $script:Config $script:Target | Should -Be 0
-        ($script:Calls -join ' ') | Should -Be 'schema:new backup verify stop link:new start:new'
+        ($script:Calls -join ' ') | Should -Be 'schema:new source-authority backup verify stop link:new start:new'
         (Read-ALJournal $script:Config).phase | Should -Be 'complete'
         (Read-ALJournal $script:Config).backup.sha256 | Should -Be ('d' * 64)
     }
@@ -231,6 +232,9 @@ Describe 'Deployment' {
         $null=New-ALRun $script:Config 'installer'
         Invoke-ALDeploy $script:Config $script:Target $script:New -RequireRollback
         (Read-ALJournal $script:Config).phase | Should -Be 'complete'
+        # D-007: the update provisions the web source-authority folder before anything changes (before the stop).
+        $script:Calls.IndexOf('source-authority') | Should -BeGreaterThan -1
+        $script:Calls.IndexOf('source-authority') | Should -BeLessThan $script:Calls.IndexOf('backup')
         Should -Invoke -ModuleName $M Invoke-ALMaintenance -Times 1 -ParameterFilter { $Arguments[0] -eq '--backup-local' -and $ExePath -like '*old*' }
         $script:Calls | Should -Not -Contain 'binary:managed'
     }
@@ -269,7 +273,7 @@ Describe 'Deployment' {
         Use-FakeHost $script:Config $script:Previous @{ WrongIdentity = $true }
         $script:State.Identity[$script:Target] = $script:New
         Invoke-Deploy $script:Config $script:Target | Should -Be 1
-        ($script:Calls -join ' ') | Should -Be 'schema:new backup verify stop link:new start:new stop schema:old link:old start:old'
+        ($script:Calls -join ' ') | Should -Be 'schema:new source-authority backup verify stop link:new start:new stop schema:old link:old start:old'
         (Read-ALJournal $script:Config).phase | Should -Be 'rolled_back'
         $script:State.Link | Should -Be $script:Previous
     }
@@ -494,7 +498,7 @@ Describe 'Adopting a hand-installed service' {
         $script:State.Identity[$script:Target] = $script:New
         $null = New-ALRun $script:Config 'deploy'
         (Invoke-ALDeploy $script:Config $script:Target $script:New -AdoptService).deployed | Should -BeTrue
-        ($script:Calls -join ' ') | Should -Be 'schema:new backup verify stop link:new binary:managed start:new'
+        ($script:Calls -join ' ') | Should -Be 'schema:new source-authority backup verify stop link:new binary:managed start:new'
         (Read-ALJournal $script:Config).service_binary_before | Should -Be $script:Original      # captured for rollback
     }
 
@@ -504,7 +508,7 @@ Describe 'Adopting a hand-installed service' {
         $script:State.Identity[$script:Target] = $script:New
         $null = New-ALRun $script:Config 'deploy'
         (Invoke-ALDeploy $script:Config $script:Target $script:New -AdoptService).deployed | Should -BeTrue
-        ($script:Calls -join ' ') | Should -Be 'schema:new backup verify stop link:new binary:managed start:new'
+        ($script:Calls -join ' ') | Should -Be 'schema:new source-authority backup verify stop link:new binary:managed start:new'
     }
 
     It 'restores the original command line when the adopted deployment fails' {
@@ -627,6 +631,6 @@ Describe 'Managed service detection (binary_path_matches)' {
         $script:Expected = $script:Equivalent
         $script:State.Identity[$script:Target] = $script:New
         Invoke-Deploy $script:Config $script:Target | Should -Be 0
-        ($script:Calls -join ' ') | Should -Be 'schema:new backup verify stop link:new start:new'
+        ($script:Calls -join ' ') | Should -Be 'schema:new source-authority backup verify stop link:new start:new'
     }
 }

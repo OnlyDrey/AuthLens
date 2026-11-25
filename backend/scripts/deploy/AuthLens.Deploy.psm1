@@ -750,6 +750,8 @@ function Get-ALStatus($Config) {
         execution_context = $Config.ExecutionContext; access_mode = $Config.AccessMode; listen_address = $Config.ListenAddress; port = [int]$Config.Port
         allowed_hosts = @($Config.AllowedHosts); proxy_hosts = @($Config.ProxyHosts); trusted_proxies = @($Config.TrustedProxies); certificate = $Config.CertificatePath
         certificate_status = $(try { ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $Config) } catch { $null })
+        # D-007: whether the protected web source-authority folder exists (missing: server sources cannot be authorized until it is provisioned).
+        source_authority = $(try { if (Test-Path -LiteralPath (Get-ALSourceAuthorityDirectory $Config)) { 'present' } else { 'missing' } } catch { 'unknown' })
     }
 }
 
@@ -939,6 +941,10 @@ function Invoke-ALDeploy($Config, [string]$ReleaseFolder, [string]$Commit, [swit
         Write-ALLog 'dry run: no backup, no service change'
         return [pscustomobject]@{ dry_run = $true; plan = $journal }
     }
+    # D-007: installations created before the web source authority existed (and updated since) never received its protected folder, because
+    # only service installation, repair, restore and configuration changes provisioned it. Provision it here, before any change: create-only
+    # with the service identity's Modify right; an existing folder is validated, never widened, and its authorizations are never touched.
+    if ($service.Exists) { Initialize-ALSourceAuthorityDirectory $Config }
     Set-ALPhase $Config $journal 'backup'
     if ($schema.database_exists) {
         $backupExe = if ($previous) { Join-AL $previous 'server\AuthLens.Api.exe' } else { $newExe }

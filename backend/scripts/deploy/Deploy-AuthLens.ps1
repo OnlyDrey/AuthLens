@@ -136,7 +136,7 @@ try {
     # NTFS audit (read-only) of the installation's private state, releases and configuration. Exit code 0 when no broad principal can read private
     # state or write anywhere it matters, 2 otherwise.
     if ($Action -eq 'AuditAcl' -or ($Action -eq 'ProtectAcl' -and $DryRun)) {
-        $report = Get-ALAclReport (Get-ALAclPlan $config)
+        $report = Get-ALAclReport (Get-ALAclPlan $config) -ExpectedSids (Get-ALAclExpectedSids $config)
         Write-Result $report $(if ($report.safe) { 0 } else { 2 })
     }
     if ($changing -and -not (Test-Elevated)) { Stop-AL "$Action needs an elevated session (an administrator account over SSH, or Run as administrator)." }

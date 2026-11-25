@@ -58,29 +58,53 @@ function Get-ALAclFindings($Rules, [ValidateSet('private', 'binaries')][string]$
     }
 }
 
+# D-008: principals that are neither broad nor expected (SYSTEM, Administrators, TrustedInstaller, CREATOR OWNER, OWNER RIGHTS, the configured
+# service identity and any explicitly expected SIDs). A named account with read or write on private material (keys, TLS, tokens, databases,
+# backups, deployment state) can read it from a non-elevated process, outside the UAC boundary that protects Administrators. These are review
+# findings, not broad exposure: legitimate explicit grants exist, so they never make an audit unsafe on their own and are never removed.
+$script:AclAlwaysExpected = @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464', 'S-1-3-0', 'S-1-3-4')
+function Get-ALAclNamedFindings($Rules, [ValidateSet('private', 'binaries')][string]$Class, [bool]$IsContainer, [string[]]$ExpectedSids = @()) {
+    $mask = if ($Class -eq 'private') { $script:AclRead -bor $script:AclWrite } else { $script:AclWrite }
+    foreach ($rule in @($Rules)) {
+        if (-not $rule -or -not $rule.Allow -or (Test-ALBroadSid $rule.Sid) -or $rule.Sid -in $script:AclAlwaysExpected -or $rule.Sid -in $ExpectedSids) { continue }
+        $self = -not $rule.InheritOnly
+        $children = $IsContainer -and ($rule.ContainerInherit -or $rule.ObjectInherit)
+        if ((-not $self -and -not $children) -or -not ([int64]$rule.Rights -band $mask)) { continue }
+        $name = try { ([Security.Principal.SecurityIdentifier]::new($rule.Sid)).Translate([Security.Principal.NTAccount]).Value } catch { $rule.Sid }
+        [pscustomobject]@{ sid = $rule.Sid; principal = $name; access = $(if ([int64]$rule.Rights -band $script:AclWrite) { 'write' } else { 'read' })
+            rights = ('0x{0:X8}' -f [int64]$rule.Rights); inherited = [bool]$rule.Inherited
+            applies = $(if ($self -and $children) { 'this folder and new children' } elseif ($self) { 'this object' } else { 'new children only' }) }
+    }
+}
+
 # Audits one path (and, with -Recurse, every descendant). A missing path has no findings; the caller decides whether that is acceptable.
-function Get-ALAclAudit([string]$Path, [string]$Class, [string]$Role, [switch]$Recurse) {
-    if (-not (Test-Path -LiteralPath $Path)) { return [pscustomobject]@{ path = $Path; role = $Role; class = $Class; exists = $false; findings = @() } }
+function Get-ALAclAudit([string]$Path, [string]$Class, [string]$Role, [switch]$Recurse, [string[]]$ExpectedSids = @()) {
+    if (-not (Test-Path -LiteralPath $Path)) { return [pscustomobject]@{ path = $Path; role = $Role; class = $Class; exists = $false; findings = @(); named = @() } }
     $item = Get-Item -LiteralPath $Path -Force
     $findings = [Collections.Generic.List[object]]::new()
-    foreach ($finding in @(Get-ALAclFindings @(Get-ALAclRules $Path) $Class $item.PSIsContainer)) {
+    $named = [Collections.Generic.List[object]]::new()
+    $rootRules = @(Get-ALAclRules $Path)
+    foreach ($finding in @(Get-ALAclFindings $rootRules $Class $item.PSIsContainer)) {
         $finding | Add-Member -NotePropertyName path -NotePropertyValue $Path
         $findings.Add($finding)
     }
+    foreach ($finding in @(Get-ALAclNamedFindings $rootRules $Class $item.PSIsContainer $ExpectedSids)) { $finding | Add-Member -NotePropertyName path -NotePropertyValue $Path; $named.Add($finding) }
     if ($Recurse -and $item.PSIsContainer) {
         Write-ALAclProgress 'audit_inventory' -Stage $Path
         $children = @(Get-ALAclItems $Path | Where-Object FullName -ne $item.FullName)
         $processed = 0
         foreach ($child in $children) {
-            foreach ($finding in @(Get-ALAclFindings @(Get-ALAclRules $child.FullName) $Class $child.PSIsContainer | Where-Object { -not $_.inherited })) {
+            $childRules = @(Get-ALAclRules $child.FullName)
+            foreach ($finding in @(Get-ALAclFindings $childRules $Class $child.PSIsContainer | Where-Object { -not $_.inherited })) {
                 $finding | Add-Member -NotePropertyName path -NotePropertyValue $child.FullName
                 $findings.Add($finding)
             }
+            foreach ($finding in @(Get-ALAclNamedFindings $childRules $Class $child.PSIsContainer $ExpectedSids | Where-Object { -not $_.inherited })) { $finding | Add-Member -NotePropertyName path -NotePropertyValue $child.FullName; $named.Add($finding) }
             Write-ALAclProgress 'audit' (++$processed) $children.Count $Path
         }
         Write-ALAclProgress 'audit' $processed $children.Count $Path -Force
     }
-    [pscustomobject]@{ path = $Path; role = $Role; class = $Class; exists = $true; findings = $findings.ToArray() }
+    [pscustomobject]@{ path = $Path; role = $Role; class = $Class; exists = $true; findings = $findings.ToArray(); named = $named.ToArray() }
 }
 
 # The paths an installation depends on, each with its class and the access its service needs: data (database, logs, backups, accounts) modify;
@@ -104,16 +128,29 @@ function Get-ALAclPlan($Config, [string]$KeyPath = '') {
     )
 }
 
-function Get-ALAclReport($Plan) {
+# The SIDs an installation legitimately grants beyond SYSTEM/Administrators: its service identity.
+function Get-ALAclExpectedSids($Config) {
+    @(try { ([Security.Principal.NTAccount]::new($Config.ServiceAccount)).Translate([Security.Principal.SecurityIdentifier]).Value } catch { })
+}
+
+# 'safe' keeps its meaning (no broad principal, required access present) because deployment gates rely on it. Named-account access to private
+# material is reported separately (named_principal_access, review_required) with remediation guidance; nothing is removed automatically.
+function Get-ALAclReport($Plan, [string[]]$ExpectedSids = @()) {
     $entries = foreach ($entry in @($Plan)) {
-        $audit = Get-ALAclAudit $entry.Path $entry.Class $entry.Role -Recurse:$entry.Recurse
+        $audit = Get-ALAclAudit $entry.Path $entry.Class $entry.Role -Recurse:$entry.Recurse -ExpectedSids $ExpectedSids
         $required = $true
         if (Test-Path -LiteralPath $entry.Path) { try { Assert-ALAclRequiredAccess $entry.Path } catch { $required = $false } }
         [pscustomobject]@{ path = $entry.Path; role = $entry.Role; class = $entry.Class; exists = (Test-Path -LiteralPath $entry.Path)
-            required_access_verified = $required; findings = @($audit.findings) }
+            required_access_verified = $required; findings = @($audit.findings); named_principals = @(if ($audit.PSObject.Properties['named']) { $audit.named }) }
     }
     $entries = @($entries)
-    [pscustomobject]@{ safe = (@($entries | Where-Object { $_.findings.Count -gt 0 -or -not $_.required_access_verified }).Count -eq 0); entries = $entries }
+    $named = @($entries | ForEach-Object { @($_.named_principals) } | Where-Object { $_ })
+    $review = if ($named.Count) {
+        $accounts = @($named | ForEach-Object principal | Sort-Object -Unique) -join ', '
+        "Named account(s) $accounts can read or change private AuthLens material outside the Administrators/UAC boundary. If that access is not deliberately approved, remove it with icacls <path> /remove:g <account> (ProtectAcl never removes named accounts); keep SYSTEM, Administrators and the service identity."
+    } else { '' }
+    [pscustomobject]@{ safe = (@($entries | Where-Object { $_.findings.Count -gt 0 -or -not $_.required_access_verified }).Count -eq 0); named_principal_access = [bool]$named.Count
+        review_required = $review; entries = $entries }
 }
 
 function Format-ALAclFindings($Report, [int]$Limit = 6) {
