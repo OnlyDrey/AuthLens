@@ -9,11 +9,28 @@ Failed (product). Procedures: [VM acceptance runbook](WINDOWS_VM_ACCEPTANCE.md).
 Internal identifiers only; the product version is 2.0.0 for every candidate and nothing is branded RC. Acceptance results belong to one exact
 artifact identity and are never transferred between candidates.
 
-### RC5 (consolidated candidate after WP21 to WP28; native acceptance not started)
+### RC5 (consolidated candidate after WP21 to WP28; native acceptance partly run)
 
 Built on VM130 by the agent session with the canonical `build.ps1` from `b10dd50` (corrections D-007 and D-008, BUG-01 to BUG-10, the
-acceptance and recovery tooling); see the [RC5 build record](#rc5-build-record). Product version 2.0.0. **NOT APPROVED**: no native acceptance
-has run on RC5; RC4 results do not transfer to it.
+acceptance and recovery tooling); see the [RC5 build record](#rc5-build-record). Product version 2.0.0. **NOT APPROVED**: native acceptance
+is partial (below); RC4 results do not transfer to it.
+
+**RC5 native results (operator evidence, reconciled in WP24).** Evidence: `C:\AuthLens\acceptance\AuthLens-2.0.0-2026-11-25_1442-b10dd50`
+and `C:\AuthLens\acceptance\RC5-readiness.txt` on VM130.
+
+| Host | Scenario | Result | Evidence |
+| --- | --- | --- | --- |
+| VM130 | Upgrade readiness (RC3-VM130 installed, RC5 candidate, explicit recovery report) | **Passed**: 5 checks, `status` PASS, 2026-11-25T15:12Z | `RC5-readiness.txt` |
+| VM130 | B14 approval group (11 `-Yes`-less refusals, elevated) | **Passed** 11/11, exit 0 | `B14-approval-1
+esults.json` |
+| VM130 | B14 elevation group | Not run (no evidence on disk) | — |
+| VM130 | B17 Lifecycle: upgrade RC3-VM130 to RC5, installed tools, identity, preserved data, C12 status/export/no-overwrite, C14 simulation and restart, B15 simulation without audit, repair plan, repair and preserved data | **Passed** 17/17, exit 0; fingerprints before/after upgrade and repair recorded | `Lifecycle-1
+esults.json` |
+| VM130 | D-007: `source_authority` after the upgrade | **Passed**: `present` | `Lifecycle-1\B17-status-after-upgrade.txt` |
+| VM130 | D-008: named-account reporting in AuditAcl | **Passed** (reported; nothing removed). The WP31 development-source audit classifies one named operator account as UNSAFE (unauthorized named access); left for the operator to authorize or remove | `WP31-source\AuditAcl-VM130.txt` |
+| DASH1 | Upgrade RC3 to RC5 | **Passed** after freeing storage: the first preflight refused with about 2 GB free (see WP34) | Operator report; evidence directory not on this host |
+| DASH1 | CSV source usability | **Failed (product usability)**: separate local/UNC workflows and no host file selection; addressed in WP33 (source), native re-test pending | Operator report |
+| VM130, DASH1 | B11, B12, B13, B15, B16, T-001, C11, C13, D2 to D7, D12, D3 (UNC/SMB), F1 to F10 with BUG-01 to BUG-10 | Not run on RC5 | — |
 
 ### RC4 (superseded by RC5 for new acceptance; artifacts and evidence preserved)
 
@@ -273,6 +290,26 @@ needs native acceptance on a candidate that contains it (RC5).
 | BUG-08 Filter reset on navigation | Medium | Reproduced: pages stayed mounted with their filters | Kept-alive pages and history filters across main navigation | Main navigation is a page boundary (remount, clear temporary history filters); context links, Back/Forward and Saved Filters unaffected | BUG-08 test; navigation and filter specs | Fixed (source) |
 | BUG-09 Sidebar horizontal scrollbar | Medium | Not reproduced (Role Lookup sidebar, long synthetic labels, 1440/1600 px) | Not identified | Width constraints on sidebar children; no overflow hidden. Needs the reporter's view and data to reproduce | — | Not reproduced |
 | BUG-10 Word wrapping | Medium | Reproduced by inspection: `overflow-wrap:anywhere` on labels | `anywhere` lowers min-content to one character | Labels use `break-word`; technical values keep `anywhere`; identifiers unchanged | BUG-10 assertion | Fixed (source) |
+
+### RC6 mobile defects (WP29, BUG-011 and BUG-012)
+
+Source-level only: Chromium touch emulation and narrow viewports against the isolated test host. **No iOS Safari acceptance has run**; desktop
+WebKit or emulation is not evidence for iOS Safari. Native check: open Release Roles and a Settings select on a real iPhone (Safari), confirm
+exactly one picker appears, and confirm the header is one row without clipped actions in portrait and landscape.
+
+| Item | Reproduction | Root cause | Resolution | Regression tests | Status |
+| --- | --- | --- | --- | --- | --- |
+| BUG-011 Duplicate dropdown on iOS Safari | Reasoned from the code path; not reproducible without iOS Safari | Shared `Select` opened its custom popup on `mousedown`; iOS also shows the native picker for the touched `<select>`, so two lists appeared | Touch pointers (`pointerType` `touch`) leave the native picker alone and close the custom popup; mouse and keyboard are unchanged | `mobile-ui-wp29.spec.ts` (touch versus mouse), existing Select specs | Fixed (source), iOS pending |
+| BUG-012 Mobile header and sticky areas | Reproduced: header wrapped to 116 px at 390 px | Brand and utilities wrapped onto two rows | One nowrap row below 768 px, brand ellipsized, 44 px touch targets kept, safe-area insets for the header and the Settings action bar | `mobile-ui-wp29.spec.ts` (≤ 64 px at 390/375/320, no horizontal scroll), `mobile-acceptance.spec.ts` touch targets | Fixed (source), iOS pending |
+
+Baseline browser failures investigated in RC6 (all test defects with outdated expectations; no assertion was weakened):
+
+| Spec | Root cause | Correction |
+| --- | --- | --- |
+| `live-filters-polish` catalogue exact OR filtering | Category pills became the shared multi-select dropdown in `8c6ea68`; the spec still clicked the old button | Selects MM through the `Role categories` dropdown; the same counts are asserted |
+| `startup-reliability` loading and restart cases | Since `2a78dfc` the dashboard sent `/api/dashboard?…`; the route mock `**/api/dashboard` no longer matched, so the modelled states never reached the page | Route matches the endpoint with or without a query string (never `/filter-options`); the dashboard also omits an empty `?` |
+| Visual specs at 375 px (`employee-directory`, `live-filters-polish`, `csv-lifecycle`) | Main navigation and Settings tabs move into drawers below 1024 and 768 px | Use the responsive `goTo` and `selectSettingsSection` helpers |
+| `dashboard-user-transactions` KPI navigation | BUG-08 made main navigation a page boundary; the spec expected Role Lookup to keep its search | Expects the fresh page, then checks the KPI reset separately |
 
 ### Acceptance tooling and recovery requirements (QA-001 to QA-032)
 

@@ -175,6 +175,57 @@ never deleted; every certificate change is a recorded transaction with rollback 
 
 Native acceptance for the next candidate: runbook scenarios C11 to C13, B11 and B12 ([runbook](WINDOWS_VM_ACCEPTANCE.md#c-security-and-administration-from-s1-snapshot-s2-admin-after-c4)).
 
+## Ninth round: RC6 implementation and consolidation (WP29 to WP34, 2026-11-25)
+
+Source-level work after RC5 (`b10dd50`); RC5 stays the immutable packaged baseline. RC5 native results and the RC6 bug and baseline-failure
+tables are in the [acceptance tracker](ACCEPTANCE_TRACKER.md#rc5-consolidated-candidate-after-wp21-to-wp28-native-acceptance-partly-run);
+operator procedures in the [runbook](WINDOWS_VM_ACCEPTANCE.md#rc6-scenarios-wp29-to-wp31-wp33-run-only-on-a-candidate-whose-build-record-lists-them).
+
+| Package | Implemented | Focused evidence |
+| --- | --- | --- |
+| WP33 file sources (FILE-001 to FILE-008, FILE-010) | One **File location** choice (upload or file on the host) for every CSV source, separate **Update mode**, Explorer-like host file picker through the service identity, approved browse folders with backend enforcement (no UNC contact outside approved roots; reparse points, system and private locations refused), unified validate/import (hash-bound) (`7e680a1`, `906f16e`) | .NET `ServerSourceBrowserTests`, `AccountsTests`; browser `server-source-configuration.spec.ts`; native R6-F1 to R6-F4 pending (FILE-011/012) |
+| WP31 ACL status (SEC-001 to SEC-007) | SAFE / REVIEW_REQUIRED / UNSAFE with classified principals, exit codes 0/3/2, unauthorized named write on binaries is critical, scoped authorizations with reason and approver, controlled removal with preview; nothing removed automatically (`76a3412`) | Pester `Acl-NamedPrincipals`; read-only VM130 audit (UNSAFE, development source); native R6-S1 pending |
+| WP29 mobile (BUG-011, BUG-012) | Shared Select leaves touch input to the native picker; one-row phone header with 44 px targets and safe-area insets | Browser `mobile-ui-wp29.spec.ts`, `mobile-acceptance.spec.ts`; iOS Safari (R6-M1) pending |
+| WP30 dashboard (DASH-001 to DASH-015) | Global and filtered modes, closed-by-default Filters side panel with Apply/Reset, active count, chips and Saved Filters (`dashboard`); organization, SAP account (validity, lock status), access (role, transaction, role type, organizational suffix) and governance (SoD risk, review status) dimensions through the shared resolver (OR within, AND between); user-population and matching-access modes; metric scope matrix; drill-down with the population. Large-dataset performance not measured | .NET `DashboardAndSavedFiltersTests`; browser `dashboard-filters.spec.ts`, `filter-consistency.spec.ts` |
+| Baseline browser failures | Four outdated test expectations corrected with root causes; no assertion weakened | Tracker table "Baseline browser failures investigated in RC6" |
+| WP24 native acceptance | Tracker reconciled with RC5 evidence (readiness PASS, B14 approval 11/11, Lifecycle 17/17, D-007, D-008, DASH1 upgrade); RC6 scenarios added | Evidence under `C:\AuthLens\acceptance` |
+
+**Identifiers.** The RC6 brief numbers requirements per package (`FILE-001` to `FILE-012`, `SEC-001` to `SEC-007`, `DASH-001` to
+`DASH-015`, `BUILD-001` to `BUILD-010`, `INST-117` to `INST-121`, `QA-028`). `SEC-00n` and `DASH-00n` already exist in
+[validation-items.csv](validation-items.csv) with other meanings (API boundary, exports, dashboard cards); those validation items keep their
+IDs. In this repository the brief's items are therefore written with their package prefix (`WP31/SEC-1`, `WP30/DASH-1`), never as new
+validation-item IDs.
+
+#### WP33 requirement reconciliation (FILE-001 to FILE-012)
+
+| Item | Status | Evidence and limits |
+| --- | --- | --- |
+| FILE-001 unified configuration | Implemented | One `SourceManager` with **File location** and **Update mode** for every CSV source (Role Catalogue, User-Role Mapping, Employee Directory, SoD Matrix); shared `ServerFileSource`, `HostFilePicker`, validation and import contracts |
+| FILE-002 location separate from update mode | Implemented | Upload from this device or file on the host; local and UNC paths share one field; the backend detects the path type (badge Local file on the host or Network file) |
+| FILE-003 server-side browser | Implemented | `GET /api/server/sources/browse` as the service identity; approved, configured and recently used locations (recent ones are kept in the browser only), direct path entry, parent folder, refusal categories |
+| FILE-003A Explorer-like picker | Implemented | Host name, locations, breadcrumbs, parent, path entry, icons, name/size/modified, sorting, search, CSV filter, Select/Cancel, loading/empty/unavailable/denied states; no file management actions. Desktop keeps the native system file dialog for local and network files |
+| FILE-004 secure authorization | Implemented (source); native UNC pending | Approved roots enforced in the backend; no UNC contact outside them; reparse points, devices, ADS, volume/share roots, system and private AuthLens locations refused; bounded enumeration (2,000 entries) and network timeout; administration role required (`ServerSourceBrowserTests`, `AccountsTests`). Real UNC behaviour needs R6-F2 |
+| FILE-005 unified validation and import | Implemented | Validate and import, Validate only, Import validated file; hash-bound (`validated_sha256`); validation independent of update mode; failures never replace the active dataset |
+| FILE-006 static/dynamic transitions | Implemented | Mode changes keep the path and the active dataset; the notice states that saving reads nothing; uploads are explained as copies that cannot follow the original |
+| FILE-007 editing and replacement | Implemented | Change path, browse again, replace an upload, switch location, change mode, revalidate, refresh; draft, saved configuration and active data are described separately |
+| FILE-008 diagnostics | Implemented, one gap | Location, type, mode, authorization, availability, last check and attempt, last import, records, snapshot, categorized errors. "Changed since validation" is enforced at import (hash mismatch refused) but not shown proactively before import |
+| FILE-009 refresh consistency | Implemented (unchanged pipeline) | Global and scheduled refresh use the existing shared refresh service and authorization; static sources are skipped; last valid snapshot retained (existing refresh tests) |
+| FILE-010 responsive and accessible | Implemented (source); iOS pending | Dialog, keyboard, labels, mobile layout; R6-M1 and R6-F1 on a real iPhone remain |
+| FILE-011 compatibility | Implemented | Existing settings fields and authority files are read unchanged (no migration step, no reconfiguration); upgrade check in R6-F4 |
+| FILE-012 acceptance | Automated part done; native pending | .NET and browser coverage above; native D2 to D12 and R6-F1 to R6-F4 (same-host and remote UNC with the service identity) are operator scenarios |
+
+#### WP31 requirement reconciliation (WP31/SEC-1 to SEC-7)
+
+| Item | Status | Evidence and limits |
+| --- | --- | --- |
+| SEC-1 status contract and exit codes | Implemented | `status` SAFE / REVIEW_REQUIRED / UNSAFE; AuditAcl exit 0 / 3 / 2; `safe` keeps its broad-only meaning for existing installer and upgrade gates |
+| SEC-2 principal classification | Implemented | Expected (SYSTEM, Administrators, TrustedInstaller, CREATOR OWNER, service identity), `authorized` (scoped registry entry), `unreviewed`, `unauthorized_binary_write` |
+| SEC-3 broad versus named findings, explicit and inherited | Implemented | Separate `findings` and `named_principals` per location, inheritance reported |
+| SEC-4 binary write is critical | Implemented | Unauthorized named write on binaries makes the status UNSAFE |
+| SEC-5 strict readiness gate | See the readiness row below | Unreviewed or unsafe findings must not silently pass a strict gate |
+| SEC-6 Service Manager presentation | Implemented | Group 7, option 3: read-only status, classified principals and remediation commands |
+| SEC-7 controlled remediation | Implemented | `AuthorizeAclPrincipal` / `RevokeAclPrincipal` with reason and approver; `ProtectAcl -RemovePrincipal` previews with `-DryRun`, needs `-Yes`, saves an ACL inventory first and rolls back with `RestoreAcl`; nothing is removed automatically; VM130 and DASH1 were only audited |
+
 ## Eighth round: release stabilization, acceptance harness and user feedback (WP21 to WP28, 2026-11-25)
 
 Source-level work after RC4 (`37eadd5`); RC4 stays the immutable packaged baseline. Results per scenario and per user-reported item are in the
