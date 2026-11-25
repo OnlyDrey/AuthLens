@@ -72,6 +72,9 @@ Root: HKLM; Subkey: "{#VersionKey}"; ValueType: string; ValueName: "SetupState";
 
 [Run]
 Filename: "{code:ServerAccessUrl}"; Description: "Open the verified AuthLens backend URL"; Flags: shellexec postinstall skipifsilent; Check: ServerAccessUsable
+; Public certificate only (.cer, no private key or password): the installed Service Manager asks for the destination, never overwrites, shows the thumbprint
+; and the client-trust guidance. No trust store is changed.
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NoExit -File ""{app}\setup\{#PackageName}\payload\{#PackageName}\Service-Manager.ps1"" -Action ExportCertificate -Interactive"; Description: "Export the public HTTPS certificate (.cer) for client trust distribution"; Flags: postinstall unchecked skipifsilent; Check: ServerVerifiedCheck
 
 ; No [UninstallDelete] and no [InstallDelete]: data directories, certificates, logs and backups are never removed by Setup or uninstall.
 

@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 
 $script:Exe = 'AuthLens.Api.exe'
 $script:Lock = $null; $script:RunFolder = $null; $script:RunLog = $null; $script:RunId = ''
-$script:HostLock = $null
+$script:HostLock = $null; $script:RecoveryContext = $null
 # One service and one installation root. Services of earlier products (SAP Lens: sap-lens, SapLens, SapLens2) are never detected, adopted or
 # changed: AuthLens is installed fresh beside them and receives their data by restoring a backup (docs/deployment/WINDOWS_DEPLOYMENT.md).
 $script:ServiceName = 'AuthLens'
@@ -464,7 +464,10 @@ function Set-ALPhase($Config, $Journal, [string]$Phase) {
     # (A typed list: an if-expression or a function would unroll a one-entry history into a bare hashtable again.)
     $history = [System.Collections.Generic.List[object]]::new()
     if ($Journal.PSObject.Properties['history'] -and $null -ne $Journal.history) { foreach ($entry in @($Journal.history)) { $history.Add($entry) } }
-    $history.Add(@{ phase = $Phase; at = [DateTime]::UtcNow.ToString('o') })
+    $entry = @{ phase = $Phase; at = [DateTime]::UtcNow.ToString('o') }
+    # During a recovery every new history entry names the action, the recovery run and the operator (G-004); earlier entries are kept unchanged.
+    if ($script:RecoveryContext) { foreach ($key in $script:RecoveryContext.Keys) { $entry[$key] = $script:RecoveryContext[$key] } }
+    $history.Add($entry)
     $Journal | Add-Member -NotePropertyName history -NotePropertyValue $history.ToArray() -Force
     Write-ALJournal $Config $Journal
     Write-ALLog "phase: $Phase"
@@ -1095,11 +1098,29 @@ function Assert-ALRecoveryCancel($Config,$Journal) {
 
 function Invoke-ALRecover($Config,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto',[string]$CertificateFile='',[string]$CertificatePasswordFile='') {
     Assert-ALNoPendingRepair $Config
-    # An interrupted configuration change (also a recovery certificate step) is restored before any journal decision.
-    $restored = Invoke-ALConfigurationRecover $Config 'an interrupted configuration change was found before recovery'
-    if ($restored) { return $restored }
     $journal = Read-ALJournal $Config
+    $pending = Get-ALPendingConfigurationRecord $Config
     $decision = Resolve-ALRecoveryDecision $Config $journal $RecoveryAction
+    # G-004: a durable audit record for every recovery attempt that acts on something (not for 'nothing to recover', never for a simulation).
+    if (-not $pending -and $decision.kind -eq 'none') { return Invoke-ALRecoverDecision $Config $journal $decision $RecoveryAction $CertificateFile $CertificatePasswordFile }
+    $operator = Get-ALOperatorIdentity
+    $script:RecoveryContext = [ordered]@{ recovery_action = $RecoveryAction; recovery_decision = $(if ($pending) { 'configuration_restore' } else { $decision.kind }); recovery_run = $script:RunId; operator = $operator.name }
+    $before = if ($journal) { [string]$journal.phase } else { $null }
+    try {
+        # An interrupted configuration change (also a recovery certificate step) is restored before any journal decision.
+        $result = if ($pending) { Invoke-ALConfigurationRecover $Config 'an interrupted configuration change was found before recovery' }
+            else { Invoke-ALRecoverDecision $Config $journal $decision $RecoveryAction $CertificateFile $CertificatePasswordFile }
+        Write-ALRecoveryAudit $Config $journal $RecoveryAction $script:RecoveryContext.recovery_decision $operator $before 'succeeded' '' $result
+        return $result
+    } catch {
+        $reason = $_.Exception.Message
+        try { Write-ALRecoveryAudit $Config $journal $RecoveryAction $script:RecoveryContext.recovery_decision $operator $before $(if ($_.Exception.PSObject.Properties['ExitCode'] -and [int]$_.Exception.ExitCode -eq 4) { 'refused' } else { 'failed' }) $reason $null }
+        catch { Write-ALLog "recovery audit could not be written: $($_.Exception.Message)" }
+        throw
+    } finally { $script:RecoveryContext = $null }
+}
+
+function Invoke-ALRecoverDecision($Config, $journal, $decision, [string]$RecoveryAction, [string]$CertificateFile, [string]$CertificatePasswordFile) {
     if ($CertificateFile -and $decision.kind -ne 'candidate') { Stop-AL 'A replacement certificate applies only to candidate recovery (VerifyCandidate or Resume) of an interrupted deployment.' 4 }
     switch ($decision.kind) {
         'none' {
@@ -1183,14 +1204,83 @@ function Get-ALRecoveryPreview($Config,[ValidateSet('Auto','VerifyCandidate','Re
     [pscustomobject]$base
 }
 
+# ---- recovery audit (G-004)
+
+# The identity of this process from its Windows token (the account that runs the deployment tools, also over SSH or as a scheduled task).
+# Never taken from environment variables; where no token is available the operator is recorded as unknown instead of being guessed.
+function Get-ALOperatorIdentity {
+    try {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        if ($identity -and $identity.Name) { return [pscustomobject]@{ name = $identity.Name; sid = $identity.User.Value; source = 'windows_process_token' } }
+    } catch { }
+    [pscustomobject]@{ name = $null; sid = $null; source = 'unavailable' }
+}
+
+function Get-ALRecoveryAuditPath($Config) { Join-AL $Config.WorkRoot 'recovery-audit.jsonl' }
+
+# Appends one JSON line per recovery attempt to WorkRoot\recovery-audit.jsonl (append-only; a later deployment replaces the journal, not this
+# log). It holds identifiers, hashes and outcomes only: no configuration values, certificate passwords, keys or paths beyond the release name.
+function Write-ALRecoveryAudit($Config, $Journal, [string]$RequestedAction, [string]$Decision, $Operator, [string]$PhaseBefore, [string]$Outcome, [string]$Reason, $Result) {
+    $after = Read-ALJournal $Config
+    # Journals written by older builds or interrupted early may lack fields: read them without assuming they exist.
+    $field = { param($Object, $Name) if ($null -ne $Object -and $Object.PSObject.Properties[$Name]) { $Object.$Name } else { $null } }
+    $target = & $field $Journal 'to_release'
+    $release = if ($target) { [string]$target } else { [string](Get-ALLink (Get-ALCurrentLink $Config)) }
+    $manifestFile = if ($release) { Join-AL $release 'build-manifest.json' } else { '' }
+    $record = [ordered]@{
+        schema = 1; recorded_utc = [DateTime]::UtcNow.ToString('o'); requested_action = $RequestedAction; decision = $Decision; outcome = $Outcome
+        operator = $Operator.name; operator_sid = $Operator.sid; operator_source = $Operator.source
+        original_run = (& $field $Journal 'run'); recovery_run = $script:RunId
+        phase_before = $PhaseBefore; phase_after = (& $field $after 'phase')
+        version = (& $field $Journal 'version'); source_commit = (& $field $Journal 'commit')
+        release = $(if ($release) { Split-Path $release -Leaf } else { $null })
+        manifest_sha256 = $(if ($manifestFile -and (Test-Path -LiteralPath $manifestFile -PathType Leaf)) { (Get-FileHash -LiteralPath $manifestFile -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null })
+        config_sha256 = $(if (Test-Path -LiteralPath $Config.ConfigFile -PathType Leaf) { (Get-FileHash -LiteralPath $Config.ConfigFile -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null })
+        certificate_replaced = [bool]($Result -and $Result.PSObject.Properties['certificate_replaced'] -and $Result.certificate_replaced)
+        reason = $(if ($Reason) { [regex]::Replace($Reason, '(?i)(password|passphrase|secret|token|key)\s*[:=]\s*\S+', '$1=[REDACTED]') } else { $null })
+    }
+    $path = Get-ALRecoveryAuditPath $Config
+    New-Item -ItemType Directory -Force (Split-Path $path) | Out-Null
+    [IO.File]::AppendAllText($path, (($record | ConvertTo-Json -Compress -Depth 4) + "`n"), [Text.UTF8Encoding]::new($false))
+    Write-ALLog "recovery audit: $RequestedAction -> $Outcome"
+}
+
+function Read-ALRecoveryAudit($Config) {
+    $path = Get-ALRecoveryAuditPath $Config
+    if (-not (Test-Path -LiteralPath $path)) { return @() }
+    @([IO.File]::ReadAllLines($path) | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json })
+}
+
+# ---- service restart (WP19)
+
+# Restarts the installed service on its unchanged configuration and verifies it like a deployment: refused while a deployment or configuration
+# change awaits recovery, while the service runs outside the managed release or with another identity or command line; afterwards the service
+# must own the listener and report readiness and the installed release identity. -DryRun runs the checks only.
+function Invoke-ALServiceRestart($Config, [switch]$DryRun) {
+    if (Get-ALPendingConfigurationRecord $Config) { Stop-AL 'An interrupted configuration change is recorded; run -Action Recover before restarting the service.' 4 }
+    $context = Assert-ALConfigurationChangeAllowed $Config
+    $before = $context.service
+    $plan = [pscustomobject]@{ service = $Config.ServiceName; state_before = $before.State; process_before = $before.ProcessId; release = Get-ALLink (Get-ALCurrentLink $Config)
+        version = $context.manifest.version; commit = $context.manifest.source_sha; downtime = 'The service stops and starts; clients are disconnected until readiness returns (usually under a minute).' }
+    if ($DryRun) { $plan | Add-Member -NotePropertyName dry_run -NotePropertyValue $true; return $plan }
+    Write-ALLog "restarting $($Config.ServiceName) (state $($before.State), process $($before.ProcessId))"
+    Stop-ALService $Config.ServiceName ([int]$Config.StopTimeoutSeconds)
+    Start-ALService $Config.ServiceName
+    $ready = Wait-ALReady $Config $context.manifest.source_sha $context.manifest.version
+    $plan | Add-Member -NotePropertyName restarted -NotePropertyValue $true
+    $plan | Add-Member -NotePropertyName process_after -NotePropertyValue $ready.process_id
+    $plan | Add-Member -NotePropertyName identity -NotePropertyValue $(if ($ready.PSObject.Properties['identity']) { $ready.identity } else { $null })
+    $plan
+}
+
 # ---- simulation policy (-DryRun, D-006)
 
 # Every Deploy-AuthLens action is classified once. read_only actions never change anything; simulated actions implement -DryRun as a read-only
 # evaluation; any other changing action refuses -DryRun instead of running for real. -DryRun never replaces -Yes: without -DryRun an approval
 # action needs -Yes, and -DryRun with -Yes is still only a simulation.
 $script:ReadOnlyActions = @('Status', 'Health', 'AuditAcl')
-$script:SimulatedActions = @('Deploy', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl')
-$script:ApprovalActions = @('Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestoreAcl')
+$script:SimulatedActions = @('Deploy', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestartService')
+$script:ApprovalActions = @('Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestoreAcl', 'RestartService')
 
 function Get-ALActionPolicy([string]$Action, [switch]$DryRun, [switch]$Yes) {
     if ($Action -in $script:ReadOnlyActions) { return [pscustomobject]@{ action = $Action; mode = 'read_only'; approval_required = $false } }

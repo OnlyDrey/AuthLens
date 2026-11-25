@@ -54,6 +54,8 @@ function Invoke-ALInstallerServer($Config, [string]$Package, [switch]$Recover,[V
             if($result -and $result.recovered -and $result.PSObject.Properties['phase'] -and $result.phase -eq 'complete' -and $result.PSObject.Properties['instance_id'] -and $result.instance_id){
                 $manifest=Get-Content -LiteralPath (Join-AL $result.release 'build-manifest.json') -Raw -Encoding UTF8|ConvertFrom-Json
                 Write-ALInstallerServerIdentity $Config $manifest $result.release $result.instance_id
+                # G-005: the Setup registration left pending by the interrupted Setup is reconciled only with proven ownership.
+                $result|Add-Member -NotePropertyName setup_registration -NotePropertyValue (Update-ALInstallerRegistrationAfterRecovery $Config $result.release $manifest) -Force
             }
             return $result
         } finally { Exit-ALLock }
@@ -103,6 +105,47 @@ function Write-ALInstallerServerIdentity($Config,$Manifest,[string]$Release,[str
     if(-not $InstanceId){$InstanceId=[guid]::NewGuid().ToString('N')}
     $identity=[ordered]@{schema=1;product='AuthLens';instance_id=$InstanceId;root=$Config.Root;data_directory=$Config.DataDirectory;service_name=$Config.ServiceName;service_account=$Config.ServiceAccount;config_file=$Config.ConfigFile;config_sha256=(Get-FileHash -LiteralPath $Config.ConfigFile).Hash.ToLowerInvariant();manifest_sha256=(Get-FileHash -LiteralPath (Join-AL $Release 'build-manifest.json')).Hash.ToLowerInvariant();manifest=$Manifest;release=$Release;phase='installed';updated_utc=[DateTime]::UtcNow.ToString('o')}
     Write-ALInstallerJournal (Join-AL (Join-AL $Config.Root 'config') 'installed-product.json') $identity
+}
+
+# G-005: after a verified command-line recovery of a fresh installation, write the same discovery values Setup writes after verified success
+# (Root, ProgramDirectory, ConfigFile, FileVersion, SetupState=verified and the uninstall display name), only when ownership is proven: the
+# Server key is in the pending state Setup itself wrote, the Inno Setup uninstall entry of this product exists, and the payload Setup staged in its
+# program directory is the recovered release (manifest hash, product, version and commit). Nothing is invented: a missing or different
+# registration is reported, never created or replaced. SetupState is written last, so a failure leaves the pending state for review.
+$script:ServerUninstallKey='Registry::HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\{B961C010-9B53-4514-9D2A-73A4641E4AAF}_is1'
+function Update-ALInstallerRegistrationAfterRecovery($Config,[string]$Release,$Manifest,[string]$ServerKey='Registry::HKEY_LOCAL_MACHINE\Software\AuthLens\Server',[string]$UninstallKey=$script:ServerUninstallKey) {
+    $outcome={param($State,$Reason) Write-ALLog "Setup registration: $State ($Reason)"; [pscustomobject]@{state=$State;reason=$Reason}}
+    try{
+        if(-not(Test-Path -LiteralPath $ServerKey)){return (& $outcome 'not_present' 'No Setup registration exists (installed without Setup); nothing to reconcile.')}
+        $record=Get-ItemProperty -LiteralPath $ServerKey
+        $state=if($record.PSObject.Properties['SetupState']){[string]$record.SetupState}else{''}
+        if($state -ceq 'verified'){
+            $registered=if($record.PSObject.Properties['ConfigFile']){[string]$record.ConfigFile}else{''}
+            if($registered -and $registered -ine $Config.ConfigFile){return (& $outcome 'conflict' 'The verified Setup registration names another configuration; it was not changed.')}
+            return (& $outcome 'already_verified' 'The Setup registration is already verified.')
+        }
+        if($state -cne 'pending-verification'){return (& $outcome 'not_reconciled' "Unexpected SetupState '$state'; the registration was not changed.")}
+        if(-not(Test-Path -LiteralPath $UninstallKey)){return (& $outcome 'not_reconciled' 'The Setup uninstall registration of AuthLens Server is missing; ownership cannot be proven, so nothing was written.')}
+        $uninstall=Get-ItemProperty -LiteralPath $UninstallKey
+        $app=if($uninstall.PSObject.Properties['Inno Setup: App Path']){[string]$uninstall.'Inno Setup: App Path'}else{''}
+        if(-not $app -or -not [IO.Path]::IsPathRooted($app)){return (& $outcome 'not_reconciled' 'The Setup uninstall registration has no program directory; nothing was written.')}
+        $app=[IO.Path]::GetFullPath($app).TrimEnd('\')
+        $package=Split-Path $Release -Leaf
+        $staged=Join-AL (Join-AL (Join-AL (Join-AL (Join-AL $app 'setup') $package) 'payload') $package) 'build-manifest.json'
+        $recovered=Join-AL $Release 'build-manifest.json'
+        if(-not(Test-Path -LiteralPath $staged -PathType Leaf)){return (& $outcome 'not_reconciled' 'The program directory Setup registered does not contain the recovered release payload; nothing was written.')}
+        $stagedManifest=Get-Content -LiteralPath $staged -Raw -Encoding UTF8|ConvertFrom-Json
+        if((Get-FileHash -LiteralPath $staged -Algorithm SHA256).Hash -ine (Get-FileHash -LiteralPath $recovered -Algorithm SHA256).Hash -or $stagedManifest.product -cne 'AuthLens' -or
+            $stagedManifest.source_sha -cne $Manifest.source_sha -or $stagedManifest.version -cne $Manifest.version){return (& $outcome 'not_reconciled' 'The payload Setup staged is not the recovered release; nothing was written.')}
+        $numeric=(@($Manifest.file_version)|ForEach-Object{[string]$_}) -join '.'
+        if($numeric -notmatch '^\d+\.\d+\.\d+\.\d+$'){return (& $outcome 'not_reconciled' 'The release manifest has no four-part file version; nothing was written.')}
+        foreach($pair in @(@('Root',$Config.Root),@('ProgramDirectory',$app),@('ConfigFile',$Config.ConfigFile),@('FileVersion',$numeric))){Set-ItemProperty -LiteralPath $ServerKey -Name $pair[0] -Value $pair[1] -Type String}
+        Set-ItemProperty -LiteralPath $UninstallKey -Name 'DisplayName' -Value 'AuthLens Server' -Type String
+        Set-ItemProperty -LiteralPath $ServerKey -Name 'SetupState' -Value 'verified' -Type String
+        & $outcome 'reconciled' "Setup registration verified for $package (program directory $app)."
+    }catch{
+        & $outcome 'failed' ("The Setup registration could not be reconciled and remains pending for review: " + $_.Exception.Message)
+    }
 }
 
 function Assert-ALInstallerServerConfiguration($Config) {

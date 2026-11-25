@@ -191,3 +191,31 @@ Describe 'Service Manager public certificate destination' {
         { Resolve-AuthLensCertificateTarget '' $folder 'taken' '' } | Should -Throw '*already exists*'
     }
 }
+
+Describe 'Service Manager restart workflow' {
+    BeforeEach {
+        $script:installed = [pscustomobject]@{ config_file = 'C:\synthetic\config\deploy.json'; root = 'C:\synthetic'; data_directory = 'C:\synthetic\data'; service_name = 'AuthLens' }
+        $script:RestartCalls = [Collections.Generic.List[string]]::new()
+        Mock Get-AuthLensInstalledDeployTool { 'C:\synthetic\tools\deploy\Deploy-AuthLens.ps1' }
+        Mock Assert-AuthLensSimulationSupport {}
+        Mock Test-AuthLensAdminElevation { $true }
+        Mock Invoke-AuthLensDeployTool {
+            $script:RestartCalls.Add(($Arguments -join ' '))
+            if ($Arguments -contains '-DryRun') { return [pscustomobject]@{ exit = 0; result = [pscustomobject]@{ simulation = $true; service = 'AuthLens'; state_before = 'Running'; process_before = 10; version = '2.0.0'; commit = ('e' * 40); downtime = 'The service stops and starts.' } } }
+            [pscustomobject]@{ exit = 0; result = [pscustomobject]@{ restarted = $true; process_before = 10; process_after = 11; identity = [pscustomobject]@{ version = '2.0.0' } } }
+        }
+    }
+    It 'shows state and downtime from a simulation and restarts only after confirmation' {
+        { Invoke-AuthLensRestartWorkflow $false } | Should -Throw '*Checked only*'
+        @($script:RestartCalls) | Should -Be @('-Action RestartService -ConfigFile C:\synthetic\config\deploy.json -DryRun')
+        $output = Invoke-AuthLensRestartWorkflow $true 6>&1 | ForEach-Object { "$_" }
+        $script:RestartCalls[-1] | Should -Be '-Action RestartService -ConfigFile C:\synthetic\config\deploy.json -Yes'
+        ($output -join "`n") | Should -Match 'Downtime: The service stops and starts'
+        ($output -join "`n") | Should -Match 'process 10 -> 11'
+    }
+    It 'refuses when the checks refuse (pending recovery) and never restarts' {
+        Mock Invoke-AuthLensDeployTool { $script:RestartCalls.Add(($Arguments -join ' ')); [pscustomobject]@{ exit = 4; result = [pscustomobject]@{ simulation = $true; error = 'An interrupted deployment requires -Action Recover before the configuration can be changed.' } } }
+        { Invoke-AuthLensRestartWorkflow $true } | Should -Throw '*cannot be restarted now*requires -Action Recover*'
+        @($script:RestartCalls | Where-Object { $_ -like '*-Yes*' }).Count | Should -Be 0
+    }
+}

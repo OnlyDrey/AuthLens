@@ -417,6 +417,47 @@ the persistent installation state is compared before and after; any difference, 
 RC3-VM130 and earlier tools do **not** have this protection: on them, never pass `-DryRun` to Recover, Restore, Rollback, InstallService or
 RestoreAcl.
 
+### Recovery audit and Setup registration after recovery
+
+Status: implemented after `04f5e53` (G-004, G-005; Pester `Recovery-AuditRegistration.Tests.ps1`); native acceptance pending (B15, B16).
+
+**Recovery audit (G-004).** Every recovery attempt that acts (candidate verification, Resume, Rollback, Cancel, interrupted-first-deployment
+handling, restoration of an interrupted configuration change) appends one JSON line to `<WorkRoot>\recovery-audit.jsonl` (default
+`C:\ProgramData\AuthLens\deployment\recovery-audit.jsonl`), also when it is refused or fails: requested action and decision, outcome
+(`succeeded`, `refused`, `failed`), operator, operator SID and `operator_source`, UTC time, original deployment run, recovery run, phase before
+and after, version, source commit, release name, SHA-256 of the verified release manifest and of the deployment configuration, whether a
+certificate was replaced, and a redacted reason. The operator comes from the Windows token of the process running the tools (also over SSH or as a
+scheduled task, for example `NT AUTHORITY\SYSTEM`); it is never taken from environment variables, and when no token is available it is recorded
+as `null` with `operator_source: unavailable`. The file holds identifiers, hashes and outcomes only, never configuration values, certificate
+passwords, keys or paths beyond the release name. The deployment journal keeps its original history; entries written during a recovery
+additionally carry `recovery_action`, `recovery_decision`, `recovery_run` and `operator`. "Nothing to recover" and every simulation
+(`-DryRun`, Service Manager previews) write nothing.
+
+**Setup registration (G-005).** After `Install-AuthLens.ps1 -Mode Server -Recover` (or Service Manager group 6) completes a fresh
+installation that the interrupted Setup left at `SetupState=pending-verification`, the same discovery values Setup writes after verified
+success are written to `HKLM\Software\AuthLens\Server` (`Root`, `ProgramDirectory`, `ConfigFile`, `FileVersion`, finally `SetupState=verified`)
+and the uninstall entry's display name becomes `AuthLens Server`. This happens only when ownership is proven: the Server key is in the pending
+state Setup wrote, the Inno Setup uninstall entry of AuthLens Server (`{B961C010-9B53-4514-9D2A-73A4641E4AAF}_is1`) exists, and the payload Setup
+staged in its program directory (`Inno Setup: App Path`) is the recovered release (identical manifest hash, product, version and commit). Its
+`UninstallString` and other values are kept; nothing else in the registry is touched and no second registration is created. The result reports
+`setup_registration.state`: `reconciled`, `already_verified`, `not_present` (installed without Setup), `conflict` (a verified registration names
+another configuration), `not_reconciled` (ownership not proven; the reason is given) or `failed` (the pending state remains for review). A
+`Deploy-AuthLens.ps1 -Action Recover` does not touch the registration; use the installer recovery for a Setup installation. Never edit the key
+by hand.
+
+**Data adoption (G-006, deferred).** A fresh installation whose data-ownership marker `.authlens-owned-data.json` is missing is still refused
+by recovery ("data is never adopted"). An audited adoption workflow is deferred to a later release; unknown or unowned data is never adopted
+automatically.
+
+### Service restart
+
+`Deploy-AuthLens.ps1 -Action RestartService -Yes` (Service Manager group 1, **Restart the AuthLens service**) restarts the installed service on
+its unchanged configuration and verifies that the service process owns the listener, reports readiness and the installed release identity.
+It is refused while a deployment or configuration change awaits recovery, or when the service runs outside the managed release, with another
+identity or with a command line that differs from the configuration. `-DryRun` runs the same checks and shows the current state and the
+expected downtime (clients are disconnected until readiness returns). No other operation restarts the service implicitly. Status:
+Pester-tested; native acceptance pending (C14).
+
 ### Installed network configuration change
 
 Status: implemented; Pester-tested with the platform layer mocked (`Server-NetworkChange.Tests.ps1`); native SCM, listener and firewall acceptance
@@ -966,6 +1007,12 @@ $manager='C:\ProgramData\AuthLens\app\setup\<package>\payload\<package>\Service-
 & $manager -Action RecoveryCode -Username 'existing-admin' -Yes
 ```
 
+**Restart and installer certificate export.** Group 1 offers **Restart the AuthLens service** (state, downtime, a simulated check,
+then `YES`; see [service restart](#service-restart)). The Server installer's finish page offers **Export the public HTTPS certificate (.cer)**
+(unchecked by default, only after verified success): it opens the installed Service Manager with `-Action ExportCertificate -Interactive`,
+which asks for the destination folder and file name (default `AuthLens-<computer>.cer` in Documents), never overwrites, writes the public
+certificate only and shows the SHA-256 thumbprint and the client-trust guidance. No trust store is changed.
+
 **Guided deployment recovery (G-003).** Group 6 shows the journal phase, history and the recovery actions the state allows (from the same
 decision as the deployment tools). A selected action is first previewed with `Deploy-AuthLens.ps1 -Action Recover -DryRun` (a simulation that
 changes nothing, D-006; Service Manager refuses tools without that safeguard and any preview that does not identify itself as a simulation). Only
@@ -1496,8 +1543,9 @@ R2, R3 and R4 reuse `$rc3`, `$config` and set `$evidence` to the R1 evidence fol
 
 If the data-ownership marker is missing (for example because data was copied back manually), VerifyCandidate refuses by design ("data is
 never adopted"); that case is gap G-006 in the [acceptance tracker](../validation/ACCEPTANCE_TRACKER.md#defects-and-gaps) and has no supported
-reconciliation yet. After R3 the Setup registry key still shows the pending-verification state written by the failed Setup (gap G-005); the
-next successful Setup upgrade rewrites it. Do not edit it by hand.
+reconciliation; an audited adoption is deferred to a later release (G-006). With RC3-VM130 tools the Setup registry key still shows the
+pending-verification state written by the failed Setup after R3 (gap G-005); tools after `04f5e53` reconcile it when ownership is proven
+([recovery audit and Setup registration](#recovery-audit-and-setup-registration-after-recovery)). Do not edit it by hand.
 
 If R1's `server preflight` check refuses the TLS certificate (for example a listener address added after the certificate was generated, defect
 D-004), stop: R3 would refuse in the same check, and `ReplaceCertificate` and `ChangeNetwork` refuse while the journal requires recovery, so the

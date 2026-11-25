@@ -10,8 +10,8 @@
   Read-only: Status (key status), ServiceStatus, NetworkStatus, CertificateStatus, DeploymentStatus (recovery preview through -DryRun).
   Writes a new file only: ExportKey (then verifies the exported copy automatically), ExportCertificate (public .cer), CreateBackup, Diagnostics.
   Changes keys or accounts (no service restart): CreateKey, VerifyKey, GrantKeyAccess, ActivationCode, RecoveryCode.
-  Restarts the service (downtime): ChangeNetwork, ReplaceCertificate, Recover (Resume starts a stopped service; VerifyCandidate only restarts
-  when a replacement certificate is applied).
+  Restarts the service (downtime): RestartService, ChangeNetwork, ReplaceCertificate, Recover (Resume starts a stopped service; VerifyCandidate
+  only restarts when a replacement certificate is applied).
 
   Key values never appear in output, logs or process arguments; export never overwrites a file. Administrator codes are shown locally once: do
   not run code actions under a transcript or redirect them to logs.
@@ -19,7 +19,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Menu', 'Status', 'CreateKey', 'ExportKey', 'VerifyKey', 'GrantKeyAccess', 'ActivationCode', 'RecoveryCode', 'NetworkStatus', 'ChangeNetwork',
-        'ServiceStatus', 'CertificateStatus', 'ExportCertificate', 'ReplaceCertificate', 'DeploymentStatus', 'Recover', 'CreateBackup', 'Diagnostics')]
+        'ServiceStatus', 'CertificateStatus', 'ExportCertificate', 'ReplaceCertificate', 'DeploymentStatus', 'Recover', 'CreateBackup', 'Diagnostics', 'RestartService')]
     [string]$Action = 'Menu',
     # Empty: resolved from the installation Setup registered (HKLM\Software\AuthLens\Server ConfigFile), so custom roots and data paths are honored.
     [string]$DataDirectory = '',
@@ -51,6 +51,8 @@ param(
     # ReplaceCertificate, ChangeNetwork (combined change) and Recover (G-007): replacement PFX and its protected password file.
     [string]$CertificateFile = '',
     [string]$CertificatePasswordFile = '',
+    # ExportCertificate from the Server installer's finish page: ask for the destination instead of requiring -Path/-Directory.
+    [switch]$Interactive,
     [switch]$Yes
 )
 Set-StrictMode -Version 3.0
@@ -75,7 +77,7 @@ function Get-AuthLensInstalledConfiguration([string]$Explicit) {
 }
 
 $installed = $null
-$needsInstallation = $Action -in @('NetworkStatus', 'ChangeNetwork', 'ServiceStatus', 'CertificateStatus', 'ExportCertificate', 'ReplaceCertificate', 'DeploymentStatus', 'Recover', 'Diagnostics')
+$needsInstallation = $Action -in @('NetworkStatus', 'ChangeNetwork', 'ServiceStatus', 'CertificateStatus', 'ExportCertificate', 'ReplaceCertificate', 'DeploymentStatus', 'Recover', 'Diagnostics', 'RestartService')
 if (-not $DataDirectory -or $needsInstallation) { $installed = Get-AuthLensInstalledConfiguration $ConfigFile }
 elseif ($Action -eq 'Menu') { try { $installed = Get-AuthLensInstalledConfiguration $ConfigFile } catch { $installed = $null } }
 if (-not $DataDirectory) {
@@ -497,6 +499,14 @@ function Invoke-AuthLensCertificateWorkflow([string]$Operation, [bool]$Confirmed
             Write-Host 'Required identities: every allowed host (network access) or the loopback listen address (Local). The listen IP is required only when clients use it as an allowed host.'
         }
         'ExportCertificate' {
+            if ($Interactive -and -not $Path -and -not $Directory) {
+                Write-Host 'Export the public HTTPS certificate (.cer) of this AuthLens Server. It contains no private key and no password.'
+                $script:Directory = Read-AuthLensInput 'Destination folder' ([Environment]::GetFolderPath('MyDocuments'))
+                $script:FileName = Read-AuthLensInput 'File name' "AuthLens-$($env:COMPUTERNAME)"
+                $preview = Resolve-AuthLensCertificateTarget '' $Directory $FileName $DataDirectory
+                if (-not $preview.directory_exists) { if (-not (Read-AuthLensConfirmation "Create the folder $($preview.directory)?")) { throw [OperationCanceledException]::new('Cancelled; nothing was changed.') }; $script:CreateDirectory = $true }
+                if (-not (Read-AuthLensConfirmation "Write the public certificate to $($preview.path)? Existing files are never overwritten.")) { throw [OperationCanceledException]::new('Cancelled; nothing was changed.') }
+            }
             $target = Resolve-AuthLensCertificateTarget $Path $Directory $FileName $DataDirectory
             if (-not $target.directory_exists) { if (-not $CreateDirectory) { throw "The folder $($target.directory) does not exist; create it or repeat with -CreateDirectory." }; $null = [IO.Directory]::CreateDirectory($target.directory) }
             $result = Invoke-AuthLensDeployTool $deploy @('-Action', 'ExportCertificate', '-ConfigFile', $installed.config_file, '-PublicCertificateFile', $target.path)
@@ -519,6 +529,26 @@ function Invoke-AuthLensCertificateWorkflow([string]$Operation, [bool]$Confirmed
             Write-Host "Certificate replaced; service process $(Get-AuthLensValue $applied.result 'process_id') is ready. New public certificate: $(Get-AuthLensValue $applied.result 'public_certificate')"
         }
     }
+}
+
+# ---- service restart (WP19)
+
+function Invoke-AuthLensRestartWorkflow([bool]$Confirmed) {
+    if (-not $installed) { throw 'No installed Server configuration was found; select -ConfigFile.' }
+    $deploy = Get-AuthLensInstalledDeployTool $PSScriptRoot
+    Assert-AuthLensSimulationSupport $deploy
+    $common = @('-Action', 'RestartService', '-ConfigFile', $installed.config_file)
+    # The checks first (a simulation that changes nothing); a pending deployment or configuration recovery refuses here.
+    $plan = Invoke-AuthLensDeployTool $deploy ($common + '-DryRun')
+    if ($plan.exit -ne 0) { throw "The service cannot be restarted now: $(Get-AuthLensValue $plan.result 'error')" }
+    if (-not (Get-AuthLensValue $plan.result 'simulation')) { throw 'The restart check did not identify itself as a simulation; nothing further is run.' }
+    Write-Host "Service $(Get-AuthLensValue $plan.result 'service'): $(Get-AuthLensValue $plan.result 'state_before'), process $(Get-AuthLensValue $plan.result 'process_before'); release $(Get-AuthLensValue $plan.result 'version') ($("$(Get-AuthLensValue $plan.result 'commit')" -replace '^(.{7}).*', '$1'))"
+    Write-Host "Downtime: $(Get-AuthLensValue $plan.result 'downtime')"
+    if (-not $Confirmed) { throw 'Checked only. Repeat with -Yes (or type YES in the menu) to restart the service.' }
+    if (-not (Test-AuthLensAdminElevation)) { throw 'Open PowerShell as administrator to restart the service.' }
+    $applied = Invoke-AuthLensDeployTool $deploy ($common + '-Yes')
+    if ($applied.exit -ne 0) { throw "The restart did not complete: $(Get-AuthLensValue $applied.result 'error') Review Service status and Diagnostics." }
+    Write-Host "Service restarted: process $(Get-AuthLensValue $applied.result 'process_before') -> $(Get-AuthLensValue $applied.result 'process_after'); it owns the listener and is ready as $((Get-AuthLensValue $applied.result 'identity') | ConvertTo-Json -Compress)."
 }
 
 # ---- deployment recovery (G-003): preview through the simulation, then the installed Setup tools with explicit confirmation
@@ -697,9 +727,12 @@ function Start-AuthLensMenu {
         $choice = Read-Host 'Choose'
         try {
             switch ($choice) {
-                '1' { Show-AuthLensMenu 'Service status and management (read-only; this tool never stops or starts the service outside the actions labelled restart)' @(
+                '1' { Show-AuthLensMenu 'Service status and management (this tool never stops or starts the service outside the actions labelled restart or downtime)' @(
                         @('1', 'Detailed status', { $s = Get-AuthLensStatus; $s | Select-Object service_name, service_model, binary_path_matches, current_release, current_version, current_commit, ready, journal_phase, recovery_needed, execution_context | Format-List | Out-String | Write-Host }),
-                        @('2', 'Health check (readiness and running identity)', { $h = Invoke-AuthLensDeployTool (Get-AuthLensInstalledDeployTool $PSScriptRoot) @('-Action', 'Health', '-ConfigFile', $installed.config_file); Write-Host "Ready: $(Get-AuthLensValue $h.result 'ready') (HTTP $(Get-AuthLensValue $h.result 'ready_status')); identity $((Get-AuthLensValue $h.result 'identity') | ConvertTo-Json -Compress)" })) }
+                        @('2', 'Health check (readiness and running identity)', { $h = Invoke-AuthLensDeployTool (Get-AuthLensInstalledDeployTool $PSScriptRoot) @('-Action', 'Health', '-ConfigFile', $installed.config_file); Write-Host "Ready: $(Get-AuthLensValue $h.result 'ready') (HTTP $(Get-AuthLensValue $h.result 'ready_status')); identity $((Get-AuthLensValue $h.result 'identity') | ConvertTo-Json -Compress)" }),
+                        @('3', 'Restart the AuthLens service [downtime]', {
+                            try { Invoke-AuthLensRestartWorkflow $false } catch { if ($_.Exception.Message -notlike 'Checked only*') { throw } }
+                            if (Read-AuthLensConfirmation 'Restart the AuthLens service now? Clients are disconnected until it is ready again.') { Invoke-AuthLensRestartWorkflow $true } else { Write-Host 'Cancelled; nothing was changed.' } })) }
                 '2' { Show-AuthLensMenu 'Network configuration' @(
                         @('1', 'Network status (read-only)', { Invoke-AuthLensNetworkWorkflow 'NetworkStatus' @{} $false }),
                         @('2', 'Change network configuration [restarts the service]', { Invoke-AuthLensNetworkMenu })) }
@@ -771,12 +804,15 @@ switch ($Action) {
             CertificateFile = $CertificateFile; CertificatePasswordFile = $CertificatePasswordFile }
         Invoke-AuthLensNetworkWorkflow $Action $values ([bool]$Yes)
     }
-    { $_ -in @('CertificateStatus', 'ExportCertificate', 'ReplaceCertificate') } { Invoke-AuthLensCertificateWorkflow $Action ([bool]$Yes) }
+    { $_ -in @('CertificateStatus', 'ExportCertificate', 'ReplaceCertificate') } {
+        if ($Interactive) { Invoke-AuthLensMenuAction $Action { Invoke-AuthLensCertificateWorkflow $Action $true } } else { Invoke-AuthLensCertificateWorkflow $Action ([bool]$Yes) }
+    }
     'ServiceStatus' { Write-AuthLensOverview }
     'DeploymentStatus' { Invoke-AuthLensRecoveryWorkflow 'DeploymentStatus' $RecoveryAction $false }
     'Recover' { Invoke-AuthLensRecoveryWorkflow 'Recover' $RecoveryAction ([bool]$Yes) }
     'CreateBackup' { Invoke-AuthLensBackup ([bool]$Yes) }
     'Diagnostics' { Invoke-AuthLensDiagnostics }
+    'RestartService' { Invoke-AuthLensRestartWorkflow ([bool]$Yes) }
     'GrantKeyAccess' { Invoke-AuthLensGrantKeyAccess ([bool]$Yes) }
     default { Invoke-AuthLensLocalAdmin $Action $Path $Username ([bool]$Yes) }
 }

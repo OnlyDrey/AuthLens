@@ -425,6 +425,12 @@ begin
   Result := ServerVerified and (ServerAccessUrl('') <> '');
 end;
 
+// The certificate export is offered only after the shared transaction verified the installation.
+function ServerVerifiedCheck(): Boolean;
+begin
+  Result := ServerVerified;
+end;
+
 procedure CurPageChanged(CurPageID: Integer);
 begin
   if (CurPageID = wpFinished) and ServerVerified then begin

@@ -175,6 +175,18 @@ never deleted; every certificate change is a recorded transaction with rollback 
 
 Native acceptance for the next candidate: runbook scenarios C11 to C13, B11 and B12 ([runbook](WINDOWS_VM_ACCEPTANCE.md#c-security-and-administration-from-s1-snapshot-s2-admin-after-c4)).
 
+## Seventh round: final remediation before RC4 (2026-11-25)
+
+| Item | Implemented | Focused evidence (VM130) |
+| --- | --- | --- |
+| G-004 recovery audit | `<WorkRoot>ecovery-audit.jsonl` (one line per acting recovery attempt: action, decision, outcome, operator from the process token or `null`, runs, phases, version, commit, manifest and configuration hashes, certificate replaced, redacted reason); recovery history entries carry action, run and operator; original entries kept; simulations and "nothing to recover" write nothing | `Recovery-AuditRegistration` (G-004 3 tests), `Deployment-DryRun` (no audit file) |
+| G-005 Setup registration | After installer recovery: Setup's verified-success values written only with proven ownership (pending state, Inno uninstall entry, staged payload equals the recovered release); explicit outcome states; nothing invented | `Recovery-AuditRegistration` (G-005 3 tests on disposable HKCU keys; the machine registration is never touched) |
+| G-006 | **Deferred** to a later release; fail-safe refusal kept | — |
+| T-001 | Older-build journal fixture: consistent correction completes, five inconsistent states refused | `Recovery-AuditRegistration` (2 tests) |
+| WP19 restart | `Deploy-AuthLens.ps1 -Action RestartService` (simulated, approval-gated, refused during pending recovery, verifies listener, readiness and identity) and Service Manager group 1 | `Recovery-AuditRegistration` (3), `Service-Manager.Workflow` (2), `Deployment-DryRun` (policy, entry point) |
+| WP20 installer export | Server installer finish-page option runs the installed Service Manager `-Action ExportCertificate -Interactive` (destination prompt, no overwrite, public `.cer`, thumbprint and trust guidance) | Inno compile in the installer set; `Service-Manager.Workflow` destination tests |
+| Validation | Affected Pester 84 and 77 (after a strict-mode fix in the audit writer), installer and deployment set 227 passed (2 failures fixed and rerun), 1 skipped; Python repository unit tests, workflow, structure and secret checks passed in the isolated venv; ruff not installed there (no Python changed); FULL not run | — |
+
 ## Sixth round: unified CSV import and server-side data sources (2026-11-25)
 
 Review of the existing implementation against the brief (all file-based sources, upload, local and UNC paths, Static and Dynamic, validation,

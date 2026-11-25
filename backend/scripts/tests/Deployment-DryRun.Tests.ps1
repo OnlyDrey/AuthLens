@@ -27,7 +27,7 @@ Describe 'Deploy-AuthLens action policy (D-006)' {
         foreach ($action in 'Status', 'Health', 'AuditAcl') {
             foreach ($dry in $false, $true) { foreach ($yes in $false, $true) { (Get-ALActionPolicy $action -DryRun:$dry -Yes:$yes).mode | Should -Be 'read_only' } }
         }
-        foreach ($action in 'Deploy', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl') {
+        foreach ($action in 'Deploy', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestartService') {
             (Get-ALActionPolicy $action -DryRun).mode | Should -Be 'simulate'
             (Get-ALActionPolicy $action -DryRun -Yes).mode | Should -Be 'simulate' -Because '-DryRun with -Yes is still only a simulation'
             (Get-ALActionPolicy $action -Yes).mode | Should -Be 'execute'
@@ -171,6 +171,7 @@ Describe 'Deploy-AuthLens -DryRun entry point leaves the installation unchanged 
         Test-Path (Join-Path $site.Config.WorkRoot 'runs') | Should -BeFalse -Because 'a simulation writes no run folder'
         Test-Path (Join-Path $site.Config.WorkRoot 'deployment.lock') | Should -BeFalse -Because 'a simulation takes the host mutex only'
         Test-Path (Join-Path $site.Config.WorkRoot 'RECOVERY-REQUIRED.txt') | Should -BeFalse
+        Test-Path (Join-Path $site.Config.WorkRoot 'recovery-audit.jsonl') | Should -BeFalse -Because 'a simulation never writes recovery audit metadata (G-004)'
     }
     It 'refuses -DryRun for actions without a simulation before anything runs' {
         $site = New-DryRunInstallation
@@ -194,6 +195,9 @@ Describe 'Deploy-AuthLens -DryRun entry point leaves the installation unchanged 
         $network.Code | Should -Not -Be 0 -Because 'an interrupted deployment blocks configuration changes'
         $certificate = Invoke-Entry @('-Action', 'ReplaceCertificate', '-ConfigFile', $site.File, '-CertificateFile', (Join-Path $TestDrive 'missing.pfx'), '-CertificatePasswordFile', (Join-Path $TestDrive 'missing'), '-DryRun', '-Yes')
         $certificate.Result.result.simulation | Should -BeTrue
+        $restart = Invoke-Entry @('-Action', 'RestartService', '-ConfigFile', $site.File, '-DryRun')
+        $restart.Result.result.simulation | Should -BeTrue
+        $restart.Code | Should -Not -Be 0 -Because 'an interrupted deployment blocks a restart'
         $certificate.Code | Should -Be 2
         @(Compare-ALStateSnapshot $before (Get-ALStateSnapshot $site.Config)).Count | Should -Be 0
     }

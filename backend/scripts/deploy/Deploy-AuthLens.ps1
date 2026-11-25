@@ -26,6 +26,10 @@
                     new certificate (thumbprints, issuer, expiry, missing identities) and what the change means for client trust.
                     ChangeNetwork accepts the same two certificate options to change network settings and certificate in one transaction.
     ExportCertificate   Writes the public certificate (.cer, DER) to -PublicCertificateFile for client trust distribution; never the PFX or password.
+    RestartService  Restarts the installed service on its unchanged configuration (downtime) and verifies listener ownership, readiness and the
+                    release identity; refused while a deployment or configuration change awaits recovery. -DryRun runs the checks. Needs -Yes.
+  Every recovery attempt is appended to <WorkRoot>\recovery-audit.jsonl (action, operator from the process token, runs, version, commit,
+  manifest and configuration hashes, outcome); simulations never write it.
     Rollback        Returns to the previous release (or -ToRelease), only when it can open the current data. Needs -Yes.
     Recover         Revalidates an owned fresh candidate or recovers an interrupted update. -RecoveryAction VerifyCandidate, Resume,
                     Rollback or Cancel selects an explicit supported action; rollback needs verified prerequisites. Needs -Yes. VerifyCandidate and
@@ -57,7 +61,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Status', 'Health', 'Build', 'Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ExportCertificate', 'AuditAcl', 'ProtectAcl', 'RestoreAcl')]
+    [ValidateSet('Status', 'Health', 'Build', 'Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ExportCertificate', 'RestartService', 'AuditAcl', 'ProtectAcl', 'RestoreAcl')]
     [string]$Action = 'Status',
     [string]$ConfigFile = '',
     [string]$Branch = '',
@@ -102,7 +106,7 @@ function Write-Result($Value, [int]$Code) {
     if ($script:Simulation) {
         # A simulation must never report or cause a completed operation (D-006).
         if ($null -eq $Value) { $Value = [pscustomobject]@{} }
-        $claims = @('recovered', 'replaced', 'changed', 'rolled_back') | Where-Object { $Value.PSObject.Properties[$_] -and $Value.$_ -eq $true }
+        $claims = @('recovered', 'replaced', 'changed', 'rolled_back', 'restarted') | Where-Object { $Value.PSObject.Properties[$_] -and $Value.$_ -eq $true }
         if ($claims) { $Value = [pscustomobject]@{ error = "Simulation reported a completed operation ($($claims -join ', ')); treated as a defect. Review -Action Status." }; $Code = 4 }
         if ($script:SimulationBefore) {
             $changed = @(Compare-ALStateSnapshot $script:SimulationBefore (Get-ALStateSnapshot $script:SimulationConfig))
@@ -201,6 +205,7 @@ try {
             Write-Result (Invoke-ALRecover $config -RecoveryAction $RecoveryAction -CertificateFile $CertificateFile -CertificatePasswordFile $CertificatePasswordFile) 0
         }
         'ReplaceCertificate' { Write-Result (Invoke-ALReplaceCertificate $config $CertificateFile $CertificatePasswordFile -DryRun:$DryRun) 0 }
+        'RestartService' { Write-Result (Invoke-ALServiceRestart $config -DryRun:$DryRun) 0 }
         'ChangeNetwork' {
             $requested = @{}
             if ($AccessMode) { $requested.AccessMode = $AccessMode }
