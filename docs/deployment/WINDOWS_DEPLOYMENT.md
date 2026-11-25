@@ -196,15 +196,30 @@ WriteAttributes, DeleteSubdirectoriesAndFiles, Delete, ChangePermissions, TakeOw
 Secure provisioning refuses a parent with broad delete/replacement or DACL/owner rights. `AuditAcl` reports every finding with path, role,
 principal, access, rights mask, inherited or explicit, and what it applies to.
 
-**Named accounts (D-008, after RC4).** An individual account that is neither broad nor expected (SYSTEM, Administrators, TrustedInstaller,
-CREATOR OWNER, OWNER RIGHTS, the configured service identity) and holds read or write on private material, or write on binaries, is reported per
-entry in `named_principals` and in the report's `named_principal_access` and `review_required` (the account name, and the remediation:
-`icacls <path> /remove:g <account>` after confirming the access is not deliberately approved). Such an account reads the recovery key, TLS
-password, API token and database from a non-elevated process, outside the UAC boundary that protects Administrators. `safe` keeps its meaning
-(no broad principal, required access present) because the installation gates rely on it; named accounts never make `safe` false, are never
-removed automatically, and ProtectAcl does not remove them. RC4 and earlier tools report only broad principals: on VM130 an explicit
-`windows-vm\<operator>` FullControl entry on `C:\ProgramData\AuthLens` (inherited by every private folder) was not reported (environmental
-configuration, not created by the product; see the acceptance tracker).
+**Named accounts and the security status (D-008, WP31; after RC5).** An individual account that is neither broad nor expected (SYSTEM,
+Administrators, TrustedInstaller, CREATOR OWNER, OWNER RIGHTS, the configured service identity) with read or write on private material, or
+write on binaries, is reported per entry in `named_principals` with a classification:
+
+| Classification | Meaning | Effect on `status` |
+| --- | --- | --- |
+| `authorized` | Covered by an explicit, scoped authorization (`private`, `binaries` or `all`) recorded with a reason, who approved it and when | none |
+| `unreviewed` | Access to private material that nobody has authorized | `REVIEW_REQUIRED` |
+| `unauthorized_binary_write` | Write on release binaries, the configuration file or its folder without authorization: it could replace what the service runs | `UNSAFE` |
+
+`status` is `SAFE`, `REVIEW_REQUIRED` or `UNSAFE` (broad access or missing required access are always `UNSAFE`); `-Action AuditAcl` exits 0,
+3 or 2 respectively. `safe` keeps its earlier meaning (no broad principal, required access present) because installation, upgrade and repair
+gates rely on it, so a `REVIEW_REQUIRED` or `UNSAFE` named-account finding does not block an upgrade; strict gates and acceptance use `status`.
+
+- **Authorize** intended access: `Deploy-AuthLens.ps1 -Action AuthorizeAclPrincipal -Principal <account or SID> -AclScope private|binaries|all
+  -Reason <text> -Yes` (`-DryRun` previews; `RevokeAclPrincipal` removes it). The record is `<WorkRoot>\acl-authorizations.json` in the protected
+  deployment state; no ACL changes. SYSTEM, Administrators and broad principals cannot be recorded.
+- **Remove** unintended access: `-Action ProtectAcl -RemovePrincipal <account>[,...] -DryRun` lists `would_change`; with `-Yes` the same ACL
+  inventory backup is written first, the selected accounts are removed together with broad grants (inheritance removed on the affected entries),
+  and `-Action RestoreAcl -AclBackup <folder>` rolls back. Named accounts are never removed unless selected; authorized ones never.
+- **Service Manager:** Diagnostics and logs → *Security permission status* (`-Action AclStatus`), read-only, with the commands above.
+- On VM130 the explicit `windows-vm\<operator>` FullControl entry on `C:\ProgramData\AuthLens` (inherited by all eight audited locations) is
+  classified `UNSAFE` (`unauthorized_binary_write` on releases and configuration; `unreviewed` on private material). It was not created by the
+  product; review it with the operator. RC5 and earlier tools report it as `safe: true` without a status.
 
 This is a conservative allow-rule policy audit, not a Windows Authz effective-access calculation for every possible token. A broad allow remains
 a finding even when a deny might cancel it for a particular user; individual account membership is not expanded. Native fixtures verify the SID

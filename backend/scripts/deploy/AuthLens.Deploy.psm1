@@ -1285,8 +1285,8 @@ function Invoke-ALServiceRestart($Config, [switch]$DryRun) {
 # evaluation; any other changing action refuses -DryRun instead of running for real. -DryRun never replaces -Yes: without -DryRun an approval
 # action needs -Yes, and -DryRun with -Yes is still only a simulation.
 $script:ReadOnlyActions = @('Status', 'Health', 'AuditAcl')
-$script:SimulatedActions = @('Deploy', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestartService')
-$script:ApprovalActions = @('Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestoreAcl', 'RestartService')
+$script:SimulatedActions = @('Deploy', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestartService', 'AuthorizeAclPrincipal', 'RevokeAclPrincipal')
+$script:ApprovalActions = @('Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestoreAcl', 'RestartService', 'AuthorizeAclPrincipal', 'RevokeAclPrincipal')
 
 function Get-ALActionPolicy([string]$Action, [switch]$DryRun, [switch]$Yes) {
     if ($Action -in $script:ReadOnlyActions) { return [pscustomobject]@{ action = $Action; mode = 'read_only'; approval_required = $false } }

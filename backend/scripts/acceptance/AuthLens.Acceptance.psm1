@@ -2,7 +2,7 @@
 # context, expected exit code, expected refusal reason, expected simulation fields and whether the protected installation state must stay
 # unchanged; a case passes only when every stated expectation holds. A group stops at the first unexpected state change (QA-012) and at
 # the first failed mandatory case (QA-004). Results are machine-readable (results.json) with meaningful exit codes (QA-018):
-#   0 every case passed · 1 at least one case failed · 2 precondition or context refused, nothing run · 3 stopped on unexpected mutation.
+#   0 every case passed - 1 at least one case failed - 2 precondition or context refused, nothing run - 3 stopped on unexpected mutation.
 # Secret files are recorded by length and time only; database rows are never read (fingerprints come from the product's read-only command).
 Set-StrictMode -Version 3.0
 

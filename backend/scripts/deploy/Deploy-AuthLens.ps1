@@ -35,8 +35,14 @@
                     Rollback or Cancel selects an explicit supported action; rollback needs verified prerequisites. Needs -Yes. VerifyCandidate and
                     Resume accept -CertificateFile/-CertificatePasswordFile to complete an interrupted first installation whose configured
                     certificate blocks recovery (recorded certificate transaction with rollback).
-    AuditAcl        Read-only NTFS audit (by well-known SID) of private state, releases and configuration; exit 2 when anything is unsafe.
+    AuditAcl        Read-only NTFS audit (by well-known SID) of private state, releases and configuration. Result status SAFE (exit 0),
+                    REVIEW_REQUIRED (exit 3: named accounts with unreviewed access) or UNSAFE (exit 2: broad access, missing required access,
+                    or an unauthorized named account that can write release binaries or configuration).
     ProtectAcl      Explicit remediation of what AuditAcl reports, after verified ACL inventories in -AclBackupRoot. Needs -Yes and -ApprovedAclRoot.
+                    -RemovePrincipal <account>[,...] also removes those named accounts (never automatic); preview with -DryRun.
+    AuthorizeAclPrincipal / RevokeAclPrincipal
+                    Records (or removes) an explicit, scoped authorization of a named account: -Principal <account or SID> -AclScope
+                    private|binaries|all -Reason <text>. Changes no ACL; AuditAcl then classifies that access as authorized. Needs -Yes.
     RestoreAcl      Restores the ACLs saved by ProtectAcl (-AclBackup <folder>). Needs -Yes and -ApprovedAclRoot.
 
   Services of earlier products (SAP Lens: sap-lens, SapLens, SapLens2) are never adopted, stopped or changed.
@@ -61,7 +67,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Status', 'Health', 'Build', 'Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ExportCertificate', 'RestartService', 'AuditAcl', 'ProtectAcl', 'RestoreAcl')]
+    [ValidateSet('Status', 'Health', 'Build', 'Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ExportCertificate', 'RestartService', 'AuditAcl', 'ProtectAcl', 'RestoreAcl', 'AuthorizeAclPrincipal', 'RevokeAclPrincipal')]
     [string]$Action = 'Status',
     [string]$ConfigFile = '',
     [string]$Branch = '',
@@ -90,6 +96,10 @@ param(
     [string]$AclBackup = '',
     [string]$AclBackupRoot = '',
     [string[]]$ApprovedAclRoot = @(),
+    [string]$Principal = '',
+    [ValidateSet('', 'private', 'binaries', 'all')][string]$AclScope = '',
+    [string]$Reason = '',
+    [string[]]$RemovePrincipal = @(),
     [switch]$DryRun,
     [switch]$FirstInstall,
     [switch]$Reconfigure,
@@ -135,9 +145,16 @@ try {
     if ($policy.mode -eq 'simulate') { $script:Simulation = $true; $script:SimulationConfig = $config; $script:SimulationBefore = Get-ALStateSnapshot $config }
     # NTFS audit (read-only) of the installation's private state, releases and configuration. Exit code 0 when no broad principal can read private
     # state or write anywhere it matters, 2 otherwise.
+    $removeSids = @($RemovePrincipal | Where-Object { $_ } | ForEach-Object { try { if ($_ -match '^S-1-[0-9-]+$') { $_ } else { ([Security.Principal.NTAccount]::new($_)).Translate([Security.Principal.SecurityIdentifier]).Value } } catch { Stop-AL "The principal '$_' could not be resolved." } })
     if ($Action -eq 'AuditAcl' -or ($Action -eq 'ProtectAcl' -and $DryRun)) {
-        $report = Get-ALAclReport (Get-ALAclPlan $config) -ExpectedSids (Get-ALAclExpectedSids $config)
-        Write-Result $report $(if ($report.safe) { 0 } else { 2 })
+        $report = Get-ALAclReport (Get-ALAclPlan $config) -ExpectedSids (Get-ALAclExpectedSids $config) -Authorizations (Get-ALAclAuthorizations $config)
+        if ($Action -eq 'ProtectAcl') {
+            # Preview (WP31): what ProtectAcl -Yes would change, including the named principals selected with -RemovePrincipal.
+            $report | Add-Member -NotePropertyName would_change -NotePropertyValue @($report.entries | Where-Object { $_.exists -and ($_.findings.Count -or -not $_.required_access_verified -or @($_.named_principals | Where-Object { $_.sid -in $removeSids -and $_.classification -ne 'authorized' }).Count) } | ForEach-Object path) -Force
+            $report | Add-Member -NotePropertyName would_remove_principals -NotePropertyValue @($removeSids) -Force
+            Write-Result $report $(if ($report.safe) { 0 } else { 2 })
+        }
+        Write-Result $report $(switch ($report.status) { 'SAFE' { 0 } 'REVIEW_REQUIRED' { 3 } default { 2 } })
     }
     if ($changing -and -not (Test-Elevated)) { Stop-AL "$Action needs an elevated session (an administrator account over SSH, or Run as administrator)." }
     switch ($Action) {
@@ -219,9 +236,11 @@ try {
         'ProtectAcl' {
             if (-not $ConfigFile) { Stop-AL 'ProtectAcl requires an explicit -ConfigFile.' }
             $backupRoot = if ($AclBackupRoot) { $AclBackupRoot } else { Join-AL $config.WorkRoot 'acl-backups' }
-            $result = Invoke-ALProtectAcl $config $backupRoot $ApprovedAclRoot
+            $result = Invoke-ALProtectAcl $config $backupRoot $ApprovedAclRoot -RemoveSids $removeSids
             Write-Result $result $(if ($result.after.safe) { 0 } else { 2 })
         }
+        'AuthorizeAclPrincipal' { Write-Result (Set-ALAclAuthorization $config $Principal $AclScope $Reason -DryRun:$DryRun) 0 }
+        'RevokeAclPrincipal' { Write-Result (Set-ALAclAuthorization $config $Principal '' '' -Revoke -DryRun:$DryRun) 0 }
         'RestoreAcl' {
             if (-not $AclBackup) { Stop-AL 'RestoreAcl requires -AclBackup <WorkRoot\acl-backups\<UTC time>> written by ProtectAcl.' }
             Write-Result (Invoke-ALRestoreAcl $AclBackup $ApprovedAclRoot) 0

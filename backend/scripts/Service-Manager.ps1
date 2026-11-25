@@ -7,7 +7,8 @@
   failed operation returns to its menu with an actionable message, and technical details go to <Root>\logs\service-manager (never key material,
   passwords or one-use codes). Every -Action below also runs non-interactively; changing actions need -Yes.
 
-  Read-only: Status (key status), ServiceStatus, NetworkStatus, CertificateStatus, DeploymentStatus (recovery preview through -DryRun).
+  Read-only: Status (key status), ServiceStatus, NetworkStatus, CertificateStatus, DeploymentStatus (recovery preview through -DryRun),
+  AclStatus (security permission status with classified findings).
   Writes a new file only: ExportKey (then verifies the exported copy automatically), ExportCertificate (public .cer), CreateBackup, Diagnostics.
   Changes keys or accounts (no service restart): CreateKey, VerifyKey, GrantKeyAccess, ActivationCode, RecoveryCode.
   Restarts the service (downtime): RestartService, ChangeNetwork, ReplaceCertificate, Recover (Resume starts a stopped service; VerifyCandidate
@@ -19,7 +20,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Menu', 'Status', 'CreateKey', 'ExportKey', 'VerifyKey', 'GrantKeyAccess', 'ActivationCode', 'RecoveryCode', 'NetworkStatus', 'ChangeNetwork',
-        'ServiceStatus', 'CertificateStatus', 'ExportCertificate', 'ReplaceCertificate', 'DeploymentStatus', 'Recover', 'CreateBackup', 'Diagnostics', 'RestartService')]
+        'ServiceStatus', 'CertificateStatus', 'ExportCertificate', 'ReplaceCertificate', 'DeploymentStatus', 'Recover', 'CreateBackup', 'Diagnostics', 'RestartService', 'AclStatus')]
     [string]$Action = 'Menu',
     # Empty: resolved from the installation Setup registered (HKLM\Software\AuthLens\Server ConfigFile), so custom roots and data paths are honored.
     [string]$DataDirectory = '',
@@ -77,7 +78,7 @@ function Get-AuthLensInstalledConfiguration([string]$Explicit) {
 }
 
 $installed = $null
-$needsInstallation = $Action -in @('NetworkStatus', 'ChangeNetwork', 'ServiceStatus', 'CertificateStatus', 'ExportCertificate', 'ReplaceCertificate', 'DeploymentStatus', 'Recover', 'Diagnostics', 'RestartService')
+$needsInstallation = $Action -in @('AclStatus', 'NetworkStatus', 'ChangeNetwork', 'ServiceStatus', 'CertificateStatus', 'ExportCertificate', 'ReplaceCertificate', 'DeploymentStatus', 'Recover', 'Diagnostics', 'RestartService')
 if (-not $DataDirectory -or $needsInstallation) { $installed = Get-AuthLensInstalledConfiguration $ConfigFile }
 elseif ($Action -eq 'Menu') { try { $installed = Get-AuthLensInstalledConfiguration $ConfigFile } catch { $installed = $null } }
 if (-not $DataDirectory) {
@@ -486,6 +487,24 @@ function Write-AuthLensOverview {
     Write-Host ("  Deployment: journal {0}; recovery needed: {1}; configuration change pending: {2}; service key read: {3}" -f $s.journal_phase, $s.recovery_needed, $s.configuration_change_pending, $s.backup_key_service_access)
 }
 
+# ---- Security permissions (WP31): read-only ACL status with classified findings and the exact remediation commands. Nothing is changed here.
+function Invoke-AuthLensAclStatus {
+    if (-not $installed) { throw 'No installed Server configuration was found; select -ConfigFile.' }
+    $deploy = Get-AuthLensInstalledDeployTool $PSScriptRoot
+    $report = (Invoke-AuthLensDeployTool $deploy @('-Action', 'AuditAcl', '-ConfigFile', $installed.config_file)).result
+    $status = if ($report.PSObject.Properties['status']) { $report.status } elseif ($report.safe) { 'SAFE (installed tools report broad access only)' } else { 'UNSAFE' }
+    Write-Host "Security permission status: $status"
+    foreach ($entry in @($report.entries)) {
+        foreach ($finding in @($entry.findings)) { Write-Host ("  UNSAFE  {0}: {1} has broad {2} access ({3})" -f $entry.role, $finding.principal, $finding.access, $(if ($finding.inherited) { 'inherited' } else { 'explicit' })) }
+        if (-not $entry.required_access_verified) { Write-Host "  UNSAFE  $($entry.role): required SYSTEM/Administrators access is unverified" }
+    }
+    foreach ($principal in @(if ($report.PSObject.Properties['principals']) { $report.principals })) {
+        Write-Host ("  {0,-15} {1}: {2} access on {3} location(s)" -f (@($principal.classifications) -join ','), $principal.principal, (@($principal.access) -join '/'), $principal.entries)
+    }
+    if ($report.PSObject.Properties['review_required'] -and $report.review_required) { Write-Host $report.review_required }
+    Write-Host 'Application approvals and Windows permissions are separate. Removing access is never automatic: preview first with -DryRun.'
+}
+
 # ---- TLS certificates (WP20)
 
 function Invoke-AuthLensCertificateWorkflow([string]$Operation, [bool]$Confirmed) {
@@ -757,6 +776,7 @@ function Start-AuthLensMenu {
                         @('2', 'Guided recovery of an interrupted deployment', { Invoke-AuthLensRecoveryMenu })) }
                 '7' { Show-AuthLensMenu 'Diagnostics and logs' @(
                         @('1', 'Write a diagnostic report (status and ACL audit, no secrets)', { Invoke-AuthLensDiagnostics }),
+                        @('3', 'Security permission status (SAFE, REVIEW_REQUIRED or UNSAFE; read-only)', { Invoke-AuthLensAclStatus }),
                         @('2', 'Show log locations', { Write-Host "Service Manager: $(Get-AuthLensLogFolder)"; if ($installed) { Write-Host "Deployment runs: $(Join-Path $installed.root 'deployment\runs')"; Write-Host "Server logs: $(Join-Path $installed.root 'logs')" } })) }
                 { $_ -ieq 'Q' } { return }
                 default { Write-Host 'Choose one of the listed options.' }
@@ -812,6 +832,7 @@ switch ($Action) {
     'Recover' { Invoke-AuthLensRecoveryWorkflow 'Recover' $RecoveryAction ([bool]$Yes) }
     'CreateBackup' { Invoke-AuthLensBackup ([bool]$Yes) }
     'Diagnostics' { Invoke-AuthLensDiagnostics }
+    'AclStatus' { Invoke-AuthLensAclStatus }
     'RestartService' { Invoke-AuthLensRestartWorkflow ([bool]$Yes) }
     'GrantKeyAccess' { Invoke-AuthLensGrantKeyAccess ([bool]$Yes) }
     default { Invoke-AuthLensLocalAdmin $Action $Path $Username ([bool]$Yes) }

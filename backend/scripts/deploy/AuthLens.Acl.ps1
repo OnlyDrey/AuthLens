@@ -133,24 +133,74 @@ function Get-ALAclExpectedSids($Config) {
     @(try { ([Security.Principal.NTAccount]::new($Config.ServiceAccount)).Translate([Security.Principal.SecurityIdentifier]).Value } catch { })
 }
 
-# 'safe' keeps its meaning (no broad principal, required access present) because deployment gates rely on it. Named-account access to private
-# material is reported separately (named_principal_access, review_required) with remediation guidance; nothing is removed automatically.
-function Get-ALAclReport($Plan, [string[]]$ExpectedSids = @()) {
+# WP31 (SEC-001 to SEC-007): explicit, scoped and auditable authorizations of named principals, kept with the protected deployment state
+# (<WorkRoot>\acl-authorizations.json). Only Deploy-AuthLens.ps1 -Action AuthorizeAclPrincipal/RevokeAclPrincipal -Yes changes it.
+function Get-ALAclAuthorizationPath($Config) { Join-AL $Config.WorkRoot 'acl-authorizations.json' }
+function Get-ALAclAuthorizations($Config) {
+    $path = Get-ALAclAuthorizationPath $Config
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return @() }
+    try { $doc = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json } catch { Stop-AL 'The ACL authorization record is unreadable; nothing is treated as authorized until it is reviewed.' 2 }
+    if ($doc.schema -ne 1) { Stop-AL 'The ACL authorization record has an unknown schema.' 2 }
+    @(@($doc.principals) | Where-Object { $_ -and $_.PSObject.Properties['sid'] -and $_.PSObject.Properties['scope'] -and $_.sid -match '^S-1-[0-9-]+$' -and $_.scope -in @('private', 'binaries', 'all') })
+}
+
+# One classification per named finding: authorized (an explicit authorization covers the entry's class), unauthorized_binary_write (write on
+# release binaries or configuration without authorization: unsafe, it could replace what the service runs) or unreviewed (any other named
+# access to private material: review required).
+function Get-ALAclNamedClass($Finding, [string]$Class, $Authorizations) {
+    $authorized = @(@($Authorizations) | Where-Object { $_ -and $_.PSObject.Properties['sid'] -and $_.PSObject.Properties['scope'] -and $_.sid -eq $Finding.sid -and ($_.scope -eq 'all' -or $_.scope -eq $Class) })
+    if ($authorized.Count) { return 'authorized' }
+    if ($Class -eq 'binaries' -and $Finding.access -eq 'write') { return 'unauthorized_binary_write' }
+    'unreviewed'
+}
+
+# Status contract (WP31): SAFE (no broad access, required access present, every named principal authorized), REVIEW_REQUIRED (unreviewed named
+# access to private material), UNSAFE (broad access, missing required access, or unauthorized named write on binaries). 'safe' keeps its
+# earlier meaning (no broad principal, required access present) because installation and upgrade gates rely on it; strict gates use 'status'.
+# Exit codes of -Action AuditAcl: 0 SAFE, 3 REVIEW_REQUIRED, 2 UNSAFE. Nothing is removed automatically.
+function Get-ALAclReport($Plan, [string[]]$ExpectedSids = @(), $Authorizations = @()) {
     $entries = foreach ($entry in @($Plan)) {
         $audit = Get-ALAclAudit $entry.Path $entry.Class $entry.Role -Recurse:$entry.Recurse -ExpectedSids $ExpectedSids
         $required = $true
         if (Test-Path -LiteralPath $entry.Path) { try { Assert-ALAclRequiredAccess $entry.Path } catch { $required = $false } }
+        $named = @(@(if ($audit.PSObject.Properties['named']) { $audit.named }) | Where-Object { $_ } | ForEach-Object {
+            $_ | Add-Member -NotePropertyName classification -NotePropertyValue (Get-ALAclNamedClass $_ $entry.Class $Authorizations) -Force -PassThru })
         [pscustomobject]@{ path = $entry.Path; role = $entry.Role; class = $entry.Class; exists = (Test-Path -LiteralPath $entry.Path)
-            required_access_verified = $required; findings = @($audit.findings); named_principals = @(if ($audit.PSObject.Properties['named']) { $audit.named }) }
+            required_access_verified = $required; findings = @($audit.findings); named_principals = $named }
     }
     $entries = @($entries)
     $named = @($entries | ForEach-Object { @($_.named_principals) } | Where-Object { $_ })
-    $review = if ($named.Count) {
-        $accounts = @($named | ForEach-Object principal | Sort-Object -Unique) -join ', '
-        "Named account(s) $accounts can read or change private AuthLens material outside the Administrators/UAC boundary. If that access is not deliberately approved, remove it with icacls <path> /remove:g <account> (ProtectAcl never removes named accounts); keep SYSTEM, Administrators and the service identity."
+    $open = @($named | Where-Object classification -ne 'authorized')
+    $broad = @($entries | Where-Object { $_.findings.Count -gt 0 -or -not $_.required_access_verified }).Count -gt 0
+    $status = if ($broad -or @($open | Where-Object classification -eq 'unauthorized_binary_write').Count) { 'UNSAFE' } elseif ($open.Count) { 'REVIEW_REQUIRED' } else { 'SAFE' }
+    $review = if ($open.Count) {
+        $accounts = @($open | ForEach-Object principal | Sort-Object -Unique) -join ', '
+        "Named account(s) $accounts can read or change AuthLens material outside the Administrators/UAC boundary. If the access is intended, record it with Deploy-AuthLens.ps1 -Action AuthorizeAclPrincipal -Principal <account> -AclScope private|binaries|all -Reason <text> -Yes; otherwise preview its removal with -Action ProtectAcl -RemovePrincipal <account> -DryRun and apply it with -Yes (an ACL backup is taken first; -Action RestoreAcl rolls back). Keep SYSTEM, Administrators and the service identity."
     } else { '' }
-    [pscustomobject]@{ safe = (@($entries | Where-Object { $_.findings.Count -gt 0 -or -not $_.required_access_verified }).Count -eq 0); named_principal_access = [bool]$named.Count
-        review_required = $review; entries = $entries }
+    $principals = @($named | Group-Object sid | ForEach-Object { $first = $_.Group[0]
+        [pscustomobject]@{ sid = $_.Name; principal = $first.principal; classifications = @($_.Group.classification | Sort-Object -Unique); access = @($_.Group.access | Sort-Object -Unique); entries = @($_.Group.path | Sort-Object -Unique).Count } })
+    [pscustomobject]@{ status = $status; safe = -not $broad; named_principal_access = [bool]$open.Count; review_required = $review
+        principals = $principals; authorizations = @(@($Authorizations) | Where-Object { $_ } | ForEach-Object { $a = $_; $v = { param($n) if ($a.PSObject.Properties[$n]) { $a.$n } else { $null } }
+            [pscustomobject]@{ sid = (& $v 'sid'); name = (& $v 'name'); scope = (& $v 'scope'); reason = (& $v 'reason'); approved_by = (& $v 'approved_by'); approved_utc = (& $v 'approved_utc') } })
+        entries = $entries }
+}
+
+# Records or removes an explicit authorization (approval-gated Deploy action). The record holds the SID, the scope, the reason, who approved it
+# and when; nothing changes on disk ACLs.
+function Set-ALAclAuthorization($Config, [string]$Principal, [ValidateSet('private', 'binaries', 'all', '')][string]$Scope, [string]$Reason, [switch]$Revoke, [switch]$DryRun) {
+    $sid = try { if ($Principal -match '^S-1-[0-9-]+$') { $Principal } else { ([Security.Principal.NTAccount]::new($Principal)).Translate([Security.Principal.SecurityIdentifier]).Value } } catch { Stop-AL "The principal '$Principal' could not be resolved." 2 }
+    if ($sid -in $script:AclAlwaysExpected -or (Test-ALBroadSid $sid)) { Stop-AL 'SYSTEM, Administrators and broad principals are not recorded as named authorizations.' 2 }
+    if (-not $Revoke -and (-not $Scope -or $Reason.Trim().Length -lt 8)) { Stop-AL 'An authorization needs -AclScope (private, binaries or all) and a -Reason of at least 8 characters.' 2 }
+    $name = try { ([Security.Principal.SecurityIdentifier]::new($sid)).Translate([Security.Principal.NTAccount]).Value } catch { $sid }
+    $current = @(Get-ALAclAuthorizations $Config | Where-Object { $_.sid -ne $sid })
+    $next = if ($Revoke) { $current } else { @($current) + [pscustomobject]@{ sid = $sid; name = $name; scope = $Scope; reason = $Reason.Trim(); approved_by = [Security.Principal.WindowsIdentity]::GetCurrent().Name; approved_utc = [DateTime]::UtcNow.ToString('o') } }
+    $result = [pscustomobject]@{ principal = $name; sid = $sid; scope = $(if ($Revoke) { $null } else { $Scope }); revoked = [bool]$Revoke; authorizations = @($next).Count; acl_changed = $false }
+    if ($DryRun) { return $result }
+    $bytes = [Text.Encoding]::UTF8.GetBytes(([pscustomobject]@{ schema = 1; principals = @($next) } | ConvertTo-Json -Depth 4))
+    $target = Get-ALAclAuthorizationPath $Config
+    if (Test-Path -LiteralPath $target) { Write-ALReplaceFile $target $bytes } else { Write-ALInstallerPrivateBytes $target $bytes }
+    Write-ALLog "ACL authorization $(if ($Revoke) { 'revoked' } else { "recorded ($Scope)" }) for $name"
+    $result
 }
 
 function Format-ALAclFindings($Report, [int]$Limit = 6) {
@@ -517,7 +567,9 @@ function New-ALSecureDirectory([string]$Path, [string[]]$ApprovedRoots, [switch]
 # removed, explicit broad grants removed, SYSTEM/Administrators/service grants set, and descendants reset to inherit (their explicit grants are in
 # the backup). Missing paths are left to Initialize-ALInstallation. ProgramData, Program Files, the Windows folder, user roots and drive roots
 # are refused. The running service keeps its access (SYSTEM, or its own grant), so nothing is stopped.
-function Invoke-ALProtectAcl($Config, [string]$BackupRoot, [string[]]$ApprovedRoots) {
+# WP31: -RemoveSids names principals the operator explicitly chose to remove (never automatic): entries where one of them has unreviewed named
+# access are protected the same way (inheritance removed, the SIDs removed), with the same ACL backup and RestoreAcl rollback.
+function Invoke-ALProtectAcl($Config, [string]$BackupRoot, [string[]]$ApprovedRoots, [string[]]$RemoveSids = @()) {
     Start-ALAclProgress
     try {
     Write-ALAclProgress 'validate' -Stage 'approved roots and physical inventory'
@@ -538,11 +590,12 @@ function Invoke-ALProtectAcl($Config, [string]$BackupRoot, [string[]]$ApprovedRo
         }
     }
     Write-ALAclProgress 'audit' -Stage 'initial policy'
-    $report = Get-ALAclReport $plan
+    $report = Get-ALAclReport $plan (Get-ALAclExpectedSids $Config) (Get-ALAclAuthorizations $Config)
     $changes = @(foreach ($entry in $plan) {
         $row = @($report.entries | Where-Object { $_.path -eq $entry.Path -and $_.role -eq $entry.Role })[0]
-        if (-not $row.exists -or ($row.findings.Count -eq 0 -and $row.required_access_verified)) { continue }
-        [pscustomobject]@{ Entry = $entry; BroadSids = @($row.findings | ForEach-Object sid | Sort-Object -Unique) }
+        $named = @($row.named_principals | Where-Object { $_.sid -in $RemoveSids -and $_.classification -ne 'authorized' } | ForEach-Object sid | Sort-Object -Unique)
+        if (-not $row.exists -or ($row.findings.Count -eq 0 -and $row.required_access_verified -and -not $named.Count)) { continue }
+        [pscustomobject]@{ Entry = $entry; BroadSids = @(@($row.findings | ForEach-Object sid) + $named | Sort-Object -Unique) }
     })
     if (-not $changes.Count) { Write-ALAclProgress 'complete' -Stage 'no changes required'; return [pscustomobject]@{ changed = @(); backup = $null; after = $report } }
     $backup = Join-AL $BackupRoot ([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-' + [guid]::NewGuid().ToString('N'))
@@ -604,8 +657,10 @@ function Invoke-ALProtectAcl($Config, [string]$BackupRoot, [string[]]$ApprovedRo
         foreach ($record in $records) { if (-not $record.created) { Assert-ALAclRecordTree $record $ApprovedRoots } }
     } catch { Stop-AL "ACL verification detected changed tree/junction state; retain $backup for manual review." 4 }
     Write-ALAclProgress 'verification' -Stage 'final policy and physical tree'
-    $after = Get-ALAclReport (Get-ALAclPlan $Config)
+    $after = Get-ALAclReport (Get-ALAclPlan $Config) (Get-ALAclExpectedSids $Config) (Get-ALAclAuthorizations $Config)
     if (-not $after.safe) { Stop-AL "ACL remediation verification failed; retain $backup for reviewed restoration." 1 }
+    $left = @($after.entries | ForEach-Object { @($_.named_principals) } | Where-Object { $_.sid -in $RemoveSids -and -not $_.inherited })
+    if ($left.Count) { Stop-AL "Selected principals still hold explicit access after remediation; retain $backup for reviewed restoration." 1 }
     Write-ALAclProgress 'complete' -Stage 'verified' -Force
     [pscustomobject]@{ changed = @($changes | ForEach-Object { $_.Entry.Path }); backup = $backup; after = $after }
     } catch {
