@@ -146,4 +146,52 @@ Describe 'Installed Server network configuration change' {
         $result.firewall_recovery_required | Should -BeTrue
         (Read-AuthLensSettings $script:ConfigFile).Port | Should -Be 18796
     }
+
+    # WP20 / D-004: a change whose hosts the certificate lacks names the missing identity; a combined change applies the certificate atomically.
+    It 'names the identities the certificate lacks and changes nothing' {
+        Mock -ModuleName AuthLens.Deploy Invoke-ALMaintenance { throw 'Server preflight refused the TLS certificate' } -ParameterFilter { $Arguments[0] -eq '--server-preflight' }
+        Mock -ModuleName AuthLens.Deploy Get-ALCertificateInfo { [pscustomobject]@{ thumbprint_sha256 = ('A' * 64); subject = 'CN=x'; issuer = 'CN=x'; self_signed = $true; missing_identities = @('lens2.example.org'); usable = $false } }
+        { Invoke-ALNetworkChange $script:Config @{ AllowedHosts = @('lens.example.org,lens2.example.org') } } | Should -Throw '*does not cover lens2.example.org*'
+        [IO.File]::ReadAllBytes($script:ConfigFile) | Should -Be $script:OriginalBytes
+        Should -Invoke -ModuleName AuthLens.Deploy Stop-ALService -Times 0
+    }
+
+    It 'changes network settings and certificate in one recorded transaction and reports the client-trust impact' {
+        $newCert = Join-Path $TestDrive "renewed-$([guid]::NewGuid().ToString('N')).pfx"; $newPassword = "$newCert.password"
+        foreach ($file in $newCert, $newPassword) { Set-Content $file 'synthetic' -Encoding ASCII }
+        $tlsDir = Join-Path $script:Root 'tls\renew-synthetic'
+        Mock -ModuleName AuthLens.Deploy Copy-ALServerTlsMaterial { [pscustomobject]@{ certificate = (Join-Path $tlsDir 'server.pfx'); password_file = (Join-Path $tlsDir 'cert-password'); public_certificate = (Join-Path $tlsDir 'server.cer') } }.GetNewClosure()
+        Mock -ModuleName AuthLens.Deploy Get-ALCertificateInfo { [pscustomobject]@{ thumbprint_sha256 = ('1' * 64); self_signed = $true; issuer = 'CN=AuthLens local HTTPS'; missing_identities = @() } }
+        Mock -ModuleName AuthLens.Deploy Get-ALCertificateInfo { [pscustomobject]@{ thumbprint_sha256 = ('2' * 64); self_signed = $false; issuer = 'CN=Synthetic Corporate CA'; missing_identities = @() } } -ParameterFilter { "$($Config.CertificatePath)" -like '*renewed-*' }
+        $plan = Invoke-ALNetworkChange $script:Config @{ AllowedHosts = @('lens.example.org,lens2.example.org') } -DryRun -CertificateFile $newCert -CertificatePasswordFile $newPassword
+        $plan.summary.operation | Should -Be 'network and certificate change'
+        $plan.summary.certificate_current.thumbprint_sha256 | Should -Be ('1' * 64)
+        $plan.summary.certificate_proposed.thumbprint_sha256 | Should -Be ('2' * 64)
+        $plan.summary.client_trust_notice | Should -BeLike '*Synthetic Corporate CA*'
+        Should -Invoke -ModuleName AuthLens.Deploy Copy-ALServerTlsMaterial -Times 0
+        Should -Invoke -ModuleName AuthLens.Deploy Invoke-ALMaintenance -Times 1 -ParameterFilter { $Arguments[0] -eq '--server-preflight' -and ($Arguments -join ' ') -like "*$newCert*" -and ($Arguments -join ' ') -like '*lens2.example.org*' }
+        [IO.File]::ReadAllBytes($script:ConfigFile) | Should -Be $script:OriginalBytes
+
+        $result = Invoke-ALNetworkChange $script:Config @{ AllowedHosts = @('lens.example.org,lens2.example.org') } -CertificateFile $newCert -CertificatePasswordFile $newPassword
+        $result.changed | Should -BeTrue
+        $saved = Read-AuthLensSettings $script:ConfigFile
+        @($saved.AllowedHosts) | Should -Be @('lens.example.org', 'lens2.example.org')
+        $saved.CertificatePath | Should -Be (Join-Path $tlsDir 'server.pfx')
+        Should -Invoke -ModuleName AuthLens.Deploy Set-ALServiceBinary -Times 1 -ParameterFilter { $BinaryPath -like "*$tlsDir*" -and $BinaryPath -like '*lens2.example.org*' }
+        Test-Path $script:Pending | Should -BeFalse
+    }
+
+    It 'restores the previous certificate and network settings when the combined change fails readiness' {
+        $newCert = Join-Path $TestDrive "renewed-$([guid]::NewGuid().ToString('N')).pfx"; $newPassword = "$newCert.password"
+        foreach ($file in $newCert, $newPassword) { Set-Content $file 'synthetic' -Encoding ASCII }
+        $tlsDir = Join-Path $script:Root 'tls\renew-failed'
+        Mock -ModuleName AuthLens.Deploy Copy-ALServerTlsMaterial { [pscustomobject]@{ certificate = (Join-Path $tlsDir 'server.pfx'); password_file = (Join-Path $tlsDir 'cert-password'); public_certificate = '' } }.GetNewClosure()
+        $script:Waits = 0
+        Mock -ModuleName AuthLens.Deploy Wait-ALReady { $script:Waits++; if ($script:Waits -eq 1) { throw 'synthetic readiness failure on the new certificate' }; [pscustomobject]@{ process_id = 44 } }
+        { Invoke-ALNetworkChange $script:Config @{ Port = 18796 } -CertificateFile $newCert -CertificatePasswordFile $newPassword } | Should -Throw '*previous configuration was restored*'
+        [IO.File]::ReadAllBytes($script:ConfigFile) | Should -Be $script:OriginalBytes
+        $servicePath = $script:ServicePath
+        Should -Invoke -ModuleName AuthLens.Deploy Set-ALServiceBinary -Times 1 -ParameterFilter { $BinaryPath -eq $servicePath }
+        Test-Path $script:Pending | Should -BeFalse
+    }
 }

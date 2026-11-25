@@ -136,6 +136,10 @@ function Get-ALServerAccessPlan($Config) {
     if($Config.PSObject.Properties['TrustedProxies']){$proxies=@($Config.TrustedProxies)}
     if($mode -ne 'Auto' -and $network -and -not(Test-ALPrivateAddress $address)){Stop-AL 'Network access requires a specific private LAN address.'}
     if($mode -eq 'Local' -and ($network -or $proxies.Count -or $proxyHosts.Count -or @($hosts|Where-Object{$_ -notin @('localhost','127.0.0.1','::1','[::1]')}).Count)){Stop-AL 'Local access requires loopback binding and loopback hosts without proxy trust.'}
+    # D-003: the runtime accepts only loopback names on a loopback listener, so other allowed hosts can never be reached and the readiness probe
+    # could not address them. Refused in every mode, including configurations without AccessMode (Auto).
+    $unreachable=@($hosts|Where-Object{$_ -and $_ -notin @('localhost','127.0.0.1','::1','[::1]')})
+    if(-not $network -and $unreachable.Count){Stop-AL ("A loopback listener accepts loopback host names only; allowed hosts {0} cannot reach it. Listen on a private interface (Corporate access) or remove them." -f ($unreachable -join ', '))}
     if($mode -eq 'Corporate' -and (-not $network -or -not $hosts.Count -or $proxies.Count -or $proxyHosts.Count)){Stop-AL 'Corporate access requires a private interface and explicit allowed hosts without proxy trust.'}
     if($mode -eq 'ReverseProxy' -and (-not $network -or -not $hosts.Count -or -not $proxies.Count -or -not $proxyHosts.Count)){Stop-AL 'Reverse proxy access requires a private backend interface, backend hosts, public proxy hosts and explicit trusted peers.'}
     [pscustomobject]@{access_mode=$mode;network_access=$network;listen_address=$Config.ListenAddress;allowed_hosts=$hosts;wildcard_supported=$false;probe_authority=$(if($network){$hosts|Select-Object -First 1}else{$Config.ListenAddress})}
@@ -742,6 +746,7 @@ function Get-ALStatus($Config) {
         configuration_change_pending = [bool](Get-ALPendingConfigurationRecord $Config); backup_key_service_access = (Get-ALKeyServiceAccess $Config)
         execution_context = $Config.ExecutionContext; access_mode = $Config.AccessMode; listen_address = $Config.ListenAddress; port = [int]$Config.Port
         allowed_hosts = @($Config.AllowedHosts); proxy_hosts = @($Config.ProxyHosts); trusted_proxies = @($Config.TrustedProxies); certificate = $Config.CertificatePath
+        certificate_status = $(try { ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $Config) } catch { $null })
     }
 }
 
@@ -977,7 +982,10 @@ function Invoke-ALDeploy($Config, [string]$ReleaseFolder, [string]$Commit, [swit
 
 # -Preview runs every check of the real recovery but never starts the service or writes the journal (D-006); a stopped service is reported
 # as the start Resume would perform, and readiness is then not proven.
-function Confirm-ALCandidateRecovery($Config,$Journal,[switch]$StartStoppedService,[switch]$Preview) {
+# -CertificateFile/-CertificatePasswordFile (G-007): the candidate is proven with the replacement certificate instead of the configured one, and the
+# replacement is applied through the recorded configuration transaction (create-only import, service read, configuration and command line,
+# restart, pinned readiness; any failure restores the previous certificate) before the journal is completed.
+function Confirm-ALCandidateRecovery($Config,$Journal,[switch]$StartStoppedService,[switch]$Preview,[string]$CertificateFile='',[string]$CertificatePasswordFile='') {
     Assert-ALInstallerServerConfiguration $Config
     $fingerprint=(Get-FileHash -LiteralPath $Config.ConfigFile -Algorithm SHA256).Hash
     $stored=Read-AuthLensSettings $Config.ConfigFile -Packaged
@@ -1002,14 +1010,41 @@ function Confirm-ALCandidateRecovery($Config,$Journal,[switch]$StartStoppedServi
         Assert-ALRecoveryBackup $Config $Journal
     }
     $exe=Join-AL $candidate 'server/AuthLens.Api.exe'
-    $probe=Invoke-ALMaintenance $exe (@('--server-preflight')+@(Get-ALServiceArguments $Config))
+    $proven=$Config
+    if($CertificateFile){
+        Assert-ALCertificateInput $CertificateFile $CertificatePasswordFile
+        $proven=Copy-ALConfig $Config @{CertificatePath=$CertificateFile;CertificatePasswordFile=$CertificatePasswordFile}
+    }
+    $probe=Invoke-ALMaintenance $exe (@('--server-preflight')+@(Get-ALServiceArguments $proven))
     if(-not $probe.validated -or -not $probe.read_only -or $probe.data_modified -ne $false -or $probe.source_sha -cne $Journal.commit -or $probe.version -cne $Journal.version -or -not $probe.schema.compatible -or @($probe.schema.pending).Count){Stop-AL 'Candidate recovery could not prove read-only TLS, key and database/schema compatibility.' 4}
     if($service.State -ne 'Running' -and -not($service.State -eq 'Stopped' -and $StartStoppedService)){Stop-AL 'Candidate is not running; explicit Resume is required to start an existing stopped service.' 4}
     if($Preview){
         $ready=$null
-        if($service.State -eq 'Running'){$ready=Wait-ALReady $Config $Journal.commit $Journal.version}
-        return [pscustomobject]@{would_succeed=$true;would_phase='complete';would_start_service=($service.State -ne 'Running');readiness_verified=[bool]$ready
+        # With a replacement certificate the current listener still serves the configured one; readiness is proven after the switch.
+        if($service.State -eq 'Running' -and -not $CertificateFile){$ready=Wait-ALReady $Config $Journal.commit $Journal.version}
+        $plan=[ordered]@{would_succeed=$true;would_phase='complete';would_start_service=($service.State -ne 'Running');readiness_verified=[bool]$ready
             release=$candidate;identity=$(if($ready -and $ready.PSObject.Properties['identity']){$ready.identity}else{$null});instance_id=$instance}
+        if($CertificateFile){
+            $plan.would_replace_certificate=$true;$plan.would_restart_service=$true
+            $plan.certificate_current=ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $Config $exe)
+            $plan.certificate_proposed=ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $proven $exe)
+            $plan.client_trust_notice=Get-ALCertificateTrustNotice $plan.certificate_current $plan.certificate_proposed
+        }
+        return [pscustomobject]$plan
+    }
+    if($CertificateFile){
+        $currentCertificate=ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $Config $exe)
+        $tls=Copy-ALServerTlsMaterial $proven (Join-AL (Join-AL $Config.Root 'tls') ('renew-'+[guid]::NewGuid().ToString('N')))
+        $next=Copy-ALConfig $Config @{CertificatePath=$tls.certificate;CertificatePasswordFile=$tls.password_file}
+        $copy=Invoke-ALMaintenance $exe (@('--server-preflight')+@(Get-ALServiceArguments $next))
+        if(-not $copy.validated -or -not $copy.read_only){Stop-AL 'The imported certificate copy did not validate; the service was not changed and the copy was retained for review.' 4}
+        Write-ALLog "recovery: replacing the certificate of candidate $($Journal.run)"
+        $applied=Invoke-ALConfigurationTransaction $Config $next @{CertificatePath=$tls.certificate;CertificatePasswordFile=$tls.password_file} 'recovery certificate replacement' ([pscustomobject]@{service=$service;manifest=$manifest})
+        Set-ALPhase $Config $Journal 'complete'
+        $proposed=ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $next $exe)
+        return [pscustomobject]@{recovered=$true;phase='complete';release=$candidate;identity=$applied.identity;instance_id=$instance;action='candidate revalidated with a replacement certificate';data_restored=$false
+            certificate_replaced=$true;certificate=$tls.certificate;public_certificate=$tls.public_certificate;previous_certificate_retained=$Config.CertificatePath;trust_store_modified=$false
+            certificate_previous=$currentCertificate;certificate_active=$proposed;client_trust_notice=(Get-ALCertificateTrustNotice $currentCertificate $proposed)}
     }
     if($service.State -eq 'Stopped' -and $StartStoppedService){Start-ALService $Config.ServiceName}
     $ready=Wait-ALReady $Config $Journal.commit $Journal.version
@@ -1058,10 +1093,14 @@ function Assert-ALRecoveryCancel($Config,$Journal) {
         ($observed.Exists -and -not(Test-ALServiceBinary $observed.PathName $Config) -and (-not $adopted -or $observed.PathName -ine $Journal.service_binary_before))){Stop-AL 'Cancellation found changed service or release identity; explicit recovery review is required.' 4}
 }
 
-function Invoke-ALRecover($Config,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto') {
+function Invoke-ALRecover($Config,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto',[string]$CertificateFile='',[string]$CertificatePasswordFile='') {
     Assert-ALNoPendingRepair $Config
+    # An interrupted configuration change (also a recovery certificate step) is restored before any journal decision.
+    $restored = Invoke-ALConfigurationRecover $Config 'an interrupted configuration change was found before recovery'
+    if ($restored) { return $restored }
     $journal = Read-ALJournal $Config
     $decision = Resolve-ALRecoveryDecision $Config $journal $RecoveryAction
+    if ($CertificateFile -and $decision.kind -ne 'candidate') { Stop-AL 'A replacement certificate applies only to candidate recovery (VerifyCandidate or Resume) of an interrupted deployment.' 4 }
     switch ($decision.kind) {
         'none' {
             Write-ALLog "nothing to recover: $($decision.reason)"
@@ -1070,7 +1109,7 @@ function Invoke-ALRecover($Config,[ValidateSet('Auto','VerifyCandidate','Resume'
         }
         'refuse' { Stop-AL $decision.reason 4 }
         'candidate' {
-            try{return Confirm-ALCandidateRecovery $Config $journal -StartStoppedService:$decision.start}
+            try{return Confirm-ALCandidateRecovery $Config $journal -StartStoppedService:$decision.start -CertificateFile $CertificateFile -CertificatePasswordFile $CertificatePasswordFile}
             catch{Set-ALPhase $Config $journal 'manual_recovery_required';Write-ALRecoveryInstructions $Config $journal 'Candidate verification refused; review the latest sanitized operation result.';throw}
         }
         'rollback' {
@@ -1111,7 +1150,7 @@ function Get-ALRecoveryOptions($Config,$Journal) {
 
 # -Action Recover -DryRun: evaluates the recovery Invoke-ALRecover would perform with every read-only check and reports it as a simulation. It
 # never writes the journal or recovery notes, restores a configuration, starts, stops or reconfigures the service, or switches releases.
-function Get-ALRecoveryPreview($Config,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto') {
+function Get-ALRecoveryPreview($Config,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto',[string]$CertificateFile='',[string]$CertificatePasswordFile='') {
     Assert-ALNoPendingRepair $Config
     $journal = Read-ALJournal $Config
     $base = [ordered]@{ dry_run = $true; requested_action = $RecoveryAction; journal_run = $(if ($journal) { $journal.run } else { $null }); journal_phase = $(if ($journal) { $journal.phase } else { $null })
@@ -1126,11 +1165,12 @@ function Get-ALRecoveryPreview($Config,[ValidateSet('Auto','VerifyCandidate','Re
     }
     $decision = Resolve-ALRecoveryDecision $Config $journal $RecoveryAction
     $base.decision = $decision.kind; $base.would_action = $decision.reason
+    if ($CertificateFile -and $decision.kind -ne 'candidate') { $base.would_succeed = $false; $base.blocking_reason = 'A replacement certificate applies only to candidate recovery (VerifyCandidate or Resume) of an interrupted deployment.'; return [pscustomobject]$base }
     try {
         switch ($decision.kind) {
             'none' { $base.would_succeed = $true; $base.would_phase = $base.journal_phase }
             'refuse' { $base.would_succeed = $false; $base.blocking_reason = $decision.reason }
-            'candidate' { $check = Confirm-ALCandidateRecovery $Config $journal -StartStoppedService:$decision.start -Preview; foreach ($p in $check.PSObject.Properties) { $base[$p.Name] = $p.Value } }
+            'candidate' { $check = Confirm-ALCandidateRecovery $Config $journal -StartStoppedService:$decision.start -Preview -CertificateFile $CertificateFile -CertificatePasswordFile $CertificatePasswordFile; foreach ($p in $check.PSObject.Properties) { $base[$p.Name] = $p.Value } }
             'rollback' { Assert-ALRecoveryRollback $Config $journal; $base.would_succeed = $true; $base.would_phase = 'rolled_back' }
             'abort' { if ($decision.cancel) { Assert-ALRecoveryCancel $Config $journal }; $base.would_succeed = $true; $base.would_phase = 'aborted' }
             'manual' { $base.would_succeed = $false; $base.would_phase = 'manual_recovery_required'; $base.blocking_reason = $decision.reason }
@@ -1378,16 +1418,16 @@ function Invoke-ALReplaceCertificate($Config, [string]$CertificateFile, [string]
         if ($DryRun) { Stop-AL 'An interrupted configuration change is recorded; run without -DryRun (or -Action Recover) to restore the previous configuration first.' 4 }
         return Invoke-ALConfigurationRecover $Config
     }
-    foreach ($file in $CertificateFile, $PasswordFile) {
-        if (-not $file -or -not [IO.Path]::IsPathRooted($file) -or -not (Test-Path -LiteralPath $file -PathType Leaf)) { Stop-AL 'ReplaceCertificate needs -CertificateFile <absolute .pfx file> and -CertificatePasswordFile <absolute protected password file>.' }
-        if ((Get-Item -LiteralPath $file -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { Stop-AL 'Certificate files must not be reparse points; nothing was changed.' }
-    }
-    if ([IO.Path]::GetExtension($CertificateFile) -notin @('.pfx', '.p12')) { Stop-AL 'Certificate replacement requires a PFX/PKCS12 file; nothing was changed.' }
+    Assert-ALCertificateInput $CertificateFile $PasswordFile
     $context = Assert-ALConfigurationChangeAllowed $Config
     $candidate = Copy-ALConfig $Config @{ CertificatePath = $CertificateFile; CertificatePasswordFile = $PasswordFile }
     $probe = Invoke-ALMaintenance (Get-ALServiceExe $Config) (@('--server-preflight') + @(Get-ALServiceArguments $candidate))
     if (-not $probe.validated -or -not $probe.read_only) { Stop-AL 'The packaged Server did not validate the new certificate for the configured hosts; nothing was changed.' }
-    if ($DryRun) { return [pscustomobject]@{ dry_run = $true; certificate_validated = $true; service = $Config.ServiceName; restart_required = $true; network_changed = $false } }
+    $currentCertificate = ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $Config)
+    $proposedCertificate = ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $candidate)
+    $notice = Get-ALCertificateTrustNotice $currentCertificate $proposedCertificate
+    if ($DryRun) { return [pscustomobject]@{ dry_run = $true; certificate_validated = $true; service = $Config.ServiceName; restart_required = $true; network_changed = $false
+        certificate_current = $currentCertificate; certificate_proposed = $proposedCertificate; client_trust_notice = $notice } }
     $tls = Copy-ALServerTlsMaterial $candidate (Join-AL (Join-AL $Config.Root 'tls') ('renew-' + [guid]::NewGuid().ToString('N')))
     $next = Copy-ALConfig $Config @{ CertificatePath = $tls.certificate; CertificatePasswordFile = $tls.password_file }
     $probe = Invoke-ALMaintenance (Get-ALServiceExe $Config) (@('--server-preflight') + @(Get-ALServiceArguments $next))
@@ -1399,6 +1439,59 @@ function Invoke-ALReplaceCertificate($Config, [string]$CertificateFile, [string]
     $result | Add-Member -NotePropertyName previous_certificate_retained -NotePropertyValue $Config.CertificatePath
     $result | Add-Member -NotePropertyName trust_store_modified -NotePropertyValue $false
     $result | Add-Member -NotePropertyName network_changed -NotePropertyValue $false
+    $result | Add-Member -NotePropertyName certificate_previous -NotePropertyValue $currentCertificate
+    $result | Add-Member -NotePropertyName certificate_active -NotePropertyValue $proposedCertificate
+    $result | Add-Member -NotePropertyName client_trust_notice -NotePropertyValue $notice
+    $result
+}
+
+# ---- TLS certificate lifecycle (WP20)
+
+function Assert-ALCertificateInput([string]$CertificateFile, [string]$PasswordFile) {
+    foreach ($file in $CertificateFile, $PasswordFile) {
+        if (-not $file -or -not [IO.Path]::IsPathRooted($file) -or -not (Test-Path -LiteralPath $file -PathType Leaf)) { Stop-AL 'A certificate change needs -CertificateFile <absolute .pfx file> and -CertificatePasswordFile <absolute protected password file>.' }
+        if ((Get-Item -LiteralPath $file -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { Stop-AL 'Certificate files must not be reparse points; nothing was changed.' }
+    }
+    if ([IO.Path]::GetExtension($CertificateFile) -notin @('.pfx', '.p12')) { Stop-AL 'Certificate replacement requires a PFX/PKCS12 file; nothing was changed.' }
+}
+
+# The packaged host's read-only description of the configured (or proposed) certificate against the shared endpoint-identity rule; $null when the
+# release predates --certificate-info or the certificate cannot be opened.
+function Get-ALCertificateInfo($Config, [string]$Exe = '') {
+    if (-not $Exe) { $Exe = Get-ALServiceExe $Config }
+    if (-not $Exe -or -not (Test-Path -LiteralPath $Exe -PathType Leaf)) { return $null }
+    Invoke-ALMaintenance $Exe (@('--certificate-info') + @(Get-ALServiceArguments $Config)) -AllowUnsupported
+}
+
+function ConvertTo-ALCertificateSummary($Info) {
+    if (-not $Info -or -not $Info.PSObject.Properties['thumbprint_sha256']) { return $null }
+    $value = { param($Name) if ($Info.PSObject.Properties[$Name]) { $Info.$Name } else { $null } }
+    [pscustomobject]@{ subject = (& $value 'subject'); issuer = (& $value 'issuer'); self_signed = [bool](& $value 'self_signed'); not_after_utc = (& $value 'not_after_utc'); days_remaining = (& $value 'days_remaining')
+        thumbprint_sha256 = $Info.thumbprint_sha256; dns_names = @(& $value 'dns_names' | Where-Object { $_ }); ip_addresses = @(& $value 'ip_addresses' | Where-Object { $_ }); missing_identities = @(& $value 'missing_identities' | Where-Object { $_ })
+        usable = [bool](& $value 'usable'); warnings = @(& $value 'warnings' | Where-Object { $_ }) }
+}
+
+# What a certificate change means for clients. Trust stores are never changed; distribution is an administrator decision.
+function Get-ALCertificateTrustNotice($Current, $Proposed) {
+    if (-not $Proposed) { return 'The new certificate could not be described; review it before applying.' }
+    if ($Current -and $Current.thumbprint_sha256 -eq $Proposed.thumbprint_sha256) { return 'The certificate is unchanged; client trust is not affected.' }
+    $old = if ($Current) { $Current.thumbprint_sha256 } else { 'unknown' }
+    $text = "The server certificate changes from SHA-256 $old to $($Proposed.thumbprint_sha256). Clients that trusted the previous certificate by its fingerprint will ask for trust again."
+    if ($Proposed.self_signed) { $text + ' The new certificate is self-signed: distribute its public .cer (never the PFX or its password) through an approved channel such as Group Policy (Trusted People or Trusted Root, per your policy), or replace it with a certificate from your internal CA. AuthLens does not change any trust store.' }
+    else { $text + " It is issued by '$($Proposed.issuer)': clients that already trust that CA need no change. AuthLens does not change any trust store." }
+}
+
+# Writes the public certificate of the installed Server (DER .cer) to a new file for client trust distribution; the PFX, its password and keys are
+# never exported. Create-only, outside the installation's private folders.
+function Export-ALPublicCertificate($Config, [string]$Destination) {
+    if (-not $Destination -or -not [IO.Path]::IsPathRooted($Destination)) { Stop-AL 'Select an absolute destination file ending in .cer (-PublicCertificateFile).' }
+    $full = [IO.Path]::GetFullPath($Destination)
+    foreach ($private in @($Config.DataDirectory, $Config.WorkRoot, (Join-AL $Config.Root 'keys'), (Join-AL $Config.Root 'tls'), $Config.BackupRoot)) {
+        if ($private -and (Test-ALPathWithin $full $private)) { Stop-AL 'Export the public certificate outside the installation''s private folders.' }
+    }
+    $exe = Get-ALServiceExe $Config
+    $result = Invoke-ALMaintenance $exe (@('--certificate-export-public', $full) + @(Get-ALServiceArguments $Config))
+    if (-not $result.exported -or $result.private_key_included) { Stop-AL 'The public certificate export was refused.' }
     $result
 }
 
@@ -1437,7 +1530,7 @@ function ConvertTo-ALNetworkSettings([hashtable]$Requested, $Config) {
 # transaction with validation first, a consolidated summary (-DryRun returns it without changing anything), readiness on the new listener with the
 # existing certificate, automatic restoration on failure and interrupted-run recovery. An installer-owned firewall rule is updated or removed only
 # with an explicit firewall decision; a change that would leave an owned rule pointing at the old listener is refused without one.
-function Invoke-ALNetworkChange($Config, [hashtable]$Requested, [string]$FirewallSources = '', [string]$FirewallProfiles = 'Domain', [switch]$ApproveFirewall, [switch]$RemoveFirewall, [switch]$DryRun) {
+function Invoke-ALNetworkChange($Config, [hashtable]$Requested, [string]$FirewallSources = '', [string]$FirewallProfiles = 'Domain', [switch]$ApproveFirewall, [switch]$RemoveFirewall, [switch]$DryRun, [string]$CertificateFile = '', [string]$CertificatePasswordFile = '') {
     if (Get-ALPendingConfigurationRecord $Config) {
         if ($DryRun) { Stop-AL 'An interrupted configuration change is recorded; run without -DryRun (or -Action Recover) to restore the previous configuration first.' 4 }
         return Invoke-ALConfigurationRecover $Config
@@ -1445,7 +1538,16 @@ function Invoke-ALNetworkChange($Config, [hashtable]$Requested, [string]$Firewal
     $context = Assert-ALConfigurationChangeAllowed $Config
     $changes = ConvertTo-ALNetworkSettings $Requested $Config
     $candidate = Copy-ALConfig $Config $changes
-    $access = Test-ALCandidateConfiguration $Config $candidate $context.service
+    # Combined change: the replacement certificate is validated against the proposed network settings and applied in the same transaction.
+    if ($CertificateFile) { Assert-ALCertificateInput $CertificateFile $CertificatePasswordFile; $candidate = Copy-ALConfig $candidate @{ CertificatePath = $CertificateFile; CertificatePasswordFile = $CertificatePasswordFile } }
+    try { $access = Test-ALCandidateConfiguration $Config $candidate $context.service }
+    catch {
+        $missing = ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $candidate)
+        if ($missing -and @($missing.missing_identities).Count) { Stop-AL ("The certificate does not cover {0} required by the proposed settings; nothing was changed. Add -CertificateFile with a certificate that covers every allowed host (and the listener IP only if clients use it), or change the hosts." -f (@($missing.missing_identities) -join ', ')) }
+        throw
+    }
+    $currentCertificate = ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $Config)
+    $proposedCertificate = ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $candidate)
     # The receipts come back as one array object (",$records"); unroll it so an empty result counts as no owned rule.
     $owned = @((Get-ALOwnedFirewallReceipts $Config) | Where-Object { $_ })
     $listenerMoved = $candidate.ListenAddress -ne $Config.ListenAddress -or [int]$candidate.Port -ne [int]$Config.Port
@@ -1460,14 +1562,25 @@ function Invoke-ALNetworkChange($Config, [hashtable]$Requested, [string]$Firewal
         Stop-AL 'An installer-owned firewall rule allows the current listener only. Decide explicitly: -ApproveFirewall -FirewallSources <addresses> [-FirewallProfiles Domain] or -RemoveFirewall.'
     }
     $summary = [ordered]@{
-        operation = 'network change'; service = $Config.ServiceName; restart_required = $true; certificate = $Config.CertificatePath
+        operation = $(if ($CertificateFile) { 'network and certificate change' } else { 'network change' }); service = $Config.ServiceName; restart_required = $true
+        certificate = $(if ($CertificateFile) { "replaced by $CertificateFile (imported create-only into Root\tls\renew-<id>)" } else { $Config.CertificatePath })
+        certificate_current = $currentCertificate; certificate_proposed = $proposedCertificate
+        client_trust_notice = $(if ($CertificateFile) { Get-ALCertificateTrustNotice $currentCertificate $proposedCertificate } else { 'The certificate is unchanged; client trust is not affected.' })
         current = [ordered]@{ access_mode = $Config.AccessMode; listen_address = $Config.ListenAddress; port = [int]$Config.Port; allowed_hosts = @($Config.AllowedHosts); proxy_hosts = @($Config.ProxyHosts); trusted_proxies = @($Config.TrustedProxies) }
         proposed = [ordered]@{ access_mode = $candidate.AccessMode; listen_address = $candidate.ListenAddress; port = [int]$candidate.Port; allowed_hosts = @($candidate.AllowedHosts); proxy_hosts = @($candidate.ProxyHosts); trusted_proxies = @($candidate.TrustedProxies) }
         changed_settings = @($changes.Keys | Sort-Object); network_access = $access.network_access
         firewall = $(if ($firewall) { if ($firewall.remove) { 'remove the installer-owned rule' } else { "allow TCP $($candidate.ListenAddress):$($candidate.Port) from $FirewallSources ($FirewallProfiles)" } } elseif ($owned.Count) { 'installer-owned rule unchanged' } else { 'no change' })
     }
     if ($DryRun) { return [pscustomobject]@{ dry_run = $true; validated = $true; summary = $summary } }
-    $result = Invoke-ALConfigurationTransaction $Config $candidate $changes 'network change' $context $firewall
+    $settings = $changes
+    if ($CertificateFile) {
+        $tls = Copy-ALServerTlsMaterial $candidate (Join-AL (Join-AL $Config.Root 'tls') ('renew-' + [guid]::NewGuid().ToString('N')))
+        $candidate = Copy-ALConfig $candidate @{ CertificatePath = $tls.certificate; CertificatePasswordFile = $tls.password_file }
+        $copy = Invoke-ALMaintenance (Get-ALServiceExe $Config) (@('--server-preflight') + @(Get-ALServiceArguments $candidate))
+        if (-not $copy.validated -or -not $copy.read_only) { Stop-AL 'The imported certificate copy did not validate; the service was not changed and the copy was retained for review.' 4 }
+        $settings = @{} + $changes; $settings.CertificatePath = $tls.certificate; $settings.CertificatePasswordFile = $tls.password_file
+    }
+    $result = Invoke-ALConfigurationTransaction $Config $candidate $settings $summary.operation $context $firewall
     $result | Add-Member -NotePropertyName summary -NotePropertyValue $summary
     $result
 }

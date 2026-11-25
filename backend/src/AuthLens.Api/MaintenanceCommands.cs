@@ -29,7 +29,7 @@ namespace AuthLens.Api;
 /// </list></summary>
 public static class MaintenanceCommands
 {
-    public static readonly string[] Names = ["--server-preflight", "--schema-info", "--inspect-data", "--backup-local", "--backup-verify", "--accounts-code", "--rebase-upload-paths", "--restore", "--adopt-legacy-database"];
+    public static readonly string[] Names = ["--server-preflight", "--certificate-info", "--certificate-export-public", "--schema-info", "--inspect-data", "--backup-local", "--backup-verify", "--accounts-code", "--rebase-upload-paths", "--restore", "--adopt-legacy-database"];
 
     public static bool Handles(string[] args) => Names.Any(args.Contains);
 
@@ -47,6 +47,14 @@ public static class MaintenanceCommands
                 if (Names.Count(args.Contains) != 1 || args.Count(a => a == "--server-preflight") != 1)
                     throw new InvalidOperationException("Server preflight accepts exactly one read-only operation.");
                 result = ServerPreflight(args.Where(a => a != "--server-preflight").ToArray());
+            }
+            else if (args.Contains("--certificate-info") || args.Contains("--certificate-export-public"))
+            {
+                if (Names.Count(args.Contains) != 1) throw new InvalidOperationException("Certificate inspection accepts exactly one operation.");
+                var destination = Value("--certificate-export-public");
+                if (args.Contains("--certificate-export-public") && destination is null) throw new InvalidOperationException("--certificate-export-public needs the destination file.");
+                var options = args.Where((a, i) => a != "--certificate-info" && a != "--certificate-export-public" && !(i > 0 && args[i - 1] == "--certificate-export-public")).ToArray();
+                result = destination is null ? CertificateInfo(options) : ExportPublicCertificate(options, destination);
             }
             else if (args.Contains("--rebase-upload-paths"))
             {
@@ -78,6 +86,43 @@ public static class MaintenanceCommands
         }
     }
 
+    /// <summary>Read-only certificate description for the configured Server options (the same endpoint-identity rule as the preflight), also when the
+    /// certificate would be refused: operators see which identities are missing. No listener, token or data initialization.</summary>
+    public static JsonObject CertificateInfo(string[] options)
+    {
+        var settings = ServerConfiguration.Parse(options, _ => null, inspection: true);
+        try
+        {
+            if (settings.Certificate is null) throw new InvalidOperationException("Certificate inspection requires an explicit HTTPS certificate (--cert).");
+            var info = CertificatePolicy.Describe(settings.Certificate, CertificatePolicy.RequiredIdentities(settings), DateTimeOffset.UtcNow);
+            info["read_only"] = true; info["network_access"] = settings.NetworkAccess; info["listen_address"] = settings.ListenAddress.ToString();
+            return info;
+        }
+        finally { settings.Certificate?.Dispose(); }
+    }
+
+    /// <summary>Writes the public certificate (DER, .cer) to a new file for client trust distribution. Create-only; the private key and its password
+    /// are never exported.</summary>
+    public static JsonObject ExportPublicCertificate(string[] options, string destination)
+    {
+        if (!Path.IsPathFullyQualified(destination)) throw new InvalidOperationException("Select an absolute destination file for the public certificate.");
+        destination = Path.GetFullPath(destination);
+        if (Directory.Exists(destination)) throw new InvalidOperationException("The destination is a directory; select a file name such as AuthLens-server.cer.");
+        if (!string.Equals(Path.GetExtension(destination), ".cer", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("The public certificate file name must end in .cer.");
+        if (!Directory.Exists(Path.GetDirectoryName(destination))) throw new InvalidOperationException("The destination directory does not exist.");
+        var settings = ServerConfiguration.Parse(options, _ => null, inspection: true);
+        try
+        {
+            if (settings.Certificate is null) throw new InvalidOperationException("Public certificate export requires an explicit HTTPS certificate (--cert).");
+            var bytes = settings.Certificate.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Cert);
+            try { using var stream = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None); stream.Write(bytes); stream.Flush(true); }
+            catch (IOException) when (File.Exists(destination)) { throw new InvalidOperationException("The destination file already exists; it was not overwritten."); }
+            return new JsonObject { ["exported"] = true, ["path"] = destination, ["format"] = "DER", ["private_key_included"] = false,
+                ["thumbprint_sha256"] = settings.Certificate.GetCertHashString(System.Security.Cryptography.HashAlgorithmName.SHA256), ["subject"] = settings.Certificate.Subject };
+        }
+        finally { settings.Certificate?.Dispose(); }
+    }
+
     /// <summary>Actual host policy plus read-only schema/integrity checks; never initializes data/token files, persists keys or binds a listener.</summary>
     public static JsonObject ServerPreflight(string[] options)
     {
@@ -86,7 +131,8 @@ public static class MaintenanceCommands
         {
             settings.Validate();
             if (settings.Certificate is null) throw new InvalidOperationException("Server Setup preflight requires an explicit HTTPS certificate.");
-            var check = CertificatePolicy.Validate(settings.Certificate, settings.AllowedHosts.Append(settings.ListenAddress.ToString()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), DateTimeOffset.UtcNow);
+            var required = CertificatePolicy.RequiredIdentities(settings);
+            var check = CertificatePolicy.Validate(settings.Certificate, required, DateTimeOffset.UtcNow);
             if (check.Problems.Count > 0) throw new InvalidOperationException("Server preflight refused the TLS certificate: " + string.Join(" ", check.Problems));
             var schema = SchemaInfo(settings.DataDirectory);
             if (!(bool)schema["compatible"]!) throw new InvalidOperationException("Server preflight refused a database written by a newer schema.");
@@ -100,7 +146,8 @@ public static class MaintenanceCommands
                 return new JsonObject { ["validated"] = true, ["read_only"] = true, ["data_modified"] = false, ["database_opened_read_only"] = exists, ["schema"] = schema,
                     ["version"] = ProductIdentity.Version, ["source_sha"] = ProductIdentity.Commit, ["network_access"] = settings.NetworkAccess,
                     ["backup_key_state"] = exists ? "existing key readable; archive verification occurs before service changes" : "not required for empty target",
-                    ["certificate_warnings"] = new JsonArray(check.Warnings.Select(w => (JsonNode?)JsonValue.Create(w)).ToArray()) };
+                    ["certificate_warnings"] = new JsonArray(check.Warnings.Select(w => (JsonNode?)JsonValue.Create(w)).ToArray()),
+                    ["certificate"] = CertificatePolicy.Describe(settings.Certificate, required, DateTimeOffset.UtcNow) };
             }
             finally { if (backupKey is not null) System.Security.Cryptography.CryptographicOperations.ZeroMemory(backupKey); }
         }

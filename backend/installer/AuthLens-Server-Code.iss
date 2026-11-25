@@ -341,8 +341,14 @@ begin
     Space + 'Allowed hosts: ' + ServerValue('allowed_hosts') + NewLine;
   if ServerValue('proxy_hosts') <> '' then Result := Result + Space + 'Public proxy hosts: ' + ServerValue('proxy_hosts') + NewLine + Space + 'Trusted proxy peers: ' + ServerValue('trusted_proxies') + NewLine;
   Result := Result + Space + 'Certificate: ' + ServerValue('certificate') + NewLine;
+  if ServerValue('certificate_thumbprint') <> '' then
+    Result := Result + Space + 'Certificate subject: ' + ServerValue('certificate_subject') + NewLine + Space + 'Issuer: ' + ServerValue('certificate_issuer') + NewLine +
+      Space + 'Valid until (UTC): ' + ServerValue('certificate_expires') + NewLine + Space + 'SHA-256 thumbprint: ' + ServerValue('certificate_thumbprint') + NewLine +
+      Space + 'Covers the required HTTPS identities: ' + ServerValue('certificate_identities') + NewLine;
   if Fresh and (ServerCreatePage.SelectedValueIndex = 1) and (ServerTlsModePage.SelectedValueIndex = 1) then
-    Result := Result + Space + 'Generated self-signed certificate: not trusted by clients until an administrator distributes it.' + NewLine;
+    Result := Result + Space + 'Generated self-signed certificate: not trusted by clients until an administrator distributes its public server.cer (never the PFX or its password), for example through Group Policy, or replaces it with an internal CA certificate. No trust store is changed.' + NewLine;
+  if Fresh then Result := Result + Space + 'Public certificate: server.cer is written beside the imported certificate under ' + ServerRoot + '\tls; Service Manager (TLS certificates) can export it later.' + NewLine
+  else Result := Result + Space + 'The existing certificate is preserved; upgrade and repair never replace it.' + NewLine;
   if ServerFirewallPage.SelectedValueIndex = 1 then Result := Result + Space + 'Firewall: approved rule for TCP ' + ServerValue('listen_address') + ':' + ServerValue('port') + ', sources ' + ServerFirewallScope.Values[0] + ', profiles ' + ServerFirewallScope.Values[1] + NewLine
   else Result := Result + Space + 'Firewall: configuration preserved; no new rule.' + NewLine;
   Result := Result + NewLine + 'Windows Service' + NewLine + Space + 'Name: ' + ServerValue('service_name') + NewLine + Space + 'Identity: ' + ServerValue('service_account') + NewLine + NewLine;

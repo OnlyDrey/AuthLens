@@ -22,10 +22,15 @@
     ChangeNetwork   Validates (-DryRun returns the change summary), applies and verifies access mode, listener, port, hosts and trusted proxies with
                     automatic restoration on failure; an installer-owned firewall rule needs -ApproveFirewall/-FirewallSources or -RemoveFirewall.
     ReplaceCertificate  Validates (-DryRun stops here), imports and switches the installed service to a new PFX with pinned readiness;
-                    a failure restores the previous certificate. Needs -CertificateFile, -CertificatePasswordFile and -Yes.
+                    a failure restores the previous certificate. Needs -CertificateFile, -CertificatePasswordFile and -Yes. Reports the current and
+                    new certificate (thumbprints, issuer, expiry, missing identities) and what the change means for client trust.
+                    ChangeNetwork accepts the same two certificate options to change network settings and certificate in one transaction.
+    ExportCertificate   Writes the public certificate (.cer, DER) to -PublicCertificateFile for client trust distribution; never the PFX or password.
     Rollback        Returns to the previous release (or -ToRelease), only when it can open the current data. Needs -Yes.
     Recover         Revalidates an owned fresh candidate or recovers an interrupted update. -RecoveryAction VerifyCandidate, Resume,
-                    Rollback or Cancel selects an explicit supported action; rollback needs verified prerequisites. Needs -Yes.
+                    Rollback or Cancel selects an explicit supported action; rollback needs verified prerequisites. Needs -Yes. VerifyCandidate and
+                    Resume accept -CertificateFile/-CertificatePasswordFile to complete an interrupted first installation whose configured
+                    certificate blocks recovery (recorded certificate transaction with rollback).
     AuditAcl        Read-only NTFS audit (by well-known SID) of private state, releases and configuration; exit 2 when anything is unsafe.
     ProtectAcl      Explicit remediation of what AuditAcl reports, after verified ACL inventories in -AclBackupRoot. Needs -Yes and -ApprovedAclRoot.
     RestoreAcl      Restores the ACLs saved by ProtectAcl (-AclBackup <folder>). Needs -Yes and -ApprovedAclRoot.
@@ -52,7 +57,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Status', 'Health', 'Build', 'Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'AuditAcl', 'ProtectAcl', 'RestoreAcl')]
+    [ValidateSet('Status', 'Health', 'Build', 'Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ExportCertificate', 'AuditAcl', 'ProtectAcl', 'RestoreAcl')]
     [string]$Action = 'Status',
     [string]$ConfigFile = '',
     [string]$Branch = '',
@@ -65,6 +70,8 @@ param(
     [string]$KeyFile = '',
     [string]$CertificateFile = '',
     [string]$CertificatePasswordFile = '',
+    # ExportCertificate: new .cer file for client trust distribution (public certificate only).
+    [string]$PublicCertificateFile = '',
     # ChangeNetwork: only the settings given are changed.
     [ValidateSet('', 'Local', 'Corporate', 'ReverseProxy')][string]$AccessMode = '',
     [string]$ListenAddress = '',
@@ -131,6 +138,7 @@ try {
     if ($changing -and -not (Test-Elevated)) { Stop-AL "$Action needs an elevated session (an administrator account over SSH, or Run as administrator)." }
     switch ($Action) {
         'Status' { Write-Result (Get-ALStatus $config) 0 }
+        'ExportCertificate' { Write-Result (Export-ALPublicCertificate $config $PublicCertificateFile) 0 }
         'Health' {
             $base = "https://$($config.ListenAddress):$($config.Port)"
             $ready = Invoke-ALConfiguredHttp $config '/health/ready'; $identity = Invoke-ALConfiguredHttp $config '/product-version.json'
@@ -144,7 +152,7 @@ try {
         # Serialized with real operations through the host mutex only: no WorkRoot, lock file or run folder is created by a simulation.
         Enter-ALLock $config -MutexOnly
         if ($Action -eq 'Recover') {
-            $preview = Get-ALRecoveryPreview $config -RecoveryAction $RecoveryAction
+            $preview = Get-ALRecoveryPreview $config -RecoveryAction $RecoveryAction -CertificateFile $CertificateFile -CertificatePasswordFile $CertificatePasswordFile
             Write-Result $preview $(if ($preview.would_succeed) { 0 } else { 2 })
         }
     } else {
@@ -190,7 +198,7 @@ try {
             # An interrupted configuration change (network or certificate) is restored first; deployment journals are recovered as before.
             $restored = Invoke-ALConfigurationRecover $config
             if ($restored) { Write-Result $restored 0 }
-            Write-Result (Invoke-ALRecover $config -RecoveryAction $RecoveryAction) 0
+            Write-Result (Invoke-ALRecover $config -RecoveryAction $RecoveryAction -CertificateFile $CertificateFile -CertificatePasswordFile $CertificatePasswordFile) 0
         }
         'ReplaceCertificate' { Write-Result (Invoke-ALReplaceCertificate $config $CertificateFile $CertificatePasswordFile -DryRun:$DryRun) 0 }
         'ChangeNetwork' {
@@ -201,7 +209,7 @@ try {
             if ($PSBoundParameters.ContainsKey('AllowedHosts')) { $requested.AllowedHosts = $AllowedHosts }
             if ($PSBoundParameters.ContainsKey('ProxyHosts')) { $requested.ProxyHosts = $ProxyHosts }
             if ($PSBoundParameters.ContainsKey('TrustedProxies')) { $requested.TrustedProxies = $TrustedProxies }
-            Write-Result (Invoke-ALNetworkChange $config $requested $FirewallSources $FirewallProfiles -ApproveFirewall:$ApproveFirewall -RemoveFirewall:$RemoveFirewall -DryRun:$DryRun) 0
+            Write-Result (Invoke-ALNetworkChange $config $requested $FirewallSources $FirewallProfiles -ApproveFirewall:$ApproveFirewall -RemoveFirewall:$RemoveFirewall -DryRun:$DryRun -CertificateFile $CertificateFile -CertificatePasswordFile $CertificatePasswordFile) 0
         }
         'ProtectAcl' {
             if (-not $ConfigFile) { Stop-AL 'ProtectAcl requires an explicit -ConfigFile.' }

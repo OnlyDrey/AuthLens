@@ -111,6 +111,9 @@ public static class ServerConfiguration
           --inspect-data                                          Inspect scratch copies of SQLite files and WAL without opening source databases.
           --schema-info                                            With --data-dir: migrations this build knows and the database applied (read-only).
           --server-preflight                                       With explicit Server options: read-only TLS/network/schema/integrity and backup-key readiness; no listener, token or data initialization.
+          --certificate-info                                       With explicit Server options: subject, issuer, validity, thumbprints, SANs and the
+                                                                   required endpoint identities (covered or missing); read-only, also for a refused certificate.
+          --certificate-export-public <file.cer>                   With explicit Server options: write the public certificate (DER) to a new file; never the private key.
           --backup-local <folder>                                  With --data-dir: a verified, host-key encrypted archive of the data (online copy).
           --backup-verify <file>                                   With --data-dir: decrypt and validate an archive like a restore would.
           --restore <file> --replace-all-data                      With --data-dir: stage and confirm an AuthLens or SAP Lens backup; it is applied

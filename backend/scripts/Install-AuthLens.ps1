@@ -16,6 +16,9 @@ param(
     [string]$ConfigFile='',
     [switch]$Recover,
     [ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto',
+    # Candidate recovery whose configured certificate blocks it (G-007): replacement PFX and its protected password file.
+    [string]$RecoveryCertificateFile='',
+    [string]$RecoveryCertificatePasswordFile='',
     [switch]$PrepareOnly,
     [switch]$ResolveOnly,
     [switch]$PreflightOnly,
@@ -94,6 +97,7 @@ function Write-InstallerResult($Value) {
 }
 try {
     if($RecoveryAction -ne 'Auto' -and -not $Recover){throw 'RecoveryAction requires explicit Recover.'}
+    if(($RecoveryCertificateFile -or $RecoveryCertificatePasswordFile) -and (-not $Recover -or $Mode -ne 'Server' -or $RecoveryAction -notin @('VerifyCandidate','Resume') -or -not $RecoveryCertificateFile -or -not $RecoveryCertificatePasswordFile)){throw 'A recovery certificate needs Server -Recover -RecoveryAction VerifyCandidate or Resume with both certificate files.'}
     if($FailedPreflightReceipt -and $Operation -notin @('InspectState','QuarantineFailedSetup') -and (-not $PreflightOnly -or $Mode -ne 'Server' -or $PrepareOnly -or $Recover -or $Operation -notin @('Auto','Install'))){throw 'Failure evidence retry is read-only fresh Server preflight only.'}
     if($Operation -notin @('Auto','Install','Upgrade','Repair','Uninstall','UninstallPlan','Firewall','FirewallRemove','InspectState','QuarantineFailedSetup')){$stage='argument validation';throw 'Unknown installer operation. Use Auto, Install, Upgrade, Repair, Uninstall, Firewall, FirewallRemove, UninstallPlan, InspectState or QuarantineFailedSetup.'}
     if($ResultFile -and (Test-Path -LiteralPath $ResultFile)){throw 'A previous installer result exists; it will not be overwritten.'}
@@ -189,7 +193,7 @@ try {
                 $result=Invoke-ALInstallerFirewallRecover $config -Rollback:$FirewallRollback
             }elseif($FirewallRollback){Stop-AL 'No firewall recovery journal exists; nothing was rolled back.'}
             elseif(Test-Path -LiteralPath (Join-AL $config.WorkRoot 'uninstall-pending.json')){$stage='Server uninstall recovery';$result=Invoke-ALInstallerServerUninstall $resolved}
-            else{$stage='Server recovery transaction'; $result=Invoke-ALInstallerServer $config '' -Recover -RecoveryAction $RecoveryAction}
+            else{$stage='Server recovery transaction'; $result=Invoke-ALInstallerServer $config '' -Recover -RecoveryAction $RecoveryAction -RecoveryCertificateFile $RecoveryCertificateFile -RecoveryCertificatePasswordFile $RecoveryCertificatePasswordFile}
         }
         elseif ($PrepareOnly) {
             $stage='Server installation preflight'; $plan=Get-ALServerSetupPlan $resolved $Package $Operation; $operation=$plan.operation

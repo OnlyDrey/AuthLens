@@ -81,6 +81,7 @@ Describe 'Recovery preview is read-only (D-006)' {
     }
     It 'evaluates VerifyCandidate with every check and changes nothing' {
         $preview = Get-ALRecoveryPreview $config -RecoveryAction VerifyCandidate
+        $preview.blocking_reason | Should -BeNullOrEmpty
         $preview.would_succeed | Should -BeTrue
         $preview.would_phase | Should -Be 'complete'
         $preview.readiness_verified | Should -BeTrue

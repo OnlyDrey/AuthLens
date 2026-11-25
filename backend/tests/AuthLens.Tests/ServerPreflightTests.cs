@@ -1,5 +1,6 @@
 using System.Net;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.Json.Nodes;
 using AuthLens.Api;
 using Microsoft.Data.Sqlite;
 using AuthLens.Application.Backups;
@@ -91,6 +92,90 @@ public sealed class ServerPreflightTests : IDisposable
         var error = Assert.Throws<InvalidOperationException>(() => MaintenanceCommands.ServerPreflight(options));
         Assert.Contains("integrity/foreign-key", error.Message);
         Assert.Equal(before, File.ReadAllBytes(database));
+    }
+
+    private string[] Endpoint(string[] dns, IPAddress[] ips, string listen, string? allowed, bool network = true)
+    {
+        using var certificate = TestCertificates.Create(dns, ips);
+        var pfx = Path.Combine(_root, $"endpoint-{Guid.NewGuid():N}.pfx");
+        var password = Path.Combine(_root, $"endpoint-{Guid.NewGuid():N}-password");
+        File.WriteAllBytes(pfx, certificate.Export(X509ContentType.Pfx, "synthetic-endpoint-password"));
+        File.WriteAllText(password, "synthetic-endpoint-password");
+        var options = new List<string> { "--data-dir", Path.Combine(_root, "absent-data"), "--listen", listen, "--port", "18799", "--cert", pfx, "--cert-password-file", password };
+        if (network) options.Add("--network");
+        if (allowed is not null) { options.Add("--allowed-hosts"); options.Add(allowed); }
+        return options.ToArray();
+    }
+
+    // D-004: the bind address is not an endpoint identity unless clients use it (it is an allowed host); DNS-only CA certificates are valid then.
+    [Fact]
+    public void Bind_address_is_required_only_when_it_is_an_allowed_host()
+    {
+        var dnsOnly = Endpoint(["enp-emea-dash1.example.test", "enp-emea-dash1"], [], "10.26.1.55", "enp-emea-dash1.example.test,enp-emea-dash1");
+        Assert.True((bool)MaintenanceCommands.ServerPreflight(dnsOnly)["validated"]!);
+        var info = MaintenanceCommands.CertificateInfo(dnsOnly);
+        Assert.True((bool)info["usable"]!);
+        Assert.Empty(info["missing_identities"]!.AsArray());
+        Assert.Equal(2, info["required_identities"]!.AsArray().Count);
+
+        var ipAccess = Endpoint(["enp-emea-dash1.example.test"], [], "10.26.1.55", "enp-emea-dash1.example.test,10.26.1.55");
+        var error = Assert.Throws<InvalidOperationException>(() => MaintenanceCommands.ServerPreflight(ipAccess));
+        Assert.Contains("'10.26.1.55'", error.Message);
+        var missing = MaintenanceCommands.CertificateInfo(ipAccess);
+        Assert.False((bool)missing["usable"]!);
+        Assert.Equal("10.26.1.55", (string)missing["missing_identities"]!.AsArray().Single()!);
+
+        var covered = Endpoint(["enp-emea-dash1.example.test"], [IPAddress.Parse("10.26.1.55")], "10.26.1.55", "enp-emea-dash1.example.test,10.26.1.55");
+        Assert.True((bool)MaintenanceCommands.ServerPreflight(covered)["validated"]!);
+    }
+
+    [Fact]
+    public void Runtime_and_preflight_share_the_identity_rule_including_wildcards_and_loopback()
+    {
+        var wildcard = Endpoint(["*.example.test"], [], "10.26.1.55", "lens.example.test");
+        Assert.True((bool)MaintenanceCommands.ServerPreflight(wildcard)["validated"]!);
+        var settings = ServerConfiguration.Parse(wildcard, _ => null, inspection: true);
+        Assert.Equal(["lens.example.test"], CertificatePolicy.RequiredIdentities(settings));
+        settings.Certificate!.Dispose();
+
+        // Loopback: the local probe and browser address the loopback listen address.
+        var loopback = Endpoint(["localhost"], [IPAddress.Loopback], "127.0.0.1", null, network: false);
+        var local = ServerConfiguration.Parse(loopback, _ => null, inspection: true);
+        Assert.Equal(["127.0.0.1"], CertificatePolicy.RequiredIdentities(local));
+        local.Certificate!.Dispose();
+        Assert.True((bool)MaintenanceCommands.ServerPreflight(loopback)["validated"]!);
+        var dnsLoopback = Endpoint(["localhost"], [], "127.0.0.1", null, network: false);
+        Assert.Contains("'127.0.0.1'", Assert.Throws<InvalidOperationException>(() => MaintenanceCommands.ServerPreflight(dnsLoopback)).Message);
+    }
+
+    [Fact]
+    public void Preflight_and_info_describe_the_certificate_without_secret_material()
+    {
+        var options = Options();
+        var described = (JsonObject)MaintenanceCommands.ServerPreflight(options)["certificate"]!;
+        Assert.Matches("^[0-9A-F]{64}$", (string)described["thumbprint_sha256"]!);
+        Assert.Contains("server.example.test", described["dns_names"]!.AsArray().Select(n => (string)n!));
+        Assert.True((bool)described["self_signed"]!);
+        var info = MaintenanceCommands.CertificateInfo(options);
+        Assert.True((bool)info["read_only"]!);
+        Assert.DoesNotContain("synthetic-preflight-password", info.ToJsonString());
+        Assert.False(Directory.Exists(Path.Combine(_root, "absent-data")));
+    }
+
+    [Fact]
+    public void Public_certificate_export_is_create_only_and_never_contains_the_private_key()
+    {
+        var options = Options();
+        var target = Path.Combine(_root, "AuthLens-server.cer");
+        var result = MaintenanceCommands.ExportPublicCertificate(options, target);
+        Assert.False((bool)result["private_key_included"]!);
+        using (var exported = X509CertificateLoader.LoadCertificateFromFile(target)) Assert.False(exported.HasPrivateKey);
+        Assert.DoesNotContain("PRIVATE KEY", System.Text.Encoding.ASCII.GetString(File.ReadAllBytes(target)));
+        var before = File.ReadAllBytes(target);
+        Assert.Contains("already exists", Assert.Throws<InvalidOperationException>(() => MaintenanceCommands.ExportPublicCertificate(options, target)).Message);
+        Assert.Equal(before, File.ReadAllBytes(target));
+        Assert.Contains("directory", Assert.Throws<InvalidOperationException>(() => MaintenanceCommands.ExportPublicCertificate(options, _root)).Message);
+        Assert.Contains(".cer", Assert.Throws<InvalidOperationException>(() => MaintenanceCommands.ExportPublicCertificate(options, Path.Combine(_root, "server.pfx.copy"))).Message);
     }
 
     public void Dispose() { Directory.Delete(_root, true); }

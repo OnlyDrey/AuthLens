@@ -92,7 +92,7 @@ public static class AuthLensHost
         if (settings.Certificate is { } cert)
         {
             startup.LogInformation("TLS certificate {Subject}, thumbprint {Thumbprint}, valid until {NotAfter:u}", cert.Subject, cert.Thumbprint, cert.NotAfter);
-            foreach (var warning in CertificatePolicy.Validate(cert, settings.AllowedHosts, DateTimeOffset.UtcNow).Warnings) startup.LogWarning("TLS certificate: {Warning}", warning);
+            foreach (var warning in CertificatePolicy.Validate(cert, CertificatePolicy.RequiredIdentities(settings), DateTimeOffset.UtcNow).Warnings) startup.LogWarning("TLS certificate: {Warning}", warning);
         }
         ProxyTrust.Use(app, settings);   // first: peer capture, then forwarded headers from trusted proxies only
         app.UseExceptionHandler();

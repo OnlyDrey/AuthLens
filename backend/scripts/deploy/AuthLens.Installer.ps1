@@ -38,7 +38,7 @@ function Get-ALInstallerPackage([string]$Package,[switch]$PublishedServer) {
     $manifest
 }
 
-function Invoke-ALInstallerServer($Config, [string]$Package, [switch]$Recover,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto') {
+function Invoke-ALInstallerServer($Config, [string]$Package, [switch]$Recover,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto',[string]$RecoveryCertificateFile='',[string]$RecoveryCertificatePasswordFile='') {
     # All SCM calls remain in the existing state machine. Explicit configuration is required, even on first install.
     if ($Recover) {
         Assert-ALInstallerServerConfiguration $Config
@@ -50,7 +50,7 @@ function Invoke-ALInstallerServer($Config, [string]$Package, [switch]$Recover,[V
             }
             $null=New-ALRun $Config 'installer-recover'
             Save-ALInstallerRecoveryTools $script:RunFolder
-            $result=Invoke-ALRecover $Config -RecoveryAction $RecoveryAction
+            $result=Invoke-ALRecover $Config -RecoveryAction $RecoveryAction -CertificateFile $RecoveryCertificateFile -CertificatePasswordFile $RecoveryCertificatePasswordFile
             if($result -and $result.recovered -and $result.PSObject.Properties['phase'] -and $result.phase -eq 'complete' -and $result.PSObject.Properties['instance_id'] -and $result.instance_id){
                 $manifest=Get-Content -LiteralPath (Join-AL $result.release 'build-manifest.json') -Raw -Encoding UTF8|ConvertFrom-Json
                 Write-ALInstallerServerIdentity $Config $manifest $result.release $result.instance_id
@@ -341,10 +341,13 @@ function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto'
         }
     }
     if($kind -eq 'fresh installation' -and $config.ServiceAccount -ine ('NT SERVICE\'+$config.ServiceName)){Stop-AL 'Fresh Setup supports the virtual service account only. Password-bearing and gMSA provisioning require a separate validated service-logon procedure.'}
+    $tlsInfo=$null
     if($Package){
         $network=Invoke-ALMaintenance (Join-AL $Package 'server/AuthLens.Api.exe') (@('--server-preflight')+@(Get-ALServiceArguments $config))
         if(-not $network.validated -or -not $network.read_only){Stop-AL 'The packaged Server did not prove read-only network/TLS configuration validation.'}
         if($network.version -cne $manifest.version -or $network.source_sha -cne $manifest.source_sha){Stop-AL 'Verified manifest and Server preflight runtime identity disagree; no installation was provisioned.'}
+        # WP20: the certificate the review page shows, validated by the packaged host against the final network settings (endpoint identities).
+        if($network.PSObject.Properties['certificate']){$tlsInfo=$network.certificate}
         $previous=Get-ALLink (Get-ALCurrentLink $config)
         if($previous){
             $old=Get-Content -LiteralPath (Join-AL $previous 'build-manifest.json') -Raw | ConvertFrom-Json
@@ -368,7 +371,7 @@ function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto'
         }
         foreach($drive in $needed.Keys){if((Get-ALInstallerFreeBytes $drive) -lt $needed[$drive]){Stop-AL 'Insufficient free storage for immutable staging/publication and a verified backup; nothing was provisioned.'}}
     }
-    [pscustomobject]@{schema=1;operation_id=[guid]::NewGuid().ToString('N');operation=$(if($Operation-eq 'Repair'){'repair'}else{$kind});read_only=$true;package_network_database_verified=[bool]$Package;root=$config.Root;program_directory=$Resolved.ProgramDirectory;config_file=$config.ConfigFile;config_sha256=$Resolved.ConfigSha256;data_directory=$config.DataDirectory;backup_directory=$config.BackupRoot;listen_address=$config.ListenAddress;port=$config.Port;service_name=$config.ServiceName;service_account=$config.ServiceAccount;certificate=$config.CertificatePath;allowed_hosts=@($config.AllowedHosts);proxy_hosts=@($config.ProxyHosts);trusted_proxies=@($config.TrustedProxies);firewall='unchanged; no automatic rule creation';access_mode=$access.access_mode;network_access=$access.network_access;version=$(if($manifest){$manifest.version}else{''});source_sha=$(if($manifest){$manifest.source_sha}else{''});limitations=@('Service-identity key access, encrypted backup verification and final Windows TLS/readiness are mandatory transaction checks.','Custom-account provisioning, automatic firewall changes, destructive uninstall and legacy restore remain separate explicit operations.')}
+    [pscustomobject]@{schema=1;operation_id=[guid]::NewGuid().ToString('N');operation=$(if($Operation-eq 'Repair'){'repair'}else{$kind});read_only=$true;package_network_database_verified=[bool]$Package;root=$config.Root;program_directory=$Resolved.ProgramDirectory;config_file=$config.ConfigFile;config_sha256=$Resolved.ConfigSha256;data_directory=$config.DataDirectory;backup_directory=$config.BackupRoot;listen_address=$config.ListenAddress;port=$config.Port;service_name=$config.ServiceName;service_account=$config.ServiceAccount;certificate=$config.CertificatePath;allowed_hosts=@($config.AllowedHosts);proxy_hosts=@($config.ProxyHosts);trusted_proxies=@($config.TrustedProxies);firewall='unchanged; no automatic rule creation';access_mode=$access.access_mode;certificate_subject=$(if($tlsInfo){$tlsInfo.subject}else{''});certificate_issuer=$(if($tlsInfo){$tlsInfo.issuer}else{''});certificate_expires=$(if($tlsInfo){$tlsInfo.not_after_utc}else{''});certificate_thumbprint=$(if($tlsInfo){$tlsInfo.thumbprint_sha256}else{''});certificate_self_signed=$(if($tlsInfo){[string][bool]$tlsInfo.self_signed}else{''});certificate_identities=$(if($tlsInfo){@($tlsInfo.required_identities|ForEach-Object{$_.identity})}else{@()});network_access=$access.network_access;version=$(if($manifest){$manifest.version}else{''});source_sha=$(if($manifest){$manifest.source_sha}else{''});limitations=@('Service-identity key access, encrypted backup verification and final Windows TLS/readiness are mandatory transaction checks.','Custom-account provisioning, automatic firewall changes, destructive uninstall and legacy restore remain separate explicit operations.')}
 }
 
 function Get-ALInstallerFreeBytes([string]$Drive){([IO.DriveInfo]::new($Drive)).AvailableFreeSpace}
@@ -499,7 +502,7 @@ function Get-ALInstallerLegacyPresence([switch]$ServicesOnly){
 function Write-ALServerSetupPlan([string]$Path,$Plan) {
     # GUI uses a private INI bridge; automation consumes the same JSON plan on stdout.
     $lines=@('[AuthLens]')
-    foreach($name in @('operation_id','operation','root','program_directory','config_file','config_sha256','data_directory','backup_directory','listen_address','port','service_name','service_account','certificate','allowed_hosts','proxy_hosts','trusted_proxies','access_mode','network_access','interfaces','wildcard_supported')){
+    foreach($name in @('operation_id','operation','root','program_directory','config_file','config_sha256','data_directory','backup_directory','listen_address','port','service_name','service_account','certificate','allowed_hosts','proxy_hosts','trusted_proxies','access_mode','network_access','interfaces','wildcard_supported','certificate_subject','certificate_issuer','certificate_expires','certificate_thumbprint','certificate_self_signed','certificate_identities')){
         $value=if($Plan.PSObject.Properties[$name]){@($Plan.$name) -join ', '}else{''}
         if($value.IndexOfAny([char[]]"`r`n`0") -ge 0){Stop-AL 'Setup plan contains invalid line delimiters.'}
         $lines+=($name+'='+$value)
