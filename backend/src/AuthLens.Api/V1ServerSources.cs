@@ -21,6 +21,60 @@ public static partial class V1DataSources
             return Results.Ok(new { path, mode = (string?)settings["source_modes"]?[source], configured = path.Length > 0, host = Environment.MachineName,
                 authorization = ServerSourcePolicy.Authorization(host, source, path), network = path.StartsWith(@"\\", StringComparison.Ordinal) });
         });
+        // WP33 host file picker. Administration only (request boundary). Locations read no folder; a listing touches only an approved root.
+        api.MapGet("/server/sources/browse", async (HttpContext http, HostSettings host, V1Settings store, string? path, string? q, bool? all, CancellationToken ct) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            if (host.Mode != HostMode.Server) return Detail(404, "Host browsing is available on Server installations; Desktop uses the system file dialog.");
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                var settings = await store.GetAsync(ct);
+                var configured = PathField.Values.Select(field => (string?)settings[field] ?? "");
+                return Results.Ok(new { host = Environment.MachineName, locations = ServerSourceBrowser.Locations(host, configured) });
+            }
+            try { return Results.Ok(ServerSourceBrowser.Browse(host, path, q, all == true)); }
+            catch (SourcePolicyException error) when (error.Failure == SourcePolicyFailure.Authorization)
+            { return Results.Json(new { detail = "This folder is not approved for browsing. An administrator can approve it under Approved folders; nothing was read from it.", category = "not_approved" }, statusCode: 403); }
+            catch (SourcePolicyException error) { return Results.Json(new { detail = error.Message, category = error.Failure == SourcePolicyFailure.UnsafePath ? "unsafe_path" : "invalid_path" }, statusCode: 400); }
+            catch (UnauthorizedAccessException) { return Results.Json(new { detail = "The AuthLens service identity cannot list this folder. Grant it NTFS read (and, for a network folder, share) access; AuthLens never uses your browser sign-in for server files.", category = "access_denied" }, statusCode: 403); }
+            catch (Exception error) when (error is DirectoryNotFoundException or FileNotFoundException) { return Results.Json(new { detail = "The folder does not exist or is not reachable from the AuthLens server.", category = "missing" }, statusCode: 404); }
+            catch (Exception error) when (error is IOException or System.Net.Sockets.SocketException) { return Results.Json(new { detail = "The network location is unavailable from the AuthLens server.", category = "network_unavailable" }, statusCode: 503); }
+        });
+        api.MapGet("/server/sources/roots", (HttpContext http, HostSettings host) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            if (host.Mode != HostMode.Server) return Detail(404, "Approved folders apply to Server installations.");
+            try { return Results.Ok(new { approved = ServerSourceAuthorization.Roots(host), operator_roots = host.SourceRoots, max = ServerSourceAuthorization.MaxRoots }); }
+            catch (SourcePolicyException) { return Detail(409, "The protected source authority could not be read; nothing is approved until the server operator reviews it."); }
+        });
+        api.MapPost("/server/sources/roots", async (HttpContext http, HostSettings host, CancellationToken ct) =>
+        {
+            var (body, invalid) = await V1Validation.ReadBody(http, ct);
+            if (invalid is not null) return invalid;
+            if (host.Mode != HostMode.Server || body?["path"] is not JsonValue pv || !pv.TryGetValue<string>(out var path)
+                || body["approve_folder_access"] is not JsonValue flag || !flag.TryGetValue<bool>(out var approved) || !approved)
+                return Detail(422, "Explicit approval of the folder is required.");
+            try
+            {
+                var folder = ServerSourceAuthorization.ApproveRoot(host, path.Trim());
+                http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("AuthLens.Sources").LogInformation("Server source browse folder approved by {Actor}; no source data activated", Actors.Name(http));
+                return Results.Ok(new { approved = true, path = folder, data_modified = false });
+            }
+            catch (SourceAuthorityUnavailableException error) { return Detail(409, error.Message); }
+            catch (SourcePolicyException error) { return Detail(400, error.Failure == SourcePolicyFailure.UnsafePath ? "This folder cannot be approved: volume and share roots, the AuthLens installation and Windows, program or user-profile locations are excluded. Approve the specific export folder instead." : error.Message); }
+            catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException) { return Detail(400, V1Refresh.Category(error).Message); }
+        });
+        api.MapDelete("/server/sources/roots", (HttpContext http, HostSettings host, string path) =>
+        {
+            if (host.Mode != HostMode.Server) return Detail(422, "Approved folders apply to Server installations.");
+            try
+            {
+                var removed = ServerSourceAuthorization.RevokeRoot(host, path);
+                http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("AuthLens.Sources").LogInformation("Server source browse folder revoked by {Actor}; configurations and snapshots retained", Actors.Name(http));
+                return Results.Ok(new { revoked = removed, data_modified = false });
+            }
+            catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException) { return Detail(400, V1Refresh.Category(error).Message); }
+        });
         api.MapDelete("/server/sources/{source}/authorize", (string source, HttpContext http, HostSettings host) =>
         {
             if (host.Mode != HostMode.Server || !Names.ContainsKey(source)) return Detail(422, "Unknown server source.");

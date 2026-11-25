@@ -102,6 +102,19 @@ public sealed class AccountsTests : IDisposable
     }
 
     [Fact]
+    public async Task Host_file_browsing_and_folder_approval_require_administration()
+    {
+        await using var server = await StartServer();
+        var admin = await Bootstrap(server.Store);
+        await server.Store.CreateUserAsync(admin, "reviewer", "Reviewer", "reviewer", Password);
+        await server.Post("/api/auth/login", new { username = "reviewer", password = Password });
+        Assert.Equal(HttpStatusCode.Forbidden, (await server.Client.GetAsync("/api/server/sources/browse")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await server.Client.GetAsync("/api/server/sources/browse?path=C%3A%5CExports")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await server.Client.GetAsync("/api/server/sources/roots")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await server.Post("/api/server/sources/roots", new { path = @"C:\Exports", approve_folder_access = true })).StatusCode);
+    }
+
+    [Fact]
     public async Task Personal_theme_is_independent_for_reviewers_and_persists_across_sessions_and_store_restart()
     {
         var (store, clock) = NewStore();
