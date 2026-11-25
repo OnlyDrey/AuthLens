@@ -27,6 +27,63 @@ Future assignment records are detected but not shown here.
 - **Explanations.** Technical notes sit in an info popover beside the card title.
 - No horizontal scroll from 375 px upward.
 
+## Global and filtered modes (WP30)
+
+One dashboard serves both modes. Without filters it is the **global overview** of the validated SAP data. The **Filters** button opens a
+right-hand, non-modal side panel (`Dashboard filters`, closed by default; at most 460 px wide, the full width on phones) that edits a draft: nothing changes until
+**Apply filters**; **Reset** clears the draft and the applied filters. The button shows the number of selected values, removable chips under
+the toolbar show every applied value, and a status line states whether the overview is global or filtered. Clearing the filters restores the
+global overview. Saved filters use the view `dashboard`; a loaded definition is validated value by value. Dashboard filters are temporary page
+filters: like every page (BUG-08), the dashboard opens in the global mode from the main navigation; a saved filter brings a population back.
+
+| Area | Dimension (query parameter) | Values and source |
+| --- | --- | --- |
+| Organization | Functional Group (`functional_groups`), Manager (`managers`), exact usernames (`usernames`) | Existing shared population filters |
+| Organization | Department (`departments`), Site (`sites`), Title (`titles`), Directory account status (`ad_states`) | Employee Directory, matched identities only; hidden when the directory is not available |
+| SAP account | User group (`user_groups`), User type (`user_types`) | User-Role Mapping account and assignment evidence |
+| SAP account | Account validity (`account_states`: `valid`, `future`, `expired`, `unknown`), Account status (`lock_states`: `locked`, `unlocked`, `unknown`) | Account intervals evaluated today; lock status as in Account Review |
+| Access | Assigned role (`roles`), Assigned transaction (`tcodes`), Role type (`role_types`: `business` ZC, `release` ZO, `other`), Organizational suffix (`org_suffixes`) | Currently valid assignments only; a suffix is a final business-role segment used under at least two role stems (the Access Package rule) |
+| Governance | SoD risk (`sod_risks`) | Current SoD findings (enabled SoD with a loaded matrix; otherwise 409 and no values) |
+| Governance | Review status (`review_states`: `completed`, `pending`, `outdated`) | Current Account Review state; outdated reviews are also pending |
+
+Values combine with **OR within a dimension and AND between dimensions** (at most 200 values per dimension; more is refused with 422).
+`GET /api/dashboard/filter-options` lists only values present in the current data, with user counts; nothing is invented. The filters are
+resolved by the shared server-side population resolver (`SubjectSelection`), which Account Review, User Access, Release Roles, Employee
+Directory and SoD governance use as well, so the same query parameters scope the SoD summary.
+
+**Access matching** (`access_scope`). *User population* (default): a user matches an access dimension when any current assignment matches it,
+so a role and a transaction may come from different assignments of the same user, and access metrics show the users' complete current access.
+*Matching access* (`access_scope=matching`): one current assignment must match every active access filter at once, and access metrics count only
+those assignments. In both modes SoD is evaluated over the selected users' complete access: a genuine conflict is never hidden because one
+conflicting role does not match an access filter. Reviews, SoD decisions, period snapshots and historical evidence are never reinterpreted
+through current directory or assignment data; governance dimensions read the current evaluation only.
+
+**Drill-down.** Opening a metric carries the population: organization filters travel as they are; when another dimension is active the
+response includes `population_usernames` (up to 500), and the target view opens with those exact usernames. Larger populations open with the
+organization filters only, which the status line states.
+
+### Metric scope matrix
+
+| Metric (id) | Without filters | With filters | Matching access |
+| --- | --- | --- | --- |
+| Catalogue roles (`roles`), Enabled SAP areas (`areas`), Role/T-code mappings (`mappings`) | Catalogue | **Global**, marked "Global" | Global |
+| SAP users (`users`) | All users | Users in the population | Same population (one assignment matches all access filters) |
+| Distinct assigned roles (`assigned_roles`), Transaction codes in use (`assigned_tcodes`), Role/T-code mappings in use (`assigned_mappings`) | All current business and release access | Complete current access of the population (shown on the card when filtered) | Only matching current assignments |
+| Role assignment records (`assignments`), Users with assignments (`assigned_users`), Release roles (`releases`), Expired/Future assignment records | All records | Records of the population | Records of the population that match the access filters |
+| Review progress (`reviewed`, `pending`, `outdated`, `account_review`), Position changes, AD disabled / SAP active | All accounts | Accounts in the population | Same population |
+| Directory matching (`email_matches`, `directory_missing`, `directory_ambiguous`, `unresolved`) | All SAP identities | Identities in the population | Same population |
+| Employee Directory records (`employees`) | Directory total | **Global**, marked "Global" | Global |
+| Segregation of Duties card (`/api/sod/overview`) | All users | Users in the population, complete access | Users in the population, complete access |
+| Role Distribution | Catalogue roles by area (`scope.role_distribution` `catalogue`) | Catalogue roles currently assigned to the population (`population`) | Only matching assignments |
+| Assignment Distribution | Every SAP user | Users in the population | Users in the population |
+| Data Sources & Configuration, freshness, lifecycle | Global | Global (system metadata) | Global |
+
+`scope.global_metrics` lists the metrics that stay global; `scope.access_semantics` is `user_population` or `matching_access`.
+
+Verification: .NET `DashboardAndSavedFiltersTests` (dimensions, both access modes, governance, SoD risk with a real matrix, options) and
+browser `dashboard-filters.spec.ts`, `filter-consistency.spec.ts`. Performance with large production datasets is not measured yet; the
+resolver evaluates the current snapshot in memory, and SoD and review dimensions load their current evaluations once per request.
+
 ## Segregation of Duties summary
 
 When the SoD feature is enabled, a **Segregation of Duties** section shows users with potential conflicts, user-risk findings, pending reviews and open or overdue remediation actions, each opening the matching [SoD](SOD.md) view. If analysis is unavailable the section says why. The counts are potential transaction-derived conflicts, not effective authorization.

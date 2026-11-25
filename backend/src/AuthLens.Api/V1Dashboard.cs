@@ -13,6 +13,12 @@ public static class V1Dashboard
 
     public static void Map(RouteGroupBuilder api)
     {
+        api.MapGet("/dashboard/filter-options", async (SnapshotService snapshots, V1Settings store, IServiceProvider services, CancellationToken ct) =>
+        {
+            var state = await snapshots.GetAsync(ct);
+            if (state.Ids.Users is null) return Results.Ok(new { available = false });
+            return Results.Ok(await SubjectSelection.OptionsAsync(services, state, await store.GetAsync(ct), ct));
+        });
         api.MapGet("/dashboard", async (HttpContext http, SnapshotService snapshots, V1Settings store, IServiceProvider services, CancellationToken ct) =>
         {
             var state = await snapshots.GetAsync(ct);
@@ -33,8 +39,20 @@ public static class V1Dashboard
             Add("areas", "Enabled SAP areas", catalogue ? state.Catalogue.Ordered.Select(r => r.FunctionKey).Distinct(StringComparer.Ordinal)
                 .Select(k => V1Compatibility.ModuleEnabled(k, settings["module_overrides"] as System.Text.Json.Nodes.JsonObject) ? 1 : 0).Sum() : null, "roles", "Open Role Lookup and its SAP area filters.");
             Add("mappings", "Role/T-code mappings", catalogue ? state.Catalogue.Ordered.Sum(r => r.TcodeCount) : null, "roles", "Distinct role/code pairs; open Role Lookup.");
+            var populationAssignments = state.Users.Assignments.Where(a => selectedNames is null || selectedNames.Contains(SubjectSelection.Key(a.Username))).ToList();
+            var assignmentMapping = mappingEnabled && state.Ids.Users is not null;
+            // WP30: access scoped to the population (complete access of the selected users, current validity only). In the matching-access mode only
+            // the assignments that match every access filter count.
+            var matchingAccess = SubjectSelection.MatchingAssignments(state, http.Request.Query);
+            var currentAccess = populationAssignments.Where(a => a.Scope is "business" or "release" && SubjectSelection.IsCurrent(a, today) && (matchingAccess is null || matchingAccess(a))).ToList();
+            Add("assigned_roles", "Distinct assigned roles", assignmentMapping ? currentAccess.Select(a => RoleNames.Normalize(a.RoleName)).Distinct(StringComparer.Ordinal).Count() : null, "users",
+                "Distinct currently valid business and release roles held by the selected population.", mappingEnabled ? "User Access CSV not loaded" : "User\u2013Role Mapping disabled");
+            Add("assigned_tcodes", "Transaction codes in use", assignmentMapping ? currentAccess.SelectMany(a => a.Tcodes).Distinct(StringComparer.OrdinalIgnoreCase).Count() : null, "users",
+                "Distinct transaction codes supplied by the currently valid roles of the selected population.", mappingEnabled ? "User Access CSV not loaded" : "User\u2013Role Mapping disabled");
+            Add("assigned_mappings", "Role/T-code mappings in use", assignmentMapping ? currentAccess.SelectMany(a => a.Tcodes.Select(t => RoleNames.Normalize(a.RoleName) + "\u0000" + t.ToUpperInvariant())).Distinct(StringComparer.Ordinal).Count() : null, "users",
+                "Distinct role and transaction pairs of the currently valid roles held by the selected population.", mappingEnabled ? "User Access CSV not loaded" : "User\u2013Role Mapping disabled");
             var reason = mappingEnabled ? "User Access CSV not loaded" : "User–Role Mapping disabled";
-            var assignments = state.Users.Assignments.Where(a => selectedNames is null || selectedNames.Contains(SubjectSelection.Key(a.Username))).ToList();
+            var assignments = state.Users.Assignments.Where(a => (selectedNames is null || selectedNames.Contains(SubjectSelection.Key(a.Username))) && (matchingAccess is null || matchingAccess(a))).ToList();
             Add("users", "SAP users", mapping ? people.Count : null, "users", "Open SAP users in the selected population.", reason);
             Add("assignments", "Role assignment records", mapping ? assignments.Count : null, "users", "All imported intervals, including technical roles; open all users.", reason);
             Add("assigned_users", "Users with assignments", mapping ? assignments.Select(a => a.UserKey).Distinct(StringComparer.Ordinal).Count() : null, "users",
@@ -94,9 +112,11 @@ public static class V1Dashboard
                     Add(id, label, null, "review", "Open Account Review.", reason);
             }
 
-            Dictionary<string, int>? roleDistribution = catalogue
+            // WP30: with a population the distribution counts the catalogue roles that population currently holds; without one, the whole catalogue.
+            var areaOf = catalogue ? state.Catalogue.Ordered.GroupBy(r => RoleNames.Normalize(r.AgrName), StringComparer.Ordinal).ToDictionary(g => g.Key, g => string.IsNullOrEmpty(g.First().FunctionKey) ? "UNCLASSIFIED" : g.First().FunctionKey, StringComparer.Ordinal) : null;
+            Dictionary<string, int>? roleDistribution = !catalogue ? null : selectedNames is null
                 ? state.Catalogue.Ordered.GroupBy(r => string.IsNullOrEmpty(r.FunctionKey) ? "UNCLASSIFIED" : r.FunctionKey, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count())
-                : null;
+                : currentAccess.SelectMany(a => a.CatalogueRoles).Select(RoleNames.Normalize).Distinct(StringComparer.Ordinal).GroupBy(r => areaOf!.GetValueOrDefault(r, "UNCLASSIFIED"), StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count());
             Dictionary<string, int>? assignmentDistribution = null;
             if (mapping)
             {
@@ -120,7 +140,10 @@ public static class V1Dashboard
             {
                 metrics,
                 review_population = mapping ? people.Count : (int?)null,
-                scope = new { user_filters_applied = selectedNames is not null, organizational_basis = "current", global_metrics = new[] { "roles", "areas", "mappings", "employees" } },
+                scope = new { user_filters_applied = selectedNames is not null, organizational_basis = "current", access_semantics = matchingAccess is null ? "user_population" : "matching_access", role_distribution = selectedNames is null ? "catalogue" : "population",
+                    global_metrics = new[] { "roles", "areas", "mappings", "employees" } },
+                // Drill-down context: the resolved population as exact usernames when small enough to carry (detail pages apply exact usernames).
+                population_usernames = selectedNames is not null && selectedNames.Count <= 500 ? state.Users.Users.Values.Where(u => selectedNames.Contains(SubjectSelection.Key(u.Username))).Select(u => u.Username).OrderBy(u => u, StringComparer.Ordinal).ToArray() : null,
                 role_distribution = roleDistribution,
                 assignment_distribution = assignmentDistribution,
                 last_successful_refresh = (string?)lifecycle?["last_successful_refresh"],

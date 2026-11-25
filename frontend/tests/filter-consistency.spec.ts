@@ -60,7 +60,12 @@ test('organizational and exact filters combine, follow SoD views and constrain e
 
 test('population filters are available across user views and fit the narrow layout',async({page})=>{
  await page.goto('/#session=browser-test-session');await goTo(page,'Dashboard')
- await choose(page,page,'Functional Group',groupName)
+ // WP30: dashboard filters live in the closed-by-default side panel and take effect on Apply.
+ await page.getByRole('button',{name:/^Filters/}).click()
+ const dashboardFilters=page.getByRole('dialog',{name:'Dashboard filters',exact:true})
+ await choose(dashboardFilters,page,'Functional Group',groupName)
+ await dashboardFilters.getByRole('button',{name:'Apply filters',exact:true}).click()
+ await dashboardFilters.getByRole('button',{name:'Close panel',exact:true}).click()
  await page.getByRole('button',{name:/^SAP users/}).click()
  await expect(page.getByRole('group',{name:'Selected Functional Group',exact:true})).toContainText(groupName)
  await page.getByRole('link',{name:'Account Review',exact:true}).click()

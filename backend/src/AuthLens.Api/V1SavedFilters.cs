@@ -15,7 +15,7 @@ public static class V1SavedFilters
 {
     public const int MaxItems = 250, MaxBytes = 1_000_000;
 
-    public static readonly string[] Views = ["users", "roles", "release", "review", "comparison", "sod_users", "sod_roles", "sod_overview", "sod_risk_matrix", "sod_activity_matrix", "sod_explorer", "sod_queue"];
+    public static readonly string[] Views = ["users", "roles", "release", "review", "comparison", "sod_users", "sod_roles", "sod_overview", "sod_risk_matrix", "sod_activity_matrix", "sod_explorer", "sod_queue", "dashboard"];
 
     public static readonly IReadOnlyDictionary<string, HashSet<string>> Allowed = BuildAllowed();
 
