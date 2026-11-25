@@ -57,15 +57,45 @@ Reports contain personal data and stay local. Diagnostic exports contain only al
 
 ### Server source policy remediation (awaiting Windows acceptance)
 
-All four CSV sources use one policy for path selection, preview, individual refresh and Global Refresh.
-Browser uploads remain Static and never authorize access to client-device paths. In **Settings → Data Sources**,
-administrators choose **Browser upload**, **Local server file** or **Network file (UNC)** for each source.
-Server paths refer to the AuthLens host, not the browser computer. Enter the absolute CSV path and explicitly
-approve access to that exact file (and named SMB host/share). **Validate and import** (the normal flow, sources after RC3) reads the complete
-dataset as the running backend identity and then imports exactly that validated content (hash-bound; a suspicious reduction is still held
-for confirmation). **Test connection and validate source** only validates and changes nothing; **Activate validated source** imports a tested
-result later, only if its raw SHA-256 still matches. A changed file requires validation again. Normal source configuration does not require
-editing JSON, registry or environment variables.
+All four CSV sources (Role Catalogue, User Access, SoD Matrix, Employee Directory) share one workflow and one policy for selection,
+validation, preview, individual refresh and Global Refresh.
+
+**Unified selection (WP33, after RC5).** In **Settings → Data Sources** every source asks two independent questions:
+
+1. **File location.** *Upload from this device* (a copy of a file from the device running the browser) or *File on the AuthLens host* (a
+   file the server reads directly). On the host, a local path (`D:\Exports\users.csv`) and a network path (`\\fileserver\share\users.csv`) use
+   the same field; the type is detected from the path and shown, never chosen up front. **Browse host…** opens the host file picker. Desktop
+   installations offer the upload (system file dialog) and a path field for a file on that computer.
+2. **Update mode.** *Static: replace manually* or *Dynamic: refresh from the file*. It can change before or after validation and import:
+   the configured file and the active dataset are kept, so switching back needs no new selection; saving the change reads nothing (the next
+   Global or scheduled refresh reads a Dynamic file, or use **Refresh source**). An uploaded copy cannot follow changes on the device it came
+   from: the panel says so and points to a host file instead.
+
+**Host file picker.** An Open-dialog style browser of the AuthLens **server** (not the browser device; usable from a phone): host name, approved
+locations (operator folders, administrator-approved folders, folders of configured sources), breadcrumbs, parent folder, direct path entry,
+search within the folder, sorting by name, size and modification time, CSV filter, folder and file icons, Select and Cancel, and explicit
+loading, empty, not approved, access denied, missing and unavailable states. It never creates, renames, moves, deletes or opens files; selecting
+returns the host path only.
+
+**Approved folders.** Administrators approve specific folders in the picker (an explicit confirmation; **Approved folders** lists and removes
+them). Files below an approved folder validate without a per-file grant (`authorization: approved_folder`); any other host file is approved
+for its exact source when it is first validated. Folder approval is stored in the protected, signed source authority (next to exact grants,
+outside restorable data) and refuses volume and share roots, the AuthLens installation and data, and Windows, program and user-profile
+locations. Operator folders (`AUTHLENS_SOURCE_ROOTS`) keep working. **Application approval is not a Windows permission:** the AuthLens service
+identity still needs NTFS read access (and share access for network files); AuthLens never changes NTFS or share permissions, never asks for
+or stores SMB credentials, and never uses the browser user's sign-in.
+
+**Browsing security.** Browsing and approval require administration. A folder outside every approved location is refused before the
+filesystem or network is touched, so an unapproved UNC path causes no SMB request; network targets must resolve to private addresses; every
+directory from the volume root down must be a plain directory (junctions and symbolic links are refused, and skipped inside listings); hidden,
+system and device entries are not listed; AuthLens private state (data, keys, TLS, backups, deployment state) is never listed even below a broad
+operator folder; listings are capped at 2,000 entries. API: `GET /api/server/sources/browse[?path=&q=&all=]`, `GET|POST|DELETE
+/api/server/sources/roots`.
+
+**Validate and import** (the normal flow) reads the complete dataset as the running backend identity and imports exactly that validated
+content (hash-bound; a suspicious reduction is still held for confirmation). **Validate only** checks without changing data; **Import
+validated file** imports it later only if its SHA-256 still matches, and disappears as soon as the path changes. A changed file requires
+validation again. Normal source configuration does not require editing JSON, registry or environment variables.
 
 Validation runs in the AuthLens server process, so it proves access for the actual service identity, not for an administrator's PowerShell
 session. Outcomes (`category`; the last valid dataset is always kept, `previous_preserved: true`):

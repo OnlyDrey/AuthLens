@@ -32,7 +32,7 @@ const STALE_MESSAGE = 'AuthLens restarted and your previous local session is no 
 
 /** Failure classes the UI can explain: network (no response), server (5xx), client (4xx) and format (a response that is not the expected JSON). */
 export class ApiError extends Error {
-  constructor(message: string, readonly kind: 'network' | 'server' | 'client' | 'format' | 'session' | 'authentication' | 'permission', readonly status = 0, readonly detail?: unknown) {
+  constructor(message: string, readonly kind: 'network' | 'server' | 'client' | 'format' | 'session' | 'authentication' | 'permission', readonly status = 0, readonly detail?: unknown, readonly body?: unknown) {
     super(message)
     this.name = 'ApiError'
   }
@@ -96,7 +96,7 @@ const apiClient = {
       const reference=response.headers.get('X-Request-ID')||''
       if(response.status===401 && sessionRole) window.dispatchEvent(new Event('authlens-sign-in-required'))
       if(response.status===403&&(data as {code?:string}|undefined)?.code==='stale_session'){recordSession('stale');throw new ApiError(STALE_MESSAGE,'session',403)}
-      throw new ApiError(problemDetail(parsed ? data : undefined, response.status)+(/^[a-f0-9]{32}$/.test(reference)?` Reference: ${reference}`:''), response.status===401?'authentication':response.status===403?'permission':response.status >= 500 ? 'server' : 'client', response.status, parsed ? (data as { detail?: unknown } | undefined)?.detail : undefined)
+      throw new ApiError(problemDetail(parsed ? data : undefined, response.status)+(/^[a-f0-9]{32}$/.test(reference)?` Reference: ${reference}`:''), response.status===401?'authentication':response.status===403?'permission':response.status >= 500 ? 'server' : 'client', response.status, parsed ? (data as { detail?: unknown } | undefined)?.detail : undefined, parsed ? data : undefined)
     }
     if (!parsed) throw new ApiError('AuthLens received an unexpected response instead of data. Retry, or reload the application.', 'format', response.status)
     return { data: (data ?? {}) as T }

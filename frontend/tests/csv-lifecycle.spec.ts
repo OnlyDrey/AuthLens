@@ -227,7 +227,7 @@ test('snapshot preview is paginated and filters quality warnings after automatic
     .getByRole('tab', { name: 'Employee Directory', exact: true })
     .click()
   await expect(
-    page.getByRole('combobox', { name: 'CSV source mode', exact: true }),
+    page.getByRole('combobox', { name: 'Update mode', exact: true }),
   ).toHaveValue('static')
   await page.getByRole('button',{name:'Preview data',exact:true}).click()
   const preview = page.getByRole('region', {
