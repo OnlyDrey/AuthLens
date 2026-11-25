@@ -310,6 +310,11 @@ Baseline browser failures investigated in RC6 (all test defects with outdated ex
 | `startup-reliability` loading and restart cases | Since `2a78dfc` the dashboard sent `/api/dashboard?…`; the route mock `**/api/dashboard` no longer matched, so the modelled states never reached the page | Route matches the endpoint with or without a query string (never `/filter-options`); the dashboard also omits an empty `?` |
 | Visual specs at 375 px (`employee-directory`, `live-filters-polish`, `csv-lifecycle`) | Main navigation and Settings tabs move into drawers below 1024 and 768 px | Use the responsive `goTo` and `selectSettingsSection` helpers |
 | `dashboard-user-transactions` KPI navigation | BUG-08 made main navigation a page boundary; the spec expected Role Lookup to keep its search | Expects the fresh page, then checks the KPI reset separately |
+| `investigation-ux` (visual, import source) and `navigation-modules` (data-source focus) | The Desktop CSV path field sat inside a collapsed `<details>`, so the specs could not reach it (the RC4 and RC5 "CSV file location hidden" failures) | Fixed in the product by WP33 (the field is shown directly); both specs pass unchanged |
+
+Regression run after these corrections (isolated test host, Chromium): `user-feedback-2026-11` (BUG-01 to BUG-10), `session-timeout`,
+`global-navigation`, `investigation-ux`, `sod-assignment-decisions`, `personal-preferences`, `navigation-modules`: **40 passed, 0 failed**;
+`startup-reliability`, `live-filters-polish`, `dashboard-user-transactions`, `dashboard-filters`: passed. FULL browser suite not run.
 
 ### Acceptance tooling and recovery requirements (QA-001 to QA-032)
 
