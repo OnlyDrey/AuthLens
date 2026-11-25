@@ -101,9 +101,11 @@ batches run as one unit; a `STOP-INTEGRITY` line ends the batch before any reloc
 | C9 | Post-install network change (8.15; Corporate install from B4) | `& $manager -Action ChangeNetwork -AllowedHosts 'lens.example.org,192.0.2.10,lens2.example.org'` (summary only), then with `-Yes`; `& $manager -Action ChangeNetwork -Port 18796 -ApproveFirewall -FirewallSources <client subnet> -FirewallProfiles Domain -Yes`; negative: `-ListenAddress 192.0.2.99` (not on the VM), a host the certificate lacks; forced failure: after the summary, occupy the new port from another elevated session (`$l=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Parse('192.0.2.10'),18797);$l.Start()`) and apply `-Port 18797 -RemoveFirewall -Yes` | Summary lists current and proposed values; valid changes answer on the new listener and the owned firewall rule follows; invalid proposals are refused before any change; the forced failure restores the previous configuration and command line; `& $deploy -Action Status` shows `configuration_change_pending: false` | Service Manager output, Status JSON before/after, `Get-NetFirewallRule -DisplayName 'AuthLens*' \| Get-NetFirewallPortFilter` | `& $deploy -Action Recover -ConfigFile $config -Yes` restores an interrupted change |
 | C10 | Firewall, DNS, TLS and allowed hosts | From the client: `Test-NetConnection lens.example.org -Port 18795`; `curl.exe -vk https://lens.example.org:18795/health/ready`; with a non-allowed Host header: `curl.exe -vk -H "Host: evil.example.org" https://192.0.2.10:18795/health/ready`; from a non-approved subnet | DNS resolves; TLS chain/name as configured (self-signed needs explicit trust); disallowed Host refused (HTTP 421/400); non-approved subnet blocked by the firewall | Outputs, `Get-NetFirewallRule` | — |
 
-### Next-candidate scenarios (WP19, WP20; not applicable to RC3)
+### Next-candidate scenarios (D-006, WP19, WP20; not applicable to RC3)
 
-Run these only on a candidate whose build record lists WP19 and WP20 as implemented; on RC3 they are **Not applicable**, not failed.
+Implemented in the sources after RC3 (`c077eaf` D-006, `6fbfd48` WP20, the WP19 commit); a candidate containing them needs build approval. Run
+these only on a candidate whose build record lists them; on RC3 they are **Not applicable**, not failed. Never run B13's `-DryRun` commands with
+RC3 tools (D-006).
 
 | ID | Scenario | Commands | Expected | Evidence | Recovery |
 | --- | --- | --- | --- | --- | --- |

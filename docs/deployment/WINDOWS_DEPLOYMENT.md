@@ -440,9 +440,12 @@ comma-separated; `-` in Service Manager clears a list). Data directory, identity
 `ReplaceCertificate`). Validation before any change: the access-mode rules of Setup and the runtime (`Get-ALServerAccessPlan`: loopback for Local,
 private interface and explicit hosts for Corporate, backend hosts, public proxy hosts and explicit trusted peers for Reverse Proxy, no wildcard
 binding), host syntax (no wildcards, URLs or paths), the address must be assigned to this machine, the port free or held by the service itself, and
-the packaged host's read-only `--server-preflight` with the proposed arguments (the **existing certificate** must cover the new hosts and the new
-listen IP; in 2.0.0 the preflight requires the bind address even when no client uses it, defect D-004, so replace the certificate first with one
-that covers both the current and the new names and addresses).
+the packaged host's read-only `--server-preflight` with the proposed arguments: the certificate must cover the
+[endpoint identities](#certificate-endpoint-identities) of the proposed settings, and a refusal names each missing identity. Add
+`-CertificateFile`/`-CertificatePasswordFile` to change network settings and certificate in **one** recorded transaction (the new PFX is
+validated against the proposed settings, imported create-only into `Root\tls\renew-<id>` and restored with the previous configuration on any
+failure). RC3-VM130 and earlier require the bind address in the certificate even when no client uses it (defect D-004) and have no combined
+change: there, replace the certificate first with one that covers both the current and the new names and addresses.
 An unchanged proposal is refused. An installer-owned firewall rule that would no longer match a moved listener requires an explicit decision
 (`-ApproveFirewall -FirewallSources … [-FirewallProfiles Domain]` or `-RemoveFirewall`); administrator-created rules are never touched.
 
@@ -455,6 +458,33 @@ existing owned-firewall transaction; if it fails the service stays ready on the 
 `firewall_recovery_required` (recover with `Install-AuthLens.ps1 -Mode Server -Operation Firewall …`). An interrupted change is restored by the next
 `ChangeNetwork` or `ReplaceCertificate`, or explicitly by `Deploy-AuthLens.ps1 -Action Recover`. `InstallService -Reconfigure` remains for repository
 deployments and expert recovery only.
+
+### Certificate endpoint identities
+
+One rule (`CertificatePolicy.RequiredIdentities`, WP20, D-004 corrected in the sources; .NET `ServerPreflightTests`, Pester; native pending C13)
+decides which names the certificate must cover, for runtime startup, Setup and deployment preflight, network changes, certificate replacement
+and recovery: with network access **every allowed host** (the only Host values the server accepts; the readiness probe uses the first), on a
+loopback listener **the loopback listen address** the local probe and browser use. The socket bind address is not an identity of its own: an IP
+is required only when clients use it, that is when it is listed as an allowed host, so a CA-issued certificate with DNS names only is valid for
+DNS-only access. Wildcard SANs cover one label (`*.example.org` covers `lens.example.org`). Reverse-proxy public hosts are terminated at the
+proxy and are not backend names. The Host filter, client hostname verification, certificate pinning of the readiness probe and chain trust are
+unchanged. A loopback listener accepts loopback names only, so non-loopback allowed hosts on it are refused in every access mode, including
+configurations without `AccessMode` (D-003).
+
+`AuthLens.Api.exe --certificate-info <server options>` describes the configured certificate read-only (subject, issuer, validity, SHA-1 and
+SHA-256 thumbprints, DNS and IP SANs, each required identity covered or missing, warnings), also when it would be refused;
+`--certificate-export-public <file.cer>` writes the public certificate (DER) create-only, never the private key. `Deploy-AuthLens.ps1 -Action
+Status` reports `certificate_status`; `-Action ExportCertificate -PublicCertificateFile <file.cer>` exports it outside the installation's
+private folders. The Server Setup review page shows subject, issuer, expiry, SHA-256 thumbprint and the covered identities for the final network
+settings, states that upgrade and repair keep the existing certificate (TLS generation is refused when the service exists) and where the public
+`server.cer` is written.
+
+**Client trust.** A new certificate has a new fingerprint: clients that trusted the old one (for example an accepted self-signed certificate)
+must trust the new one, and browsers ask again. Every replacement summary shows the old and new SHA-256 thumbprints and this notice. AuthLens never
+changes a client or server trust store. For a self-signed certificate distribute only its public `.cer` through an approved channel (for example
+a Group Policy object that adds it to Trusted People or Trusted Root Certification Authorities, per your policy); never distribute the PFX, its
+password or recovery keys. Prefer a certificate from your internal CA: clients that trust the CA need no change on renewal, and the certificate
+must cover every allowed host as a SAN (DNS names, and IP addresses only when clients use them).
 
 ### Installed certificate replacement
 
@@ -478,6 +508,19 @@ the previous certificate and reports the original error. An interrupted run is r
 record for another configuration or with a damaged hash is retained for manual recovery. Previous TLS files are never deleted. Network settings,
 access mode, firewall, identity, data, accounts and keys are not changed, and no trusted root is added: distributing the new certificate to clients
 remains an administrator decision. Network settings change through [the network configuration change](#installed-network-configuration-change).
+The dry run and the result report the current and the new certificate (`certificate_current`/`certificate_proposed`, `certificate_previous`/
+`certificate_active`: subject, issuer, expiry, SHA-256 thumbprint, missing identities) and `client_trust_notice`.
+
+**During deployment recovery (G-007, sources after RC3; Pester `Deployment-Recovery`; native pending B12).** When an interrupted first
+installation cannot be completed because its configured certificate fails the candidate's preflight, `ReplaceCertificate` stays refused (the
+journal barrier is kept). Instead pass the replacement to the recovery itself:
+`Install-AuthLens.ps1 -Mode Server -Recover -RecoveryAction VerifyCandidate -ConfigFile … -RecoveryCertificateFile <pfx>
+-RecoveryCertificatePasswordFile <file> -Yes` (or `Deploy-AuthLens.ps1 -Action Recover -RecoveryAction VerifyCandidate -CertificateFile …
+-CertificatePasswordFile … -Yes`, or Service Manager group 6). Preview it first with `-DryRun` on `Deploy-AuthLens.ps1`. Every candidate check
+runs with the replacement; the PFX is imported create-only, the service identity gets read, the configuration and command line change through
+`configuration-pending.json`, the service restarts, readiness is pinned to the new certificate, and only then is the journal completed. Any
+failure restores the previous certificate and command line and leaves `manual_recovery_required`; an interrupted step is restored by the next
+`Recover` before any journal decision. This replaces the manual certificate switch used on DASH1, which is not a supported workflow.
 
 `-Action Status` additionally reports `execution_context`, the current network settings and certificate, `configuration_change_pending` (an
 interrupted network or certificate change awaits restoration) and
@@ -874,30 +917,61 @@ separate authorization for service removal. No automatic recursive data removal 
 
 ## Local Service Manager
 
-The release includes `Service-Manager.ps1` beside `server/`; the Server installer adds a local administration shortcut. It invokes the packaged
-server binary directly, needs no SDK and opens no listener; only the network change restarts the service (through the installed deployment
-tools). Without `-DataDirectory` it resolves the installation from Setup's verified registration (`HKLM\Software\AuthLens\Server` `ConfigFile`,
-then its `DataDirectory` or `Root\data` and `ServiceName`), so custom roots and data directories are honored; previously the shortcut always used
-`C:\ProgramData\AuthLens\data` (defect D-002). Select the exact data directory and executable explicitly when operating an older installation.
-Network status and changes (options 8 and 9) need the Start-menu copy beside the installed tools. Key export/provisioning stays local-only; no browser export endpoint exists.
+Status: WP19 implemented in the sources after RC3 (Pester-tested: `Service-Manager.Tests.ps1`, `Service-Manager.Workflow.Tests.ps1`,
+`Packaged-Runtime.Tests.ps1`); native acceptance pending (C6, C11 to C13, B11). RC3-VM130 and earlier packages have the earlier one-action
+menu and defect D-005 (a directory as the key path ends Service Manager with access denied: give a complete file name there).
+
+The release includes `Service-Manager.ps1` beside `server/`; the Server installer adds the Start-menu shortcut **AuthLens Service Manager**. It
+uses the packaged server binary and the installed, hash-verified deployment tools (`<Root>\app\setup\<package>\tools`), needs no SDK and opens
+no listener. Without `-DataDirectory` it resolves the installation from Setup's verified registration (`HKLM\Software\AuthLens\Server`
+`ConfigFile`, then its `Root`, `DataDirectory` or `Root\data` and `ServiceName`), so custom roots and data directories are honored (defect D-002);
+outside the installed payload the executable defaults to `<registered Root>\releases\current\server\AuthLens.Api.exe`.
+
+**Interactive menu.** A status overview opens first (service state, identity and PID, release and commit, readiness, access mode and listener,
+certificate expiry and missing identities, backup-key state and recovery-copy verification, journal phase, pending configuration change,
+service key access) and is refreshed after each group. Groups: 1 Service status and management, 2 Network configuration, 3 TLS certificates,
+4 Backup and recovery keys, 5 Administrator accounts, 6 Deployment and recovery, 7 Diagnostics and logs. `B` goes back (and cancels at any
+prompt), `Q` exits. Every action is labelled read-only, writes a new file, changes keys or accounts, or **restarts the service**; sensitive and
+disruptive actions show a summary and need `YES`. A refused or failed action returns to its menu with an actionable message; technical details
+(action, error type and message) are appended to `<Root>\logs\service-manager\service-manager-<date>.log` when that folder is writable. Key
+values, passwords and one-use codes never appear in that log. The tool never stops or starts the service outside the actions marked restart
+(network change, certificate replacement, recovery that applies a certificate or rolls back; Resume starts a stopped service).
+
+**Recovery copy export.** The menu asks for the destination folder and the file name separately; the default name is
+`AuthLens-<computer>-recovery`, `.key` is added once (also `.KEY` is kept, never `.key.key`), quotes and spaces are accepted. Before anything
+runs, the complete destination is validated: an absolute folder, a valid Windows file name, no junction or symbolic link on the way, outside
+the application data directory, no existing file (never overwritten) and write access for this session (a create-only probe file that is
+removed). A missing folder is created only after confirmation, with a protected ACL (SYSTEM, Administrators and the current user). The resolved
+path is shown before the final `YES`. After the export the copy is **verified automatically** (`--backup-key verify`, `escrow_verified: true`);
+standalone verification stays available. Store the copy off the server (approved offline or vault storage), never with the backups; verify the
+moved copy again.
 
 ```powershell
-$manager='C:\ProgramData\AuthLens\releases\current\Service-Manager.ps1'
-$exe='C:\ProgramData\AuthLens\releases\current\server\AuthLens.Api.exe'
-$data='C:\ProgramData\AuthLens\data'
-& $manager -Action Status -DataDirectory $data -Executable $exe
-# Elevated, explicit local operations. Export refuses an existing destination.
-& $manager -Action ExportKey -DataDirectory $data -Executable $exe -Path 'D:\private-recovery\host-copy.key' -Yes
-& $manager -Action VerifyKey -DataDirectory $data -Executable $exe -Path 'D:\private-recovery\host-copy.key' -Yes
+$manager='C:\ProgramData\AuthLens\app\setup\<package>\payload\<package>\Service-Manager.ps1'   # the Start-menu copy
+& $manager                                             # interactive menu
+& $manager -Action ServiceStatus                       # overview, read-only
+# Elevated, explicit local operations (-Yes). -Path is the exact file (existing contract); a folder there is refused with the default name suggested.
+& $manager -Action ExportKey -Directory 'E:\AuthLens recovery' -FileName 'AuthLens-DASH1-recovery' -CreateDirectory -Yes   # export, then automatic verification
+& $manager -Action ExportKey -Path 'E:\AuthLens recovery\host-copy.key' -Yes
+& $manager -Action VerifyKey -Path 'E:\AuthLens recovery\host-copy.key' -Yes
+& $manager -Action CreateBackup -Yes                   # encrypted online backup in BackupRoot (default <Root>\backups), then --backup-verify
+& $manager -Action CertificateStatus                   # subject, issuer, expiry, SHA-256 thumbprint, SANs, missing identities
+& $manager -Action ExportCertificate -Directory 'E:\public' -Yes   # public .cer only
+& $manager -Action ReplaceCertificate -CertificateFile 'D:\tls\renewed.pfx' -CertificatePasswordFile 'D:\tls\renewed-password'   # summary only; add -Yes to apply (restart)
+& $manager -Action DeploymentStatus                    # journal, history, valid recovery actions (simulation)
+& $manager -Action Recover -RecoveryAction VerifyCandidate   # preview only; add -Yes to run it through Install-AuthLens.ps1 -Recover
+& $manager -Action Diagnostics                         # status and ACL audit report in <Root>\logs\service-manager, no secrets
 # One-use codes are shown locally; never transcript or redirect these commands:
-& $manager -Action ActivationCode -DataDirectory $data -Executable $exe -Yes
-& $manager -Action RecoveryCode -DataDirectory $data -Executable $exe -Username 'existing-admin' -Yes
+& $manager -Action ActivationCode -Yes
+& $manager -Action RecoveryCode -Username 'existing-admin' -Yes
 ```
 
-Known 2.0.0 limitation (defect D-005): `-Path` and the menu prompt need a complete file name, for example
-`E:\AuthLens-recovery\AuthLens-DASH1-recovery.key`. A directory is refused with access denied and ends Service Manager; the Start-menu window
-then closes. Each start runs one action. A guided export with verification, grouped menus and certificate and recovery workflows are planned in
-WP19 and WP20 ([work packages](../validation/WORK_PACKAGES.md#fourth-round-service-manager-usability-and-tls-lifecycle-wp19-wp20)).
+**Guided deployment recovery (G-003).** Group 6 shows the journal phase, history and the recovery actions the state allows (from the same
+decision as the deployment tools). A selected action is first previewed with `Deploy-AuthLens.ps1 -Action Recover -DryRun` (a simulation that
+changes nothing, D-006; Service Manager refuses tools without that safeguard and any preview that does not identify itself as a simulation). Only
+an explicit action whose preview would succeed, confirmed with `YES`, runs through the installed `Install-AuthLens.ps1 -Mode Server -Recover
+-RecoveryAction <action>` (which also records `installed-product.json`). VerifyCandidate and Resume can carry a replacement certificate when the
+configured one blocks recovery (G-007, see [certificate replacement](#installed-certificate-replacement)).
 
 `CreateKey` is for an unconfigured installation only and never replaces a configured key. Export to separately secured recovery storage,
 then verify that copy before enabling automatic backups. Protect the full key directory; keep host and recovery keys out of data/releases/Git.
@@ -1427,7 +1501,8 @@ next successful Setup upgrade rewrites it. Do not edit it by hand.
 
 If R1's `server preflight` check refuses the TLS certificate (for example a listener address added after the certificate was generated, defect
 D-004), stop: R3 would refuse in the same check, and `ReplaceCertificate` and `ChangeNetwork` refuse while the journal requires recovery, so the
-current tools offer no supported route (gap G-007). Do not activate a replacement certificate by overwriting the PFX or editing the configuration,
+RC3-VM130 tools offer no supported route (gap G-007). Tools built from the sources after RC3 apply the replacement inside recovery
+([during deployment recovery](#installed-certificate-replacement)); with RC3, never pass `-DryRun` to Recover (defect D-006: it runs the real recovery). Do not activate a replacement certificate by overwriting the PFX or editing the configuration,
 service command line or journal. A replacement can be proved read-only beforehand with the installed release's `--server-preflight` and the
 proposed `--cert`/`--cert-password-file`; keep it in protected storage until a candidate with the G-007 correction can apply it inside recovery.
 

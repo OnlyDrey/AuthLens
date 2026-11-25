@@ -39,12 +39,13 @@ Nothing was installed or changed machine-wide: no Windows Service, firewall rule
 | 16 | SoD Manager and Exact Usernames | Implemented (Codex `2a78dfc`) | `filter-consistency.spec.ts` | 8.12 |
 | 17 | Regression and acceptance preparation | Focused validation below; acceptance procedure in [Windows checklist §8](../deployment/WINDOWS_DEPLOYMENT.md#8-server-sources-recovery-key-service-access-and-reviews-200-remediation) (8.1 to 8.14) | FULL not run (not authorized) | Entire §8 |
 | 18 | Dedicated Reviews workspace | Implemented; SoD independence, Account Review entry, complete contextual entry points, global Overview counters (`c780ff6`) | `reviews-workspace.spec.ts` (5 tests) and affected specs | Administrator/Reviewer smoke (8.11) |
-| 19 | Service Manager usability review | **Remaining implementation** (recorded 2026-11-25; D-005, G-003) | — | Guided key export, menu and recovery workflow (C6, C11, B11) |
-| 20 | Installer and TLS lifecycle review | **Remaining implementation** (recorded 2026-11-25; D-004, G-007, D-003 residual) | — | Endpoint identities, certificate status/export, recovery with certificate (C8, C9, C12, C13, B12) |
+| 19 | Service Manager usability review | Implemented (fifth round): grouped menus, status overview, guided key export with automatic verification, TLS, backup, diagnostics and guided recovery (D-005, G-003) | `Service-Manager.Workflow` (19), `Service-Manager` (6), `Packaged-Runtime` | C6, C11, B11 |
+| 20 | Installer and TLS lifecycle review | Implemented (`6fbfd48`): shared endpoint-identity rule, certificate description and public export, combined network and certificate change, certificate step in recovery, Setup review details (D-004, G-007, D-003) | .NET `ServerPreflightTests` with host-policy classes (95); Pester `Server-TlsLifecycle`, `Server-NetworkChange`, `Deployment-Recovery`, installer set (133) | B12, C12, C13 |
 
-**Remaining implementation:** WP19 and WP20 (Windows administration tooling; see the
-[fourth round](#fourth-round-service-manager-usability-and-tls-lifecycle-wp19-wp20)). Packages 1 to 18 have their implementation in the
-repository; what remains for them is native acceptance, the external blockers and the product-owner decisions below.
+**Remaining implementation:** none for packages 1 to 20 (WP19, WP20 and the P0 defect D-006 were implemented in the fifth round, see the
+[fourth round](#fourth-round-service-manager-usability-and-tls-lifecycle-wp19-wp20) for their scope); deferred: G-004, G-005, G-006 and the
+older-journal fixture of T-001 ([acceptance tracker](ACCEPTANCE_TRACKER.md#required-corrections-for-the-next-candidate)). What remains is native
+acceptance, the external blockers and the product-owner decisions below.
 
 ## Release qualification (third round)
 
@@ -110,9 +111,20 @@ documentation only; they do not change the candidate.
 
 ## Fourth round: Service Manager usability and TLS lifecycle (WP19, WP20)
 
-Recorded 2026-11-25 from native DASH1 findings; **Remaining implementation**, nothing below is implemented. The review is source inspection of
-RC3 (`19a1113`) and the `8ec7f77` executable installed on DASH1. Implementation, a new candidate build and native acceptance each need approval.
-DASH1 is not modified; its reconciliation stays blocked by G-007 ([acceptance tracker](ACCEPTANCE_TRACKER.md#dash1-interrupted-first-installation-2026-11-24)).
+Recorded 2026-11-25 from native DASH1 findings (review of RC3 `19a1113` and the `8ec7f77` executable installed on DASH1). **Implemented in the
+fifth round** (2026-11-25, approved): D-006 first (`c077eaf`), then WP20 (`6fbfd48`) and WP19; the corrections below describe what was built.
+Focused tests only (Level 1 and 2); FULL, a candidate build and native acceptance are not run. DASH1 was not modified by the agent; it was
+remediated manually by the operator (G-007 workaround) and its journal completed by D-006
+([acceptance tracker](ACCEPTANCE_TRACKER.md#dash1-interrupted-first-installation-2026-11-24)).
+
+### Fifth round: D-006 and implementation of WP19 and WP20
+
+| Item | Implemented | Focused evidence (this host, VM130) |
+| --- | --- | --- |
+| D-006 (P0) | One action policy (`Get-ALActionPolicy`): read-only, simulated (Deploy, Recover, ReplaceCertificate, ChangeNetwork, ProtectAcl) or refusing `-DryRun` (Build, InstallService, Restore, Rollback, RestoreAcl, ExportCertificate); `-DryRun` never replaces `-Yes`; read-only `Recover -DryRun` preview sharing the real decision; simulations hold the mutex only, write nothing and are verified by a persistent-state snapshot; a finished journal is never reopened | `Deployment-DryRun` 11, affected Pester files 109 |
+| WP20 | `CertificatePolicy.RequiredIdentities` everywhere; `--certificate-info`, `--certificate-export-public`; Status `certificate_status`; `ExportCertificate`; ReplaceCertificate and ChangeNetwork summaries with old and new thumbprints and the client-trust notice; combined network and certificate transaction; certificate step inside VerifyCandidate/Resume (also `Install-AuthLens.ps1 -RecoveryCertificateFile`); D-003 rule; Setup review page certificate details | .NET 16 + 79 (preflight, network policy, LAN HTTPS, origin, reverse proxy, configuration, maintenance, startup); Pester 42 (TLS lifecycle, network change, recovery, DryRun, replacement) and installer set 133 (1 skipped) |
+| WP19 | Service Manager rewrite on the existing helpers: overview, seven groups with Back/Exit, menu loop and diagnostic log, guided key export (separate prompts, default name, extension, validation, confirmed protected folder, automatic verification, guidance), certificate status, export and replacement, encrypted backup with verification, diagnostics report, guided recovery (simulation first, explicit action, `YES`, installed Setup tools); all earlier `-Action` contracts kept | `Service-Manager.Workflow` 19, `Service-Manager` 6, `Packaged-Runtime` 6 |
+| Not done | G-004 (actor and hashes in history), G-005 (registration update after CLI recovery), G-006 (audited adoption of restored data), T-001 older-build journal fixture; Desktop installer unchanged (no TLS); restart of the service from Service Manager is not offered (Services console) | — |
 
 ### WP19 Service Manager usability review
 
@@ -253,7 +265,7 @@ gMSA/domain-account cases, and a lab certificate (and a second one without the c
 | Deferred by product decision | Dedicated domain account / gMSA provisioning (2.0.0 supports `NT SERVICE\AuthLens`; existing compatible identities preserved); historical organizational snapshot enrichment (provisionally 2.1.0) |
 | External blockers | SMB infrastructure, a domain and a second Windows VM are not available on VM130; native acceptance runs on the operator's VM ([runbook](WINDOWS_VM_ACCEPTANCE.md)) |
 | G-001 (P1) | Post-installation network configuration through Service Manager: implemented (Service Manager options 8/9, `-Action ChangeNetwork`), Pester-tested; native acceptance pending ([acceptance tracker](ACCEPTANCE_TRACKER.md#defects-and-gaps)) |
-| WP19, WP20 (next candidate) | D-004 (P1), D-005 (P2), G-007 (P1, blocks DASH1 reconciliation), G-003 (P1) and the DASH1 recovery gaps; remaining implementation, recorded in the [fourth round](#fourth-round-service-manager-usability-and-tls-lifecycle-wp19-wp20) |
+| D-006 (P0), WP19, WP20 (next candidate) | Implemented in the sources after RC3 with focused tests; native acceptance pending (B11 to B13, C11 to C13); not in any built candidate. Deferred: G-004, G-005, G-006, T-001 fixture |
 | D-001 (P0), D-002 (P1) | Installed `Deploy-AuthLens.ps1` refused Setup configurations; Service Manager ignored custom data directories. Both corrected in implementation with Pester evidence on a Setup-shaped configuration and the installed tool layout; native acceptance pending |
 | P1 issues | Reviewer smoke on a server; restored-source reauthorization end to end; Linux host run of source tests |
 | P2 improvements | Persist an audit trail of source authorization beyond service logs; browser coverage of every filter screen; optional Windows DACL check of the key file inside the server's own key status (today the deployment ACL audit and `backup_key_service_access` cover it) |
