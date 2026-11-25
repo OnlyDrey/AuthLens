@@ -37,6 +37,12 @@
   deploy.example.json). It holds paths, addresses and host names, never a secret. The last output line is 'AUTHLENS-RESULT: <json>'.
   Exit codes: 0 success, 1 failed (nothing changed, or rolled back and ready again), 2 refused before any change, 4 manual action required.
 
+  -DryRun is a simulation: Deploy, Recover, ReplaceCertificate, ChangeNetwork and ProtectAcl evaluate their read-only checks and report what would
+  happen (result field simulation: true, changes_applied: false; Recover reports would_succeed/would_phase). It never replaces -Yes, takes no
+  deployment lock file and writes no run log, journal, configuration, service, registry, ACL, firewall, certificate, key or data change. Every
+  other changing action (Build, InstallService, Restore, Rollback, RestoreAcl) refuses -DryRun with exit 2. -DryRun together with -Yes is still
+  only a simulation. A simulation whose persistent installation state differs afterwards is reported as a failure (exit 4).
+
 .EXAMPLE
   .\Deploy-AuthLens.ps1 -Action Status
 .EXAMPLE
@@ -83,8 +89,21 @@ param(
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AuthLens.Deploy.psm1') -Force
+$script:Simulation = $false; $script:SimulationBefore = $null; $script:SimulationConfig = $null
 
 function Write-Result($Value, [int]$Code) {
+    if ($script:Simulation) {
+        # A simulation must never report or cause a completed operation (D-006).
+        if ($null -eq $Value) { $Value = [pscustomobject]@{} }
+        $claims = @('recovered', 'replaced', 'changed', 'rolled_back') | Where-Object { $Value.PSObject.Properties[$_] -and $Value.$_ -eq $true }
+        if ($claims) { $Value = [pscustomobject]@{ error = "Simulation reported a completed operation ($($claims -join ', ')); treated as a defect. Review -Action Status." }; $Code = 4 }
+        if ($script:SimulationBefore) {
+            $changed = @(Compare-ALStateSnapshot $script:SimulationBefore (Get-ALStateSnapshot $script:SimulationConfig))
+            if ($changed.Count) { $Value = [pscustomobject]@{ error = "Persistent installation state changed during a simulation: $($changed -join ', '). Review -Action Status before any further operation."; state_changed = $changed }; $Code = 4 }
+        }
+        foreach ($pair in @(@('dry_run', $true), @('simulation', $true), @('changes_applied', $false))) { $Value | Add-Member -NotePropertyName $pair[0] -NotePropertyValue $pair[1] -Force }
+        Write-Host 'SIMULATION (-DryRun): no change was made to the installation.'
+    }
     $Value | ConvertTo-Json -Depth 8 | Write-Host
     Write-Host ('AUTHLENS-RESULT: ' + (@{ exit = $Code; result = $Value } | ConvertTo-Json -Depth 8 -Compress))
     exit $Code
@@ -98,9 +117,11 @@ function Test-Elevated {
 
 try {
     if($RecoveryAction -ne 'Auto' -and $Action -ne 'Recover'){Stop-AL 'RecoveryAction requires Action Recover.'}
-    $changing = $Action -in @('Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestoreAcl') -and -not $DryRun
-    if ($changing -and -not $Yes) { Stop-AL "$Action changes the service or its permissions; repeat with -Yes after reviewing -Action Status or -Action AuditAcl (or -DryRun)." }
+    # One policy for approval and simulation (D-006): -DryRun is honored only by actions that implement it, and never replaces -Yes.
+    $policy = Get-ALActionPolicy $Action -DryRun:$DryRun -Yes:$Yes
+    $changing = $policy.mode -eq 'execute' -and $policy.approval_required
     $config = Read-AuthLensSettings $ConfigFile
+    if ($policy.mode -eq 'simulate') { $script:Simulation = $true; $script:SimulationConfig = $config; $script:SimulationBefore = Get-ALStateSnapshot $config }
     # NTFS audit (read-only) of the installation's private state, releases and configuration. Exit code 0 when no broad principal can read private
     # state or write anywhere it matters, 2 otherwise.
     if ($Action -eq 'AuditAcl' -or ($Action -eq 'ProtectAcl' -and $DryRun)) {
@@ -118,9 +139,18 @@ try {
         }
     }
     # Install, update and restore create or fill the installation; recovery and ACL actions must work on an installation as it is.
-    if ($Action -in @('Build', 'Deploy', 'InstallService', 'Restore') -and -not $DryRun) { Initialize-ALInstallation $config }
-    Enter-ALLock $config
-    $null = New-ALRun $config $Action.ToLowerInvariant()
+    if ($Action -in @('Build', 'Deploy', 'InstallService', 'Restore') -and -not $script:Simulation) { Initialize-ALInstallation $config }
+    if ($script:Simulation) {
+        # Serialized with real operations through the host mutex only: no WorkRoot, lock file or run folder is created by a simulation.
+        Enter-ALLock $config -MutexOnly
+        if ($Action -eq 'Recover') {
+            $preview = Get-ALRecoveryPreview $config -RecoveryAction $RecoveryAction
+            Write-Result $preview $(if ($preview.would_succeed) { 0 } else { 2 })
+        }
+    } else {
+        Enter-ALLock $config
+        $null = New-ALRun $config $Action.ToLowerInvariant()
+    }
     switch ($Action) {
         'Build' {
             $sha = Resolve-ALCommit $config $Branch $Commit

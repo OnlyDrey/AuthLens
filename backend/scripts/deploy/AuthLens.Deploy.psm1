@@ -975,7 +975,9 @@ function Invoke-ALDeploy($Config, [string]$ReleaseFolder, [string]$Commit, [swit
     }
 }
 
-function Confirm-ALCandidateRecovery($Config,$Journal,[switch]$StartStoppedService) {
+# -Preview runs every check of the real recovery but never starts the service or writes the journal (D-006); a stopped service is reported
+# as the start Resume would perform, and readiness is then not proven.
+function Confirm-ALCandidateRecovery($Config,$Journal,[switch]$StartStoppedService,[switch]$Preview) {
     Assert-ALInstallerServerConfiguration $Config
     $fingerprint=(Get-FileHash -LiteralPath $Config.ConfigFile -Algorithm SHA256).Hash
     $stored=Read-AuthLensSettings $Config.ConfigFile -Packaged
@@ -1002,8 +1004,14 @@ function Confirm-ALCandidateRecovery($Config,$Journal,[switch]$StartStoppedServi
     $exe=Join-AL $candidate 'server/AuthLens.Api.exe'
     $probe=Invoke-ALMaintenance $exe (@('--server-preflight')+@(Get-ALServiceArguments $Config))
     if(-not $probe.validated -or -not $probe.read_only -or $probe.data_modified -ne $false -or $probe.source_sha -cne $Journal.commit -or $probe.version -cne $Journal.version -or -not $probe.schema.compatible -or @($probe.schema.pending).Count){Stop-AL 'Candidate recovery could not prove read-only TLS, key and database/schema compatibility.' 4}
+    if($service.State -ne 'Running' -and -not($service.State -eq 'Stopped' -and $StartStoppedService)){Stop-AL 'Candidate is not running; explicit Resume is required to start an existing stopped service.' 4}
+    if($Preview){
+        $ready=$null
+        if($service.State -eq 'Running'){$ready=Wait-ALReady $Config $Journal.commit $Journal.version}
+        return [pscustomobject]@{would_succeed=$true;would_phase='complete';would_start_service=($service.State -ne 'Running');readiness_verified=[bool]$ready
+            release=$candidate;identity=$(if($ready -and $ready.PSObject.Properties['identity']){$ready.identity}else{$null});instance_id=$instance}
+    }
     if($service.State -eq 'Stopped' -and $StartStoppedService){Start-ALService $Config.ServiceName}
-    elseif($service.State -ne 'Running'){Stop-AL 'Candidate is not running; explicit Resume is required to start an existing stopped service.' 4}
     $ready=Wait-ALReady $Config $Journal.commit $Journal.version
     if((Get-FileHash -LiteralPath $Config.ConfigFile -Algorithm SHA256).Hash -ine $fingerprint){Stop-AL 'Recovery configuration changed during candidate verification; completion was refused.' 4}
     Set-ALPhase $Config $Journal 'complete'
@@ -1019,44 +1027,176 @@ function Assert-ALRecoveryBackup($Config,$Journal) {
     if(-not $proof.verified -or $proof.sha256 -ine $Journal.backup.sha256){Stop-AL 'Recovery backup could not be verified with the retained key.' 4}
 }
 
+# The recovery decision for a journal and a requested action, without side effects. Invoke-ALRecover executes it; Get-ALRecoveryPreview evaluates
+# it read-only (-DryRun); Get-ALRecoveryOptions lists the actions a journal state allows. A finished journal is never reopened: an explicit action
+# on it reports that nothing is to recover instead of re-verifying (and, on a refusal, downgrading) a completed deployment.
+function Resolve-ALRecoveryDecision($Config,$Journal,[string]$RecoveryAction='Auto') {
+    if (-not $Journal) { return [pscustomobject]@{ kind = 'none'; reason = 'no journal' } }
+    $adopted=[bool]($Journal.PSObject.Properties['service_binary_before'] -and $Journal.service_binary_before)
+    if ($Journal.phase -in $script:FinalPhases) { return [pscustomobject]@{ kind = 'none'; reason = "the last deployment $($Journal.run) ended in '$($Journal.phase)'"; phase = $Journal.phase } }
+    if($RecoveryAction -eq 'Cancel' -and $Journal.phase -notin @('prepared','backup')){return [pscustomobject]@{kind='refuse';reason='Recovery cancellation is unavailable after a release or service may have changed; evidence was preserved.'}}
+    if($RecoveryAction -in @('VerifyCandidate','Resume') -or ($RecoveryAction -eq 'Auto' -and -not $Journal.from_release -and -not $adopted -and $Journal.phase -in $script:CriticalPhases)){
+        return [pscustomobject]@{kind='candidate';reason='revalidate the installed candidate';start=($RecoveryAction -eq 'Resume')}
+    }
+    if($Journal.phase -eq 'manual_recovery_required' -and $RecoveryAction -ne 'Rollback'){return [pscustomobject]@{kind='refuse';reason='Manual recovery requires an explicit VerifyCandidate, Resume or verified Rollback decision.'}}
+    if($RecoveryAction -eq 'Rollback'){return [pscustomobject]@{kind='rollback';reason='return to the verified previous release'}}
+    if ($Journal.phase -in @('prepared', 'backup')) { return [pscustomobject]@{ kind = 'abort'; reason = 'the deployment stopped before any release or service change'; cancel = ($RecoveryAction -eq 'Cancel') } }
+    if (-not $Journal.from_release -and -not $adopted) { return [pscustomobject]@{ kind = 'manual'; reason = 'an interrupted first deployment has no previous release to return to' } }
+    [pscustomobject]@{ kind = 'auto_rollback'; reason = 'return to the previous release of the interrupted update' }
+}
+
+function Assert-ALRecoveryRollback($Config,$Journal) {
+    if(-not $Journal.from_release -or -not(Test-ALPathWithin $Journal.from_release $Config.ReleasesRoot) -or -not(Test-ALPublishedRelease $Journal.from_release).Verified){Stop-AL 'Rollback is unavailable without a verified previous release.' 4}
+    Assert-ALRecoveryBackup $Config $Journal
+}
+
+function Assert-ALRecoveryCancel($Config,$Journal) {
+    $adopted=$Journal.PSObject.Properties['service_binary_before'] -and $Journal.service_binary_before
+    $observed=Get-ALService $Config.ServiceName
+    if((Get-ALLink (Get-ALCurrentLink $Config)) -ine $Journal.from_release -or
+        ($observed.Exists -and $Journal.service_state_before -eq 'Missing') -or
+        ($observed.Exists -and -not(Test-ALServiceBinary $observed.PathName $Config) -and (-not $adopted -or $observed.PathName -ine $Journal.service_binary_before))){Stop-AL 'Cancellation found changed service or release identity; explicit recovery review is required.' 4}
+}
+
 function Invoke-ALRecover($Config,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto') {
     Assert-ALNoPendingRepair $Config
     $journal = Read-ALJournal $Config
-    if (-not $journal) { Write-ALLog 'no deployment journal: nothing to recover'; return [pscustomobject]@{ recovered = $false; reason = 'no journal' } }
-    $adopted=$journal.PSObject.Properties['service_binary_before'] -and $journal.service_binary_before
-    if($RecoveryAction -eq 'Cancel' -and $journal.phase -notin @('prepared','backup')){Stop-AL 'Recovery cancellation is unavailable after a release or service may have changed; evidence was preserved.' 4}
-    if($RecoveryAction -in @('VerifyCandidate','Resume') -or ($RecoveryAction -eq 'Auto' -and -not $journal.from_release -and -not $adopted -and $journal.phase -in $script:CriticalPhases)){
-        try{return Confirm-ALCandidateRecovery $Config $journal -StartStoppedService:($RecoveryAction -eq 'Resume')}
-        catch{Set-ALPhase $Config $journal 'manual_recovery_required';Write-ALRecoveryInstructions $Config $journal 'Candidate verification refused; review the latest sanitized operation result.';throw}
-    }
-    if($journal.phase -eq 'manual_recovery_required' -and $RecoveryAction -ne 'Rollback'){Stop-AL 'Manual recovery requires an explicit VerifyCandidate, Resume or verified Rollback decision.' 4}
-    if($RecoveryAction -eq 'Rollback'){
-        if(-not $journal.from_release -or -not(Test-ALPathWithin $journal.from_release $Config.ReleasesRoot) -or -not(Test-ALPublishedRelease $journal.from_release).Verified){Stop-AL 'Rollback is unavailable without a verified previous release.' 4}
-        Assert-ALRecoveryBackup $Config $journal
-        Invoke-ALRollbackCore $Config $journal $journal.from_release
-        return [pscustomobject]@{recovered=$true;phase='rolled_back';release=$journal.from_release}
-    }
-    if ($journal.phase -in $script:FinalPhases) { Write-ALLog "last deployment $($journal.run) ended in '$($journal.phase)': nothing to recover"; return [pscustomobject]@{ recovered = $false; phase = $journal.phase } }
-    if ($journal.phase -in @('prepared', 'backup')) {
-        if($RecoveryAction -eq 'Cancel'){
-            $observed=Get-ALService $Config.ServiceName
-            if((Get-ALLink (Get-ALCurrentLink $Config)) -ine $journal.from_release -or
-                ($observed.Exists -and $journal.service_state_before -eq 'Missing') -or
-                ($observed.Exists -and -not(Test-ALServiceBinary $observed.PathName $Config) -and (-not $adopted -or $observed.PathName -ine $journal.service_binary_before))){Stop-AL 'Cancellation found changed service or release identity; explicit recovery review is required.' 4}
+    $decision = Resolve-ALRecoveryDecision $Config $journal $RecoveryAction
+    switch ($decision.kind) {
+        'none' {
+            Write-ALLog "nothing to recover: $($decision.reason)"
+            if (-not $journal) { return [pscustomobject]@{ recovered = $false; reason = 'no journal' } }
+            return [pscustomobject]@{ recovered = $false; phase = $journal.phase }
         }
-        Set-ALPhase $Config $journal 'aborted'
-        $service = Get-ALService $Config.ServiceName
-        if ($service.Exists -and $service.State -eq 'Stopped' -and $journal.service_state_before -eq 'Running') { Start-ALService $Config.ServiceName }
-        return [pscustomobject]@{ recovered = $true; phase = 'aborted' }
-    }
-    $adopted = $journal.PSObject.Properties['service_binary_before'] -and $journal.service_binary_before
-    if (-not $journal.from_release -and -not $adopted) {
-        Set-ALPhase $Config $journal 'manual_recovery_required'
-        Write-ALRecoveryInstructions $Config $journal 'an interrupted first deployment has no previous release to return to'
-        Stop-AL 'Interrupted first deployment: see RECOVERY-REQUIRED.txt.' 4
+        'refuse' { Stop-AL $decision.reason 4 }
+        'candidate' {
+            try{return Confirm-ALCandidateRecovery $Config $journal -StartStoppedService:$decision.start}
+            catch{Set-ALPhase $Config $journal 'manual_recovery_required';Write-ALRecoveryInstructions $Config $journal 'Candidate verification refused; review the latest sanitized operation result.';throw}
+        }
+        'rollback' {
+            Assert-ALRecoveryRollback $Config $journal
+            Invoke-ALRollbackCore $Config $journal $journal.from_release
+            return [pscustomobject]@{recovered=$true;phase='rolled_back';release=$journal.from_release}
+        }
+        'abort' {
+            if ($decision.cancel) { Assert-ALRecoveryCancel $Config $journal }
+            Set-ALPhase $Config $journal 'aborted'
+            $service = Get-ALService $Config.ServiceName
+            if ($service.Exists -and $service.State -eq 'Stopped' -and $journal.service_state_before -eq 'Running') { Start-ALService $Config.ServiceName }
+            return [pscustomobject]@{ recovered = $true; phase = 'aborted' }
+        }
+        'manual' {
+            Set-ALPhase $Config $journal 'manual_recovery_required'
+            Write-ALRecoveryInstructions $Config $journal $decision.reason
+            Stop-AL 'Interrupted first deployment: see RECOVERY-REQUIRED.txt.' 4
+        }
     }
     Invoke-ALRollbackCore $Config $journal $journal.from_release
     [pscustomobject]@{ recovered = $true; phase = 'rolled_back'; release = $journal.from_release }
+}
+
+# The explicit recovery actions a journal state allows, from the same decision as Invoke-ALRecover plus the observable prerequisites (service
+# state, previous release, recorded backup). Read-only; the expensive checks run in Get-ALRecoveryPreview for the chosen action.
+function Get-ALRecoveryOptions($Config,$Journal) {
+    $service = Get-ALService $Config.ServiceName
+    foreach ($action in 'VerifyCandidate', 'Resume', 'Rollback', 'Cancel') {
+        $decision = Resolve-ALRecoveryDecision $Config $Journal $action
+        $available = $decision.kind -notin @('none', 'refuse'); $reason = $decision.reason
+        if ($available -and $action -eq 'VerifyCandidate' -and $service.State -ne 'Running') { $available = $false; $reason = 'the service is not running (use Resume)' }
+        if ($available -and $action -eq 'Resume' -and $service.State -ne 'Stopped') { $available = $false; $reason = 'the service is not stopped' }
+        if ($available -and $action -eq 'Rollback' -and (-not $Journal.from_release -or -not $Journal.backup)) { $available = $false; $reason = 'no previous release with recorded backup evidence' }
+        [pscustomobject]@{ action = $action; available = [bool]$available; reason = $reason }
+    }
+}
+
+# -Action Recover -DryRun: evaluates the recovery Invoke-ALRecover would perform with every read-only check and reports it as a simulation. It
+# never writes the journal or recovery notes, restores a configuration, starts, stops or reconfigures the service, or switches releases.
+function Get-ALRecoveryPreview($Config,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto') {
+    Assert-ALNoPendingRepair $Config
+    $journal = Read-ALJournal $Config
+    $base = [ordered]@{ dry_run = $true; requested_action = $RecoveryAction; journal_run = $(if ($journal) { $journal.run } else { $null }); journal_phase = $(if ($journal) { $journal.phase } else { $null })
+        history = @(if ($journal -and $journal.PSObject.Properties['history']) { @($journal.history) | ForEach-Object { $_.phase } })
+        from_release = $(if ($journal) { $journal.from_release } else { $null }); to_release = $(if ($journal) { $journal.to_release } else { $null })
+        options = @(if ($journal) { Get-ALRecoveryOptions $Config $journal }) }
+    $pending = Get-ALPendingConfigurationRecord $Config
+    if ($pending) {
+        $base.would_action = "restore the interrupted $($pending.record.operation) (previous configuration and command line, service restart)"
+        $base.would_succeed = $true; $base.pending_configuration_change = $pending.record.operation
+        return [pscustomobject]$base
+    }
+    $decision = Resolve-ALRecoveryDecision $Config $journal $RecoveryAction
+    $base.decision = $decision.kind; $base.would_action = $decision.reason
+    try {
+        switch ($decision.kind) {
+            'none' { $base.would_succeed = $true; $base.would_phase = $base.journal_phase }
+            'refuse' { $base.would_succeed = $false; $base.blocking_reason = $decision.reason }
+            'candidate' { $check = Confirm-ALCandidateRecovery $Config $journal -StartStoppedService:$decision.start -Preview; foreach ($p in $check.PSObject.Properties) { $base[$p.Name] = $p.Value } }
+            'rollback' { Assert-ALRecoveryRollback $Config $journal; $base.would_succeed = $true; $base.would_phase = 'rolled_back' }
+            'abort' { if ($decision.cancel) { Assert-ALRecoveryCancel $Config $journal }; $base.would_succeed = $true; $base.would_phase = 'aborted' }
+            'manual' { $base.would_succeed = $false; $base.would_phase = 'manual_recovery_required'; $base.blocking_reason = $decision.reason }
+            default { $base.would_succeed = $true; $base.would_phase = 'rolled_back' }
+        }
+    } catch {
+        # The real run would refuse here (and, for a candidate, record manual_recovery_required); the preview records nothing.
+        $base.would_succeed = $false; $base.blocking_reason = $_.Exception.Message
+    }
+    [pscustomobject]$base
+}
+
+# ---- simulation policy (-DryRun, D-006)
+
+# Every Deploy-AuthLens action is classified once. read_only actions never change anything; simulated actions implement -DryRun as a read-only
+# evaluation; any other changing action refuses -DryRun instead of running for real. -DryRun never replaces -Yes: without -DryRun an approval
+# action needs -Yes, and -DryRun with -Yes is still only a simulation.
+$script:ReadOnlyActions = @('Status', 'Health', 'AuditAcl')
+$script:SimulatedActions = @('Deploy', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl')
+$script:ApprovalActions = @('Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestoreAcl')
+
+function Get-ALActionPolicy([string]$Action, [switch]$DryRun, [switch]$Yes) {
+    if ($Action -in $script:ReadOnlyActions) { return [pscustomobject]@{ action = $Action; mode = 'read_only'; approval_required = $false } }
+    if ($DryRun) {
+        if ($Action -notin $script:SimulatedActions) { Stop-AL "-DryRun is not supported for $Action; nothing was run or changed. Review -Action Status (and AuditAcl) instead, then run $Action with -Yes." 2 }
+        return [pscustomobject]@{ action = $Action; mode = 'simulate'; approval_required = $false }
+    }
+    $approval = $Action -in $script:ApprovalActions
+    if ($approval -and -not $Yes) { Stop-AL "$Action changes the service or its permissions; repeat with -Yes after reviewing -Action Status or -Action AuditAcl (or -DryRun where supported)." }
+    [pscustomobject]@{ action = $Action; mode = 'execute'; approval_required = $approval }
+}
+
+function Get-ALFileFingerprint([string]$Path) {
+    try { if ([IO.File]::Exists($Path)) { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash } } catch { return 'unreadable' }
+    'missing'
+}
+
+# The persistent installation state a simulation must leave unchanged: deployment state files (journal, pending records, firewall receipts,
+# recovery notes), configuration, installed-product record, release pointer and release folders, TLS and key folder names, the service
+# registration and process, and the Setup registry values. Application data is excluded because the running service writes it.
+function Get-ALStateSnapshot($Config) {
+    $state = [ordered]@{}
+    $state['config'] = Get-ALFileFingerprint $Config.ConfigFile
+    $state['installed-product'] = Get-ALFileFingerprint (Join-AL (Join-AL $Config.Root 'config') 'installed-product.json')
+    try {
+        if (Test-Path -LiteralPath $Config.WorkRoot) {
+            foreach ($item in @(Get-ChildItem -LiteralPath $Config.WorkRoot -Force | Sort-Object Name)) {
+                if ($item.PSIsContainer) { $state["work:$($item.Name)/"] = @(Get-ChildItem -LiteralPath $item.FullName -Force -ErrorAction SilentlyContinue).Count }
+                elseif ($item.Name -ne 'deployment.lock') { $state["work:$($item.Name)"] = Get-ALFileFingerprint $item.FullName }
+            }
+        } else { $state['work'] = 'missing' }
+    } catch { $state['work'] = 'unreadable' }
+    try { $state['current'] = [string](Get-ALLink (Get-ALCurrentLink $Config)) } catch { $state['current'] = 'unreadable' }
+    foreach ($folder in @($Config.ReleasesRoot, (Join-AL $Config.Root 'tls'), (Join-AL $Config.Root 'keys'))) {
+        try { $state["dir:$folder"] = (@(Get-ChildItem -LiteralPath $folder -Force -ErrorAction Stop | ForEach-Object { $_.Name } | Sort-Object) -join '|') } catch { $state["dir:$folder"] = 'missing' }
+    }
+    try { $service = Get-ALService $Config.ServiceName; $state['service'] = "$($service.Exists)|$($service.State)|$($service.Account)|$($service.PathName)|$($service.ProcessId)" } catch { $state['service'] = 'unreadable' }
+    try {
+        $registry = Get-ItemProperty -LiteralPath 'HKLM:\Software\AuthLens\Server' -ErrorAction Stop
+        $state['registry'] = (@($registry.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { "$($_.Name)=$($_.Value)" } | Sort-Object) -join '|')
+    } catch { $state['registry'] = 'missing' }
+    $state
+}
+
+function Compare-ALStateSnapshot($Before, $After) {
+    @(@($Before.Keys) + @($After.Keys) | Select-Object -Unique | Where-Object { "$($Before[$_])" -cne "$($After[$_])" })
 }
 
 function Invoke-ALRollback($Config, [string]$ToRelease) {

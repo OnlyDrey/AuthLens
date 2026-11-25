@@ -402,6 +402,21 @@ correction, defect D-001, every `Deploy-AuthLens.ps1` action refused Setup confi
 Pester-tested on a Setup-shaped configuration and on a copy of the installed tool layout run outside the repository
 (`Packaged-Runtime.Tests.ps1`); native acceptance pending.
 
+### Simulation (-DryRun) and approval
+
+`-DryRun` is a simulation and never replaces `-Yes` (defect D-006 corrected; Pester-tested, native acceptance pending). Deploy, Recover,
+ReplaceCertificate, ChangeNetwork and ProtectAcl evaluate their read-only checks and report what would happen; every result carries
+`simulation: true` and `changes_applied: false` and the output shows `SIMULATION (-DryRun): no change was made`. `Recover -DryRun` reports the
+journal phase and history, the recovery actions the state allows (`options`), the decision for `-RecoveryAction`, and `would_succeed`,
+`would_phase` or `blocking_reason`; exit 0 when the recovery would succeed, 2 when it would refuse. Build, InstallService, Restore, Rollback and
+RestoreAcl refuse `-DryRun` with exit 2 before anything runs. `-DryRun -Yes` is still a simulation. A simulation writes no journal, recovery
+note, configuration, installed-product record, run folder, log file or lock file (it holds the host mutex only), changes no service, registry,
+ACL, firewall, certificate, key or data, and switches or removes no release. Its only output is the console and the `AUTHLENS-RESULT` line;
+`Deploy -DryRun` from a repository configuration may fetch the source repository to resolve the commit (no installation change). A snapshot of
+the persistent installation state is compared before and after; any difference, or a result claiming a completed operation, ends with exit 4.
+RC3-VM130 and earlier tools do **not** have this protection: on them, never pass `-DryRun` to Recover, Restore, Rollback, InstallService or
+RestoreAcl.
+
 ### Installed network configuration change
 
 Status: implemented; Pester-tested with the platform layer mocked (`Server-NetworkChange.Tests.ps1`); native SCM, listener and firewall acceptance
