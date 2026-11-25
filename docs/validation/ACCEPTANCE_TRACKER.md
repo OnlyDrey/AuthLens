@@ -9,7 +9,13 @@ Failed (product). Procedures: [VM acceptance runbook](WINDOWS_VM_ACCEPTANCE.md).
 Internal identifiers only; the product version is 2.0.0 for every candidate and nothing is branded RC. Acceptance results belong to one exact
 artifact identity and are never transferred between candidates.
 
-### RC4 (current candidate for native acceptance)
+### RC5 (consolidated candidate after WP21 to WP28; native acceptance not started)
+
+Built on VM130 by the agent session with the canonical `build.ps1` from `b10dd50` (corrections D-007 and D-008, BUG-01 to BUG-10, the
+acceptance and recovery tooling); see the [RC5 build record](#rc5-build-record). Product version 2.0.0. **NOT APPROVED**: no native acceptance
+has run on RC5; RC4 results do not transfer to it.
+
+### RC4 (superseded by RC5 for new acceptance; artifacts and evidence preserved)
 
 Built on VM130 by the agent session with the canonical `build.ps1` from `37eadd5`, the first candidate with the corrections for D-004 to D-006,
 G-003 to G-005, G-007, WP19 and WP20; see the [RC4 build record](#rc4-build-record). Product version 2.0.0 (RC4 is an internal identifier).
@@ -42,6 +48,39 @@ Not used for acceptance: D-001 affected too many installed administration and re
 | Desktop installer | `AuthLens-2.0.0-Setup.exe`, 93,397,477 bytes, SHA-256 `4df6a6c2b4fc25255fb1d8e880b559c25d5612f3a2632a1a6da41c62e25dde50` |
 | `server\AuthLens.Api.exe` | SHA-256 `6114e76c7db3a73af65d66511d64a50c5589d6f46c7f0a1a098280fbe7634b49` |
 | `build-manifest.json` | SHA-256 `5837d41be8a7b7b2621a55c873ced9166da8b2935a563e66fedfa0877bf5d282` |
+
+### RC5 build record
+
+| Item | Value |
+| --- | --- |
+| Source commit | `b10dd507cca629a0b5ccd8d91ca460871deb196c` on `experiment/dotnet-backend` (pushed; working tree clean before the build) |
+| Build | `Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force; .\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)` on VM130; UTC `2026-11-25T14:42:46.6873498Z`; win-x64; .NET SDK 10.0.404, Node.js 24.22.3, npm 11.19.1, Windows PowerShell 5.1.26100.9818 |
+| Run directory | `C:\AuthLens\AuthLens-2.0.0-2026-11-25_1442-b10dd50` with `build\AuthLens-2.0.0-20261125-144246-b10dd50-win-x64`, `installer\`, `build-summary.json` (status `passed`), `build.log` |
+| Tests run by the build | Standard focused filter (14 classes): **154 passed, 0 failed, 0 skipped** |
+| Build verification | installers, secrets, branding and release: all `true` |
+| Agent verification (read-only) | Manifest AuthLens 2.0.0, file version 2.0.0.0, commit `b10dd50…`, not dirty; all 32 artifacts match `build-summary.json`; packaged and repository `verify-release.ps1 -Scope Full`: 17 artifacts; `installers-SHA256SUMS` OK; 7 helpers match `installer-tools.json`; packaged tools contain the D-006 policy, G-004, G-005, restart, D-007 provisioning, `source_authority` status and D-008 named-account findings; the server executable has `--fingerprint-data`; `--schema-info`: compatible, 6 migrations; executables `2.0.0+b10dd50…`; installers unsigned |
+| Not done | Signing, tagging, publishing (not authorized); native acceptance; FULL regression |
+
+| Artifact | Size (bytes) | SHA-256 |
+| --- | --- | --- |
+| `installer\AuthLens-Server-2.0.0-Setup.exe` | 93,443,648 | `77150b1af65b58a8b28cee634dfe170139da1b47b57d712278fde567129b2510` |
+| `installer\AuthLens-2.0.0-Setup.exe` (Desktop) | 93,426,737 | `0957cf29d8c465a0a052b58d454e44c97f2ea29e1deeb0b88e445557ae0e825a` |
+| `server\AuthLens.Api.exe` | 123,342,439 | `54c7738a5488ecad8a99fc44cfe8f6b0030af0881f80642a05d58600fcb9f25c` |
+| `desktop\AuthLens.exe` | 178,543,230 | `523820b8629e8ff892f58e7d5441daefa4f903c5ff2a85472f970f0a7e0bbc4a` |
+| `build-manifest.json` | 5,933 | `676e2cbfb74ffe5ad6f9c5ccfc885559fb2b5178553220642327cb1e58e956a7` |
+| `installer\installer-manifest.json` | 916 | `9962f6fe7192ae17e631867d96a17f13857cfcc2722635677ad8131feb7e32c5` |
+| `installer\installer-tools-63434c46f2394313a1a700e08bceb60f\installer-tools.json` | 1,484 | `f12bf1fb13e605046cf58aef70190dc6ceeb6ce639a23709e1f76b4818a650c7` |
+
+**Acceptance to run on RC5** (it replaces RC4 for all of these): A1 against this record; B13 (terminal and interrupted state) and both
+B14 groups with the WP21 harness; B17 Lifecycle (upgrade RC3-VM130 to RC5, repair) including the D-007 check (`source_authority: present`
+after the upgrade) and AuditAcl named-account reporting; B11, B12, B15, B16, T-001; C11 to C14; D2 to D7, D12 and D3 (local, same-host UNC,
+remote SMB); F1 to F10 including BUG-01 to BUG-10 and the BUG-04 inactivity warning with real sessions.
+
+**Browser suite state (source level).** In the affected set of 19 spec files (131 tests) 113 passed; 3 failures came from this round's
+intentional behaviour changes and their specs were updated (BUG-01 toggle in `sod-assignment-decisions`, BUG-08 in `investigation-ux` and
+`global-navigation`, all passing afterwards); the other 15 (`investigation-ux` visual and import-source tests, `live-filters-polish`,
+`navigation-modules` data-source focus tests, `startup-reliability` revision tests) fail identically on the unmodified RC4 frontend
+(`ab30b0b`) on this host, so they predate this round. They are open test or product findings to resolve before FULL.
 
 ### RC4 build record
 
@@ -266,7 +305,7 @@ needs native acceptance on a candidate that contains it (RC5).
 | FULL regression | Not run (not authorized) |
 
 **RC5 decision.** The changes after RC4 alter runtime code (session handling, source authority API, `--fingerprint-data`), the frontend and the
-packaged deployment tools (D-007, D-008), so a release needs a new consolidated candidate; RC4 evidence does not transfer to it. **Release
+packaged deployment tools (D-007, D-008), so a release needs a new consolidated candidate; RC4 evidence does not transfer to it. **RC5 was built** from `b10dd50` ([build record](#rc5-build-record)). **Release
 recommendation: NO-GO** until native acceptance on that candidate, remote UNC (D3), the final FULL regression and signing are complete. DASH1
 is not to be changed.
 

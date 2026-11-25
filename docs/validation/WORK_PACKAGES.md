@@ -1,6 +1,6 @@
 # AuthLens 2.0.0 remediation: work-package tracker
 
-Acceptance results are recorded in the [acceptance tracker](ACCEPTANCE_TRACKER.md). Current candidate: **RC4** from `37eadd5` (run directory `C:\AuthLens\AuthLens-2.0.0-2026-11-25_0807-37eadd5`; NOT APPROVED, native acceptance pending). Previous: **RC3-VM130** from `19a1113` (same product source as RC2 `af744c9`, which corrects D-001, D-002, G-001); the RC1 record below (`c780ff6`) is kept for traceability and is superseded. Open work for the next candidate: WP19 and WP20 ([fourth round](#fourth-round-service-manager-usability-and-tls-lifecycle-wp19-wp20)).
+Acceptance results are recorded in the [acceptance tracker](ACCEPTANCE_TRACKER.md). Current candidate: **RC5** from `b10dd50` (run directory `C:\AuthLens\AuthLens-2.0.0-2026-11-25_1442-b10dd50`; NOT APPROVED, native acceptance not started). Previous: **RC4** from `37eadd5` (`C:\AuthLens\AuthLens-2.0.0-2026-11-25_0807-37eadd5`), **RC3-VM130** from `19a1113` (same product source as RC2 `af744c9`, which corrects D-001, D-002, G-001); the RC1 record below (`c780ff6`) is kept for traceability and is superseded. Open work for the next candidate: WP19 and WP20 ([fourth round](#fourth-round-service-manager-usability-and-tls-lifecycle-wp19-wp20)).
 
 **Release status: NOT APPROVED.** This tracker lets the next agent resume without reconstructing earlier sessions. It records implemented
 work and actual test evidence; native Windows acceptance is listed separately and is never implied by focused tests.
@@ -189,7 +189,7 @@ Source-level work after RC4 (`37eadd5`); RC4 stays the immutable packaged baseli
 | WP26 review workflows | BUG-01 toggle, BUG-02 Release role review, BUG-03 group navigation, BUG-07 profile progress | `user-feedback-2026-11.spec.ts`, `sod-evidence-modals.spec.ts`, `release-roles.spec.ts` |
 | WP27 sessions and preferences | BUG-04 inactivity warning, passive reads, explicit continue; BUG-05 verified with account-switching coverage | .NET `AccountsTests` 57; `session-timeout.spec.ts`, `personal-preferences.spec.ts`; unit `session-timing` |
 | WP28 filters and layout | BUG-06 content-sized group cells, BUG-08 page-boundary filter reset, BUG-10 whole-word label wrapping; BUG-09 not reproduced | `user-feedback-2026-11.spec.ts`; affected navigation and filter specs |
-| WP25 release assessment | RC5 decision and build record in the acceptance tracker | — |
+| WP25 release assessment | RC5 built from `b10dd50` (`C:\AuthLens\AuthLens-2.0.0-2026-11-25_1442-b10dd50`, verified, unsigned); release NO-GO until native acceptance, D3, FULL and signing | Build focused tests 154 passed; agent verification in the acceptance tracker |
 ## Seventh round: final remediation before RC4 (2026-11-25)
 
 | Item | Implemented | Focused evidence (VM130) |

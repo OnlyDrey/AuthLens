@@ -131,7 +131,7 @@ before the authorized stop; a refused plan starts the service again unchanged.
 
 ### RC4 priority order
 
-Run on RC4 (`C:\AuthLens\AuthLens-2.0.0-2026-11-25_0807-37eadd5`, [build record](ACCEPTANCE_TRACKER.md#rc4-build-record); verify A1 against its hashes first) in this order; stop and record a failure before continuing:
+Run on RC5 (`C:\AuthLens\AuthLens-2.0.0-2026-11-25_1442-b10dd50`, [build record](ACCEPTANCE_TRACKER.md#rc5-build-record); verify A1 against its hashes first; RC4 results do not transfer) in this order, using the [acceptance harness](#acceptance-harness-wp21) where it covers the scenario; stop and record a failure before continuing:
 
 1. B13 – simulation leaves the persistent installation state unchanged (D-006).
 2. B14 – approval enforcement for every mutating deployment action.
