@@ -425,7 +425,9 @@ comma-separated; `-` in Service Manager clears a list). Data directory, identity
 `ReplaceCertificate`). Validation before any change: the access-mode rules of Setup and the runtime (`Get-ALServerAccessPlan`: loopback for Local,
 private interface and explicit hosts for Corporate, backend hosts, public proxy hosts and explicit trusted peers for Reverse Proxy, no wildcard
 binding), host syntax (no wildcards, URLs or paths), the address must be assigned to this machine, the port free or held by the service itself, and
-the packaged host's read-only `--server-preflight` with the proposed arguments (the **existing certificate** must cover the new hosts or listen IP).
+the packaged host's read-only `--server-preflight` with the proposed arguments (the **existing certificate** must cover the new hosts and the new
+listen IP; in 2.0.0 the preflight requires the bind address even when no client uses it, defect D-004, so replace the certificate first with one
+that covers both the current and the new names and addresses).
 An unchanged proposal is refused. An installer-owned firewall rule that would no longer match a moved listener requires an explicit decision
 (`-ApproveFirewall -FirewallSources … [-FirewallProfiles Domain]` or `-RemoveFirewall`); administrator-created rules are never touched.
 
@@ -876,6 +878,11 @@ $data='C:\ProgramData\AuthLens\data'
 & $manager -Action ActivationCode -DataDirectory $data -Executable $exe -Yes
 & $manager -Action RecoveryCode -DataDirectory $data -Executable $exe -Username 'existing-admin' -Yes
 ```
+
+Known 2.0.0 limitation (defect D-005): `-Path` and the menu prompt need a complete file name, for example
+`E:\AuthLens-recovery\AuthLens-DASH1-recovery.key`. A directory is refused with access denied and ends Service Manager; the Start-menu window
+then closes. Each start runs one action. A guided export with verification, grouped menus and certificate and recovery workflows are planned in
+WP19 and WP20 ([work packages](../validation/WORK_PACKAGES.md#fourth-round-service-manager-usability-and-tls-lifecycle-wp19-wp20)).
 
 `CreateKey` is for an unconfigured installation only and never replaces a configured key. Export to separately secured recovery storage,
 then verify that copy before enabling automatic backups. Protect the full key directory; keep host and recovery keys out of data/releases/Git.
@@ -1402,6 +1409,12 @@ If the data-ownership marker is missing (for example because data was copied bac
 never adopted"); that case is gap G-006 in the [acceptance tracker](../validation/ACCEPTANCE_TRACKER.md#defects-and-gaps) and has no supported
 reconciliation yet. After R3 the Setup registry key still shows the pending-verification state written by the failed Setup (gap G-005); the
 next successful Setup upgrade rewrites it. Do not edit it by hand.
+
+If R1's `server preflight` check refuses the TLS certificate (for example a listener address added after the certificate was generated, defect
+D-004), stop: R3 would refuse in the same check, and `ReplaceCertificate` and `ChangeNetwork` refuse while the journal requires recovery, so the
+current tools offer no supported route (gap G-007). Do not activate a replacement certificate by overwriting the PFX or editing the configuration,
+service command line or journal. A replacement can be proved read-only beforehand with the installed release's `--server-preflight` and the
+proposed `--cert`/`--cert-password-file`; keep it in protected storage until a candidate with the G-007 correction can apply it inside recovery.
 
 ### Access-mode details
 

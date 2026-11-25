@@ -1,6 +1,6 @@
 # AuthLens 2.0.0 remediation: work-package tracker
 
-Acceptance results are recorded in the [acceptance tracker](ACCEPTANCE_TRACKER.md). Current candidate: **RC2** from `af744c9` (corrects D-001, D-002, G-001); the RC1 record below (`c780ff6`) is kept for traceability and is superseded.
+Acceptance results are recorded in the [acceptance tracker](ACCEPTANCE_TRACKER.md). Current candidate: **RC3-VM130** from `19a1113` (same product source as RC2 `af744c9`, which corrects D-001, D-002, G-001); the RC1 record below (`c780ff6`) is kept for traceability and is superseded. Open work for the next candidate: WP19 and WP20 ([fourth round](#fourth-round-service-manager-usability-and-tls-lifecycle-wp19-wp20)).
 
 **Release status: NOT APPROVED.** This tracker lets the next agent resume without reconstructing earlier sessions. It records implemented
 work and actual test evidence; native Windows acceptance is listed separately and is never implied by focused tests.
@@ -39,9 +39,12 @@ Nothing was installed or changed machine-wide: no Windows Service, firewall rule
 | 16 | SoD Manager and Exact Usernames | Implemented (Codex `2a78dfc`) | `filter-consistency.spec.ts` | 8.12 |
 | 17 | Regression and acceptance preparation | Focused validation below; acceptance procedure in [Windows checklist §8](../deployment/WINDOWS_DEPLOYMENT.md#8-server-sources-recovery-key-service-access-and-reviews-200-remediation) (8.1 to 8.14) | FULL not run (not authorized) | Entire §8 |
 | 18 | Dedicated Reviews workspace | Implemented; SoD independence, Account Review entry, complete contextual entry points, global Overview counters (`c780ff6`) | `reviews-workspace.spec.ts` (5 tests) and affected specs | Administrator/Reviewer smoke (8.11) |
+| 19 | Service Manager usability review | **Remaining implementation** (recorded 2026-11-25; D-005, G-003) | — | Guided key export, menu and recovery workflow (C6, C11, B11) |
+| 20 | Installer and TLS lifecycle review | **Remaining implementation** (recorded 2026-11-25; D-004, G-007, D-003 residual) | — | Endpoint identities, certificate status/export, recovery with certificate (C8, C9, C12, C13, B12) |
 
-**Remaining implementation (cross-platform and Windows-independent): none identified.** Every package above has its implementation in the
-repository; what remains is native acceptance, the external blockers and the product-owner decisions below.
+**Remaining implementation:** WP19 and WP20 (Windows administration tooling; see the
+[fourth round](#fourth-round-service-manager-usability-and-tls-lifecycle-wp19-wp20)). Packages 1 to 18 have their implementation in the
+repository; what remains for them is native acceptance, the external blockers and the product-owner decisions below.
 
 ## Release qualification (third round)
 
@@ -104,6 +107,61 @@ the canonical `build.ps1` (authorized release-candidate and installer build); no
 
 The installer hashes equal `installer\installers-SHA256SUMS` and `installer\installer-manifest.json`. Commits after `c780ff6` change
 documentation only; they do not change the candidate.
+
+## Fourth round: Service Manager usability and TLS lifecycle (WP19, WP20)
+
+Recorded 2026-11-25 from native DASH1 findings; **Remaining implementation**, nothing below is implemented. The review is source inspection of
+RC3 (`19a1113`) and the `8ec7f77` executable installed on DASH1. Implementation, a new candidate build and native acceptance each need approval.
+DASH1 is not modified; its reconciliation stays blocked by G-007 ([acceptance tracker](ACCEPTANCE_TRACKER.md#dash1-interrupted-first-installation-2026-11-24)).
+
+### WP19 Service Manager usability review
+
+RC3 inventory (`backend/scripts/Service-Manager.ps1`, menu and `-Action`): 1 key status, 2 create host key, 3 export recovery copy, 4 verify
+recovery copy, 7 grant the service key read, 5 activation code, 6 administrator recovery code, 8 network status, 9 network change. Deployment
+status, certificate replacement, recovery and diagnostics exist only in `Deploy-AuthLens.ps1` and `Install-AuthLens.ps1`.
+
+| Finding | Current behavior | Correction |
+| --- | --- | --- |
+| SM-01 (D-005) | One "absolute key file path" prompt; a directory passes validation; the packaged host refuses with access denied and the script ends | Separate directory and file-name prompts; default `AuthLens-<ComputerName>-recovery`; `.key` appended once (case-insensitive, never `.key.key`); quoted paths and spaces accepted; invalid file-name characters, relative paths, reparse points and the data directory refused before execution |
+| SM-02 | Export does not verify the copy; escrow stays unverified until a separate VerifyKey | Successful export runs VerifyKey on the exported file and shows the fingerprint and `escrow_verified`; standalone VerifyKey stays |
+| SM-03 | CreateKey creates a missing directory without asking; export never creates one; no write-access check | Missing directory: explicit confirmation, then the protected ACL CreateKey already uses; write access checked with a create-only probe file that is removed; an existing destination is refused and a new name requested (never overwritten) |
+| SM-04 | One action per start; any error ends the script; raw stderr/JSON in messages | Menu loop; every action returns to its menu after a recoverable error with an actionable message; technical details (exit code, error type, message, operation) go to `<Root>\logs\service-manager\` without process output of key or code actions |
+| SM-05 | Start shows data directory and executable only | Startup overview: service state and identity, running version and commit, readiness, access mode and listener, certificate expiry and missing identities, key state and escrow, journal phase, pending configuration change |
+| SM-06 | Banner "never stops, starts or migrates services" although ChangeNetwork restarts the service | Each action labelled read-only, changes data or restarts the service; one confirmation style (summary, then `YES`) for every disruptive or sensitive action |
+| SM-07 | Flat, out-of-order menu (7 between 4 and 5) | Grouped menus: 1 Service status and management, 2 Network, 3 TLS certificates, 4 Backup and recovery keys, 5 Administrator accounts, 6 Deployment and recovery, 7 Diagnostics and logs; `B` Back, `Q` Exit everywhere |
+| SM-08 | No TLS operations | Group 3 over WP20: status, missing identities, replacement, public certificate export |
+| SM-09 (G-003) | No deployment-recovery workflow, backup creation/verification or diagnostics export | Group 6: journal phase and history with only the actions valid for the state (VerifyCandidate, Resume, Rollback, Cancel) over `Install-AuthLens.ps1 -Recover -RecoveryAction`; group 4: verified local backup; group 7: Status/diagnostic bundle without secrets |
+| SM-10 | Executable fallback `C:\ProgramData\AuthLens\releases\current` ignores a registered custom root (only when run outside the installed payload) | Resolve from the registered configuration's `Root` and `ReleasesRoot` |
+
+Contracts kept: every existing `-Action` and parameter, `-Yes` for non-interactive use, exit codes, no key value or one-use code in logs,
+existing host keys and fingerprints untouched, custom roots honored. In non-interactive mode a directory `-Path` is refused with a message naming
+the default file name (no silent naming). Service Manager stays a client of the existing deployment tools and the packaged host; no duplicate
+transaction or key logic.
+
+### WP20 Installer and TLS certificate lifecycle review
+
+| Finding | Current behavior | Correction |
+| --- | --- | --- |
+| TLS-01 (D-004) | Generation: listen address + allowed hosts (+ `localhost` on loopback). Runtime startup: allowed hosts in network mode, none on loopback. `--server-preflight`: allowed hosts **and the bind address** in every mode | One endpoint-identity rule shared by generation, runtime, preflight, ChangeNetwork, ReplaceCertificate and recovery: every allowed host in network mode, the readiness probe authority, the loopback address in Local mode. The bind address is required only when it is an intended identity (listed as an allowed host). Requests with any other Host value are already refused by the Host filter, so nothing is weakened |
+| TLS-02 | ChangeNetwork keeps the certificate ("it must cover the new hosts"); a change to a new IP or host needs a separate replacement first | Network change shows the missing identities and offers a combined certificate replacement in the same recorded transaction |
+| TLS-03 (G-007) | VerifyCandidate needs the configured certificate to pass the candidate's preflight; ReplaceCertificate and ChangeNetwork refuse under the journal barrier | Recorded certificate step inside VerifyCandidate (tracker G-007) |
+| TLS-04 (D-003) | Probe authority: loopback listen address, else the first allowed host; Auto-mode configurations are not checked for a probe authority the Host filter rejects | Preflight refuses when the probe authority is not an accepted host or not covered by the certificate, in every access mode |
+| TLS-05 | Status shows the certificate path only; `server.cer` exists only for generated certificates | Certificate status: subject, issuer, validity, SAN coverage per required identity, SHA-256 thumbprint, self-signed or CA-issued; public certificate export (DER/PEM, no private key) for generated and imported certificates |
+| TLS-06 | No explanation of the client-trust effect of a new self-signed certificate | Replacement summary states which clients must trust the new certificate and that the old thumbprint stops working |
+| TLS-07 | A generated certificate is checked by the packaged preflight right after generation (source-verified); the import path and certificate preservation on upgrade and repair were not re-verified in this review | Tests that Setup validates against the final network page values before committing, and that upgrade and repair never replace a certificate unless replacement is requested |
+| TLS-08 | Generated certificates are valid 365 days; expiry under 30 days is only a startup log warning | Expiry in the status overview and Status JSON; renewal through the replacement workflow |
+
+Constraints kept: no weaker hostname verification, pinning, chain trust or Host restrictions; no trust-store change; previous TLS files are
+never deleted; every certificate change is a recorded transaction with rollback and interruption recovery.
+
+### Focused tests required (Level 1 and 2; FULL not authorized)
+
+| Package | Tests |
+| --- | --- |
+| WP19 | `Service-Manager.Tests.ps1`: directory-only destination gets the default name; missing extension; `.key` and `.KEY` not duplicated; spaces and quoted paths; relative path, invalid characters, reparse point and data directory refused; missing directory with confirmation yes and no; write-permission failure (Deny ACL on a TestDrive folder) refused before execution; existing file refused and unchanged; cancellation at each prompt writes nothing; export followed by automatic verification (mocked executable) and a verification failure reported; menu returns after an error; Back and Exit; output and diagnostic log contain no key value; CLI `-Action ExportKey -Path <file> -Yes` unchanged and a directory `-Path` refused. `BackupCryptoTests`: export to a directory gives a 422 refusal, not access denied. Recovery workflow: journal state matrix offers exactly the valid actions |
+| WP20 | .NET `CertificatePolicy`/`ServerPreflight`: required identities per access mode, bind IP not required unless allowed, allowed IP required, wildcard DNS, runtime and preflight agree. Pester `Server-Tls` (generation from the final configuration), `Server-NetworkChange` (listener change accepted when the IP is not an identity; an added identity the certificate lacks refused before any change with that identity named; combined network and certificate change with rollback), `Server-CertificateReplacement` (status fields, public export has no private key, upgrade/repair preserve), `Deployment-Recovery` (VerifyCandidate with a certificate completes; failure restores the previous certificate and phase; ordinary ReplaceCertificate still refused under the barrier), `Installer-Preflight` (imported certificate missing an identity refused before commit) |
+
+Native acceptance for the next candidate: runbook scenarios C11 to C13, B11 and B12 ([runbook](WINDOWS_VM_ACCEPTANCE.md#c-security-and-administration-from-s1-snapshot-s2-admin-after-c4)).
 
 ## Changes in the 2026-11-24 second round
 
@@ -195,6 +253,7 @@ gMSA/domain-account cases, and a lab certificate (and a second one without the c
 | Deferred by product decision | Dedicated domain account / gMSA provisioning (2.0.0 supports `NT SERVICE\AuthLens`; existing compatible identities preserved); historical organizational snapshot enrichment (provisionally 2.1.0) |
 | External blockers | SMB infrastructure, a domain and a second Windows VM are not available on VM130; native acceptance runs on the operator's VM ([runbook](WINDOWS_VM_ACCEPTANCE.md)) |
 | G-001 (P1) | Post-installation network configuration through Service Manager: implemented (Service Manager options 8/9, `-Action ChangeNetwork`), Pester-tested; native acceptance pending ([acceptance tracker](ACCEPTANCE_TRACKER.md#defects-and-gaps)) |
+| WP19, WP20 (next candidate) | D-004 (P1), D-005 (P2), G-007 (P1, blocks DASH1 reconciliation), G-003 (P1) and the DASH1 recovery gaps; remaining implementation, recorded in the [fourth round](#fourth-round-service-manager-usability-and-tls-lifecycle-wp19-wp20) |
 | D-001 (P0), D-002 (P1) | Installed `Deploy-AuthLens.ps1` refused Setup configurations; Service Manager ignored custom data directories. Both corrected in implementation with Pester evidence on a Setup-shaped configuration and the installed tool layout; native acceptance pending |
 | P1 issues | Reviewer smoke on a server; restored-source reauthorization end to end; Linux host run of source tests |
 | P2 improvements | Persist an audit trail of source authorization beyond service logs; browser coverage of every filter screen; optional Windows DACL check of the key file inside the server's own key status (today the deployment ACL audit and `backup_key_service_access` cover it) |
