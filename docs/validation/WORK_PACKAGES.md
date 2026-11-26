@@ -175,88 +175,185 @@ never deleted; every certificate change is a recorded transaction with rollback 
 
 Native acceptance for the next candidate: runbook scenarios C11 to C13, B11 and B12 ([runbook](WINDOWS_VM_ACCEPTANCE.md#c-security-and-administration-from-s1-snapshot-s2-admin-after-c4)).
 
-## Planned: navigation and information architecture (Phase 1 assessment, 2026-11-26, awaiting approval)
+## Planned: navigation and information architecture (decisions approved 2026-11-26, implementation awaiting approval)
 
-Assessment only: nothing below is implemented, and no application behavior, schema, business rule or report changed. Implementation starts
-only after the decisions at the end are approved. Current behavior: [navigation](../architecture/NAVIGATION.md), [Reviews](../features/REVIEWS.md).
+Status: the architectural decisions below are **approved requirements**; the implementation is **not approved and not started**. Nothing in
+this section is implemented. Implementation waits for approval of the SoD structure and of NAV-1 to NAV-7. Current behavior is described in
+[navigation](../architecture/NAVIGATION.md) and [Reviews](../features/REVIEWS.md). Versioning, packaging and release procedures are unchanged.
 
-**Current inventory** (`App.tsx`, `lib/navigationItems.tsx`, `hooks/useViewHistory.tsx`)
+### Approved decisions
+
+| Area | Approved requirement |
+| --- | --- |
+| Top level, in order | Dashboard, Role Lookup, Users, SoD, Reviews, Reports. Existing icons and the Settings utility are kept |
+| Dashboard | Unchanged, except that the whole *Directory & Data Health* card is hidden from non-administrators (no reduced version) |
+| Role Lookup | Unchanged: Role Lookup, Role Cart and Access Packages stay one integrated page |
+| Users (renamed from User Access) | User Directory, Compare Users, Release Access (Release Roles renamed and moved here) |
+| SoD | Stays a top-level module; the heatmap stays only in SoD; internal changes need separate approval (recommendation below) |
+| Reviews, in order | Overview, Work Queue, Position Changes, Account Review, Bulk Review, Remediation, Review Periods. Position Changes and Account Review stay separate pages on their shared implementation; Work Queue and Bulk Review stay separate |
+| Reports | Review Reports (default), Access Reports, SoD Reports, Evidence; no Reports Overview page; dedicated report generation that reuses existing services |
+| Settings | Structure and the *Data & Integrations* group unchanged; no Data Management group; Data Health stays in Data & Integrations › Data Sources and is administrator-only |
+| Routes | New canonical routes; every existing bookmark, deep link, supported query parameter and contextual link resolves to the new destination; one implementation per page |
+| Reports availability | Independent of the SoD switch; authorization and module availability per report and evidence item, enforced in the backend as well; the default resolves to an authorized page; no empty destinations |
+| Release Access | One matrix for PR and PO, the PR/PO filter reused, Matrix and Table kept with columns, sorting, filters, drill-down, comparison, Role Cart and exports; PR and PO stay distinct dimensions; an authoritative backend count of distinct users across PR and PO |
+| Navigation pattern | Top-level modules, dropdowns for multi-page modules, module tabs, the existing shared navigation components and tokens; no per-module navigation system |
+
+### Current navigation inventory (repository, `bbcfc0d`)
+
+Main navigation (`App.tsx`, `lib/navigationItems.tsx`); routes from `hooks/useViewHistory.tsx`. `read` is held by every role.
 
 | Main entry | Pages and routes | Gating |
 | --- | --- | --- |
-| Dashboard | `#/dashboard`; cards incl. *Directory & Data Health* (all roles) | `read` |
-| Role Lookup | `#/role-lookup`; role details, comparison, Access Package panel | `read` |
-| User Access | User directory `#/user-access` (`/user/<name>`), Account Review `/account-review`, Position Changes `/position-changes`, Compare users `/compare` | `read`; decisions `review` |
+| Dashboard | `#/dashboard`; cards including *Directory & Data Health* (rendered for every role; its figures come from `GET /api/dashboard`) | `read` |
+| Role Lookup | `#/role-lookup`; role details, comparison, Access Package panel | `read`; package export `export` |
+| User Access | User directory `#/user-access`, user `#/user-access/user/<name>`, Account Review `/account-review`, Position Changes `/position-changes`, Compare users `/compare` | `read`; decisions `review` |
 | Release Roles | `#/release-roles`; Table and Matrix (one PR and one PO matrix, per SAP User Group when comparing) | `read` |
-| SoD | Overview `#/sod`, Risk Matrix, Activity Matrix, Access Explorer (heatmap in Overview) | SoD switch |
-| Reviews | Overview `#/reviews`; Work Queue, Bulk Review, Remediation, Review Periods, Reports and Evidence (`/queue`, `/bulk`, `/remediation`, `/periods`, `/reports`) | Overview always; the others follow the SoD switch; actions `review`/`approve` |
-| Settings (utility) | Data Sources (holds Data Health), Runtime & Scheduling, SoD Risk Configuration, Backup & Restore, Functional Groups, User Management, and others | `admin` |
+| SoD | Overview `#/sod`, Risk Matrix `/risk-matrix`, Activity Matrix `/activity-matrix`, Access Explorer `/explorer` (`/users`, `/roles` select its tabs) | SoD switch |
+| Reviews | Overview `#/reviews`, Work Queue `/queue`, Bulk Review `/bulk`, Remediation `/remediation`, Review Periods `/periods`, Reports and Evidence `/reports` | Overview always; the rest follow the SoD switch; actions `review`, period transitions `approve` |
+| Settings (utility) | General, Data & Integrations (Data Sources with Data Health, SAP Modules, Runtime & Scheduling, Functional Groups), Security & Governance, System & Tools | `admin` (Desktop and access-token sessions are administrators) |
 
-Legacy `#/sod/reviews*`, `#/sod/periods` and `#/sod/reports` already redirect through `normalize`. Saved Filters are keyed by view (`users`,
-`roles`, `release`, `dashboard`, `sod_queue`, ...; `V1SavedFilters.Allowed`). Exports exist only on their source pages (User directory CSV,
-Compare users CSV, Account Review CSV, Release role list, Access Package CSV, refresh change CSV, SoD matrix, heatmap and evidence CSVs, the
-configurable Work Queue export, formal review and remediation reports as DOCX/PDF/CSV).
+Legacy `#/sod/reviews[/bulk|/remediation]`, `#/sod/periods` and `#/sod/reports` already redirect through `normalize`. Saved Filters are keyed
+by view (`users`, `roles`, `release`, `dashboard`, `sod_overview`, `sod_risk_matrix`, `sod_activity_matrix`, `sod_explorer`, `sod_queue`, ...;
+`V1SavedFilters.Allowed`).
 
-**Target mapping**
+### Current-to-target route mapping
 
-| Target | Contents | From |
+| Current route | Canonical target | Notes |
 | --- | --- | --- |
-| Dashboard | Unchanged; an admin-only *Data Health* shortcut | Dashboard |
-| Role Lookup | Unchanged | Role Lookup |
-| Users | User Directory, Compare Users, Release Access | User Access (directory, compare), Release Roles |
-| SoD | Overview (heatmap), Risk Matrix, Activity Matrix, Access Explorer | Unchanged |
-| Reviews | Overview, Work Queue, Position Changes, Account Review, Bulk Review, Remediation, Review Periods | Reviews; Account Review and Position Changes from User Access |
-| Reports | Review Reports (default), Access Reports, SoD Reports, Evidence | Reviews › Reports and Evidence; exports from the pages above |
-| Settings › Data Management | Data Health (admin only) | Settings › Data Sources |
+| `#/dashboard`, `#/role-lookup` | Unchanged | — |
+| `#/user-access` | `#/users` (User Directory) | Directory filters and `userContext` carried over |
+| `#/user-access/user/<name>` | `#/users/user/<name>` | `userHref` callers (SoD, Reviews, Release drill-down) switch to the new builder |
+| `#/user-access/compare` | `#/users/compare` | Compare selection kept |
+| `#/release-roles` | `#/users/release-access` | `release` drill state and saved-filter view `release` unchanged |
+| `#/user-access/account-review` | `#/reviews/account-review` | Must stay available with SoD turned off |
+| `#/user-access/position-changes` | `#/reviews/position-changes` | Must stay available with SoD turned off |
+| `#/sod`, `/risk-matrix`, `/activity-matrix`, `/explorer`, `/users`, `/roles` | Unchanged | — |
+| `#/reviews`, `/queue`, `/bulk`, `/remediation`, `/periods` | Unchanged | — |
+| `#/reviews/reports`, legacy `#/sod/reports` | `#/reports/review` | `#/reports` resolves to the first authorized report page |
+| — | `#/reports/access`, `#/reports/sod`, `#/reports/evidence` | New |
+| Legacy `#/sod/reviews*`, `#/sod/periods` | Unchanged redirect to Reviews | — |
 
-**SoD.** Keep SoD as the analysis workspace (Overview with the heatmap, the matrices and Access Explorer) with its *Open Work Queue* entry
-points; it holds no review pages. No change is recommended beyond losing nothing when Reports takes the SoD exports as launch points.
+The hash query (`?...`) is carried over on every redirect, stored `history.state` views are normalized by the same reader, and saved-filter
+view keys and local preference keys keep their names, so stored filters and preferences remain valid.
 
-**Reports and Evidence.** Reports is a hub over existing functions, not new report functionality. *Review Reports* is today's report
-generator (formal review report, access remediation report; one frozen period model). *Access Reports* and *SoD Reports* list the existing
-exports and open the source page with its filters, because every export follows that page's population; the export logic does not move.
-*Evidence* lists review periods with their frozen state and model checksum and opens them read-only. Review Reports, SoD Reports and Evidence
-follow the SoD switch; Access Reports does not. `#/reviews/reports` redirects to Review Reports.
+### SoD: existing structure and recommendation
 
-**Release Access combined matrix.** One matrix per scope: rows are Release Groups, columns are Release Strategies under a two-level header
-(PR, PO), and cells are distinct users as today, with the same click-through to the assignment list. The existing cell data already carries
-`document_type`, so the matrix itself needs no backend change. A row or grand total of distinct users *across* PR and PO cannot be summed from
-the per-kind cells (a user in both would count twice); it needs either a backend total or no combined total. Table view and its export stay.
+| Page or subview | Purpose (repository) |
+| --- | --- |
+| SoD header and *review context* bar (`ContextBar`) | Current evidence or a review period as the evaluation context for every SoD page |
+| SAP User Group heatmap (`SodGroupHeatmap`) | Users per SAP User Group and risk or activity; rendered above Overview, Risk Matrix, Activity Matrix and Access Explorer; follows the page's filters (Overview population since BUG-015) |
+| Overview (`SodOverview`) | Filters; *Open Work Queue*; key figures in three sections: **Conflicts** (users with conflicts, multi-risk users, user-risk findings, enabled risks), **Reviews** (activities pending/approved/removal, risks accepted/rejected/pending), **Remediation** (assignments marked for removal, open and overdue actions, awaiting action); *Review period and approval*; *Evidence freshness and coverage* |
+| Risk Matrix, Activity Matrix (`SodMatrices`) | Users against risks or activities with paging, grouping by SAP User Group and CSV export |
+| Access Explorer (`SodExplorer`) | Tabs **Users** (findings grouped by risk or activity, evidence modal), **Assignments** (role assignments with review progress and bulk selection), **Roles** (users behind a role), **Role conflicts** (`ConflictView`) |
+| SoD Review panel (`SodInvestigation`, application-level side panel) | Subject summary, supporting evidence, remediation impact, what-if simulation and the decision form; opened from SoD, Reviews and User Access |
 
-**Authorization and compatibility.** Permissions do not change: pages keep their `read`/`review`/`approve`/`admin` gates, Data Health stays
-admin-only (Settings is admin-only today), and Account Review and Position Changes must stay available with SoD turned off when they move
-into Reviews. Every current route keeps working through `normalize` (the SoD-to-Reviews pattern): `#/user-access/account-review` and
-`/position-changes` to Reviews, `#/release-roles` to Users › Release Access, `#/reviews/reports` to Reports; stored `history.state` views are
-normalized the same way. Saved-filter view keys and preference keys stay unchanged. Count-based browser assertions (main navigation links,
-submenu entries, Settings order) change with the structure and are updated in the same work package.
+Functional overlaps: the Overview's *Reviews* and *Remediation* sections and its period card repeat figures that the Reviews Overview (WP37)
+shows with the Work Queue population; Access Explorer **Users** grouped by risk or activity overlaps the Risk and Activity Matrix (list versus
+grid of the same findings); the Explorer **Assignments** tab carries bulk selection that leads into Bulk Review.
 
-**Work packages** (each with focused tests and documentation, in this order)
+Recommended SoD structure (needs approval; no change without it):
 
-| Package | Scope | Tests |
+| Change | Rationale | Impact |
 | --- | --- | --- |
-| NAV-1 | Route model and redirects (`normalize`, `pageHref`, aliases), no visible change | `navigation-*`, deep links, Back/Forward |
-| NAV-2 | Users group: rename, Release Access under Users | User Access and Release Roles specs, saved filters |
-| NAV-3 | Reviews takes Account Review and Position Changes; SoD-off behavior kept | Account Review, Position Changes, Reviews workspace specs |
-| NAV-4 | Reports hub (Review Reports default, Access Reports, SoD Reports, Evidence) over existing exports | Reports and export specs, SoD-off and viewer role |
-| NAV-5 | Settings › Data Management with Data Health; admin Dashboard shortcut | Settings order, Dashboard, viewer role |
-| NAV-6 | Release Access combined PR/PO matrix | Release Roles matrix specs, counts reconcile with Table |
-| NAV-7 | Documentation, Component Library and count-based assertions consolidated | `check-docs.py`, affected specs |
+| Keep Overview, Risk Matrix, Activity Matrix and Access Explorer, with their routes, names and the heatmap | Analysis views that the review workflows depend on; the heatmap requirement keeps it in SoD | None |
+| Overview: replace the *Reviews* and *Remediation* tile sections and the period card with one compact *Review status* row (pending, removals, open actions) that opens the Reviews Overview, Work Queue or Remediation with the SoD filters | One place for review figures; avoids two pages with different populations for the same metric | Review workflows and decisions unchanged; drill-down targets move from SoD pages to Reviews pages; the SoD Overview browser specs change |
+| Keep the Explorer **Assignments** bulk selection as an entry point that opens Bulk Review with the selection, not a second bulk workflow | Work Queue and Bulk Review stay the review pages | None for permissions (`review` gate unchanged) |
+| No merge of the Explorer **Users** tab into the matrices | List and grid answer different questions; merging would remove evidence modals or paging | None |
 
-**Risks.** Broken bookmarks or Back/Forward (mitigated by NAV-1 first); Account Review accidentally following the SoD switch; Reports showing
-exports to roles or with SoD off where the source page would not; merged counters between Account Review and SoD access reviews (they stay
-separate); a longer mobile drawer; stale count-based tests; documentation drift across README, NAVIGATION, REVIEWS and the feature guides.
+Permissions and evidence: unchanged (SoD switch, `read`, `review` and `approve`); decisions, snapshots and frozen periods are not touched.
 
-**Decisions needing approval**
+### Reports: existing reports and exports by category
 
-1. Move Account Review (and Position Changes) into Reviews. This reverses the package 18 decision that kept Account Review in User Access as a
-   separate governance concept; decisions and counters stay separate either way.
-2. URL scheme: keep the `#/user-access/...` paths behind the new *Users* label (lowest risk), or introduce `#/users/...` with redirects.
-3. Whether Reports appears with SoD turned off (Access Reports only) and for viewers (all roles hold `read` and `export` today).
-4. Whether Access Reports and SoD Reports only launch the source pages (recommended) or run exports in place, which would need their own
-   filter panels.
-5. *Data Management*: a new Settings group, or a rename of *Data & Integrations*.
-6. The Dashboard *Directory & Data Health* card is visible to every role today: keep it, and add only the admin shortcut, or restrict it.
-7. Release Access: no combined distinct-user total, or a backend total (a backend change).
+| Category | Existing (reusable) | Generated by | Availability |
+| --- | --- | --- | --- |
+| Review Reports (default) | Formal review report DOCX/PDF (`/api/sod/reports/{kind}`, preview, period, status, comparison, comments); access remediation report DOCX/PDF/CSV (`/api/sod/reports/remediation/{kind}`, context, filters); configurable Work Queue CSV (`/api/sod/queue/export/configured`, presets, columns, delimiter, current or frozen context); remediation actions CSV (`/api/sod/reviews/actions/export`); Account Review CSV | Backend report builders; Account Review CSV in the browser (`lib/accessExport`) | SoD reports follow the SoD switch; Account Review CSV does not, so Review Reports stays available with SoD off |
+| Access Reports | User directory CSV (`/api/access/exports/users`, scope and columns); Compare users CSV (browser); release role list (`/api/access/exports/release-roles`); release assignments (`/api/access/exports/releases`) | Backend, except Compare users | `read`/`export`; current snapshot only |
+| SoD Reports | Risk and Activity Matrix CSV and the heatmap export (`/api/sod/matrix/{kind}/group-export`); Access Explorer exports (`/api/sod/explorer/{table}/export`, users-findings); SoD analysis export (`/api/sod/analysis/export`); remediation CSV (`/api/sod/remediation/export`); ruleset export (`/api/sod/catalogue/export`) | Backend | SoD switch |
+| Evidence | Review periods with lifecycle state and frozen snapshots; report preview with `model_checksum`; formal and remediation reports regenerated from a frozen period | Backend | SoD switch |
+
+Kept as contextual exports on their pages: Access Package CSV (Role Lookup; depends on the cart), refresh change CSV (Settings, data
+administration), diagnostics and configuration exports (Settings), and the page exports above (Reports reuses them; nothing is removed).
+
+Proposed dedicated report generation: one report page per category with a report picker, a description, the parameters the report supports
+(population filters through the shared `FilterLayout`/`SodFilters`, scope, columns where the export supports them, output format, current
+or frozen review context), a preview count and *Generate*. Every report calls the existing endpoint with the same filter semantics, so the
+counts equal those of the source page.
+
+Missing capabilities (new functionality, presented for approval; no placeholder pages):
+
+1. **Server-side Account Review and Compare users reports.** Both are browser-built today; a Reports page outside their pages needs either the
+   shared browser builder with the page's queries or a new backend export (recommended for consistent authorization and scope).
+2. **Position Changes report.** No dedicated export exists (the Account Review CSV carries the rows); a position-change export is new.
+3. **Column selection** exists only for the Work Queue and user directory exports; other exports have fixed columns, and adding selection is
+   a backend parameter change per export.
+4. **Historical context for access reports.** User Access data is the current snapshot only; historical access reports cannot be offered.
+5. **Evidence index.** Generated documents are rendered on demand and not stored; Evidence can list frozen periods and regenerate their reports.
+   Storing issued reports would be new functionality.
+6. **Report availability.** A small backend endpoint (or configuration field) that states which reports the principal may use, built from the
+   existing permissions and the SoD switch, so the default destination and the navigation never show inaccessible pages. Every report endpoint
+   keeps its own authorization.
+
+### Release Access: combined matrix
+
+- **Layout.** One matrix per scope (one, or one per SAP User Group when comparing). Rows are Release Groups. Columns use a two-level header:
+  the first level is the release type (PR, PO), the second its Release Strategies. A strategy column is identified by (type, strategy), so
+  identically named strategies under PR and PO are separate columns and are never aggregated. Cells show distinct users as today and keep
+  their click-through (`/api/access/release-assignments` with type, group and strategy). The PR/PO filter limits the matrix to one type.
+- **Totals.** Per row and for the matrix: distinct users for PR, for PO and **combined**. The combined value comes from the backend.
+- **Backend calculation.** In `GET /api/access/releases`, the existing loop over the filtered assignments already groups users by cell
+  (`HashSet` of `UserKey`, the authoritative SAP identity). Add, in the same pass and the same filter scope, sets keyed by scope and type and by
+  scope and Release Group (per type and combined), and return them as `matrix_totals` (counts only). A user with PR and PO assignments is one
+  member of the combined set. Unparsed release names keep their existing treatment (Table only, *include unparsed* on request).
+- **Drill-downs and exports.** A total opens the assignment list with the same parameters minus the strategy (and minus the type for the
+  combined total); `release-assignments` already returns `distinct_users`, which must equal the total. The role list and assignment exports are
+  unchanged and keep the page filters; KPI, matrix, drill-down and export counts are tested against each other.
+- **Tests.** Backend: overlapping PR and PO assignments for one user, identical strategy names under both types, SAP User Group comparison,
+  filtered populations. Browser: combined header, totals reconcile with the drill-down, Table and Matrix parity, Role Cart and export unchanged.
+
+### Data Health and the Dashboard card (administrator-only)
+
+- `GET /api/data-health` is a `read` route today (not in `V1Auth.AdminRead`); it becomes administrator-only by adding it to `AdminRead`.
+- The Dashboard card is rendered from `GET /api/dashboard`, which returns the directory and data-health figures to every role. The card is
+  hidden for non-administrators and the backend omits those figures for non-administrators; figures used by other authorized features
+  (Account Review counters, Position Changes) keep their own endpoints and permissions.
+- No new permission: the existing `admin` permission (`useAuthentication().can('admin')`, `V1Auth.Permission`).
+
+### Open defects from the BUG-09 Level 2 run, classified
+
+Each was reproduced at HEAD `bbcfc0d` without the BUG-09 change, and the cause was checked against the code and history.
+
+| Test | Finding | Class | Package |
+| --- | --- | --- | --- |
+| `access-investigation.spec.ts:35` | Expects 4 main navigation links; Reviews (`e457ab6`) made it 5 | Obsolete navigation expectation | NAV-7 (counts change again with NAV-2 and NAV-4) |
+| `access-investigation.spec.ts:152` | Expects the open release role detail after the main *Release Roles* link; BUG-08 made main navigation a page boundary, while a comment in `App.tsx` still describes returning to the open record | Contract conflict to settle | NAV-1 |
+| `data-aware-ux.spec.ts:119`, `consolidated-role-ui.spec.ts:136` (800 px), `ui-polish-actions.spec.ts:146` (375 px) | Click main navigation links directly; below 1024 px they are in the drawer (`bb3bceb`, after the tests) | Obsolete navigation expectation (the shared `goTo` helper handles the drawer) | NAV-7 |
+| `ui-polish-actions.spec.ts:107` | Looks for a *Reports* link; the page is *Reports and Evidence* (`e457ab6`) | Obsolete navigation expectation | NAV-4 |
+| `refinement-search-layout.spec.ts:16` (375 px) | Clicks the *SAP Modules* tab; below 768 px Settings uses the sections drawer (`61c4830`, after the test; `selectSettingsSection` exists) | Settings navigation test defect | COR-T |
+| `role-visuals.spec.ts:195` | Clicks *Appearance & Branding* without opening Settings | Settings navigation test defect, to confirm | COR-T |
+| `refinement-completion.spec.ts:26` | In the full run *Saved filters* was missing in User Access; in isolation that step passes and the test stops at the source health summary, which has 5 rows since `555293c` added *Last source attempt* | Order-dependent state (isolation to investigate) and an obsolete count | COR-T (isolation first) |
+| `refinement-completion.spec.ts:102` | 200 buttons instead of 199: the matrix region now holds *Columns for PR release matrix* | Obsolete count | NAV-6 (the matrix is replaced) |
+| `refinement-completion.spec.ts:115` | Compare users: the *Role / transaction* column is 1439 px wide at 1280 px (table about 2150 px) | Application defect (responsive table layout) | COR-1, before NAV-2 |
+| `account-review-completed.spec.ts:35`, `account-review-refinement.spec.ts:625` | *Review decision* filter returns no accounts | Application defect (filter) | COR-2, before NAV-3 |
+
+No assertion is weakened: obsolete expectations are rewritten to the current, approved behavior, and defects are fixed in the application.
+
+### Work packages
+
+| Package | Scope | Depends on | Affected components and routes | Backend | Regression coverage | Related defects | Risks and open points |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| COR-1 | Compare users table column sizing | — | `UserComparison.tsx`, table CSS | — | `refinement-completion` :115, Compare specs at 375 to 1600 px | `:115` | Identifier and table contract (BUG-09) |
+| COR-2 | Account Review decision filter | — | `AccountReview.tsx`, `V1AccountReview.cs` | Possibly the filter | Account Review classes, the two specs | `:35`, `:625` | Root cause unknown |
+| COR-T | Test corrections and isolation | — | Specs only | — | The listed specs, `--repeat-each 3` for the order-dependent case | Settings and isolation rows | Must not weaken assertions |
+| NAV-1 | Route model: canonical `#/users`, `#/reviews/account-review`, `#/reviews/position-changes`, `#/reports/*`; `normalize`, href builders, `readView`, legacy redirects with query and history state; settle the main-link return contract | COR-T | `useViewHistory`, `App.tsx`, every `userAccessHref`/`userHref`/`pageHref`/`sodHref` caller | — | Deep links, reload, Back/Forward, legacy URLs, saved filters | `access-investigation:152` | Broken bookmarks; done first, invisible |
+| NAV-2 | Users: rename, User Directory, Compare Users, Release Access (moved, renamed) | NAV-1, COR-1 | `navigationItems`, `UserAccess`, `ReleaseRoles`, `App.tsx`, Role details parent labels | — | User Access, Release Roles, comparison and navigation specs | — | Labels in tests and documentation |
+| NAV-3 | Reviews: Position Changes and Account Review pages in the approved order, available with SoD off | NAV-1, COR-2 | `navigationItems` (`REVIEWS_VIEWS`), `ReviewsWorkspace`, `AccountReview` (`mode`), Reviews Overview entry points | — | Account Review, Position Changes, Reviews workspace, SoD-off specs | — | Account Review must not follow the SoD switch; counters stay separate |
+| NAV-4 | Reports module: Review Reports (default), Access Reports, SoD Reports, Evidence with dedicated generation on existing services; availability per report; authorized default | NAV-1; approval of the missing capabilities | New Reports workspace, `SodReports` (moved), export clients | Report availability; any approved new exports | Each report against its source page counts, viewer role, SoD off, frozen context | `ui-polish-actions:107` | Scope of new exports; no placeholder pages |
+| NAV-5 | Administrator-only Data Health and Dashboard card | — | `Dashboard.tsx`, `V1Auth.AdminRead`, `V1Dashboard.cs` | `/api/data-health` admin; dashboard omits directory figures for non-admins | Viewer and administrator browser specs, `V1Auth` and dashboard tests | — | Other features must keep their data |
+| NAV-6 | Release Access combined matrix and `matrix_totals` | NAV-2 | `ReleaseRoles` matrix, `V1ReleaseRoles.cs` | Distinct-user totals per type and combined | Backend overlap and filter tests; matrix, drill-down and export reconciliation | `refinement-completion:102` | Wide matrices at 375 px |
+| NAV-7 | Navigation consistency, count-based assertions, Component Library and documentation (README, NAVIGATION, REVIEWS, feature guides) | NAV-2 to NAV-6 | Navigation specs, docs | — | `check-docs.py`, navigation specs at 375/800/1280/1600 px in both themes | `access-investigation:35`, drawer rows | Documentation drift |
+
+Remaining decisions: the SoD recommendation above; which missing report capabilities (1 to 6) are in scope for NAV-4; whether COR-2 may
+change backend filter logic if the root cause is there.
 
 ## Tenth round: RC7 consolidation (WP37 and RC6 acceptance defects, 2026-11-26)
 
