@@ -53,7 +53,8 @@ test('SAP role identifiers never wrap and the copied value is the complete ident
   const code = page.locator('.role-identifier code', { hasText: LONG }).first()
   await expect(code).toBeVisible()
   expect(await code.evaluate(element => getComputedStyle(element).whiteSpace)).toBe('nowrap')
-  expect(await code.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy() // no internal scrolling
+  // BUG-09: no internal scrolling; a name wider than its box ends in an ellipsis and keeps the full value in its tooltip
+  expect(await code.evaluate(element => { const style = getComputedStyle(element); return style.overflowX === 'hidden' && (element.scrollWidth <= element.clientWidth + 1 || (style.textOverflow === 'ellipsis' && element.title === element.textContent)) })).toBeTruthy()
   expect((await code.boundingBox())!.height).toBeLessThan(32) // one line
   expect(await code.evaluate(element => element.textContent)).toBe(LONG)
   await page.getByRole('button', { name: `Copy role identifier ${LONG}`, exact: true }).first().click()
@@ -279,7 +280,8 @@ test('User Access role rows keep a compact module badge beside the description a
   expect(description!.x).toBeGreaterThanOrEqual(badge!.x + badge!.width - 1)
   const code = page.locator('.assigned-role .role-identifier code').first()
   await expect(code).toHaveCSS('white-space', 'nowrap') // identifiers are never wrapped
-  expect(await code.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBeTruthy()
+  // BUG-09: never scrolled; a cut-off name ends in an ellipsis with the full value in its tooltip
+  expect(await code.evaluate(el => { const style = getComputedStyle(el); return style.overflowX === 'hidden' && (el.scrollWidth <= el.clientWidth + 1 || (style.textOverflow === 'ellipsis' && el.title === el.textContent)) })).toBeTruthy()
   expect(await code.evaluate(el => el.textContent)).toBe(LONG) // the complete value is present, not truncated
 })
 

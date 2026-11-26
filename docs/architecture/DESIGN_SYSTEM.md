@@ -121,7 +121,7 @@ Connection and session problems are reported once, at application level, by `Ses
 | Keyboard focus | One ring from tokens (`--focus-width`, `--focus-offset`, `--focus-radius`): solid, 2 px, always rounded. Inset only where a container clips the ring (tab strips, table rows); tabs use the same ring instead of a bottom bar; plain elements with square corners get the shared radius while focused |
 | Detailed, comparable records | A table (zebra, hover and selected states) |
 | Compact status or classification | A badge or pill |
-| An exact technical identifier | A codeblock (`RoleIdentifier`): the complete name on one line, never wrapped, scrolled, truncated or ellipsized; the copy control stays beside it and copies the exact value. In a narrow layout the font scales down (not below 9 px) and layouts such as the role card grid adapt their column count; a name that still does not fit stays whole and its surrounding region, never the codeblock, scrolls |
+| An exact technical identifier | A codeblock (`RoleIdentifier`): the name on one line inside its box, never wrapped and never scrolled; the copy control stays beside it and copies the exact value. Layouts such as the role card grid adapt their column count; a name that still does not fit ends in an ellipsis and the full name stays in the tooltip and the accessible name. The font size is fixed, so the geometry never changes with hover, focus or a sidebar transition. Tables and matrices keep their own horizontal scrolling |
 
 Identifiers are never given soft-wrap opportunities. Module icons carry no hover ring; only real controls get hover and focus treatments. Expand and collapse controls use one glyph: right when collapsed, down when expanded (`DisclosureChevron`, and the same control for native `details`), with the 34 px compact hit area shared with icon buttons.
 
@@ -138,9 +138,9 @@ Product names stay in Title Case: main navigation, page and section titles, SoD 
 Labels (role categories and module names, KPI and chart labels, option names, group names, headings, metadata values) wrap at whole words with
 `overflow-wrap: break-word`: a label's minimum width is its longest word, so layouts cannot squeeze "Management" into "Managemen / t"; a single word
 longer than its box still breaks. Technical values (paths, hashes, transaction lists, raw CSV cells, technical details) keep
-`overflow-wrap: anywhere`. SAP identifiers are never wrapped or hyphenated (`RoleIdentifier` scales them down; the copy button writes the exact
+`overflow-wrap: anywhere`. SAP identifiers are never wrapped or hyphenated (`RoleIdentifier` ends a name that does not fit in an ellipsis with the full value in the tooltip; the copy button writes the exact
 value). No automatic hyphenation is applied, so no arbitrary hyphens appear in Norwegian or English text. Sidebars do not hide overflow: their
-children are constrained to the sidebar width (BUG-09 was not reproduced with synthetic data; see the acceptance tracker).
+children are constrained to the sidebar width (BUG-09, reopened and fixed for identifiers; see the acceptance tracker).
 
 ## Responsive rules
 

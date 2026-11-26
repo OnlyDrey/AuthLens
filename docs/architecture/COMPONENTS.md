@@ -31,7 +31,7 @@ Paths below are relative to `frontend/src/components/`. The inventory covers reu
 | `Shared/TransactionFilter.tsx` / useTransactionFilter | Role Lookup, User Directory/Details, library | Existing multi-code live/deferred state and AND/OR; operator group/chip reuse replaces repeated UI. This is the real multi-value selector showcased |
 | `Shared/MultiSelectFilter.tsx` | Release Area and Release Group, SoD SAP username and Role suffix, library | Searchable multi-select combobox whose list stays open while options are toggled (outside click, Escape, Tab or Close dismiss it); Select all acts on the listed options and states its scope, Clear selection and removable chips; below the chips a separate right-aligned ghost **Clear all (n)** action (with an `XCircle` icon and the live count) clears only that field and is hidden when nothing is selected; selections survive searching. While a server-backed search is pending (`loading`, including the caller's debounce), Enter toggles the highlighted value only when it matches the typed text, otherwise an exact match, never an unrelated earlier result. Values combine with OR, the caller combines filters with AND |
 | `Shared/BulkSelection.tsx` | SoD Access Explorer Assignments, library | `useBulkSelection` keeps an explicit snapshot keyed by stable identifiers; `RowCheckbox`, `PageCheckbox` (indeterminate) and the `BulkToolbar` with count and scope. DOM order equals reading order; the toolbar wraps |
-| `Shared/RoleEntry.tsx`, `RoleIdentifier.tsx`, `ConfirmDialog.tsx` | Role Lookup, Single Roles, Access Package, comparison, Release Roles, SoD lists, library | One role presentation (module badge, description, wrapping copyable identifier; compact, standard, detailed); confirmation dialog whose button names the action. The header is one centered line: pill, description (`Shared/TruncatedText`: ellipsis, and a button revealing the full text on hover, keyboard focus, click or tap only while it is cut off), actions that never shrink, one minimum header height |
+| `Shared/RoleEntry.tsx`, `RoleIdentifier.tsx`, `ConfirmDialog.tsx` | Role Lookup, Single Roles, Access Package, comparison, Release Roles, SoD lists, library | One role presentation (module badge, description, single-line copyable identifier; compact, standard, detailed); confirmation dialog whose button names the action. The header is one centered line: pill, description (`Shared/TruncatedText`: ellipsis, and a button revealing the full text on hover, keyboard focus, click or tap only while it is cut off), actions that never shrink, one minimum header height |
 | `Shared/PackageToggle.tsx`, `Shared/AccessPackageBar.tsx` | Role Lookup cards, Release Roles rows and Matrix cells, floating access package action | One round Plus/Check toggle and one floating package action for catalogue and release roles; the package store is shared and unlimited |
 | `Shared/WindowsIcon.tsx` | Windows Desktop settings heading, library | Generic four-pane inline mark in currentColor; no third-party artwork or dependency |
 | `Shared/FilterChip.tsx` | Transactions and assignment date filters | One removable-chip implementation, explicit removal label, existing focus restoration supplied by caller |
@@ -159,8 +159,10 @@ single-role transaction count without changing source classification.
 ## Compact role evidence
 
 `Shared/RoleIdentifier.tsx` is the canonical exact role identifier and copy action.
-It stays on one line, with contained horizontal scrolling and Arrow Left/Right
-support when focused; the title and accessible name retain the complete value.
+It stays on one line inside its own box (BUG-09, reopened): it never wraps, never scrolls and never makes its
+container scroll; when the container is narrower than the name the name ends in an ellipsis, while the title,
+the accessible name and the copied value keep the complete identifier. The copy and open icons never shrink and
+the geometry is identical in every hover, focus and sidebar state (no font scaling).
 Optional `moduleId` colors use canonical backend module evidence.
 `Shared/RoleMetadata.tsx` never classifies from a description prefix: unknown single
 roles stay unclassified when the source has no independent module evidence.
