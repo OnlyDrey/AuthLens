@@ -212,6 +212,17 @@ public sealed class DashboardAndSavedFiltersTests : IAsyncLifetime
         return (response.StatusCode, JsonNode.Parse(await response.Content.ReadAsStringAsync()));
     }
 
+    /// <summary>Found during BUG-014: the "dashboard" view was accepted but had no field list, so every save failed with HTTP 500.</summary>
+    [Fact]
+    public async Task Every_saved_filter_view_has_a_field_list_and_dashboard_filters_save()
+    {
+        foreach (var view in V1SavedFilters.Views) Assert.True(V1SavedFilters.Allowed.ContainsKey(view), view);
+        var (status, created) = await Save(new { name = "Dashboard G1", view = "dashboard", filters = new { user_groups = new[] { "G1" }, roles = new[] { "ZC:MM:A" }, functional_groups = new[] { "fg-1" }, usernames = new[] { "DEMO_ONE" }, access_scope = "matching" } });
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("dashboard", (string)created!["view"]!);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await Save(new { name = "Dashboard result", view = "dashboard", filters = new { users = 3 } })).Status);
+    }
+
     [Fact]
     public async Task Saved_filters_create_update_rename_delete_and_survive_a_restart()
     {

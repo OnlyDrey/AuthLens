@@ -28,6 +28,8 @@ public static class V1SavedFilters
             ["release"] = ["group", "userGroups", "kind", "releaseGroup", "releaseAreas", "releaseGroups", "strategy", "strategies", "username", "role", "status", "sort", "descending", "valid_from_min", "valid_from_max", "valid_to_min", "valid_to_max", "include_missing_end"],
             ["review"] = ["search", "finding", "license", "state", "findings", "licenses", "states", "sort", "descending"],
             ["comparison"] = ["validity", "kind", "difference", "search", "area", "areas", "sort", "descending"],
+            // WP30: the dashboard population dimensions (DashboardFilters.tsx) and the access matching mode; organizational keys are added below.
+            ["dashboard"] = ["usernames", "user_groups", "user_types", "account_states", "lock_states", "departments", "sites", "titles", "ad_states", "roles", "tcodes", "role_types", "org_suffixes", "sod_risks", "review_states", "access_scope"],
         };
         foreach (var view in new[] { "sod_users", "sod_roles" })
             allowed[view] = ["search", "usernames", "risks", "criticalities", "categories", "groups", "tcodes", "risk", "criticality", "risk_type", "category", "username", "group", "composite_role", "single_role", "tcode", "account_status", "sort", "descending", "validity", "as_of", "selected_roles"];
@@ -35,7 +37,7 @@ public static class V1SavedFilters
             "activity_decision", "assignment_decision", "review_status", "acceptance", "validity", "as_of", "sort", "descending", "group_by", "table", "kind", "status", "queue_sort", "role_match", "assignment_scope", "role_families", "role_exact"];
         foreach (var view in new[] { "sod_overview", "sod_risk_matrix", "sod_activity_matrix", "sod_explorer", "sod_queue" }) allowed[view] = [.. matrix];
         // Organizational filters: Functional Group and Manager (Account Review keeps its own `groups` key).
-        foreach (var view in new[] { "users", "release", "review", "sod_users", "sod_roles", "sod_overview", "sod_risk_matrix", "sod_activity_matrix", "sod_explorer", "sod_queue" })
+        foreach (var view in new[] { "users", "release", "review", "sod_users", "sod_roles", "sod_overview", "sod_risk_matrix", "sod_activity_matrix", "sod_explorer", "sod_queue", "dashboard" })
         {
             allowed[view].UnionWith(["functional_groups", "managers", "functional_group", "manager"]);
             if (view == "review") allowed[view].UnionWith(["groups", "includeCompleted", "usernames"]);
