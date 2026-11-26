@@ -96,7 +96,7 @@ public static class V1Access
                 items = pageItems.Select(Row).ToList(), total = result.Count, offset, limit, username_filter = org.Feedback(result),
                 loaded = snapshot.Ids.Users is not null, catalogue_loaded = snapshot.Catalogue.Roles.Count > 0,
                 report = await UsersReport(http, snapshot, ct),
-                as_of = today.ToString("yyyy-MM-dd"), data_revision = Revision(snapshot), groups, groups_total = snapshot.Users.GroupCount, export_assignments = exportAssignments,
+                as_of = today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), data_revision = Revision(snapshot), groups, groups_total = snapshot.Users.GroupCount, export_assignments = exportAssignments,
             });
         });
 
@@ -153,7 +153,7 @@ public static class V1Access
                 V1Csv.Line(csv, [a.Username, identity.FirstName, identity.LastName, identity.Email, a.UserGroup, a.RoleName, Local(a.ValidFrom), Local(a.ValidTo),
                     char.ToUpperInvariant(status2[0]) + status2[1..], a.Release?.DocumentType, a.Release?.ReleaseGroup, a.Release?.ReleaseStrategy, matched ? "Yes" : "No"], cells: true);
             }
-            var day = today.ToString("yyyy-MM-dd");
+            var day = today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
             http.Response.Headers["Content-Disposition"] = $"attachment; filename=\"authlens-user-directory-review-{day}.csv\"";
             http.Response.Headers["X-SAP-Lens-Data-Revision"] = Revision(snapshot);
             http.Response.Headers["X-SAP-Lens-As-Of"] = day;
@@ -215,7 +215,7 @@ public static class V1Access
                     status = SapDates.IntervalStatus(a.ValidFrom, a.ValidTo, today),
                 }).ToList(),
                 ["account_total"] = user.Accounts.Count, ["account_offset"] = accountOffset, ["retained_assignments"] = user.Assignments.Count,
-                ["as_of"] = today.ToString("yyyy-MM-dd"),
+                ["as_of"] = today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
             });
         });
 
@@ -273,7 +273,7 @@ public static class V1Access
                 }).ToList(),
                 summary = new { roles = Count(result.Roles, r => r.Difference), transactions = Count(result.Transactions, r => r.Difference) },
                 areas = result.Roles.SelectMany(r => r.Areas).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList(),
-                catalogue_available = snapshot.Catalogue.Roles.Count > 0, as_of = today.ToString("yyyy-MM-dd"), data_revision = Revision(snapshot),
+                catalogue_available = snapshot.Catalogue.Roles.Count > 0, as_of = today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), data_revision = Revision(snapshot),
             });
         });
 
@@ -306,7 +306,7 @@ public static class V1Access
             return Results.Ok(new
             {
                 items = items.Skip(offset).Take(limit).ToList(), total = items.Count, offset, limit, assignment_evidence = evidence, data_revision = Revision(snapshot),
-                as_of = Today().ToString("yyyy-MM-dd"),
+                as_of = Today().ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
             });
         });
     }

@@ -55,6 +55,26 @@ Reports contain personal data and stay local. Diagnostic exports contain only al
 
 ## Scheduled refresh
 
+**How it runs.** `RefreshScheduler` is a hosted background service of the AuthLens process (Windows service, console Server and Desktop; not
+with `--no-worker`, which the status reports as `scheduler_active: false` and Settings shows as an alert). It evaluates the saved
+`refresh_schedule` every 20 seconds, so a saved change takes effect without a restart and the definition survives restarts in the settings.
+A changed definition starts from now. A due slot runs once through the same refresh pipeline and authorization as **Refresh** (only Dynamic
+sources are read; Static sources are skipped; an invalid, missing, unreadable or empty file keeps the last valid dataset). A refresh that is
+still running (manual or scheduled) makes the slot `skipped`; a run is cancelled after 30 minutes. **Missed slots** (application stopped or
+busy) are skipped, never replayed in a burst; there is no catch-up run. The outcome (`last_attempt`, `last_success`, `last_failure`,
+`last_status`, `consecutive_failures`) is kept in `<data>\refresh-schedule.json`. Daily and cron schedules use the selected IANA zone (for
+example Europe/Oslo, also on Windows through ICU); daylight-saving gaps are skipped and a repeated hour runs once. Saving refuses a schedule
+that never runs, runs more often than every 5 minutes or names a zone the system lacks; an enabled schedule that still cannot be evaluated
+(for example a restored setting) is reported as `error` and logged once, never shown as healthy.
+
+**Timestamps are culture-independent (RC6 defect, corrected for RC7).** The host formatted ISO instants with the Windows regional format of
+the account it runs as: a custom format's `:` is the culture's time separator, so under for example da-DK or fi-FI (ICU) the server wrote
+`2026-11-27T08.05.00+00:00`. Browsers cannot parse that, so the next runs and the source timestamps showed *Not available* / *Not yet
+loaded*, and the scheduler's state file was read as never attempted. The host now runs with the invariant culture (Server, Desktop and the
+maintenance commands) and every custom timestamp format names it; values written earlier with dots are read as the same instant (the
+backend repairs the scheduler state and the diagnostics output, the UI formatter accepts them) until the next refresh rewrites them. No
+timestamp is invented: a source whose history is genuinely unknown keeps its unknown state.
+
 ### Server source policy remediation (awaiting Windows acceptance)
 
 All four CSV sources (Role Catalogue, User Access, SoD Matrix, Employee Directory) share one workflow and one policy for selection,

@@ -461,7 +461,7 @@ public static partial class V1DataSources
         while (history.Count > 5) { metadata.Remove((string)history[^1]!); history.RemoveAt(history.Count - 1); }
     }
 
-    internal static string Stamp(TimeProvider clock) => clock.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'");
+    internal static string Stamp(TimeProvider clock) => clock.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'", System.Globalization.CultureInfo.InvariantCulture);
 
     private static async Task<Job> WaitAsync(JobQueue queue, long id, CancellationToken ct)
     {

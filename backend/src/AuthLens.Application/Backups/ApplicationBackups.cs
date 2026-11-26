@@ -70,7 +70,7 @@ public sealed partial class ApplicationBackups(DatabaseOptions options, IDbConte
     private static string OperationFile(string data) => Path.Combine(data, "backups", "operation.json");
     private static string RestoreRoot(string data) => Path.Combine(data, "restore");
     private static string PendingFile(string data) => Path.Combine(RestoreRoot(data), "pending.json");
-    private static string Stamp(DateTimeOffset now) => now.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'");
+    private static string Stamp(DateTimeOffset now) => now.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'", System.Globalization.CultureInfo.InvariantCulture);
     public static string ArchiveName(string id) => $"archives/{id}.slbak";
     public static string DestinationName(string id) => $"archives/destination-{id}.slbak";
 
@@ -272,7 +272,7 @@ public sealed partial class ApplicationBackups(DatabaseOptions options, IDbConte
             catch (IOException) { } catch (UnauthorizedAccessException) { }
             items.Add(new JsonObject
             {
-                ["id"] = IdOf(b), ["created_at"] = DateTime.SpecifyKind(b.CreatedUtc, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'"), ["origin"] = b.Kind == BackupKind.Automatic ? "scheduled" : "manual",
+                ["id"] = IdOf(b), ["created_at"] = DateTime.SpecifyKind(b.CreatedUtc, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'", System.Globalization.CultureInfo.InvariantCulture), ["origin"] = b.Kind == BackupKind.Automatic ? "scheduled" : "manual",
                 ["status"] = verified ? "ready" : "failed", ["size"] = b.SizeBytes, ["verified"] = verified,
             });
         }

@@ -103,7 +103,7 @@ public static class V1Branding
             JsonObject staged;
             try { staged = logos.Stage(raw, ImageSanitizer.ReportFormats, ReportMaxBytes, ReportMinSide); }
             catch (ImageRejectedException error) { return Detail(422, error.Message); }
-            var record = new JsonObject { ["logo_id"] = staged["logo_id"]!.DeepClone(), ["filename"] = filename.Length > 120 ? filename[..120] : filename, ["updated"] = clock.GetUtcNow().ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'") };
+            var record = new JsonObject { ["logo_id"] = staged["logo_id"]!.DeepClone(), ["filename"] = filename.Length > 120 ? filename[..120] : filename, ["updated"] = clock.GetUtcNow().ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'", System.Globalization.CultureInfo.InvariantCulture) };
             await SaveAsync(writer, record, Actors.Name(http), clock, ct);
             return Results.Content((await DescribeAsync(factory, logos, ct)).ToJsonString(), "application/json");
         });

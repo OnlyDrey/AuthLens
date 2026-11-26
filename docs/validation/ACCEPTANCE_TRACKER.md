@@ -354,6 +354,27 @@ serves `/api/functional-groups/<id>/members` (no backend source change since `83
 
 Pills stay 28 px high (below the 44 px touch target guidance); no real iPhone check has run.
 
+### RC6 scheduled refresh and source timestamps (no identifier assigned; target 2.0.0)
+
+Reported from the installed Windows Server: daily 09:05 Europe/Oslo enabled, but the three upcoming runs and *Next run* showed *Not
+available*, the outcome *Never*, the Dashboard *Last successful refresh: Not available*, and Role Catalogue (96 records, durable snapshot)
+*Not yet loaded* / *Not yet checked*. Backend and frontend change; ships with RC7.
+
+| Item | Finding | Resolution | Regression tests | Status |
+| --- | --- | --- | --- | --- |
+| Culture-dependent ISO timestamps | Confirmed in code and reproduced under .NET 10/ICU: `ToString("yyyy-MM-dd'T'HH:mm:ss...")` without a culture uses the regional time separator (`08.05.00` under da-DK, fi-FI). The UI shows *Not available* only when a value is present but unparseable (an absent `next_run` reads *Not scheduled*), so the reported screen matches this cause. Affected: scheduler runs and state (`V1RefreshSchedule.Iso`), source import/check stamps (`V1DataSources.Stamp`), refresh lifecycle, diagnostics, storage, backups, retention, data health, employee import, migration | Host runs culture-invariant (`AuthLensHost.UseInvariantCulture`, also Server and Desktop entry points); every custom format names `InvariantCulture`; `IsoTimestamp.Repair` reads earlier dotted values (scheduler state, diagnostics, dashboard) and the UI formatter accepts them | `RefreshTests` (da-DK formatting, repair, invariant host, Europe/Oslo daily with DST and three runs, runtime change, run-once, persisted state and restart, Dashboard and Diagnostics agreement, dotted state repaired, unusable schedules refused) 20/20; affected classes 170/170; `date-format.test.ts`; `scheduled-refresh.spec.ts` 4/4 | Fixed (source) |
+| Did the scheduler run? | Not determinable from the report: with dotted timestamps the state file is discarded on read, so *Never* is shown whether or not a run happened; the schedule calculation itself works for Europe/Oslo on Windows | RC7 reads earlier state; the native check below establishes it | Windows procedure | Native pending |
+| Silent failure | An enabled schedule that cannot be evaluated idled without a log entry | Logged once per definition; the status reports `error`, an enabled schedule without upcoming runs is never healthy; `scheduler_active` exposes `--no-worker` | `RefreshTests` | Fixed (source) |
+| Unknown history | Not reproduced as a separate defect: with an active dataset the source reports its activation time; *Not yet loaded* came from an unparseable stored stamp | No fabricated timestamps; unchanged semantics of activation, check, attempt and refresh | — | Closed (explained) |
+
+**Windows acceptance (after installing RC7; read-only first).** 1. Before the upgrade, record `Get-Content <data>\refresh-schedule.json`
+and the Data Sources timestamps (dots between hours and minutes confirm the cause). 2. After the upgrade, Settings > Runtime & Scheduling
+shows three upcoming runs and *Next run* as dates; earlier outcomes appear instead of *Never*. 3. Set the daily time 10 minutes ahead in
+Europe/Oslo, Apply, and without a browser open wait past it: *Last attempted run* and *Last successful run* show that time; the Dashboard
+*Last successful refresh* and each Dynamic source's *Last source attempt* update; Static sources are unchanged. 4. Restart the service: the
+schedule and outcome remain. 5. Disable the schedule: no further run. Evidence: screenshots and the service log lines `Scheduled refresh
+finished (status=...)`.
+
 ### RC6 SoD heatmap population (BUG-015, P1, target 2.0.0)
 
 Found during RC6 acceptance on DASH1: with Functional Group *Controlling (7)* the SoD Overview reported 7 users with potential conflicts

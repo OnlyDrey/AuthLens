@@ -65,6 +65,7 @@ export function ScheduledRefresh({ draft, onChange }: { draft: Configuration; on
       </dl>
       {state?.last_status && <p className="flex flex-wrap items-center gap-2"><span className="text-xs text-muted">Current status</span><StatusBadge tone={STATUS[state.last_status]}>{STATUS_TEXT[state.last_status]}</StatusBadge> {state.last_message}</p>}
       {status.data?.error && <p role="alert" className="text-[var(--error)]">The saved schedule is not usable: {status.data.error}</p>}
+      {saved?.enabled && status.data?.scheduler_active === false && <p role="alert" className="text-[var(--error)]">This AuthLens process runs without its background worker, so scheduled refreshes do not run here.</p>}
       <details>
         <summary>Where it runs</summary>
         <ul className="ui-description">

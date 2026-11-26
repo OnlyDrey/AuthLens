@@ -146,7 +146,7 @@ public static class V1Dashboard
                 population_usernames = selectedNames is not null && selectedNames.Count <= 500 ? state.Users.Users.Values.Where(u => selectedNames.Contains(SubjectSelection.Key(u.Username))).Select(u => u.Username).OrderBy(u => u, StringComparer.Ordinal).ToArray() : null,
                 role_distribution = roleDistribution,
                 assignment_distribution = assignmentDistribution,
-                last_successful_refresh = (string?)lifecycle?["last_successful_refresh"],
+                last_successful_refresh = IsoTimestamp.Repair((string?)lifecycle?["last_successful_refresh"]),
                 source_warning = (string?)null,
                 coverage_total = coverageTotal,
                 sources = new[]

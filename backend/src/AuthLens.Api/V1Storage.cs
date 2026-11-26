@@ -65,7 +65,7 @@ public static class V1Storage
     private static async Task<List<BackupRecord>> Migrations(AuthLensDb db, CancellationToken ct) =>
         (await db.Backups.Where(b => b.Kind == BackupKind.Migration && b.DeletedUtc == null).ToListAsync(ct)).Where(b => b.Sha256.Length == 64).OrderBy(b => b.CreatedUtc).ToList();
 
-    private static string Iso(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'");
+    private static string Iso(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>storage_migration.status plus review_continuity: database health, size, schema version, active revisions, and the migration backup that
     /// waits for confirmation (or the confirmed one that is still kept).</summary>

@@ -73,7 +73,7 @@ public static class V1SodAnalysis
         var references = c.Settings["data_lifecycle"]?["sources"]?.DeepClone() ?? new JsonObject();
         var generation = CanonicalJson.Sha256(new object?[]
         {
-            c.Snapshot.Ids.Roles, c.Snapshot.Ids.Users, c.Snapshot.Ids.Sod, c.Snapshot.Ids.Employees, c.Revision, query.AsOf.ToString("yyyy-MM-dd"), query.Validity, query.SelectedRoles,
+            c.Snapshot.Ids.Roles, c.Snapshot.Ids.Users, c.Snapshot.Ids.Sod, c.Snapshot.Ids.Employees, c.Revision, query.AsOf.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), query.Validity, query.SelectedRoles,
             mapping, directoryEnabled, sodEnabled, references.ToJsonString(),
         });
         lock (Cache) if (Cache.TryGetValue(generation, out var cached)) return (cached, null);
@@ -113,7 +113,7 @@ public static class V1SodAnalysis
         var missing = new JsonArray();
         if (reason == "required_source_unavailable")
             foreach (var (name, present) in new[] { ("roles", c.Snapshot.Catalogue.Roles.Count > 0), ("users", c.Snapshot.Users.Users.Count > 0), ("sod", sod is not null) }) if (!present) missing.Add(name);
-        var captured = new Captured(generation, query.AsOf.ToString("yyyy-MM-dd"), users, result.Roles.Select(Enrich).ToList(),
+        var captured = new Captured(generation, query.AsOf.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), users, result.Roles.Select(Enrich).ToList(),
             new JsonObject
             {
                 ["user_findings"] = users.Count, ["role_findings"] = result.Roles.Count, ["users_with_findings"] = users.Select(u => (string)u["subject"]!).Distinct().Count(),

@@ -7,7 +7,10 @@ export function formatDate(value?: string | null, fallback = 'Unknown'): string 
   const get = (type: string) => parts.find(part => part.type === type)?.value || ''
   return `${get('day')}.${get('month')}.${get('year').padStart(4, '0')}`
 }
+/** Earlier server builds could write ISO instants with a regional time separator ("2026-11-27T08.05.00+00:00"); read them as the same instant. */
+const dottedTime = /^(\d{4}-\d{2}-\d{2}T\d{2})\.(\d{2})\.(\d{2})(\.\d{1,7})?(Z|[+-]\d{2}:\d{2})$/
 export function formatTimestamp(value?: string | null, fallback = 'Not available', seconds = false): string {
+  if (value && dottedTime.test(value)) value = value.replace(dottedTime, '$1:$2:$3$4$5')
   if (!value || value.startsWith('0000')) return fallback
   if (dateOnly.test(value)) return formatDate(value, fallback)
   const day = value.slice(0, 10)

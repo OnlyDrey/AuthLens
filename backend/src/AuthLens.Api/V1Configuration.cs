@@ -107,7 +107,7 @@ public static class V1Configuration
                 if (expectedRevision != (int)profile["revision"]!) throw new ImportConflictException("Reviewer profile changed. Reload before saving.");
                 profile["identity"]!["display_name"] = displayName.Trim();
                 profile["revision"] = (int)profile["revision"]! + 1;
-                profile["modified"] = clock.GetUtcNow().ToString("yyyy-MM-dd'T'HH:mm:ss.ffffffzzz");
+                profile["modified"] = clock.GetUtcNow().ToString("yyyy-MM-dd'T'HH:mm:ss.ffffffzzz", System.Globalization.CultureInfo.InvariantCulture);
             }
             if (row is null || displayName is not null)
             {

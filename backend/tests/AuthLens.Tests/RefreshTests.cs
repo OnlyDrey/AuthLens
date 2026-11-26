@@ -291,4 +291,102 @@ public sealed class RefreshTests : IAsyncLifetime
         Assert.Equal("idle", await scheduler.TickAsync(now.AddHours(6), CancellationToken.None));
         Assert.Null(JsonNode.Parse(await _client.GetStringAsync("/api/refresh-schedule"))!["next_run"]);
     }
+
+    // ---- Scheduled refresh on DASH1 showed "Not available" for every upcoming run and "Never" for the outcome: ISO timestamps were written with the
+    // regional time separator of the account the host runs as ("08.05.00" under da-DK or fi-FI with ICU), which browsers and the state reader refused.
+
+    private static readonly System.Text.RegularExpressions.Regex IsoInstant = new(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{6})?\+00:00$");
+
+    [Fact]
+    public void Timestamps_never_follow_the_regional_time_separator_and_earlier_dotted_values_are_repaired()
+    {
+        var previous = System.Globalization.CultureInfo.CurrentCulture;
+        var instant = new DateTimeOffset(2026, 11, 27, 8, 5, 0, TimeSpan.Zero);
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("da-DK");   // ICU: '.' between hours and minutes
+            Assert.Equal("2026-11-27T08:05:00+00:00", V1RefreshSchedule.Iso(instant));
+            Assert.Matches(IsoInstant, V1DataSources.Stamp(new ManualClock(instant, TimeZoneInfo.Utc)));
+            Assert.All(CronSchedule.NextRuns("5 9 * * *", "Europe/Oslo", instant, 3).Select(V1RefreshSchedule.Iso), run => Assert.Matches(IsoInstant, run));
+        }
+        finally { System.Globalization.CultureInfo.CurrentCulture = previous; }
+        Assert.Equal("2026-11-27T08:05:00.123456+00:00", IsoTimestamp.Repair("2026-11-27T08.05.00.123456+00:00"));
+        Assert.Equal("2026-11-27T08:05:00+00:00", IsoTimestamp.Repair("2026-11-27T08.05.00+00:00"));
+        foreach (var unchanged in new[] { "2026-11-27T08:05:00+00:00", "2026-11-27", "not a time", "" }) Assert.Equal(unchanged, IsoTimestamp.Repair(unchanged));
+        Assert.Null(IsoTimestamp.Repair((string?)null));
+        // The host itself runs culture-invariant, whatever the service account's regional format.
+        Assert.Same(System.Globalization.CultureInfo.InvariantCulture, System.Globalization.CultureInfo.DefaultThreadCurrentCulture);
+    }
+
+    private async Task Schedule(JsonObject schedule)
+    {
+        var settings = JsonNode.Parse(await _client.GetStringAsync("/api/configuration"))!["settings"]!.AsObject();
+        settings["refresh_schedule"] = schedule;
+        var saved = await _client.PostAsJsonAsync("/api/configuration", settings);
+        Assert.True(saved.IsSuccessStatusCode, await saved.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_daily_Europe_Oslo_schedule_reports_three_parseable_runs_across_daylight_saving_runs_once_and_keeps_its_state()
+    {
+        var file = Path.Combine(_root, "roles.csv");
+        File.Copy(Path.Combine(Fixtures, "imports", "report_roles_before.txt"), file);
+        await Select("roles", file);   // Dynamic
+        var scheduler = _app.Services.GetServices<IHostedService>().OfType<RefreshScheduler>().Single();
+        _clock.Now = new DateTimeOffset(2026, 3, 27, 12, 0, 0, TimeSpan.Zero);   // CEST starts on 29 March 2026 at 01:00 UTC
+        await Schedule(new JsonObject { ["enabled"] = true, ["mode"] = "daily", ["time"] = "09:05", ["cron"] = "0 6 * * *", ["timezone"] = "Europe/Oslo" });
+        string[] expected = ["2026-03-28T08:05:00+00:00", "2026-03-29T07:05:00+00:00", "2026-03-30T07:05:00+00:00"];
+        var status = JsonNode.Parse(await _client.GetStringAsync("/api/refresh-schedule"))!;
+        Assert.Null(status["error"]);
+        Assert.True((bool)status["scheduler_active"]!);
+        Assert.Equal(expected, status["next_runs"]!.AsArray().Take(3).Select(n => (string)n!));
+        Assert.Equal(expected[0], (string)status["next_run"]!);
+        var preview = JsonNode.Parse(await (await _client.PostAsJsonAsync("/api/refresh-schedule/preview", new { mode = "daily", time = "09:05", timezone = "Europe/Oslo", enabled = true })).Content.ReadAsStringAsync())!;
+        Assert.Equal(expected, preview["next_runs"]!.AsArray().Take(3).Select(n => (string)n!));
+        // Runtime change without a restart: a new definition starts from now; the due 09:05 slot runs once, the next tick does not repeat it.
+        Assert.Equal("idle", await scheduler.TickAsync(_clock.Now, CancellationToken.None));
+        Assert.Equal("idle", await scheduler.TickAsync(new DateTimeOffset(2026, 3, 28, 8, 4, 40, TimeSpan.Zero), CancellationToken.None));
+        Assert.Equal("succeeded", await scheduler.TickAsync(new DateTimeOffset(2026, 3, 28, 8, 5, 0, TimeSpan.Zero), CancellationToken.None));
+        Assert.Equal("idle", await scheduler.TickAsync(new DateTimeOffset(2026, 3, 28, 8, 5, 20, TimeSpan.Zero), CancellationToken.None));
+        _clock.Now = new DateTimeOffset(2026, 3, 28, 8, 6, 0, TimeSpan.Zero);
+        status = JsonNode.Parse(await _client.GetStringAsync("/api/refresh-schedule"))!;
+        Assert.Equal("2026-03-28T08:05:00+00:00", (string)status["state"]!["last_attempt"]!);
+        Assert.Equal("2026-03-28T08:05:00+00:00", (string)status["state"]!["last_success"]!);
+        Assert.Equal("2026-03-29T07:05:00+00:00", (string)status["next_run"]!);
+        // Dashboard, Diagnostics (Data Sources & Configuration) and the scheduler agree, all as parseable instants.
+        var diagnostics = JsonNode.Parse(await _client.GetStringAsync("/api/diagnostics"))!;
+        var roles = diagnostics["sources"]!.AsArray().Single(s => (string)s!["id"]! == "roles")!;
+        foreach (var value in new[] { (string?)roles["last_successful_load"], (string?)roles["last_checked"], (string?)roles["last_attempted_check"], (string?)diagnostics["last_successful_refresh"], (string?)diagnostics["scheduled_refresh"]!["last_attempt"] })
+            Assert.Matches(IsoInstant, value ?? "missing");
+        var dashboard = JsonNode.Parse(await _client.GetStringAsync("/api/dashboard"))!;
+        Assert.Equal((string?)diagnostics["last_successful_refresh"], (string?)dashboard["last_successful_refresh"]);
+        // A restart reads the same persisted outcome (a new state reader over the same data directory).
+        var restarted = new RefreshScheduleState(new AuthLens.Persistence.DatabaseOptions { DataDirectory = Path.Combine(_root, "data") }).Read();
+        Assert.Equal("2026-03-28T08:05:00+00:00", (string)restarted["last_success"]!);
+    }
+
+    [Fact]
+    public async Task Earlier_dotted_scheduler_state_is_repaired_instead_of_read_as_never_and_unusable_schedules_are_reported()
+    {
+        File.WriteAllText(Path.Combine(_root, "data", "refresh-schedule.json"), new JsonObject
+        {
+            ["last_attempt"] = "2026-11-26T08.05.00+00:00", ["last_success"] = "2026-11-26T08.05.00+00:00", ["last_failure"] = null,
+            ["last_status"] = "succeeded", ["last_message"] = "Refresh completed.", ["consecutive_failures"] = 0,
+        }.ToJsonString());
+        var state = JsonNode.Parse(await _client.GetStringAsync("/api/refresh-schedule"))!["state"]!;
+        Assert.Equal("2026-11-26T08:05:00+00:00", (string)state["last_attempt"]!);
+        Assert.Equal("succeeded", (string)state["last_status"]!);
+        // An enabled schedule that can never run, or names a zone this system lacks, is refused when it is saved, so it cannot look healthy.
+        foreach (var (schedule, message) in new[] {
+            (new JsonObject { ["enabled"] = true, ["mode"] = "cron", ["cron"] = "0 0 30 2 *", ["time"] = "06:00", ["timezone"] = "Europe/Oslo" }, "never runs"),
+            (new JsonObject { ["enabled"] = true, ["mode"] = "daily", ["time"] = "09:05", ["cron"] = "0 6 * * *", ["timezone"] = "Mars/Olympus_Mons" }, "not available on this system") })
+        {
+            var settings = JsonNode.Parse(await _client.GetStringAsync("/api/configuration"))!["settings"]!.AsObject();
+            settings["refresh_schedule"] = schedule;
+            var saved = await _client.PostAsJsonAsync("/api/configuration", settings);
+            Assert.False(saved.IsSuccessStatusCode);
+            Assert.Contains(message, await saved.Content.ReadAsStringAsync());
+        }
+        Assert.Null(JsonNode.Parse(await _client.GetStringAsync("/api/refresh-schedule"))!["next_run"]);   // nothing was saved: still disabled
+    }
 }
