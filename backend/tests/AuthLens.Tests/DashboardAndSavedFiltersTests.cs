@@ -214,9 +214,12 @@ public sealed class DashboardAndSavedFiltersTests : IAsyncLifetime
         {
             var globalMap = await Get($"/api/sod/matrix/{kind}?context=current&group_by=group&limit=200");
             var globalOverview = await Get("/api/sod/overview?context=current");
-            Assert.Equal("global", (string)globalMap["population"]!);
+            Assert.Null(globalMap["population"]);                                                          // v1 contract unchanged without the parameter
             Assert.Equal(Users(globalOverview), (int)globalMap["totals"]!["users"]!);                   // unfiltered: the same population
-            Assert.Equal(globalMap.ToJsonString(), (await Get($"/api/sod/matrix/{kind}?context=current&group_by=group&limit=200&population=overview")).ToJsonString());   // no population filter: the global view
+            var unfiltered = (await Get($"/api/sod/matrix/{kind}?context=current&group_by=group&limit=200&population=overview")).AsObject();
+            Assert.Equal("global", (string)unfiltered["population"]!);                                       // no population filter: the global view
+            unfiltered.Remove("population");
+            Assert.Equal(globalMap.ToJsonString(), unfiltered.ToJsonString());
             var byUser = await Get($"/api/sod/matrix/{kind}?context=current&limit=200");
             var users = byUser["rows"]!.AsArray().Select(r => r!.AsObject()).ToList();
             Assert.True(users.Count >= 2, "the fixture needs at least two users with conflicts");

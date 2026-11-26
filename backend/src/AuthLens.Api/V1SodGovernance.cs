@@ -146,7 +146,8 @@ public static class V1SodGovernance
         result["columns_truncated"] = matrix["columns"]!.AsArray().Count > MaxColumns; result["rows"] = pageRows; result["total_rows"] = rows.Count;
         result["offset"] = page.Offset; result["limit"] = page.Limit; result["status_counts"] = statusCounts; result["group_summaries"] = summaries;
         foreach (var (name, value) in matrix) if (name is not ("columns" or "rows")) result[name] = value?.DeepClone();
-        result["population"] = population is null ? "global" : "overview";
+        // Only requests that ask for a population report it, so the v1 matrix contract is unchanged.
+        if (http.Request.Query.ContainsKey("population")) result["population"] = population is null ? "global" : "overview";
         return Json(result);
     }
 
