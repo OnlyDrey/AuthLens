@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, postConfiguration } from './support'
+import { headers, postConfiguration, goTo } from './support'
 import { layoutMatrix } from './matrix'
 let directory: string
 const pattern = 'ZC:BC:DEMO:*'
@@ -30,13 +30,13 @@ test.beforeEach(async ({ request }) => {
 test.afterEach(async ({ request }) => { await request.post('/api/configuration/reset', { headers }); rmSync(directory, { recursive: true, force: true }) })
 async function openRole(page: Page, role = pattern) {
   await page.goto('/#session=browser-test-session')
-  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Role Lookup',exact:true}).click()
+  await goTo(page, 'Role Lookup')
   await page.getByRole('button', { name: `View details for ${role === pattern ? 'Investigation example' : role === 'ZC:BC:SECOND:*' ? 'Second example' : role}`, exact: true }).click()
   return page.getByRole('dialog')
 }
 async function openUser(page: Page) {
   await page.goto('/#session=browser-test-session')
-  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'User Access', exact: true }).click()
+  await goTo(page, 'User Access') // the navigation drawer below 1024 px
   await page.getByRole('link', { name: 'DEMO_REVIEW', exact: true }).click()
   return page.getByRole('region', { name: 'User details', exact: true })
 }

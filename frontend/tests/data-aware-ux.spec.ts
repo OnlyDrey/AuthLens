@@ -3,9 +3,10 @@ import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, backendFixture, recordClipboard, copiedText, postConfiguration } from './support'
+import { headers, backendFixture, recordClipboard, copiedText, postConfiguration, goTo } from './support'
 let directory = '', userSource = ''
-const navigate = (page: Page, name: string) => page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name, exact:true }).click()
+/** Main navigation through the shared helper, which opens the navigation drawer below 1024 px (bb3bceb). */
+const navigate = (page: Page, name: string) => goTo(page, name)
 test.beforeEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
   directory = mkdtempSync(path.join(tmpdir(), 'authlens-data-aware-'))

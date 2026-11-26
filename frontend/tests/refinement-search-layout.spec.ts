@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test'
 import {mkdtempSync,writeFileSync,appendFileSync,rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import { headers, postConfiguration } from './support'
+import { headers, postConfiguration, selectSettingsSection } from './support'
 let root:string
 test.beforeEach(async({request})=>{
  await request.post('/api/configuration/reset',{headers});root=mkdtempSync(path.join(tmpdir(),'authlens-search-ui-'))
@@ -31,12 +31,12 @@ for(const theme of ['light','dark'])for(const width of [375,800,1280,1600])test(
  const closeBox=(await close.boundingBox())!,identifier=(await page.locator('.role-detail-identifier').boundingBox())!
  expect(Math.abs(closeBox.x+closeBox.width-identifier.x-identifier.width)).toBeLessThan(2)
  await page.screenshot({path:info.outputPath(`sidebar-${theme}-${width}.png`)});await close.click()
- await page.getByRole('button',{name:'Open settings',exact:true}).click();await page.getByRole('tab',{name:'SAP Modules',exact:true}).click()
+ await page.getByRole('button',{name:'Open settings',exact:true}).click();await selectSettingsSection(page,'SAP Modules') // the Settings sections drawer below 768 px (61c4830)
  const grid=page.locator('.module-tile-grid');await expect(grid).toBeVisible();
  await page.screenshot({path:info.outputPath(`modules-${theme}-${width}.png`)});expect((await grid.evaluate(element=>getComputedStyle(element).gridTemplateColumns.split(' ').length))).toBe(width<=600?1:width<=1100?2:3)
  await expect(page.getByLabel('Module availability',{exact:true})).toHaveCount(0)
  await page.getByRole('searchbox').first().fill('zzzz-no-module');await expect(grid.getByText('No areas match your search.',{exact:true})).toBeVisible()
- await page.getByRole('tab',{name:'Appearance & Branding',exact:true}).click();await expect(page.getByAltText('Header logo preview',{exact:true})).toBeVisible()
+ await selectSettingsSection(page,'Appearance & Branding');await expect(page.getByAltText('Header logo preview',{exact:true})).toBeVisible()
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy()
  await page.screenshot({path:info.outputPath(`appearance-${theme}-${width}.png`)})
 })

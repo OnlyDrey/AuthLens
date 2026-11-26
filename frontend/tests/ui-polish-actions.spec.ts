@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { seedGovernance } from './sod-fixture'
-import { headers, openSettings, seedSources, type SeededSources, postConfiguration } from './support'
+import { headers, openSettings, seedSources, type SeededSources, postConfiguration, goTo } from './support'
 
 const roles = `FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,CHILD_AGR_TEXT,TCODE,TTEXT
 MM,ZC:MM:BUY:ENP,Buyer plant,ZS:SH,MM - Shared purchasing,MIGO,Goods movement
@@ -147,7 +147,7 @@ test('keyboard focus is fully revealed inside scrolling navigation strips at 375
   await seedGovernance(request, 'static')
   await page.setViewportSize({ width: 375, height: 900 })
   await page.goto('/#session=browser-test-session')
-  await page.getByRole('navigation', { name: 'Main navigation', exact: true }).getByRole('link', { name: 'SoD', exact: true }).click()
+  await goTo(page, 'SoD') // below 1024 px the main navigation is the drawer (bb3bceb)
   await page.getByRole('link', { name: 'Overview', exact: true }).first().focus()
   const seen: string[] = []
   for (let step = 0; step < 8; step++) {
@@ -162,7 +162,8 @@ test('keyboard focus is fully revealed inside scrolling navigation strips at 375
     seen.push(state.name)
     expect(state.inside, state.name).toBe(true)
   }
-  expect(seen).toEqual(expect.arrayContaining(['Activity Matrix', 'Reviews', 'Reports']))
+  // SoD keeps its four analysis pages; review pages moved to the Reviews workspace (e457ab6). The last ones need scrolling at 375 px.
+  expect(seen).toEqual(expect.arrayContaining(['Activity Matrix', 'Access Explorer']))
 })
 
 test('skip link is fully visible when focused', { tag: '@a11y' }, async ({ page }) => {
