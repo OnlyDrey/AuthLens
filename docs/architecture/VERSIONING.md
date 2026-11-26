@@ -17,7 +17,7 @@ Frontend package metadata mirrors that value. Builds do not increment the produc
 | Deployment module | `AuthLens.Deploy`, functions `*-AL*` |
 | Desktop installer | `AuthLens-<version>-Desktop-Setup.exe` (WP32, RC6 and later; earlier candidates `AuthLens-<version>-Setup.exe`) |
 | Server installer | `AuthLens-<version>-Server-Setup.exe` (WP32, RC6 and later; earlier candidates `AuthLens-Server-<version>-Setup.exe`) |
-| Build artifacts | `C:\AuthLens\{Build,Installer,Acceptance}\<version>\<UTC yyyy-MM-dd_HHmm>-<sha7>`, `Packages\AuthLens-<version>-<build-id>.zip`; installed release folders keep `AuthLens-<version>-<yyyyMMdd-HHmmss>-<sha7>-win-x64` |
+| Build artifacts | `C:\AuthLens\{Build,Installer,Acceptance}\<version>\<UTC yyyy-MM-dd_HHmm>-<sha7>`, `Packages\AuthLens-<version>-<build-id>.zip` (a later package of the same build `-pkg<N>.zip`; the build id is unchanged and the original package is kept); a flat package extracts to `C:\AuthLens\AuthLens-<version>-<build-id>` (the original nested RC6 package to `Installer\<version>\<build-id>`); installed release folders keep `AuthLens-<version>-<yyyyMMdd-HHmmss>-<sha7>-win-x64` |
 | Branding sources | [assets/branding](../../assets/branding/) |
 
 ## Compatibility identifiers (naming register)

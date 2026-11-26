@@ -25,7 +25,8 @@ transfer to it.
 | Build | `C:\AuthLens\Build\2.0.0\2026-11-26_0330-839123c` (`build-summary.json` schema 2, layout `category`, status `passed`) |
 | Installer | `C:\AuthLens\Installer\2.0.0\2026-11-26_0330-839123c` (both Setups, `installer-manifest.json`, `installers-SHA256SUMS`, `DEPLOY.txt`, `Expand-AuthLensPackage.ps1`, 10 packaged helpers) |
 | Acceptance | `C:\AuthLens\Acceptance\2.0.0\2026-11-26_0330-839123c\<run>` (created by the first acceptance run; the folder does not exist yet) |
-| Deployment package | `C:\AuthLens\Packages\AuthLens-2.0.0-2026-11-26_0330-839123c.zip`, 186,171,774 bytes, SHA-256 `f2ef8584f75ecb9dbd171f603c4c799bea3195601ed387b98a50a4a571e12d59` (checksum file `….zip.sha256`) |
+| Deployment package | `C:\AuthLens\Packages\AuthLens-2.0.0-2026-11-26_0330-839123c.zip`, 186,171,774 bytes, SHA-256 `f2ef8584f75ecb9dbd171f603c4c799bea3195601ed387b98a50a4a571e12d59` (checksum file `….zip.sha256`; original nested layout, kept unchanged) |
+| Flat deployment package (WP32 amendment) | `C:\AuthLens\Packages\AuthLens-2.0.0-2026-11-26_0330-839123c-pkg2.zip`, 186,171,623 bytes, SHA-256 `4d1249800a735f1195da482633c2f4e42f10e0c4c1aaa859772f973c5c0c81f0`: the same build repackaged with `New-AuthLensPackage.ps1 -PackageRevision 2` (no rebuild; build id and commit unchanged). Agent verification on the build host: root holds both Setups, `Expand-AuthLensPackage.ps1`, `README.txt`, `installer-manifest.json`, `package-manifest.json`, `SHA256SUMS.txt` and 11 `Tools/` entries; hardened extraction into an empty temporary folder with `-ExpectedSha256`: `verified`, layout `flat`, revision 2, 17 files; `-VerifyOnly` of the extracted folder passed; both Setups and `installer-manifest.json` byte-identical to the Installer folder; the original ZIP still hashes to `f2ef8584…`. Extraction on a target machine pending |
 | Tests run by the build | Standard focused filter: **155 passed, 0 failed, 0 skipped** |
 | Build verification | installers, secrets, branding and release: all `true`; package: passed (independent extraction verified by the build) |
 | Agent verification (read-only) | Manifest AuthLens 2.0.0, commit `839123c…`, not dirty; ZIP digest equals the checksum file; 18 entries, all under `Installer/2.0.0/2026-11-26_0330-839123c/`, none with keys, certificates, databases, backups, sources or tests; separate extraction with the packaged `Expand-AuthLensPackage.ps1` into an empty temporary folder: `verified`, 17 files, identical hashes to the Installer tree; a second extraction to the same place refused (never overwritten); the path-length guard refused a long destination before writing |
@@ -39,6 +40,7 @@ transfer to it.
 | `installer-manifest.json` | 924 | `a97baf6677a3bf85220ef3155b0320a6feed49ce1f1568e7c7793c517ef93dc5` |
 | `installers-SHA256SUMS` | 371 | `67c58a3767b2369b6a63fe63e2d2f98d035f25abc3d7567114e0315c7f655a89` |
 | `AuthLens-2.0.0-2026-11-26_0330-839123c.zip` | 186,171,774 | `f2ef8584f75ecb9dbd171f603c4c799bea3195601ed387b98a50a4a571e12d59` |
+| `AuthLens-2.0.0-2026-11-26_0330-839123c-pkg2.zip` (flat) | 186,171,623 | `4d1249800a735f1195da482633c2f4e42f10e0c4c1aaa859772f973c5c0c81f0` |
 
 **Known limits of RC6 (not acceptance results):** FILE-008 partial (no pre-import change indication); FULL regression not executed; both
 Setup programs unsigned; RC5 and older cannot be packaged as ZIP. See [RC6 candidate status](STATUS.md#rc6-candidate-status).

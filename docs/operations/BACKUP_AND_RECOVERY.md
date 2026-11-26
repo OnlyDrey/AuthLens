@@ -152,7 +152,7 @@ copies await Windows acceptance on RC6.
 | `recovery\Test-AuthLensRestoreRehearsal.ps1 -Bundle <bundle> -Verifier <AuthLens.Api.exe>` | Isolated restore into an owned loopback process, fingerprints compared with the archive and after a restart | Touch the active service, configuration, key or archive |
 
 A verified bundle proves that the backup opens with the copied key; it is **not** a restore rehearsal. Keep an operator copy outside the host
-(external escrow). The same scripts ship in every Installer folder and portable package (`installer-tools-*\recovery`). Details and report
+(external escrow). The same scripts ship in every Installer folder (`installer-tools-*\recovery`) and portable package (`Tools\recovery`). Details and report
 formats: [recovery bundle and rehearsal](../deployment/WINDOWS_DEPLOYMENT.md#recovery-bundle-restore-rehearsal-and-source-authority-wp22-wp23-after-rc4).
 
 ## Storage preflight and artifact retention

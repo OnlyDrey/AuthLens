@@ -749,7 +749,9 @@ Details: [imports and refresh](../data/IMPORT_AND_REFRESH.md#server-source-polic
 
 | Symptom | Cause and action |
 | --- | --- |
-| Package checksum mismatch | The ZIP differs from its `.sha256` file: incomplete or modified transfer. Copy both files again from the build host's `Packages` folder; never edit the checksum file |
+| Package checksum mismatch | The ZIP differs from the SHA-256 in the build report (`-ExpectedSha256`) or from a `.zip.sha256` beside it: incomplete or modified transfer. Copy the ZIP again from the build host's `Packages` folder; never edit the checksum |
+| `package_checksum: not_checked` | No trusted SHA-256 was given and no `.zip.sha256` lies beside the ZIP; `SHA256SUMS.txt` proved internal consistency only. Compare the ZIP's SHA-256 with the build report before installing |
+| `has no root Expand-AuthLensPackage.ps1` | The ZIP is not a flat package (for example the original nested RC6 package). Use the `Installer/<version>/<build-id>/Expand-AuthLensPackage.ps1` entry for it, or the flat `-pkg2` package |
 | Extraction refused (entries, manifest, identity) | The archive is not an unmodified AuthLens package. Do not use it; obtain a new copy |
 | `The target … exists and is never overwritten` | Run `-VerifyOnly -ExtractedDirectory` on it; install from it only if it verifies ([existing destination](#production-package-transfer)) |
 | `The destination path is too long for Windows PowerShell` | Extracted paths would reach 248 characters; use a shorter `-Destination` (the canonical `C:\AuthLens` fits) |
@@ -1600,31 +1602,49 @@ ZIP can also replace its `.sha256` file. Transfer both through a channel you con
 (`Get-AuthenticodeSignature` reports `NotSigned`); signing and timestamping are a production distribution gate
 ([versioning](../architecture/VERSIONING.md#200-target-notes-and-approval-gates)) and are not implemented.
 
-#### Portable deployment package (BUILD-009, BUILD-010)
+#### Portable deployment package (BUILD-009, BUILD-010; flat layout from the WP32 amendment)
 
-`-ZipPackage` (off by default) runs after the build, installers and verification passed. Packaging an existing verified build without rebuilding:
+`-ZipPackage` (off by default) runs after the build, installers and verification passed. Packaging an existing verified build without
+rebuilding (explicit selection; nothing is chosen automatically; `-OutputRoot C:\AuthLens -Candidate <version>\<build-id>` is equivalent):
 
 ```powershell
-# Explicit selection; nothing is chosen automatically. Equivalent: -OutputRoot C:\AuthLens -Candidate <version>\<build-id>
 .\backend\scripts\New-AuthLensPackage.ps1 -Candidate C:\AuthLens\Build\<version>\<build-id>
+# A later package of the same build, beside an existing one (the build identity is unchanged; only the package revision differs):
+.\backend\scripts\New-AuthLensPackage.ps1 -Candidate C:\AuthLens\Build\<version>\<build-id> -PackageRevision 2
 ```
 
-Before packaging, the passed summary, release and installer manifest identity, every file of `Installer\<version>\<build-id>` (size and SHA-256
-against `build-summary.json`; files added later are refused), both Setup programs, the packaged installation, verification and recovery tooling
-(`installer-tools.json`), `DEPLOY.txt` and `Expand-AuthLensPackage.ps1` are verified. Missing installers are never regenerated; legacy run
-directories are refused (they lack the extraction tooling). The archive contains only `Installer\<version>\<build-id>\` (the verified installer
-directory plus `package-manifest.json` with identity, file hashes and Authenticode status): no sources, tests, Build outputs, evidence,
-credentials, keys, certificates, databases or machine configuration. It is written as `*.partial-<guid>`, extracted and verified independently
-into a private temporary folder with the packaged `Expand-AuthLensPackage.ps1`, and only then renamed; the `.zip.sha256` file
-(`<sha256> *<name>`) is renamed last. Existing packages are never overwritten. A packaging failure removes only that run's partial files, leaves
-Build and Installer unchanged, is recorded in `build-summary.json` (`package`) and makes the `-ZipPackage` run exit 1. The summary and console
-report the package path, size, SHA-256, release identity and Authenticode status. **A checksum proves integrity against the recorded digest, not
-publisher authenticity; the current installers are unsigned (`NotSigned`) until an authorized signing step exists.**
+The archive is **flat**: no `Installer\<version>\<build-id>` folders inside it.
 
-**Historical releases.** Only builds in the category layout (RC6 and later) can be packaged. RC5 and older run directories
-(`C:\AuthLens\AuthLens-<version>-<UTC>-<sha7>`) lack `Expand-AuthLensPackage.ps1`, `DEPLOY.txt` and the build-summary binding the
-packager needs, so `New-AuthLensPackage.ps1` refuses them; they remain installable from their own `installer\` folder. Transfer and
-extraction on the target: [production package transfer](#production-package-transfer).
+```text
+AuthLens-<version>-<build-id>.zip            (revision 2 and later: AuthLens-<version>-<build-id>-pkg<N>.zip)
+    AuthLens-<version>-Server-Setup.exe
+    AuthLens-<version>-Desktop-Setup.exe
+    Expand-AuthLensPackage.ps1                verifies and extracts this package; re-verifies an extracted folder
+    README.txt                                operator steps for this package
+    installer-manifest.json                   release identity and Setup hashes (unchanged from the build)
+    package-manifest.json                     package identity: version, build id, commit, layout flat, package revision, signatures
+    SHA256SUMS.txt                            SHA-256 and relative path of every other file (forward slashes)
+    Tools\                                    installation, verification and recovery helpers with Tools\installer-tools.json
+```
+
+Before packaging, the passed summary, the release and installer manifest identity, every file of `Installer\<version>\<build-id>` (size and
+SHA-256 against `build-summary.json`), both Setup programs and the packaged tooling are verified; missing installers are never regenerated.
+The Setup programs and `installer-manifest.json` are copied byte for byte (their hashes do not change). `Expand-AuthLensPackage.ps1` and
+`README.txt` come from the packaging tooling (an older Installer folder carries an extraction script without flat support). `DEPLOY.txt` and
+`installers-SHA256SUMS` of the Installer folder are not packaged; `README.txt` and `SHA256SUMS.txt` replace them. The archive is written as
+`*.partial-<guid>`, extracted and verified independently, and only then renamed; its `.zip.sha256` (`<sha256> *<name>`) stays in `Packages`
+as build metadata and is reported in `build-summary.json` and on the console. Existing packages are never overwritten (choose another
+`-PackageRevision`). A packaging failure removes only that run's partial files and leaves Build and Installer unchanged.
+
+**Integrity and authenticity.** `SHA256SUMS.txt` lets the target check that the extracted files match each other's recorded digests; it
+cannot detect a replaced package, because the ZIP's own checksum cannot be inside it. Compare the ZIP's SHA-256 with the build report
+(`build-summary.json`, the console or the `.zip.sha256` in `Packages`) over a channel you trust. The installers are unsigned (`NotSigned`)
+until an authorized signing step exists; no checksum proves who published a file.
+
+**Historical packages.** The original RC6 package (`AuthLens-2.0.0-2026-11-26_0330-839123c.zip`, entries under
+`Installer/<version>/<build-id>/`, `package-manifest.json` schema 1) stays valid: the current `Expand-AuthLensPackage.ps1` still verifies and
+extracts it to `<Destination>\Installer\<version>\<build-id>`. RC5 and older run directories cannot be packaged (no build-summary binding
+and extraction tooling); they remain installable from their own `installer\` folder.
 
 #### Build-host artifact inventory and retention (WP34)
 
@@ -1670,90 +1690,82 @@ inventories (build host: `Invoke-AuthLensArtifactRetention.ps1`; installation: `
 
 ### Production package transfer
 
-Status: implemented; the packaged extraction passed on the build host for RC6; extraction on a target machine is **pending native
-acceptance**. The target needs only Windows PowerShell 5.1 (or 7); neither the repository nor the Build directory is used, and nothing has to
-be restructured by hand.
+Status: implemented; native extraction on a target machine is **pending acceptance**. The target needs only Windows PowerShell 5.1 (or 7);
+neither the repository nor the Build directory is used, and nothing is restructured by hand.
 
-1. On the build host, generate the release with `-ZipPackage` (or package an existing verified build with `New-AuthLensPackage.ps1`, above).
-2. Take `AuthLens-<version>-<build-id>.zip` and `AuthLens-<version>-<build-id>.zip.sha256` from `C:\AuthLens\Packages`.
-3. Copy **both** files directly to `C:\AuthLens` on the target machine, through a channel you control.
-4. In a Windows PowerShell session on the target, set `$zip` to the copied package and run the batch below. Every guard throws, so a failed
-   check stops all later steps. It verifies the checksum, reads only the extraction script out of the verified archive into a new private
-   temporary folder, verifies and extracts the package, re-verifies the extracted folder with its own copy of the script, checks the Setup
-   programs against `installers-SHA256SUMS` and reports their signature status.
+1. On the build host, generate the release with `-ZipPackage` (or package an existing verified build with `New-AuthLensPackage.ps1`).
+2. Take `AuthLens-<version>-<build-id>.zip` from `C:\AuthLens\Packages` and note its SHA-256 from the build report.
+3. Copy the ZIP to `C:\AuthLens` on the target machine. The `.zip.sha256` file is optional.
+4. Run the batch below in Windows PowerShell on the target. Every guard throws, so a failed check stops the later steps.
 
 ```powershell
 & {
     $ErrorActionPreference = 'Stop'
-    $zip = 'C:\AuthLens\AuthLens-<version>-<build-id>.zip'          # the copied package
-    $name = Split-Path $zip -Leaf
-    if ($name -notmatch '^AuthLens-(.+)-(\d{4}-\d{2}-\d{2}_\d{4}-[0-9a-f]{7}(?:-\d{2})?)\.zip$') { throw 'The package name is not AuthLens-<version>-<build-id>.zip.' }
-    $version = $Matches[1]; $id = $Matches[2]
-    $target = "C:\AuthLens\Installer\$version\$id"
-    if (-not (Test-Path -LiteralPath $zip -PathType Leaf) -or -not (Test-Path -LiteralPath "$zip.sha256" -PathType Leaf)) { throw 'Copy the ZIP and its .zip.sha256 file to C:\AuthLens first.' }
-    # 1. Integrity: the ZIP must equal its checksum file
-    $line = @(Get-Content -LiteralPath "$zip.sha256")
-    if ($line.Count -ne 1 -or $line[0].Trim() -notmatch '^([0-9a-fA-F]{64}) [ *](.+)$' -or $Matches[2] -cne $name) { throw 'The checksum file does not name exactly this package.' }
-    $expected = $Matches[1].ToLowerInvariant()
+    $zip = 'C:\AuthLens\AuthLens-<version>-<build-id>.zip'             # the copied package
+    $expected = '<SHA-256 of the ZIP from the build report>'           # leave empty only if no trusted value is available
+    if (-not (Test-Path -LiteralPath $zip -PathType Leaf)) { throw 'Copy the ZIP to C:\AuthLens first.' }
+    # 1. Integrity of the ZIP against trusted build metadata
     $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actual -cne $expected) { throw "Package SHA-256 $actual differs from the checksum file. Do not use this package." }
-    Write-Host "Package checksum verified: $actual"
-    # 2. Extraction tool: only Installer/<version>/<build-id>/Expand-AuthLensPackage.ps1, into a new private temporary folder
-    $entryName = "Installer/$version/$id/Expand-AuthLensPackage.ps1"
+    if ($expected -and $actual -cne $expected.Trim().ToLowerInvariant()) { throw "Package SHA-256 $actual differs from the build report. Do not use this package." }
+    # 2. Extraction tool: only the root Expand-AuthLensPackage.ps1, into a new private temporary folder
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $tool = New-Item -ItemType Directory -Path (Join-Path $env:TEMP ('authlens-expand-' + [guid]::NewGuid().ToString('N')))
     $script = Join-Path $tool.FullName 'Expand-AuthLensPackage.ps1'
     $archive = [IO.Compression.ZipFile]::OpenRead($zip)
     try {
-        $entries = @($archive.Entries | Where-Object { $_.FullName -ceq $entryName })
-        if ($entries.Count -ne 1) { throw "The package does not contain exactly one $entryName." }
+        $entries = @($archive.Entries | Where-Object { $_.FullName -ceq 'Expand-AuthLensPackage.ps1' })
+        if ($entries.Count -ne 1) { throw 'The package has no root Expand-AuthLensPackage.ps1 (not a flat AuthLens package).' }
         [IO.Compression.ZipFileExtensions]::ExtractToFile($entries[0], $script)
     } finally { $archive.Dispose() }
-    # 3. Verify every entry and extract into C:\AuthLens\Installer\<version>\<build-id>; an existing target is refused, never overwritten
-    try {
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -Package $zip -Destination C:\AuthLens
-        $code = $LASTEXITCODE
-    } finally { Remove-Item -LiteralPath $tool.FullName -Recurse }   # only the temporary folder this batch created
+    # 3. Verify every entry and extract into C:\AuthLens\AuthLens-<version>-<build-id>; an existing folder is refused, never overwritten
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script, '-Package', $zip, '-Destination', 'C:\AuthLens')
+    if ($expected) { $arguments += @('-ExpectedSha256', $expected) }
+    try { $output = & powershell.exe @arguments; $code = $LASTEXITCODE; $output | Write-Host } finally { Remove-Item -LiteralPath $tool.FullName -Recurse }
     if ($code -ne 0) { throw "Extraction refused or failed (exit $code); the reason is printed above. Nothing was overwritten." }
-    # 4. Re-verify the extracted folder with its own copy of the script (exact file set, sizes, hashes, identity)
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $target 'Expand-AuthLensPackage.ps1') -VerifyOnly -ExtractedDirectory $target
-    if ($LASTEXITCODE -ne 0) { throw "The extracted folder $target did not verify. Do not install from it." }
-    # 5. Setup programs against installers-SHA256SUMS, then signature status (integrity is not publisher authenticity)
-    foreach ($sum in Get-Content -LiteralPath (Join-Path $target 'installers-SHA256SUMS')) {
-        if ($sum -notmatch '^([0-9a-f]{64}) \*(.+)$') { throw "Unexpected line in installers-SHA256SUMS: $sum" }
-        $file = $Matches[2]; $hash = $Matches[1]
-        if ((Get-FileHash -LiteralPath (Join-Path $target $file) -Algorithm SHA256).Hash.ToLowerInvariant() -cne $hash) { throw "$file differs from installers-SHA256SUMS." }
-    }
-    Get-AuthenticodeSignature (Join-Path $target '*-Setup.exe') | Select-Object Status, Path | Format-Table -AutoSize
-    Write-Host "Verified installers: $target"
+    $result = (@($output | Where-Object { $_ -like 'AUTHLENS-PACKAGE: *' })[-1]).Substring(18) | ConvertFrom-Json
+    # 4. Re-verify the extracted folder with its own copy of the script (exact file set, SHA256SUMS.txt, identity, Setup hashes)
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $result.target 'Expand-AuthLensPackage.ps1') -VerifyOnly -ExtractedDirectory $result.target
+    if ($LASTEXITCODE -ne 0) { throw "The extracted folder $($result.target) did not verify. Do not install from it." }
+    Get-AuthenticodeSignature (Join-Path $result.target '*-Setup.exe') | Select-Object Status, Path | Format-Table -AutoSize
+    Write-Host "Verified installers: $($result.target)"
 }
 ```
 
-What the extraction refuses (exit 1, nothing written to the target): a ZIP that differs from its checksum file or a checksum file that names
-another file; a package name that is not `AuthLens-<version>-<build-id>.zip`; absolute, drive, `.`/`..`, duplicate, out-of-prefix or
-unlisted entries, and entries that `package-manifest.json` lists but the archive lacks; insufficient free space on the destination volume
-(package contents plus 64 MB; available, required and deficit are reported); a destination where any extracted path would reach 248
-characters (choose a shorter `-Destination`); and `package-manifest.json` and `installer-manifest.json` naming different releases. Files are
-written into a new sibling folder `.x-<random>`, verified and only then renamed to `Installer\<version>\<build-id>`.
+**Extraction rules** (exit 1, nothing written to the target when refused): the package name must be `AuthLens-<version>-<build-id>.zip` or
+`-pkg<N>.zip`; with `-ExpectedSha256`, `-ChecksumFile` or a `.zip.sha256` beside the ZIP the ZIP must match it, otherwise the result reports
+`package_checksum: not_checked`; every entry must be relative, without a drive, `.` or `..`, duplicates or folders outside `Tools/`, and the
+archive must contain exactly the files `SHA256SUMS.txt` lists plus `SHA256SUMS.txt`; free space on the destination volume must cover the
+contents plus 64 MB; extracted paths must stay below 248 characters. Files go into a new sibling `.x-*` folder; every SHA-256, the identity of
+`package-manifest.json` and `installer-manifest.json`, both Setup hashes and `Tools\installer-tools.json` are verified; only then is the folder
+renamed to `C:\AuthLens\AuthLens-<version>-<build-id>` (a later package revision extracts to the same release folder name).
 
-**When the destination already exists.** `Installer\<version>\<build-id>` is never overwritten, merged or deleted. Run step 4 (`-VerifyOnly`)
-against it: if it verifies, it is the same verified package and you can install from it; if it does not, do not use it, keep it for
-investigation and extract into another, approved destination with `-Destination`. A folder that merely exists is never proof of a complete
-extraction. An interrupted extraction leaves only a `.x-*` folder, which is reported by the next run and never treated as a package; remove it
-only after review.
+**Alternative: Windows Explorer.** Right-click the ZIP, *Extract All*, choose the new folder `C:\AuthLens\AuthLens-<version>-<build-id>`, then
+verify it before installing (the hardened script above remains the recommended method):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\AuthLens\AuthLens-<version>-<build-id>\Expand-AuthLensPackage.ps1 -VerifyOnly -ExtractedDirectory C:\AuthLens\AuthLens-<version>-<build-id>
+```
+
+Manual check of the internal checksums, from inside the extracted folder:
+
+```powershell
+& { $ErrorActionPreference = 'Stop'; foreach ($line in Get-Content .\SHA256SUMS.txt) { if ($line -notmatch '^([0-9a-f]{64}) \*(.+)$') { throw "Invalid line: $line" }; if ((Get-FileHash -LiteralPath $Matches[2] -Algorithm SHA256).Hash.ToLowerInvariant() -cne $Matches[1]) { throw "$($Matches[2]) differs." } }; 'All files match SHA256SUMS.txt.' }
+```
+
+**When the destination already exists.** It is never overwritten, merged or deleted. Run `-VerifyOnly` against it: if it verifies, it is the
+same verified package and you can install from it; if not, keep it for investigation and extract with another approved `-Destination`. An
+interrupted extraction leaves only a `.x-*` folder, which is reported by the next run and never treated as a package; remove it after review.
 
 **Install from the verified folder.**
 
-- **Server** (elevated): run `AuthLens-<version>-Server-Setup.exe` from `C:\AuthLens\Installer\<version>\<build-id>`. A fresh installation
-  creates the `AuthLens` service under `C:\ProgramData\AuthLens`. Before an upgrade, create and verify an independent recovery bundle
-  (Service Manager, Backup and recovery keys, or `installer-tools-*\recovery\New-AuthLensRecoveryBundle.ps1`) and run
-  [upgrade readiness](#read-only-upgrade-readiness); Setup then detects the installation, takes and verifies a backup before it stops the
-  service, and keeps configuration, data, keys and certificates. Silent upgrade: `/CONFIGFILE=<deploy.json> /OPERATION=Upgrade /LOG=<file>`
-  ([upgrade commands](#manual-installer-upgrade-commands)).
+- **Server** (elevated): run `AuthLens-<version>-Server-Setup.exe` from `C:\AuthLens\AuthLens-<version>-<build-id>`. A fresh installation creates
+  the `AuthLens` service under `C:\ProgramData\AuthLens`. Before an upgrade, create and verify an independent recovery bundle (Service Manager,
+  Backup and recovery keys, or `Tools\recovery\New-AuthLensRecoveryBundle.ps1`) and run [upgrade readiness](#read-only-upgrade-readiness); Setup
+  takes and verifies a backup before it stops the service and keeps configuration, data, keys and certificates. Silent upgrade:
+  `/CONFIGFILE=<deploy.json> /OPERATION=Upgrade /LOG=<file>` ([upgrade commands](#manual-installer-upgrade-commands)).
 - **Desktop** (as the user): run `AuthLens-<version>-Desktop-Setup.exe`; no service, no Server configuration.
 - **Repair, uninstall and recovery:** [installers](#installers), [manual installer transaction](#manual-installer-transaction),
-  [interrupted Setup and recovery](#interrupted-setup-and-recovery). Uninstall is preservation-only: it removes the program and owned service
-  resources and keeps data, keys, certificates and backups; there is no data-purge uninstall.
+  [interrupted Setup and recovery](#interrupted-setup-and-recovery). Uninstall is preservation-only.
 
 ## Installer reliability, access-mode and preparation details
 

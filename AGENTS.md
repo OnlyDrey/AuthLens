@@ -119,9 +119,10 @@ From the repository root ([development](docs/development/README.md)).
   Append `-ZipPackage` for the optional portable deployment package. One build id `<UTC yyyy-MM-dd_HHmm>-<sha7>` (collisions get `-02` to
   `-99`) names every category: the verified release plus `build-summary.json` and `build.log` in `C:\AuthLens\Build\<version>\<build-id>`, the
   Setup programs, manifests and packaged tooling in `C:\AuthLens\Installer\<version>\<build-id>`, acceptance evidence in
-  `C:\AuthLens\Acceptance\<version>\<build-id>\<run>`, and with `-ZipPackage` `C:\AuthLens\Packages\AuthLens-<version>-<build-id>.zip` with its
-  `.zip.sha256`. An existing verified build is packaged without rebuilding by
-  `.\backend\scripts\New-AuthLensPackage.ps1 -Candidate C:\AuthLens\Build\<version>\<build-id>` (RC5 and older run directories cannot be packaged).
+  `C:\AuthLens\Acceptance\<version>\<build-id>\<run>`, and with `-ZipPackage` the flat `C:\AuthLens\Packages\AuthLens-<version>-<build-id>.zip` with its
+  `.zip.sha256` (optional on the target; the ZIP extracts to `C:\AuthLens\AuthLens-<version>-<build-id>`). An existing verified build is packaged
+  without rebuilding by `.\backend\scripts\New-AuthLensPackage.ps1 -Candidate C:\AuthLens\Build\<version>\<build-id>` (`-PackageRevision <N>` for a
+  later `-pkg<N>` package of the same build; RC5 and older run directories cannot be packaged).
   Do not call `build-release.ps1`/`build-installers.ps1` directly for candidates, and do not use other output roots (RC, acceptance, development
   or user-profile folders) without explicit approval. RC5 and older candidates keep their legacy run directories
   `C:\AuthLens\AuthLens-<version>-<UTC>-<sha7>` and evidence under `C:\AuthLens\acceptance\<run directory name>`; they are resolved in place.

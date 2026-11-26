@@ -18,7 +18,7 @@ source commit. **NOT APPROVED.**
 | Strict ACL gate | Implemented (`-StrictAcl`); native acceptance **pending** (expected to refuse while the named operator account on VM130 is unreviewed) |
 | Recovery bundle in Service Manager | Implemented (QA-028); native acceptance **pending** |
 | Storage preflight and retention | Implemented (WP34); native acceptance **pending** (Setup text, `ArtifactInventory`, `PruneArtifacts -DryRun`) |
-| Package transfer | Implemented; extraction on a target machine **pending** |
+| Package transfer | Implemented: flat package (WP32 amendment) with root `Expand-AuthLensPackage.ps1`, internal `SHA256SUMS.txt` and optional `.zip.sha256`; extraction on a target machine **pending** |
 | iOS Safari | Implemented for WebKit/emulation; acceptance on a real iPhone **pending** (R6-M1) |
 | RC5 and older packaging | Not supported: legacy run directories lack the extraction tooling; they stay installable from their own folders |
 | Signing | Both Setup programs `NotSigned`; checksums prove integrity, not publisher authenticity |

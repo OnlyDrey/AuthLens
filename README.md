@@ -133,8 +133,8 @@ C:\AuthLens\
         <version>\
             <build-id>\
     Packages\
-        AuthLens-<version>-<build-id>.zip
-        AuthLens-<version>-<build-id>.zip.sha256
+        AuthLens-<version>-<build-id>.zip          (a later package of the same build: -pkg<N>.zip)
+        AuthLens-<version>-<build-id>.zip.sha256   (build metadata; optional on the target)
 ```
 
 The build id is `<UTC yyyy-MM-dd_HHmm>-<sha7>`: the UTC build time and the first seven characters of the source commit. It is generated once
@@ -153,10 +153,12 @@ RC5 and older candidates keep their legacy run directories `C:\AuthLens\AuthLens
 
 ## Portable deployment packages
 
-A package contains only `Installer\<version>\<build-id>\` plus a `package-manifest.json`: no sources, tests, Build outputs, evidence,
-credentials, keys, certificates or databases. On the target machine, copy the ZIP and its `.zip.sha256` to `C:\AuthLens`, verify the checksum
-and extract with the packaged `Expand-AuthLensPackage.ps1`, which refuses modified packages, unexpected entries and existing destinations.
-Neither the repository nor the Build directory is needed. The copy-paste procedure is in
+A package is flat: both Setup programs, `Expand-AuthLensPackage.ps1`, `README.txt`, `installer-manifest.json`, `package-manifest.json`,
+`SHA256SUMS.txt` and `Tools\` sit at the root of the ZIP; there are no sources, tests, Build outputs, evidence, credentials, keys,
+certificates or databases. On the target machine, copy the ZIP to `C:\AuthLens` and extract it with its own `Expand-AuthLensPackage.ps1`
+(passing the ZIP's SHA-256 from the build report; the `.zip.sha256` file is optional) into `C:\AuthLens\AuthLens-<version>-<build-id>`. The
+script refuses modified packages, unexpected entries and existing destinations; Explorer's *Extract All* followed by `-VerifyOnly` is the
+alternative. Neither the repository nor the Build directory is needed. The copy-paste procedure is in
 [production package transfer](docs/deployment/WINDOWS_DEPLOYMENT.md#production-package-transfer).
 
 A SHA-256 checksum proves that the files match the recorded digest (integrity), not who published them (authenticity). The current

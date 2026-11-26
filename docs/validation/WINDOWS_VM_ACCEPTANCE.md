@@ -28,7 +28,7 @@ Package status is in the [work-package tracker](WORK_PACKAGES.md).
 | Clients | A domain workstation with Edge for browser steps |
 | Certificates | Lab PFX `lab-server.pfx` with SANs `lens.example.org` and `192.0.2.10`, its password in a separate file; a second PFX `lab-renewed.pfx` with the same SANs; a third PFX `lab-wrong-name.pfx` **without** those SANs (negative test) |
 | Software | None beyond Windows; the release is self-contained. WebView2 Runtime only for the Desktop check |
-| Candidate | The build folder from the build host (see the current candidate in the [acceptance tracker](ACCEPTANCE_TRACKER.md#candidates)), in `C:\AuthLens\Build\<version>\<build-id>` and `C:\AuthLens\Installer\<version>\<build-id>` (built there, or the installer tree extracted from the portable package with `Expand-AuthLensPackage.ps1`; RC5 and earlier: the legacy run directory, read in place); verify hashes first (A1) |
+| Candidate | The build folder from the build host (see the current candidate in the [acceptance tracker](ACCEPTANCE_TRACKER.md#candidates)), in `C:\AuthLens\Build\<version>\<build-id>` and `C:\AuthLens\Installer\<version>\<build-id>` (built there; on a target that received only the flat portable package, `C:\AuthLens\AuthLens-<version>-<build-id>` extracted with its `Expand-AuthLensPackage.ps1`, whose helpers are under `Tools\`; RC5 and earlier: the legacy run directory, read in place); verify hashes first (A1) |
 | Data | Synthetic CSV exports for every supported source (role catalogue, user–role mapping, user accounts, SoD matrix, Employee Directory); one malformed and one empty variant |
 | Accounts | Two AuthLens accounts created during the run: `admin.synthetic` (Administrator) and `reviewer.synthetic` (Reviewer) |
 
@@ -37,8 +37,9 @@ Operator variables (set once per session):
 ```powershell
 $id      = '<build-id>'                                   # WP32: <UTC yyyy-MM-dd_HHmm>-<sha7> printed by build.ps1
 $release = "C:\AuthLens\Build\2.0.0\$id"                  # the verified release itself
-$built   = "C:\AuthLens\Installer\2.0.0\$id"              # installers and packaged tools (also what the portable package extracts)
+$built   = "C:\AuthLens\Installer\2.0.0\$id"              # installers and packaged tools on the build host
 $tools   = (Get-ChildItem $built -Directory -Filter 'installer-tools-*').FullName
+# Target with only the flat portable package: $built = "C:\AuthLens\AuthLens-2.0.0-$id"; $tools = Join-Path $built 'Tools'
 $server  = Join-Path $built 'AuthLens-2.0.0-Server-Setup.exe'
 $desktop = Join-Path $built 'AuthLens-2.0.0-Desktop-Setup.exe'
 $data    = 'C:\ProgramData\AuthLens\data'
