@@ -247,7 +247,10 @@ public static class V1AccountReview
                 || positionType is not ("" or "department" or "title" or "both")) return Detail(422, "Invalid account review query.");
             if (wanted.Any(w => !FilterNames.Contains(w))) return Detail(422, "Unknown review finding.");
             var (state, directory, items, generation, _) = await CurrentAsync(services, ct);
-            var (selectedNames, selectionError) = await SubjectSelection.ResolveAsync(services, q, ct);
+            // COR-2: `review_states` is this page's decision filter (applied to the effective review state below). The shared population resolver has a
+            // governance dimension of the same name (pending/completed); passing it through emptied the population, so it is not forwarded.
+            var populationQuery = new Microsoft.AspNetCore.Http.QueryCollection(q.Where(p => p.Key is not ("review_states" or "review_state")).ToDictionary(p => p.Key, p => p.Value));
+            var (selectedNames, selectionError) = await SubjectSelection.ResolveAsync(services, populationQuery, ct);
             if (selectionError is not null) return selectionError;
             var loaded = state.Ids.Users is not null;
             var term = search.Trim();

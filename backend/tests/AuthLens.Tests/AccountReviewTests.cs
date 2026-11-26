@@ -134,6 +134,14 @@ public sealed class AccountReviewTests : IAsyncLifetime
         Assert.DoesNotContain(queue["items"]!.AsArray(), r => (string)r!["username"]! == "USER0002");
         var completed = Row(await reviewer.Get("/api/account-review?include_completed=true"), "USER0002");
         Assert.Equal(("completed", "No action required", 1), ((string)completed["workflow_status"]!, (string)completed["review_state"]!, (int)completed["history_count"]!));
+        // COR-2: the Review decision filter matches the effective review state; a completed decision is shown when it is filtered for.
+        static string[] Names(JsonNode page) => page["items"]!.AsArray().Select(r => (string)r!["username"]!).ToArray();
+        var byDecision = await reviewer.Get("/api/account-review?review_states=No%20action%20required");
+        Assert.Equal(["USER0002"], Names(byDecision));
+        Assert.Equal((1, 0), ((int)byDecision["total"]!, (int)byDecision["completed_hidden"]!));
+        Assert.Equal(["USER0002"], Names(await reviewer.Get("/api/account-review?review_states=No+action+required&review_states=Investigating")));
+        Assert.DoesNotContain("USER0002", Names(await reviewer.Get("/api/account-review?review_states=Investigating&include_completed=true")));
+        Assert.Contains("USER0001", Names(await reviewer.Get("/api/account-review?review_states=Needs%20review")));
         var history = await reviewer.Get("/api/account-review/history/USER0002");
         Assert.Equal(("Investigating", 1), ((string)history["items"]![0]!["state"]!, (int)history["total"]!));
 
