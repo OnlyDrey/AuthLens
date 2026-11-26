@@ -96,8 +96,11 @@ test('BUG-03 and BUG-06: Functional Groups open their member list by id, and gro
   const chips = page.locator('.fg-chips').first()
   await expect(chips).toBeVisible()
   // BUG-06: no reserved fixed width: the chip group is no wider than its labels and action plus gaps.
-  const widths = await chips.evaluate(el => ({ box: el.getBoundingClientRect().width, content: Array.from(el.querySelectorAll('.fg-chip-stack, .fg-group-action')).reduce((sum, child) => sum + child.getBoundingClientRect().width, 0) }))
+  const widths = await chips.evaluate(el => ({ box: el.getBoundingClientRect().width, content: Array.from(el.querySelectorAll('.fg-chip-item')).reduce((sum, child) => sum + child.getBoundingClientRect().width, 0) }))
   expect(widths.box - widths.content).toBeLessThan(24)
+  // BUG-013: the first group is a named pill that opens its members, the rest are summarized as "+2".
+  await expect(chips.getByRole('button', { name: 'Show members of Teknologi', exact: true })).toBeVisible()
+  await expect(chips.getByRole('button', { name: /Show all 3 Functional Groups/ })).toHaveText('+2')
   await chips.getByRole('button', { name: /Show all 3 Functional Groups/ }).click()
   const dialog = page.getByRole('dialog', { name: /Functional Groups of/ })
   for (const group of groups) await expect(dialog.getByRole('button', { name: `Show members of ${group.name}` })).toBeVisible()

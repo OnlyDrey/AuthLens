@@ -342,6 +342,18 @@ exactly one picker appears, and confirm the header is one row without clipped ac
 | BUG-011 Duplicate dropdown on iOS Safari | Reasoned from the code path; not reproducible without iOS Safari | Shared `Select` opened its custom popup on `mousedown`; iOS also shows the native picker for the touched `<select>`, so two lists appeared | Touch pointers (`pointerType` `touch`) leave the native picker alone and close the custom popup; mouse and keyboard are unchanged | `mobile-ui-wp29.spec.ts` (touch versus mouse), existing Select specs | Fixed (source), iOS pending |
 | BUG-012 Mobile header and sticky areas | Reproduced: header wrapped to 116 px at 390 px | Brand and utilities wrapped onto two rows | One nowrap row below 768 px, brand ellipsized, 44 px touch targets kept, safe-area insets for the header and the Settings action bar | `mobile-ui-wp29.spec.ts` (≤ 64 px at 390/375/320, no horizontal scroll), `mobile-acceptance.spec.ts` touch targets | Fixed (source), iOS pending |
 
+### RC6 Functional Group pill layout (BUG-013, P1, target 2.0.0)
+
+Found during RC6 acceptance on DASH1: in the User directory and Account Review the Functional Group cell showed two stacked pills with the
+**View groups** action drawn over them. Frontend-only; the RC6 backend already returns group id, name and status in `functional_groups` and
+serves `/api/functional-groups/<id>/members` (no backend source change since `839123c`).
+
+| Item | Root cause | Resolution | Regression tests | Status |
+| --- | --- | --- | --- | --- |
+| BUG-013 Functional Group pills overlap | `.fg-chip-stack` was a CSS grid whose auto track had the min-content of the nowrap label (up to 14rem), so it could not shrink inside the bounded cell; the two stacked pills overflowed and the ghost **View groups** button was laid over them | `Shared/FunctionalGroupPills`: one nowrap line, the first group as a named pill (ellipsis, full name in title and accessible name) that opens its member list, then `+X` (X = remaining groups) that never shrinks and opens the full list; 0 groups shows `Unassigned`; no fixed column width | `user-directory-scope.spec.ts` (0, 1, 2, 3, 5 groups, long name, narrow column, 390/1280 px, light/dark, keyboard and dialogs), `functional-groups.spec.ts` (User directory and Account Review), `user-feedback-2026-11.spec.ts` (BUG-03/BUG-06) | Fixed (source), browser run and DASH1 recheck pending |
+
+Pills stay 28 px high (below the 44 px touch target guidance); no real iPhone check has run.
+
 Baseline browser failures investigated in RC6 (all test defects with outdated expectations; no assertion was weakened):
 
 | Spec | Root cause | Correction |

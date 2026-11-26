@@ -141,8 +141,8 @@ if this limit is reached.
 ## Table presentation and exports
 
 **Columns** opens the shared editor for visibility, order and one-line cells. Sticky selection/identity columns remain fixed; other fields can be
-reordered or hidden. Preferences are local to the browser profile and persist on reload. Functional Groups use bounded pills; **+N** or **View groups**
-opens a read-only list of every group, including archived labels, without opening a record editor. Exported group values include the complete list.
+reordered or hidden. Preferences are local to the browser profile and persist on reload. Functional Groups use one line per cell (BUG-013): the first group as a
+named pill that opens its member list, and **+X** for the remaining groups, which opens a read-only list of every group, including archived labels, without opening a record editor. Exported group values include the complete list.
 
 The primary table export uses selected columns in their current order; **Export all columns** is an explicit alternative. These exports contain
 only displayed rows, not other result pages. Existing full assignment/evidence exports retain their documented all-matching scope and revision checks.

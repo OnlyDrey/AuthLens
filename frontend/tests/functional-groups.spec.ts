@@ -271,11 +271,12 @@ test('User Access shows Directory job title and department, group chips with ove
   await expect(table.getByRole('columnheader', { name: 'Job title', exact: true })).toBeVisible()
   await expect(row.locator('[data-col="title"]')).toHaveText('Buyer')
   await expect(row.locator('[data-col="department"]')).toHaveText('Finance')
-  // Two readable badges and a single-line "+2 more" action; full membership stays available in the dialog/export.
+  // BUG-013: one named pill (the first group) and a "+3" pill on one line; full membership stays available in the dialog/export.
   const chips = row.getByRole('list', { name: 'Functional Groups of DEMO_FG', exact: true })
-  await expect(chips.locator('.fg-chip:not(.fg-chip-more)')).toHaveCount(2)
+  await expect(chips.locator('.fg-chip:not(.fg-chip-more)')).toHaveCount(1)
+  await expect(chips.getByRole('button', { name: /^Show members of / })).toHaveCount(1)
   const more = chips.getByRole('button', { name: 'Show all 4 Functional Groups of DEMO_FG' })
-  await expect(more).toHaveText('+2 more')
+  await expect(more).toHaveText('+3')
   await more.click()
   const groupDialog=page.getByRole('dialog',{name:'Functional Groups of DEMO_FG',exact:true})
   for(const name of names)await expect(groupDialog).toContainText(name)
@@ -286,7 +287,10 @@ test('User Access shows Directory job title and department, group chips with ove
   const groupIndex=await reviews.getByRole('columnheader',{name:'Functional Group',exact:true}).getAttribute('data-column-index')
   const reviewed=reviews.getByRole('row').filter({has:page.getByRole('link',{name:'DEMO_FG',exact:true})})
   const groupCell=reviewed.locator(`[data-column-index="${groupIndex}"]`)
-  await expect(groupCell.getByRole('list',{name:'Functional Groups of DEMO_FG',exact:true})).toBeVisible()
+  const reviewGroups=groupCell.getByRole('list',{name:'Functional Groups of DEMO_FG',exact:true})
+  await expect(reviewGroups).toBeVisible()
+  await expect(reviewGroups.locator('.fg-chip:not(.fg-chip-more)')).toHaveCount(1)
+  await expect(reviewGroups.getByRole('button',{name:'Show all 4 Functional Groups of DEMO_FG',exact:true})).toHaveText('+3')
   await expect(groupCell).not.toContainText('Manager:')
   await page.getByRole('link',{name:'User directory',exact:true}).click()
   // Sorting by a Directory column is a server sort and keeps the user.

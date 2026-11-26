@@ -157,11 +157,13 @@ and never grants, removes or approves access, creates accepted risks or changes 
 
 ## Navigating from a user's groups (BUG-03, after RC4)
 
-In User Access, **View groups** (or **+n more**) lists a user's Functional Groups; each group with a stable id is a button that opens its member
+In User Access and Account Review a group cell is one line (BUG-013): the first group is a named pill that opens its member list directly, and a
+**+X** pill (X = the remaining groups) lists all of a user's Functional Groups; each group with a stable id is a button that opens its member
 list (`/api/functional-groups/<id>/members`, the existing members view with count, status and search). Administrators get the full member
 management; other roles get the same list read-only (no add, remove or selection). Groups are addressed by id, never by display name, and a
 group without an id stays informational. Several memberships of one user are all listed. Group cells size to their labels (BUG-06): no reserved
-fixed width, labels up to 14rem with an ellipsis and the full name in the tooltip, one shared column width per table.
+fixed width, the named pill up to 14rem with an ellipsis and the full name in the tooltip and accessible name, the **+X** pill never truncated,
+one shared column width per table.
 
 ## Multiple memberships, suggestion rules and member management
 

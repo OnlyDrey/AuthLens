@@ -1503,11 +1503,16 @@ summary:focus-visible,div[tabindex="0"]:focus-visible,a.role-identifier-link:foc
 .user-directory-table .ud-cell[data-col="email"] { min-width:12rem; max-width:20rem; }
 .user-directory-table .ud-cell[data-col="fg"] { max-width:20rem; vertical-align:middle; }
 .user-directory-table .ud-ellipsis { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.fg-chips { display:inline-flex; align-items:center; gap:var(--space-2); max-width:100%; min-width:0; white-space:normal; }
-.fg-chip-stack { display:grid; flex:0 1 auto; justify-items:start; min-width:0; gap:var(--space-1); }
-.fg-chip { display:block; max-width:14rem; height:1.75rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 var(--space-2); border:1px solid var(--border); border-radius:999px; background:var(--surface2); color:var(--text); font-size:var(--text-xs,0.75rem); line-height:calc(1.75rem - 2px); }
-.fg-group-action { flex:none; }
-.fg-group-action > .ui-button { min-height:1.75rem; height:1.75rem; padding:0 var(--space-2); white-space:nowrap; }
+/* BUG-013: one line per cell: the named pill shrinks and truncates, the +X pill keeps its full width; no fixed column width (BUG-06). */
+.fg-chips { display:inline-flex; flex-wrap:nowrap; align-items:center; gap:var(--space-1); max-width:100%; min-width:0; vertical-align:middle; white-space:nowrap; }
+.fg-chip-item { display:flex; flex:0 1 auto; min-width:0; }
+.fg-chip-item-more { flex:none; }
+.fg-chip { display:inline-flex; align-items:center; max-width:14rem; min-width:0; height:1.75rem; padding:0 var(--space-2); border:1px solid var(--border); border-radius:999px; background:var(--surface2); color:var(--text); font:inherit; font-size:var(--text-xs,0.75rem); line-height:1; white-space:nowrap; }
+.fg-chip-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+button.fg-chip { cursor:pointer; }
+button.fg-chip:hover { border-color:var(--accent); background:var(--hover); }
+button.fg-chip:focus-visible { outline:var(--focus-width) solid var(--focus); outline-offset:var(--focus-offset); }
+.fg-chip-more { flex:none; min-width:2rem; justify-content:center; font-variant-numeric:tabular-nums; }
 /* BUG-03: groups in the "Functional Groups of" dialog open their member list. */
 .fg-group-link { display:flex; width:100%; min-width:0; align-items:center; gap:var(--space-2); padding:var(--space-2); border-radius:var(--radius-control); text-align:left; color:var(--text); }
 .fg-group-link:hover { background:var(--hover); }

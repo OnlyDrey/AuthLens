@@ -18,7 +18,7 @@ Paths below are relative to `frontend/src/components/`. The inventory covers reu
 | IconButton / Tooltip, same file | Navbar utilities, comparison user links, library | Required label; focus/hover tooltip, Escape, disabled/loading states. No hidden text-only dependency |
 | ButtonGroup, same file | Release Table/Matrix, transaction AND/OR, library | Native pressed buttons, named group; this is a presentation/filter control, not page navigation |
 | `Shared/Controls.tsx`: Input / SearchInput | Library and shared form contract; legacy Settings/Access inputs use `controlClass` | IDs/ARIA forwarded; search icon space, invalid/disabled states; optional `onClear`/`clearLabel` gives a keyboard-accessible action that respects disabled state and restores input focus; no copied theme color literals |
-| `Shared/FunctionalGroupPills.tsx` | User directory and Account Review | Two equal-width, 28 px badges in a bounded stack; single-line `+N more` or View groups action opens the full keyboard-accessible list. Full names stay in DOM/title and every membership remains in `data-export-value`; no classification/filter changes |
+| `Shared/FunctionalGroupPills.tsx` | User directory and Account Review | One line per cell (BUG-013): the first group (API order) as a 28 px named pill (button, ellipsis at 14rem, full name in title and accessible name) that opens that group's member list, then a `+X` pill (X = remaining groups, never shrinks) that opens the full keyboard-accessible list; no groups shows muted `Unassigned`. Full names stay in DOM/title and every membership remains in `data-export-value`; no classification/filter changes |
 | PasswordInput, same file | My Profile, sign-in and password reset, user creation | Password `<input>` with a visibility toggle: a real button after the input (`aria-pressed`, "Show password"/"Hide password"), above the input in the stacking order so it is clickable; the value never leaves the input. Use inside FormField |
 | `Shared/ActionMenu.tsx` | User Management row actions | Compact "more" menu on the shared Popover: trigger named for its row ("Actions for alice"), items with icon, description and optional destructive tone, arrow/Home/End keys, closes after a choice, Escape and outside click restore focus. Use for three or more row actions instead of a button wall |
 | FormField | Access Filter alias, Settings Field alias, SAP selector and library | Label/control association; optional description, retained described-by links. Replaces duplicate label wrappers |
@@ -375,7 +375,8 @@ Displayed-row CSV defaults to visible columns in the chosen order, with an expli
 groups; page-level full-result/evidence exports remain separate. `lib/csv` centralizes unchanged formula/quote escaping and bounded UTF-8 CSV
 construction; mismatched row shapes or output above 32 MiB fail without a partial download. Raw HTML, hidden pages and credentials are not exported.
 
-`Shared/FunctionalGroupPills` accepts group IDs/names/status plus username, displays two bounded pills and a read-only expansion dialog. Its
+`Shared/FunctionalGroupPills` accepts group IDs/names/status plus username, displays one named pill and a `+X` pill on a single line (BUG-013)
+and a read-only expansion dialog; a group without an id stays a non-interactive pill. Its
 `data-export-value` exposes the full group list to table projection, including names truncated visually. It does not edit memberships or approvals.
 
 Mobile Filters and Settings navigation reuse the shared Dialog drawer. Desktop/tab navigation and per-page filter/permission state remain owned
