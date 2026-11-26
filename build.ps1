@@ -18,7 +18,7 @@ try {
     foreach ($command in 'git','dotnet','node','npm.cmd','python') { if (-not (Get-Command $command -ErrorAction SilentlyContinue)) { throw "Missing prerequisite: $command" } }
     $sha=(& git -C $PSScriptRoot rev-parse HEAD).Trim(); if ($LASTEXITCODE) { throw 'Cannot identify Git HEAD.' }
     if (@(& git -C $PSScriptRoot status --porcelain).Count) { throw 'Commit or preserve working-tree changes before building. Dirty builds are refused.' }
-    $branch=(& git -C $PSScriptRoot branch --show-current).Trim()
+    $branch=Get-AuthLensBranch $PSScriptRoot   # 'HEAD' for a clean detached release worktree; identity is the commit
     $version=(Get-Content (Join-Path $PSScriptRoot 'backend/product-version.json') -Raw | ConvertFrom-Json).version
     $timestamp=[datetime]::UtcNow
     $layout=New-AuthLensBuildLayout $OutputRoot $timestamp $sha -Version $version

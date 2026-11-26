@@ -15,6 +15,14 @@ $script:AuthLensVersionPattern='^(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{
 # WP32 build identifier: <UTC yyyy-MM-dd_HHmm>-<sha7>, without product name or version (the version is its own directory level). Generated once
 # per build; a collision suffix -02, -03 ... is added by New-AuthLensBuildLayout. Manifests keep the full SHA and the full-precision timestamp.
 $script:AuthLensBuildIdPattern='^\d{4}-\d{2}-\d{2}_\d{4}-[0-9a-f]{7}(-\d{2})?$'
+# Branch metadata for traceability only; the build identity is the full commit SHA. The same value as build-release.ps1 records in
+# build-manifest.json (rev-parse --abbrev-ref HEAD), so the identities agree. A clean detached HEAD (an isolated release worktree of one
+# commit) reports Git's own name 'HEAD'; no branch name is invented.
+function Get-AuthLensBranch([string]$Root) {
+    $name = & git -C $Root rev-parse --abbrev-ref HEAD 2>$null
+    if ($LASTEXITCODE -or -not $name) { throw 'Cannot identify the Git branch or detached HEAD.' }
+    ([string]$name).Trim()
+}
 function Get-AuthLensBuildId([datetime]$Timestamp, [string]$Commit) {
     if ($Commit -notmatch '^[0-9a-f]{40}$') { throw 'A full Git SHA is required.' }
     $Timestamp.ToUniversalTime().ToString('yyyy-MM-dd_HHmm',[Globalization.CultureInfo]::InvariantCulture)+'-'+$Commit.Substring(0,7)

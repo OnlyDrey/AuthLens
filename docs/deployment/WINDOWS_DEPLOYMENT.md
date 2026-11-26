@@ -1493,6 +1493,34 @@ once, .NET build, tests, self-contained publish of Server and Desktop), `verify-
 suites are separate validation steps. There is no supported build-only or installer-only entry point for candidates; calling
 `build-release.ps1` or `build-installers.ps1` directly produces no candidate record and is reserved for script development.
 
+#### Building one commit from an isolated release worktree
+
+Development can continue in the main checkout while a release candidate is built from one exact commit in a separate, clean, detached Git
+worktree. `build.ps1` supports a detached HEAD: the build identity stays the full commit SHA and the build id `<UTC>-<sha7>`; the branch
+field records Git's own name for a detached HEAD, `HEAD`, in `build-summary.json` and `build-manifest.json` alike (no branch name is
+invented). The dirty-tree refusal is unchanged. The output root stays `C:\AuthLens`. Before RC7 builds, commit `c619224` or later is needed
+for `SodRoutesTests` (Python parity); a build of `7e5a6e7` fails that test.
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    $repo = '<path of the development checkout>'
+    $commit = '<full commit SHA to build>'
+    $worktree = "<new empty folder, for example a sibling of the checkout>\authlens-release-$($commit.Substring(0, 7))"
+    git -C $repo fetch origin
+    if ((git -C $repo cat-file -t $commit) -ne 'commit') { throw "Commit $commit is not available." }
+    if (Test-Path -LiteralPath $worktree) { throw "$worktree exists; choose a new folder." }
+    git -C $repo worktree add --detach $worktree $commit
+    Set-Location $worktree
+    if (@(git status --porcelain).Count) { throw 'The release worktree is not clean.' }
+    Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force
+    .\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused) -ZipPackage
+}
+```
+
+The worktree builds its own `frontend\node_modules` and `backend` outputs; keep it until the candidate is verified, then remove it with
+`git -C <checkout> worktree remove <worktree>` (artifacts under `C:\AuthLens` are not affected).
+
 #### Artifact layout (WP32, from RC6)
 
 Status: implemented and covered by focused Pester tests (`Artifact-Layout.Tests.ps1`, `Build-Workflow.Tests.ps1`); RC6 is the first build in

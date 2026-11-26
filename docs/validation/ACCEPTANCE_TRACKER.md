@@ -354,6 +354,13 @@ serves `/api/functional-groups/<id>/members` (no backend source change since `83
 
 Pills stay 28 px high (below the 44 px touch target guidance); no real iPhone check has run.
 
+### RC7 build preparation (Windows release build of `7e5a6e7`)
+
+| Item | Root cause | Resolution | Tests | Status |
+| --- | --- | --- | --- | --- |
+| `build.ps1` failed in a clean detached-HEAD worktree (line 21, `InvokeMethodOnNull`) | `git branch --show-current` prints nothing for a detached HEAD, and `.Trim()` was called on null; `build-release.ps1` records `rev-parse --abbrev-ref HEAD` (`HEAD`), so the two identities would also have disagreed | `Get-AuthLensBranch` (Build-Workflow.ps1) reads the same `rev-parse --abbrev-ref HEAD` as the manifest and refuses an unidentifiable HEAD; dirty-tree refusal unchanged | Pester `Artifact-Layout.Tests.ps1` (real Git repository: branch, detached, dirty, not a repository) 37/37 | Fixed (source) |
+| `SodRoutesTests.Read_routes_equal_python_v1` failed (population field) | The build used `7e5a6e7`, before the fix `c619224` (BUG-015 reported `population` on every matrix response) | `c619224` is in the branch; no further change | `SodRoutesTests`, heatmap and analysis tests 5/5 on the current code | Fixed; confirm in the next Windows build |
+
 ### RC6 scheduled refresh and source timestamps (no identifier assigned; target 2.0.0)
 
 Reported from the installed Windows Server: daily 09:05 Europe/Oslo enabled, but the three upcoming runs and *Next run* showed *Not

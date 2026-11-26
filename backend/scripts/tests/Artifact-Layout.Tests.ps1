@@ -327,6 +327,28 @@ Describe 'Build-host artifact inventory and retention (WP34: Build, Installer, A
     }
 }
 
+Describe 'Branch metadata for a clean detached release worktree' {
+    It 'reports the branch on a branch and Git''s own HEAD when detached, without inventing a name, and build.ps1 uses it' {
+        $repo = Join-Path $TestDrive ('g' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+        New-Item -ItemType Directory $repo | Out-Null
+        & git -C $repo init -q -b release-test 2>$null | Out-Null
+        Set-Content (Join-Path $repo 'file.txt') 'synthetic'
+        & git -C $repo add file.txt | Out-Null
+        & git -C $repo -c user.name=Synthetic -c user.email=synthetic@example.invalid commit -q -m 'synthetic' | Out-Null
+        Get-AuthLensBranch $repo | Should -Be 'release-test'
+        & git -C $repo checkout -q --detach 2>$null
+        Get-AuthLensBranch $repo | Should -Be 'HEAD'
+        @(& git -C $repo status --porcelain).Count | Should -Be 0 -Because 'the dirty-tree check still sees a clean detached worktree'
+        Set-Content (Join-Path $repo 'file.txt') 'changed'
+        @(& git -C $repo status --porcelain).Count | Should -BeGreaterThan 0 -Because 'a dirty detached worktree is still refused by build.ps1'
+        { Get-AuthLensBranch (Join-Path $TestDrive 'not-a-repository') } | Should -Throw '*Cannot identify the Git branch*'
+        $source = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../../build.ps1') -Raw
+        $source | Should -Match '\$branch=Get-AuthLensBranch \$PSScriptRoot'
+        $source | Should -Not -Match 'branch --show-current'
+        (Get-Content -LiteralPath (Join-Path $PSScriptRoot '../build-release.ps1') -Raw) | Should -Match 'rev-parse --abbrev-ref HEAD' -Because 'the manifest records the same value'
+    }
+}
+
 Describe 'Root build orchestration contract (BUILD-009)' {
     It 'keeps .\build.ps1 -OutputRoot C:\AuthLens, makes -ZipPackage optional and packages only after a passed build' {
         $file = Join-Path $PSScriptRoot '../../../build.ps1'
