@@ -9,6 +9,43 @@ Failed (product). Procedures: [VM acceptance runbook](WINDOWS_VM_ACCEPTANCE.md).
 Internal identifiers only; the product version is 2.0.0 for every candidate and nothing is branded RC. Acceptance results belong to one exact
 artifact identity and are never transferred between candidates.
 
+### RC6 (consolidated candidate after WP29 to WP34 and QA-028; native acceptance not started)
+
+Built by the agent session with the canonical `build.ps1 -ZipPackage` from `839123c`, the first candidate in the WP32 category layout; see
+the [RC6 build record](#rc6-build-record). Product version 2.0.0. **NOT APPROVED**: no native acceptance has run on RC6; RC5 results do not
+transfer to it.
+
+### RC6 build record
+
+| Item | Value |
+| --- | --- |
+| Source commit | `839123cd74d381add81468c25617cd204e507d5f` on `experiment/dotnet-backend` (pushed; working tree clean before the build) |
+| Build | `Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force; .\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused) -ZipPackage`; UTC `2026-11-26T03:30:10.4341404Z`; win-x64; .NET SDK 10.0.404, Node.js 24.22.3, npm 11.19.1, Windows PowerShell 5.1.26100.9818 |
+| Build id | `2026-11-26_0330-839123c` |
+| Build | `C:\AuthLens\Build\2.0.0\2026-11-26_0330-839123c` (`build-summary.json` schema 2, layout `category`, status `passed`) |
+| Installer | `C:\AuthLens\Installer\2.0.0\2026-11-26_0330-839123c` (both Setups, `installer-manifest.json`, `installers-SHA256SUMS`, `DEPLOY.txt`, `Expand-AuthLensPackage.ps1`, 10 packaged helpers) |
+| Acceptance | `C:\AuthLens\Acceptance\2.0.0\2026-11-26_0330-839123c\<run>` (no run yet) |
+| Deployment package | `C:\AuthLens\Packages\AuthLens-2.0.0-2026-11-26_0330-839123c.zip`, 186,171,774 bytes, SHA-256 `f2ef8584f75ecb9dbd171f603c4c799bea3195601ed387b98a50a4a571e12d59` (checksum file `….zip.sha256`) |
+| Tests run by the build | Standard focused filter: **155 passed, 0 failed, 0 skipped** |
+| Build verification | installers, secrets, branding and release: all `true`; package: passed (independent extraction verified by the build) |
+| Agent verification (read-only) | Manifest AuthLens 2.0.0, commit `839123c…`, not dirty; ZIP digest equals the checksum file; 18 entries, all under `Installer/2.0.0/2026-11-26_0330-839123c/`, none with keys, certificates, databases, backups, sources or tests; separate extraction with the packaged `Expand-AuthLensPackage.ps1` into an empty temporary folder: `verified`, 17 files, identical hashes to the Installer tree; a second extraction to the same place refused (never overwritten); the path-length guard refused a long destination before writing |
+| Signature status | Both Setups **NotSigned** (Authenticode); checksums establish integrity only, not publisher authenticity |
+| Not done | Signing, tagging, publishing (not authorized); deployment to VM130 or DASH1 (not authorized); native acceptance; FULL regression |
+
+| Artifact | Size (bytes) | SHA-256 |
+| --- | --- | --- |
+| `AuthLens-2.0.0-Server-Setup.exe` | 93,505,058 | `34c3f209451d6a89f970ab452eeb2a45f5c393aa8d6dba1f007e946e3d645cf9` |
+| `AuthLens-2.0.0-Desktop-Setup.exe` | 93,510,735 | `c696f737f9c543b47937a3207a73d4bc9346a247476d190e5374243b02c12fc0` |
+| `installer-manifest.json` | 924 | `a97baf6677a3bf85220ef3155b0320a6feed49ce1f1568e7c7793c517ef93dc5` |
+| `installers-SHA256SUMS` | 371 | `67c58a3767b2369b6a63fe63e2d2f98d035f25abc3d7567114e0315c7f655a89` |
+| `AuthLens-2.0.0-2026-11-26_0330-839123c.zip` | 186,171,774 | `f2ef8584f75ecb9dbd171f603c4c799bea3195601ed387b98a50a4a571e12d59` |
+
+**Acceptance to run on RC6** (it replaces RC5): A1 against this record; package transfer and extraction on the target (copy the ZIP and
+`.zip.sha256` to `C:\AuthLens`, verify, extract with `Expand-AuthLensPackage.ps1`); B17 Lifecycle upgrade RC5 to RC6 with repair; readiness
+with `-StrictAcl` (expected to refuse while the named operator account is unreviewed); B11 to B16, T-001, C11 to C14; D2 to D12 and R6-F1 to
+R6-F4 (including remote UNC with the service identity); R6-S1, R6-M1 (real iPhone), R6-A1; storage preflight text in Setup and
+`ArtifactInventory` / `PruneArtifacts -DryRun`; Service Manager recovery bundle creation and verification (QA-028); F1 to F10.
+
 ### RC5 (consolidated candidate after WP21 to WP28; native acceptance partly run)
 
 Built on VM130 by the agent session with the canonical `build.ps1` from `b10dd50` (corrections D-007 and D-008, BUG-01 to BUG-10, the
