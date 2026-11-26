@@ -8,7 +8,10 @@
   passwords or one-use codes). Every -Action below also runs non-interactively; changing actions need -Yes.
 
   Read-only: Status (key status), ServiceStatus, NetworkStatus, CertificateStatus, DeploymentStatus (recovery preview through -DryRun),
-  AclStatus (security permission status with classified findings).
+  AclStatus (security permission status with classified findings), ArtifactInventory (WP34 storage and retention preview; cleanup itself is the
+  separate Deploy-AuthLens.ps1 -Action PruneArtifacts with -Yes), VerifyRecoveryBundle -Path <bundle> (QA-028: integrity, ACL and archive
+  decryption with the bundle's copied key; not a restore rehearsal).
+  Writes a new private recovery bundle (QA-028, elevated, -Directory <recovery root> and -Yes; never restores anything): CreateRecoveryBundle.
   Writes a new file only: ExportKey (then verifies the exported copy automatically), ExportCertificate (public .cer), CreateBackup, Diagnostics.
   Changes keys or accounts (no service restart): CreateKey, VerifyKey, GrantKeyAccess, ActivationCode, RecoveryCode.
   Restarts the service (downtime): RestartService, ChangeNetwork, ReplaceCertificate, Recover (Resume starts a stopped service; VerifyCandidate
@@ -20,7 +23,8 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Menu', 'Status', 'CreateKey', 'ExportKey', 'VerifyKey', 'GrantKeyAccess', 'ActivationCode', 'RecoveryCode', 'NetworkStatus', 'ChangeNetwork',
-        'ServiceStatus', 'CertificateStatus', 'ExportCertificate', 'ReplaceCertificate', 'DeploymentStatus', 'Recover', 'CreateBackup', 'Diagnostics', 'RestartService', 'AclStatus')]
+        'ServiceStatus', 'CertificateStatus', 'ExportCertificate', 'ReplaceCertificate', 'DeploymentStatus', 'Recover', 'CreateBackup', 'Diagnostics', 'RestartService', 'AclStatus',
+        'ArtifactInventory', 'CreateRecoveryBundle', 'VerifyRecoveryBundle')]
     [string]$Action = 'Menu',
     # Empty: resolved from the installation Setup registered (HKLM\Software\AuthLens\Server ConfigFile), so custom roots and data paths are honored.
     [string]$DataDirectory = '',
@@ -78,7 +82,7 @@ function Get-AuthLensInstalledConfiguration([string]$Explicit) {
 }
 
 $installed = $null
-$needsInstallation = $Action -in @('AclStatus', 'NetworkStatus', 'ChangeNetwork', 'ServiceStatus', 'CertificateStatus', 'ExportCertificate', 'ReplaceCertificate', 'DeploymentStatus', 'Recover', 'Diagnostics', 'RestartService')
+$needsInstallation = $Action -in @('AclStatus', 'NetworkStatus', 'ChangeNetwork', 'ServiceStatus', 'CertificateStatus', 'ExportCertificate', 'ReplaceCertificate', 'DeploymentStatus', 'Recover', 'Diagnostics', 'RestartService', 'ArtifactInventory', 'CreateRecoveryBundle', 'VerifyRecoveryBundle')
 if (-not $DataDirectory -or $needsInstallation) { $installed = Get-AuthLensInstalledConfiguration $ConfigFile }
 elseif ($Action -eq 'Menu') { try { $installed = Get-AuthLensInstalledConfiguration $ConfigFile } catch { $installed = $null } }
 if (-not $DataDirectory) {
@@ -628,6 +632,68 @@ function Invoke-AuthLensBackup([bool]$Confirmed) {
     Write-Host "Encrypted backup: $($created.file) ($($created.size) bytes, SHA-256 $($created.sha256)); verified: $(Get-AuthLensValue $verified 'verified')"
 }
 
+# WP34: read-only artifact inventory and retention preview through the installed, hash-verified deployment tools. Service Manager never deletes;
+# a reviewed cleanup is the separate Deploy-AuthLens.ps1 -Action PruneArtifacts (-DryRun, then -ExpectedSelectionSha256 and -Yes).
+function Invoke-AuthLensArtifactInventory {
+    if (-not $installed) { throw 'No installed Server configuration was found; select -ConfigFile.' }
+    if (-not (Test-AuthLensAdminElevation)) { throw 'Open PowerShell as administrator for this local operation.' }
+    $deploy = Get-AuthLensInstalledDeployTool $PSScriptRoot
+    if (-not ([IO.File]::ReadAllText((Join-Path (Split-Path $deploy) 'AuthLens.Deploy.psm1'))).Contains('function Get-ALArtifactInventory')) { throw 'The installed deployment tools predate the artifact inventory (WP34); use a newer AuthLens package.' }
+    $inventory = (Invoke-AuthLensDeployTool $deploy @('-Action', 'ArtifactInventory', '-ConfigFile', $installed.config_file)).result
+    if ($inventory.PSObject.Properties['error']) { throw "The artifact inventory was refused: $($inventory.error)" }
+    foreach ($volume in @($inventory.volumes)) { Write-Host ('Volume {0}: available {1:N0} bytes; eligible for reviewed cleanup {2:N0} bytes' -f $volume.volume, $volume.available_bytes, $volume.eligible_bytes) }
+    foreach ($item in @($inventory.items)) { Write-Host ('  {0,-9} {1,-70} {2,15:N0}  {3}' -f $item.state, $item.id, $item.bytes, (@($item.reasons) -join ', ')) }
+    foreach ($entry in @($inventory.protected)) { Write-Host ('  protected {0,-55} {1,15:N0}  never deleted by retention' -f $entry.category, $entry.bytes) }
+    if (@($inventory.blocking).Count) { Write-Host "Cleanup is not available: $(@($inventory.blocking) -join ', ')." }
+    Write-Host "Eligible: $($inventory.eligible_count) item(s), $($inventory.eligible_bytes) bytes. Read-only preview; nothing was changed."
+    Write-Host $inventory.guidance
+}
+
+# QA-028: the tracked recovery tooling, packaged with the installed tools (tools\recovery). Creation writes a new private bundle (SYSTEM,
+# Administrators, the operator) under an explicitly selected recovery root outside the installation, verifies the encrypted online backup with
+# the installation key and again with the COPIED key, and leaves the service unchanged. Verification re-checks an existing bundle. Neither
+# restores, overwrites or rehearses anything: the isolated restore rehearsal is tools\recovery\Test-AuthLensRestoreRehearsal.ps1.
+function Get-AuthLensInstalledRecoveryTool {
+    $deploy = Get-AuthLensInstalledDeployTool $PSScriptRoot
+    $tool = Join-Path (Split-Path (Split-Path $deploy)) 'recovery\New-AuthLensRecoveryBundle.ps1'
+    if (-not [IO.File]::Exists($tool)) { throw 'The installed tools do not include the recovery bundle tooling (packages before QA-028); run it from a newer AuthLens package.' }
+    $tool
+}
+function Invoke-AuthLensRecoveryBundle([string]$Operation, [bool]$Confirmed) {
+    if (-not $installed) { throw 'No installed Server configuration was found; select -ConfigFile.' }
+    if (-not (Test-AuthLensAdminElevation)) { throw 'Open PowerShell as administrator: recovery bundles hold the configuration, TLS material and the recovery key.' }
+    $tool = Get-AuthLensInstalledRecoveryTool
+    if ($Operation -eq 'CreateRecoveryBundle') {
+        $root = ConvertFrom-AuthLensPathInput $Directory
+        if ($root -notmatch '^[A-Za-z]:[\\/]') { throw 'Select the recovery root explicitly with -Directory (an absolute local folder outside the installation, for example C:\AuthLens-Recovery).' }
+        $root = [IO.Path]::GetFullPath($root).TrimEnd('\', '/')
+        foreach ($inside in $installed.root, $installed.data_directory) { if ($root -ieq $inside -or $root.StartsWith($inside.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or $inside.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'The recovery root must be outside the installation and its data directory.' } }
+        if (-not $Confirmed) { throw "Checked only. Repeat with -Yes to create a new private recovery bundle under $root (online backup; the service keeps running)." }
+        $arguments = @('-ConfigFile', $installed.config_file, '-RecoveryRoot', $root, '-ReportDirectory', (Join-Path $root 'reports')); $marker = 'AUTHLENS-RECOVERY-BUNDLE: '
+    } else {
+        $bundle = ConvertFrom-AuthLensPathInput $Path
+        if ($bundle -notmatch '^[A-Za-z]:[\\/]' -or -not [IO.Directory]::Exists($bundle)) { throw 'Select the recovery bundle folder with -Path.' }
+        $arguments = @('-ConfigFile', $installed.config_file, '-VerifyBundle', $bundle); $marker = 'AUTHLENS-RECOVERY-BUNDLE-VERIFY: '
+    }
+    $ErrorActionPreference = 'Continue'
+    $output = @(& (Join-Path $PSHOME 'powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $tool @arguments 2>&1 | ForEach-Object { "$_" })
+    $ErrorActionPreference = 'Stop'
+    $line = @($output | Where-Object { $_ -like "$marker*" }) | Select-Object -Last 1
+    if (-not $line) { throw 'The recovery tooling returned no result; review its report folder.' }
+    $value = $line.Substring($marker.Length) | ConvertFrom-Json
+    if ($Operation -eq 'CreateRecoveryBundle') {
+        $report = if ([IO.File]::Exists($value.report)) { [IO.File]::ReadAllText($value.report) | ConvertFrom-Json } else { $null }
+        if ($value.status -ne 'passed' -or -not $report) { throw "The recovery bundle was not verified (stage: $($value.failure_stage)). Report: $($value.report). Nothing was restored or changed in the installation." }
+        Write-Host "Recovery bundle: $($report.bundle)"
+        Write-Host "Archive: $($report.archive) (SHA-256 $($report.archive_sha256)); verified with the installation key and with the bundle's copied key."
+        Write-Host "Private files verified: $($report.private_files_verified); bundle ACL safe: $($report.acl_safe); service unchanged: $(-not $report.service_changed). Report: $($value.report)"
+    } else {
+        if ($value.status -ne 'passed') { throw "The recovery bundle did not verify (stage: $($value.failure_stage)$(if ($value.PSObject.Properties['error'] -and $value.error) { ': ' + $value.error }))." }
+        Write-Host "Recovery bundle verified: $($value.files_verified) private files, archive SHA-256 $($value.archive_sha256), ACL safe, archive opens with the copied key."
+    }
+    Write-Host 'This verifies the backup and the bundle, not a restore. Rehearse a restore in isolation with tools\recovery\Test-AuthLensRestoreRehearsal.ps1; nothing was restored or overwritten.'
+}
+
 function Invoke-AuthLensDiagnostics {
     if (-not $installed) { throw 'No installed Server configuration was found; select -ConfigFile.' }
     $deploy = Get-AuthLensInstalledDeployTool $PSScriptRoot
@@ -730,7 +796,11 @@ function Start-AuthLensMenu {
             if ([IO.Directory]::Exists($file)) { throw "$file is a folder; select the recovery copy file." }
             Invoke-AuthLensLocalAdmin 'VerifyKey' $file '' $true }),
         @('5', 'Grant the service read access to the configured key', { if (Read-AuthLensConfirmation 'Add one explicit read rule for the service identity on the configured key file?') { $script:Path = ''; Invoke-AuthLensGrantKeyAccess $true } }),
-        @('6', 'Create and verify an encrypted backup (service keeps running)', { $script:Path = Read-AuthLensInput 'Backup folder' $(if ($installed) { $installed.backup_root } else { '' }); Invoke-AuthLensBackup (Read-AuthLensConfirmation "Create an encrypted backup in $Path?") })
+        @('6', 'Create and verify an encrypted backup (service keeps running)', { $script:Path = Read-AuthLensInput 'Backup folder' $(if ($installed) { $installed.backup_root } else { '' }); Invoke-AuthLensBackup (Read-AuthLensConfirmation "Create an encrypted backup in $Path?") }),
+        @('7', 'Create an independent recovery bundle (private, verified; never restores)', {
+            $script:Directory = Read-AuthLensInput 'Recovery root outside the installation' 'C:\AuthLens-Recovery'
+            if (Read-AuthLensConfirmation "Create a new private recovery bundle under $Directory? It holds the configuration, TLS material and the recovery key.") { Invoke-AuthLensRecoveryBundle 'CreateRecoveryBundle' $true } else { Write-Host 'Cancelled; nothing was changed.' } }),
+        @('8', 'Verify a recovery bundle (integrity and copied key; not a restore rehearsal)', { $script:Path = ConvertFrom-AuthLensPathInput (Read-AuthLensInput 'Recovery bundle folder'); Invoke-AuthLensRecoveryBundle 'VerifyRecoveryBundle' $true })
     )
     while ($true) {
         Write-AuthLensOverview
@@ -777,6 +847,7 @@ function Start-AuthLensMenu {
                 '7' { Show-AuthLensMenu 'Diagnostics and logs' @(
                         @('1', 'Write a diagnostic report (status and ACL audit, no secrets)', { Invoke-AuthLensDiagnostics }),
                         @('3', 'Security permission status (SAFE, REVIEW_REQUIRED or UNSAFE; read-only)', { Invoke-AuthLensAclStatus }),
+                        @('4', 'Storage and artifact inventory (read-only retention preview)', { Invoke-AuthLensArtifactInventory }),
                         @('2', 'Show log locations', { Write-Host "Service Manager: $(Get-AuthLensLogFolder)"; if ($installed) { Write-Host "Deployment runs: $(Join-Path $installed.root 'deployment\runs')"; Write-Host "Server logs: $(Join-Path $installed.root 'logs')" } })) }
                 { $_ -ieq 'Q' } { return }
                 default { Write-Host 'Choose one of the listed options.' }
@@ -833,6 +904,9 @@ switch ($Action) {
     'CreateBackup' { Invoke-AuthLensBackup ([bool]$Yes) }
     'Diagnostics' { Invoke-AuthLensDiagnostics }
     'AclStatus' { Invoke-AuthLensAclStatus }
+    'ArtifactInventory' { Invoke-AuthLensArtifactInventory }
+    'CreateRecoveryBundle' { Invoke-AuthLensRecoveryBundle 'CreateRecoveryBundle' ([bool]$Yes) }
+    'VerifyRecoveryBundle' { Invoke-AuthLensRecoveryBundle 'VerifyRecoveryBundle' $true }
     'RestartService' { Invoke-AuthLensRestartWorkflow ([bool]$Yes) }
     'GrantKeyAccess' { Invoke-AuthLensGrantKeyAccess ([bool]$Yes) }
     default { Invoke-AuthLensLocalAdmin $Action $Path $Username ([bool]$Yes) }

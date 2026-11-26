@@ -280,3 +280,58 @@ Describe 'Read-only post-checks' {
         {Assert-ReadinessBaseline $baseline ([pscustomobject]@{})}|Should -Throw '*installation_identity_changed_during_check*'
     }
 }
+
+Describe 'WP32 candidate layouts in readiness (category layout and legacy run directories)' {
+    It 'maps build/ and installer/ summary paths to Build\version\build-id and Installer\version\build-id and refuses other prefixes' {
+        $candidate=[pscustomobject]@{BuildDirectory=(Join-Path $TestDrive 'Build\2.0.0\2026-11-25_2145-b10dd50');InstallerDirectory=(Join-Path $TestDrive 'Installer\2.0.0\2026-11-25_2145-b10dd50')}
+        New-Item -ItemType Directory -Force $candidate.BuildDirectory,$candidate.InstallerDirectory|Out-Null
+        $file=Join-Path $candidate.InstallerDirectory 'installer-manifest.json';Set-Content $file '{}'
+        $hash=(Get-FileHash $file).Hash.ToLowerInvariant()
+        $summary=[pscustomobject]@{artifacts=@([pscustomobject]@{path='installer/installer-manifest.json';size=(Get-Item $file).Length;sha256=$hash})}
+        $map=Get-ReadinessArtifactMap $summary $candidate
+        {Assert-ReadinessArtifact $map $candidate 'installer/installer-manifest.json'}|Should -Not -Throw
+        Resolve-ReadinessArtifactPath $candidate 'build/build-manifest.json'|Should -Be (Join-Path $candidate.BuildDirectory 'build-manifest.json')
+        {Resolve-ReadinessArtifactPath $candidate 'acceptance/results.json'}|Should -Throw '*invalid_build_artifact_inventory*'
+        Set-Content $file '{"changed":true}'
+        {Assert-ReadinessArtifact $map $candidate 'installer/installer-manifest.json'}|Should -Throw '*build_artifact_checksum_mismatch*'
+    }
+    It 'accepts the seven-helper inventory of earlier packages and the QA-028 inventory with recovery tooling only' {
+        $source=Get-Content $script:ReadinessPath -Raw
+        $source|Should -Match "recovery/New-AuthLensRecoveryBundle.ps1','recovery/Test-AuthLensRestoreRehearsal.ps1','acceptance/AuthLens.Acceptance.psm1'"
+        $source|Should -Match 'packaged_helper_inventory_refused'
+        $source|Should -Match 'Get-AuthLensSetupNames \$candidate'
+        $source|Should -Match "summary.layout -ceq 'category'"
+    }
+}
+
+Describe 'Installation ACL status gate (WP31 SEC-5)' {
+    BeforeEach {
+        $config=[pscustomobject]@{Root='C:\AuthLens';WorkRoot='C:\AuthLens\deployment'}
+        Mock Get-ALAclPlan {@()}
+        Mock Get-ALAclExpectedSids {@()}
+        Mock Get-ALAclAuthorizations {@()}
+    }
+    It 'reports REVIEW_REQUIRED and UNSAFE without failing in report mode' {
+        Mock Get-ALAclReport {[pscustomobject]@{status='REVIEW_REQUIRED';safe=$true}}
+        Get-ReadinessAclStatus $config $false|Should -Be 'REVIEW_REQUIRED'
+        Mock Get-ALAclReport {[pscustomobject]@{status='UNSAFE';safe=$true}}
+        Get-ReadinessAclStatus $config $false|Should -Be 'UNSAFE'
+    }
+    It 'refuses anything but SAFE in strict mode and passes SAFE' {
+        Mock Get-ALAclReport {[pscustomobject]@{status='REVIEW_REQUIRED';safe=$true}}
+        {Get-ReadinessAclStatus $config $true}|Should -Throw 'acl_status_review_required'
+        Mock Get-ALAclReport {[pscustomobject]@{status='UNSAFE';safe=$true}}
+        {Get-ReadinessAclStatus $config $true}|Should -Throw 'acl_status_unsafe'
+        Mock Get-ALAclReport {[pscustomobject]@{status='SAFE';safe=$true}}
+        Get-ReadinessAclStatus $config $true|Should -Be 'SAFE'
+    }
+    It 'treats an unverifiable audit as a refusal in strict mode and as UNVERIFIABLE otherwise' {
+        Mock Get-ALAclReport {throw 'required access unverified'}
+        Get-ReadinessAclStatus $config $false|Should -Be 'UNVERIFIABLE'
+        {Get-ReadinessAclStatus $config $true}|Should -Throw 'acl_status_unverifiable'
+    }
+    It 'falls back to the broad-only safe flag for older reports without status' {
+        Mock Get-ALAclReport {[pscustomobject]@{safe=$false}}
+        Get-ReadinessAclStatus $config $false|Should -Be 'UNSAFE'
+    }
+}

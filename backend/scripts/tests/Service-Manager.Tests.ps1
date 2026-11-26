@@ -84,3 +84,34 @@ Describe 'Recovery-key access for the service identity' -Skip:([Environment]::OS
         Get-AuthLensKeyLocation $script:Folder | Should -Be $script:Key
     }
 }
+
+Describe 'QA-028 recovery bundle and WP34 inventory actions in Service Manager' {
+    BeforeAll {
+        foreach ($name in 'Invoke-AuthLensRecoveryBundle', 'ConvertFrom-AuthLensPathInput') {
+            $definition = $script:Ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+    }
+    BeforeEach {
+        $script:installed = [pscustomobject]@{ config_file = 'C:\ProgramData\AuthLens\config\deploy.json'; root = 'C:\ProgramData\AuthLens'; data_directory = 'C:\ProgramData\AuthLens\data' }
+        function Test-AuthLensAdminElevation { $true }
+        function Get-AuthLensInstalledRecoveryTool { 'C:\synthetic\tools\recovery\New-AuthLensRecoveryBundle.ps1' }
+        $script:Path = ''; $script:Directory = ''
+    }
+    It 'requires an explicit destination outside the installation and explicit approval before running anything' {
+        { Invoke-AuthLensRecoveryBundle 'CreateRecoveryBundle' $true } | Should -Throw '*Select the recovery root explicitly*'
+        $script:Directory = 'C:\ProgramData\AuthLens\recovery'
+        { Invoke-AuthLensRecoveryBundle 'CreateRecoveryBundle' $true } | Should -Throw '*outside the installation*'
+        $script:Directory = 'D:\AuthLens-Recovery'
+        { Invoke-AuthLensRecoveryBundle 'CreateRecoveryBundle' $false } | Should -Throw '*Repeat with -Yes*'
+        { Invoke-AuthLensRecoveryBundle 'VerifyRecoveryBundle' $true } | Should -Throw '*Select the recovery bundle folder*'
+    }
+    It 'reuses the tracked recovery tooling and never deletes, restores or prunes' {
+        $source = Get-Content -LiteralPath $script:Manager -Raw
+        $source | Should -Match "'recovery\\New-AuthLensRecoveryBundle.ps1'"
+        $source | Should -Match "'-VerifyBundle'"
+        $source | Should -Match 'not a restore'
+        $source | Should -Not -Match "'-Action', 'PruneArtifacts'"
+        $source | Should -Match "'-Action', 'ArtifactInventory'"
+    }
+}

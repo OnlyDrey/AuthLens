@@ -35,6 +35,12 @@
                     Rollback or Cancel selects an explicit supported action; rollback needs verified prerequisites. Needs -Yes. VerifyCandidate and
                     Resume accept -CertificateFile/-CertificatePasswordFile to complete an interrupted first installation whose configured
                     certificate blocks recovery (recorded certificate transaction with rollback).
+    ArtifactInventory  Read-only inventory of installation artifacts (setup stages, releases, interrupted publications, run logs, pre-deployment
+                    backups) with sizes, the reason each one is preserved or eligible, free storage per volume and a selection_sha256 (WP34).
+                    Application data, in-app backups, keys, configuration, TLS, the journal and audit logs are reported as protected only.
+    PruneArtifacts  Deletes exactly a previewed selection: -ArtifactCategory <categories> -DryRun shows it; then -ExpectedSelectionSha256 <hash>
+                    -Yes deletes it, reports the reclaimed storage and appends <WorkRoot>\artifact-retention.jsonl. Refused while any deployment,
+                    repair, uninstall, firewall or configuration change awaits recovery. Upgrades never delete artifacts.
     AuditAcl        Read-only NTFS audit (by well-known SID) of private state, releases and configuration. Result status SAFE (exit 0),
                     REVIEW_REQUIRED (exit 3: named accounts with unreviewed access) or UNSAFE (exit 2: broad access, missing required access,
                     or an unauthorized named account that can write release binaries or configuration).
@@ -52,7 +58,7 @@
   deploy.example.json). It holds paths, addresses and host names, never a secret. The last output line is 'AUTHLENS-RESULT: <json>'.
   Exit codes: 0 success, 1 failed (nothing changed, or rolled back and ready again), 2 refused before any change, 4 manual action required.
 
-  -DryRun is a simulation: Deploy, Recover, ReplaceCertificate, ChangeNetwork and ProtectAcl evaluate their read-only checks and report what would
+  -DryRun is a simulation: Deploy, Recover, ReplaceCertificate, ChangeNetwork, ProtectAcl and PruneArtifacts evaluate their read-only checks and report what would
   happen (result field simulation: true, changes_applied: false; Recover reports would_succeed/would_phase). It never replaces -Yes, takes no
   deployment lock file and writes no run log, journal, configuration, service, registry, ACL, firewall, certificate, key or data change. Every
   other changing action (Build, InstallService, Restore, Rollback, RestoreAcl) refuses -DryRun with exit 2. -DryRun together with -Yes is still
@@ -67,7 +73,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Status', 'Health', 'Build', 'Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ExportCertificate', 'RestartService', 'AuditAcl', 'ProtectAcl', 'RestoreAcl', 'AuthorizeAclPrincipal', 'RevokeAclPrincipal')]
+    [ValidateSet('Status', 'Health', 'Build', 'Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ExportCertificate', 'RestartService', 'AuditAcl', 'ProtectAcl', 'RestoreAcl', 'AuthorizeAclPrincipal', 'RevokeAclPrincipal', 'ArtifactInventory', 'PruneArtifacts')]
     [string]$Action = 'Status',
     [string]$ConfigFile = '',
     [string]$Branch = '',
@@ -100,6 +106,13 @@ param(
     [ValidateSet('', 'private', 'binaries', 'all')][string]$AclScope = '',
     [string]$Reason = '',
     [string[]]$RemovePrincipal = @(),
+    # ArtifactInventory / PruneArtifacts (WP34): categories to clean, the preview's selection hash and the retention minimums.
+    [ValidateSet('setup_stage', 'release', 'failed_publication', 'deployment_run', 'predeploy_backup', 'failed_backup')][string[]]$ArtifactCategory = @(),
+    [string]$ExpectedSelectionSha256 = '',
+    [int]$KeepPreviousReleases = 1,
+    [int]$KeepBackups = 2,
+    [int]$KeepRuns = 20,
+    [int]$KeepRunDays = 90,
     [switch]$DryRun,
     [switch]$FirstInstall,
     [switch]$Reconfigure,
@@ -159,6 +172,7 @@ try {
     if ($changing -and -not (Test-Elevated)) { Stop-AL "$Action needs an elevated session (an administrator account over SSH, or Run as administrator)." }
     switch ($Action) {
         'Status' { Write-Result (Get-ALStatus $config) 0 }
+        'ArtifactInventory' { Write-Result (Get-ALArtifactInventory $config $KeepPreviousReleases $KeepBackups $KeepRuns $KeepRunDays $ArtifactCategory) 0 }
         'ExportCertificate' { Write-Result (Export-ALPublicCertificate $config $PublicCertificateFile) 0 }
         'Health' {
             $base = "https://$($config.ListenAddress):$($config.Port)"
@@ -223,6 +237,7 @@ try {
         }
         'ReplaceCertificate' { Write-Result (Invoke-ALReplaceCertificate $config $CertificateFile $CertificatePasswordFile -DryRun:$DryRun) 0 }
         'RestartService' { Write-Result (Invoke-ALServiceRestart $config -DryRun:$DryRun) 0 }
+        'PruneArtifacts' { Write-Result (Invoke-ALArtifactPrune $config $ArtifactCategory $ExpectedSelectionSha256 $KeepPreviousReleases $KeepBackups $KeepRuns $KeepRunDays -DryRun:$DryRun) 0 }
         'ChangeNetwork' {
             $requested = @{}
             if ($AccessMode) { $requested.AccessMode = $AccessMode }

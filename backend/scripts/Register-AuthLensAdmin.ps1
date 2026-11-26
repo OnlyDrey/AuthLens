@@ -43,6 +43,9 @@ foreach($file in $private.files){
 if(-not(Test-ALPathWithin $private.backup.file $RecoveryBundle) -or (Get-FileHash -LiteralPath $private.backup.file -Algorithm SHA256).Hash -ine $private.backup.sha256){throw 'Independent recovery archive hash failed.'}
 $helperFiles=@('Install-AuthLens.ps1','verify-release.ps1','deploy/AuthLens.Deploy.psm1','deploy/Deploy-AuthLens.ps1','deploy/AuthLens.Paths.ps1','deploy/AuthLens.Acl.ps1','deploy/AuthLens.Installer.ps1')
 $helperProof=Get-Content -LiteralPath (Join-Path $ToolsDirectory 'installer-tools.json') -Raw -Encoding UTF8|ConvertFrom-Json
+# QA-028: packages built since then also carry the recovery scripts and the acceptance module the restore rehearsal imports.
+$recoveryHelpers=@('recovery/New-AuthLensRecoveryBundle.ps1','recovery/Test-AuthLensRestoreRehearsal.ps1','acceptance/AuthLens.Acceptance.psm1')
+if((@($helperProof.files.path|Sort-Object)-join '|') -ceq (@(@($helperFiles)+@($recoveryHelpers)|Sort-Object)-join '|')){$helperFiles=@($helperFiles)+@($recoveryHelpers)}
 if((@($helperProof.files.path|Sort-Object)-join '|') -cne (@($helperFiles|Sort-Object)-join '|')){throw 'Reviewed helper inventory mismatch.'}
 foreach($file in $helperProof.files){if((Get-FileHash -LiteralPath (Join-Path $ToolsDirectory $file.path) -Algorithm SHA256).Hash -ine $file.sha256){throw 'Reviewed helper integrity failed.'}}
 $id=[guid]::NewGuid().ToString('N')

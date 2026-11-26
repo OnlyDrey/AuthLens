@@ -4,8 +4,8 @@
 
 .DESCRIPTION
   Not a production deployment mechanism. The script:
-  1. Selects the newest complete release under -BuildsRoot (default C:\AuthLens, the canonical build.ps1 output root: each run directory's
-     build\<release folder>; release folders directly under -BuildsRoot are also recognized. A release has build-manifest.json plus server\ with the
+  1. Selects the newest complete release under -BuildsRoot (default C:\AuthLens, the canonical build.ps1 output root: Build\<version>\<build-id>,
+     or a legacy run directory's build\<release folder>; release folders directly under -BuildsRoot are also recognized. A release has build-manifest.json plus server\ with the
      single-file AuthLens.Api.exe and e_sqlite3.dll; earlier folder-publish releases with manifest.json and server-win-x64\ are still recognized),
      or the release given with -ReleasePath (a release folder, its server folder, or a plain publish folder).
   2. Validates the configuration before anything starts: the listen address is an IP assigned to this machine (not loopback or all interfaces),
@@ -100,6 +100,11 @@ function Resolve-ServerRelease {
         $candidate = Get-ReleaseCandidate $full
         if (-not $candidate -and (Split-Path -Leaf $full) -in @($script:Layouts | ForEach-Object { $_.Folder })) { $candidate = Get-ReleaseCandidate (Split-Path -Parent $full) }
         if (-not $candidate) {
+            # A legacy <run>\build directory holding exactly one release folder.
+            $inner = @(Get-ChildItem -LiteralPath $full -Directory | Where-Object { Get-ReleaseCandidate $_.FullName })
+            if ($inner.Count -eq 1) { $candidate = Get-ReleaseCandidate $inner[0].FullName }
+        }
+        if (-not $candidate) {
             # A bare publish folder (dotnet publish -o): the executable and its runtime files directly inside.
             $layout = @($script:Layouts | Where-Object { @(Get-MissingServerFiles $full $_.Required).Count -eq 0 }) | Select-Object -First 1
             if (-not $layout) { throw "Release '$full' is not a complete Server release; missing in ${full}: $((Get-MissingServerFiles $full) -join ', ')." }
@@ -109,8 +114,12 @@ function Resolve-ServerRelease {
         return @{ Release = $candidate.Release; Server = $candidate.Server; Executable = (Join-Path $candidate.Server $script:ServerExecutable); Manifest = $candidate.Manifest; Layout = $candidate.Layout }
     }
     if (-not (Test-Path -LiteralPath $BuildsRoot -PathType Container)) { throw "Builds folder '$BuildsRoot' does not exist. Build a release with build.ps1 -OutputRoot $BuildsRoot, or pass -ReleasePath." }
-    # Canonical run directories (build.ps1) hold their release folder under build\; a release folder directly under the root is also accepted.
+    # WP32 layout: <root>\Build\<version>\<build-id> is the release folder itself. Legacy run directories (build.ps1 before WP32) hold their
+    # release folder under <run>\build\; a release folder directly under the root is also accepted. Installer, Acceptance and Packages never
+    # hold releases.
     $folders = foreach ($entry in Get-ChildItem -LiteralPath $BuildsRoot -Directory) {
+        if ($entry.Name -in @('Installer', 'Acceptance', 'Packages')) { continue }
+        if ($entry.Name -eq 'Build') { foreach ($version in Get-ChildItem -LiteralPath $entry.FullName -Directory) { Get-ChildItem -LiteralPath $version.FullName -Directory }; continue }
         $runBuild = Join-Path $entry.FullName 'build'
         if (Test-Path -LiteralPath $runBuild -PathType Container) { Get-ChildItem -LiteralPath $runBuild -Directory } else { $entry }
     }

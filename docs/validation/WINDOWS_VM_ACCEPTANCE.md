@@ -28,24 +28,27 @@ Package status is in the [work-package tracker](WORK_PACKAGES.md).
 | Clients | A domain workstation with Edge for browser steps |
 | Certificates | Lab PFX `lab-server.pfx` with SANs `lens.example.org` and `192.0.2.10`, its password in a separate file; a second PFX `lab-renewed.pfx` with the same SANs; a third PFX `lab-wrong-name.pfx` **without** those SANs (negative test) |
 | Software | None beyond Windows; the release is self-contained. WebView2 Runtime only for the Desktop check |
-| Candidate | The build folder from the build host (see the current candidate in the [acceptance tracker](ACCEPTANCE_TRACKER.md#candidates)), in the canonical run directory `C:\AuthLens\<run directory>` (built there or copied with the same name); verify hashes first (A1) |
+| Candidate | The build folder from the build host (see the current candidate in the [acceptance tracker](ACCEPTANCE_TRACKER.md#candidates)), in `C:\AuthLens\Build\<version>\<build-id>` and `C:\AuthLens\Installer\<version>\<build-id>` (built there, or the installer tree extracted from the portable package with `Expand-AuthLensPackage.ps1`; RC5 and earlier: the legacy run directory, read in place); verify hashes first (A1) |
 | Data | Synthetic CSV exports for every supported source (role catalogue, user–role mapping, user accounts, SoD matrix, Employee Directory); one malformed and one empty variant |
 | Accounts | Two AuthLens accounts created during the run: `admin.synthetic` (Administrator) and `reviewer.synthetic` (Reviewer) |
 
 Operator variables (set once per session):
 
 ```powershell
-$built   = 'C:\AuthLens\<run directory>'                 # canonical build.ps1 run directory (contains build\ and installer\)
-$release = (Get-ChildItem "$built\build" -Directory | Where-Object Name -Like 'AuthLens-2.0.0-*-win-x64').FullName
-$tools   = (Get-ChildItem "$built\installer" -Directory -Filter 'installer-tools-*').FullName
-$server  = Join-Path "$built\installer" 'AuthLens-Server-2.0.0-Setup.exe'
-$desktop = Join-Path "$built\installer" 'AuthLens-2.0.0-Setup.exe'
+$id      = '<build-id>'                                   # WP32: <UTC yyyy-MM-dd_HHmm>-<sha7> printed by build.ps1
+$release = "C:\AuthLens\Build\2.0.0\$id"                  # the verified release itself
+$built   = "C:\AuthLens\Installer\2.0.0\$id"              # installers and packaged tools (also what the portable package extracts)
+$tools   = (Get-ChildItem $built -Directory -Filter 'installer-tools-*').FullName
+$server  = Join-Path $built 'AuthLens-2.0.0-Server-Setup.exe'
+$desktop = Join-Path $built 'AuthLens-2.0.0-Desktop-Setup.exe'
 $data    = 'C:\ProgramData\AuthLens\data'
 $config  = 'C:\ProgramData\AuthLens\config\deploy.json'
 $exe     = 'C:\ProgramData\AuthLens\releases\current\server\AuthLens.Api.exe'
-$evidence = "C:\AuthLens\acceptance\$(Split-Path $built -Leaf)"; New-Item -ItemType Directory -Force $evidence | Out-Null
-# After installation (Setup stages the package under <Root>\app\setup\<package>):
-$package = Split-Path $release -Leaf
+$evidence = "C:\AuthLens\Acceptance\2.0.0\$id\<run>"; New-Item -ItemType Directory -Force $evidence | Out-Null
+# RC5 and earlier (legacy run directory, read in place): $release = '<run>\build\AuthLens-2.0.0-...-win-x64'; $built = '<run>\installer';
+# Setup names AuthLens-Server-2.0.0-Setup.exe and AuthLens-2.0.0-Setup.exe; evidence C:\AuthLens\acceptance\<run directory name>.
+# After installation (Setup stages the package under <Root>\app\setup\<package>, the unchanged release name):
+$package = (Get-ChildItem 'C:\ProgramData\AuthLens\app\setup' -Directory | Where-Object Name -Like "AuthLens-2.0.0-*-$($id.Substring(16, 7))-win-x64").Name
 $staged  = "C:\ProgramData\AuthLens\app\setup\$package"
 $itools  = "$staged\tools"                                   # installed, hash-verified tools (Install-AuthLens.ps1, deploy\*)
 $manager = "$staged\payload\$package\Service-Manager.ps1"  # the Start-menu "AuthLens Service Manager" target
@@ -66,7 +69,7 @@ batches run as one unit; a `STOP-INTEGRITY` line ends the batch before any reloc
 
 | | |
 | --- | --- |
-| Commands | Packaged verifier: `powershell -NoProfile -File "$tools\verify-release.ps1" -ReleasePath $release`. Then `Get-FileHash "$built\installer\*.exe" -Algorithm SHA256` and compare with `installer\installers-SHA256SUMS` and the hashes in the tracker |
+| Commands | Packaged verifier: `powershell -NoProfile -File "$tools\verify-release.ps1" -ReleasePath $release`. Then `Get-FileHash "$built\*.exe" -Algorithm SHA256` and compare with `installers-SHA256SUMS` and the hashes in the tracker |
 | Expected | Verifier exit 0; every installer hash equals the recorded value; `build-manifest.json` `version` = `2.0.0`, `source_sha` = the recorded candidate commit, `source_dirty` = `false` |
 | Evidence | `A1-verify.txt`, `A1-hashes.txt` |
 | Recovery | Any mismatch: stop; obtain a fresh copy from the build host. Never run an unverified package |
@@ -81,7 +84,7 @@ batches run as one unit; a `STOP-INTEGRITY` line ends the batch before any reloc
 | B4 | **Corporate** mode (from `S0-clean`) | Repeat B2 with *Corporate network*, listening IP `192.0.2.10`, allowed hosts `lens.example.org,192.0.2.10`, *Use an existing PFX* `lab-server.pfx`, approve exposure; firewall *authorize* with sources = client subnet, profile `Domain` | Ready page lists the approved firewall scope; one rule `AuthLens` scoped to `192.0.2.10:18795`, remote = client subnet, profile Domain; browser on the client opens `https://lens.example.org:18795`; `https://<other-name>:18795` is refused (Host check) | `Get-NetFirewallRule -DisplayName 'AuthLens*' \| Get-NetFirewallAddressFilter`, screenshots, B3 outputs | Revert `S0-clean` |
 | B5 | **Reverse Proxy** mode (from `S0-clean`) | Repeat B2 with *Reverse proxy*, backend IP `192.0.2.10`, public host `lens.example.org`, trusted proxy = proxy host IP; configure the proxy to forward to `https://192.0.2.10:18795` with the original Host | Requests through the proxy work; direct requests with a forged `X-Forwarded-*` from a non-trusted host are not trusted; `/health/ready` through the proxy = 200 | Proxy config export, `curl.exe -v` outputs, screenshots | Revert `S0-clean` |
 | B6 | Failed-install retry (from `S0-clean`) | Occupy the port first: `$l=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,18795);$l.Start()`; run B2; then `$l.Stop()` and run Setup again | First run refuses in preflight with a port diagnostic; no service created; retry succeeds; failed attempt evidence retained, never overwritten | Both Setup logs, `operation-result.json` of each, `Get-Service AuthLens` before/after | Revert `S0-clean` |
-| B7 | Upgrade (from `S1`) | Requires a **second, newer** verified candidate (`$next`) from the build host: `& "$next\installer\AuthLens-Server-2.0.0-Setup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CONFIGFILE="C:\ProgramData\AuthLens\config\deploy.json" /OPERATION=Upgrade /LOG="$evidence\B7.log"` | Verified pre-deployment backup in `backups\predeploy`; service restarts on the new release; data, accounts, key, TLS, sources preserved; identity changes to the new commit | B3 outputs, journal `deployment\deployment-journal.json`, backup listing | `& $deploy -Action Rollback -Yes` per [rollback](../deployment/WINDOWS_DEPLOYMENT.md); else revert `S1` |
+| B7 | Upgrade (from `S1`) | Requires a **second, newer** verified candidate (`$next`) from the build host: `& "$next\AuthLens-2.0.0-Server-Setup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CONFIGFILE="C:\ProgramData\AuthLens\config\deploy.json" /OPERATION=Upgrade /LOG="$evidence\B7.log"` | Verified pre-deployment backup in `backups\predeploy`; service restarts on the new release; data, accounts, key, TLS, sources preserved; identity changes to the new commit | B3 outputs, journal `deployment\deployment-journal.json`, backup listing | `& $deploy -Action Rollback -Yes` per [rollback](../deployment/WINDOWS_DEPLOYMENT.md); else revert `S1` |
 | B8 | Repair (from `S1`) | `Stop-Service AuthLens`; `& "$tools\Install-AuthLens.ps1" -Mode Server -PreflightOnly -Operation Repair -Package $release -ConfigFile C:\ProgramData\AuthLens\config\deploy.json -ResultFile "$evidence\B8-plan.json"`; then the same without `-PreflightOnly` plus `-Yes` | Plan lists only missing/damaged components; repair restarts the service; database untouched | `B8-plan.json`, result JSON, B3 outputs | `& "$tools\Install-AuthLens.ps1" -Mode Server -Recover -Yes`; else revert `S1` |
 | B9 | Interrupted deployment recovery (from `S1`) | During B7, end the Setup/PowerShell process after the journal reaches `stopping` (Task Manager); then `& $deploy -Action Status`; `& $deploy -Action Recover -RecoveryAction Auto -Yes` | Status `recovery_needed: true`; Recover returns to a verified release (previous or candidate) with readiness; no data loss | Journal before/after, Recover result | Revert `S1` |
 | B10 | Controlled cleanup (last, from `S1`) | `& "$tools\Install-AuthLens.ps1" -Mode Server -Operation UninstallPlan -ConfigFile … -ResultFile "$evidence\B10-plan.json"`; then `-Operation Uninstall -Yes` | Verified encrypted backup first; only the owned service and installer-owned firewall rules removed; data, config, TLS, keys, releases and evidence remain | Plan and result JSON, `dir C:\ProgramData\AuthLens -Recurse -Depth 1` | Revert `S1` |
@@ -112,7 +115,7 @@ failed, 2 refused before running, 3 stopped on mutation.
 
 ```powershell
 $runner = 'C:\Users\<operator>\Git\AuthLens\backend\scripts\acceptance\Invoke-AuthLensAcceptance.ps1'
-$built  = 'C:\AuthLens\AuthLens-2.0.0-2026-11-25_0807-37eadd5'
+$built  = 'C:\AuthLens\Build\2.0.0\<build-id>'      # or Installer\2.0.0\<build-id>; legacy run directories (RC5 and earlier) are still accepted
 # B13 (any context), B14 split into two guarded groups:
 powershell -NoProfile -ExecutionPolicy Bypass -File $runner -Operation B13 -Candidate $built -RunName B13-<n>
 powershell -NoProfile -ExecutionPolicy Bypass -File $runner -Operation B14Approval -Candidate $built -RunName B14-approval-<n>     # ELEVATED only
@@ -240,7 +243,7 @@ offered to customers for 2.0.0; otherwise record it as not accepted and keep the
 
 ## H. Evidence package
 
-Zip `C:\AuthLens\acceptance\<run directory>` plus each scenario's JSON results and screenshots, named `<ID>-<description>`. Record in the tracker: VM image and
+Zip `C:\AuthLens\Acceptance\<version>\<build-id>\<run>` (legacy candidates: `C:\AuthLens\acceptance\<run directory>`) plus each scenario's JSON results and screenshots, named `<ID>-<description>`. Record in the tracker: VM image and
 build, candidate commit, installer hashes, date, operator, and pass/fail per ID. Never include keys, passwords, certificates with private keys or
 activation codes.
 

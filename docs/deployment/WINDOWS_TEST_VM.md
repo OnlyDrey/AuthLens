@@ -65,8 +65,8 @@ the capsule's administrative target paths and must not be removed.
 ```powershell
 # Once, from an administrator PowerShell. Substitute one verified build and independent recovery bundle.
 .\backend\scripts\Register-AuthLensAdmin.ps1 `
-  -Package '<verified-build>\build\<release>' `
-  -ToolsDirectory '<verified-build>\installer\installer-tools-<id>' `
+  -Package 'C:\AuthLens\Build\<version>\<build-id>' `
+  -ToolsDirectory 'C:\AuthLens\Installer\<version>\<build-id>\installer-tools-<id>' `
   -ConfigFile 'C:\ProgramData\AuthLens\config\deploy.json' `
   -RecoveryBundle 'C:\AuthLens-Recovery\<verified-independent-bundle>' `
   -Operations Health,Preflight,Start,Stop,Restart,Upgrade,Repair,Recover -Approve
@@ -102,7 +102,7 @@ then reports any tracked file that contains them.
 | Server IP (a private address assigned to the VM) | `192.168.10.20` |
 | HTTPS port | `18795` (any free port) |
 | Test data directory (disposable, synthetic data only) | `C:\AuthLens\server-test\data` |
-| Builds on the VM (canonical) | `C:\AuthLens\AuthLens-<version>-<UTC time>-<sha7>\build\<release folder>` |
+| Builds on the VM (canonical) | `C:\AuthLens\Build\<version>\<build-id>` (release) and `C:\AuthLens\Installer\<version>\<build-id>` (installers) |
 | Certificate (PFX, SAN includes `192.168.10.20`) | `C:\AuthLens\server-test\tls\server.pfx` |
 | Certificate password file | `C:\AuthLens\server-test\tls\cert-password` |
 | Repository checkout | `C:\src\AuthLens` |
@@ -122,11 +122,12 @@ Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force
 .\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)
 ```
 
-The [canonical Windows build](WINDOWS_DEPLOYMENT.md#canonical-windows-build) is mandatory: each build creates a new run directory
-`C:\AuthLens\AuthLens-<version>-<UTC yyyy-MM-dd_HHmm>-<sha7>` with the release folder under `build\` and the installers under `installer\`; it never
-overwrites one. The test launcher searches the same canonical structure by default (`-BuildsRoot C:\AuthLens`, each run directory's
-`build\<release folder>`); select a reviewed candidate explicitly with `-ReleasePath <run directory>\build\<release folder>`. Its runtime state
-(data, certificate, logs, local configuration) lives under `C:\AuthLens\server-test`, separate from every run directory, release folder and the
+The [canonical Windows build](WINDOWS_DEPLOYMENT.md#canonical-windows-build) is mandatory: each build generates one build id
+`<UTC yyyy-MM-dd_HHmm>-<sha7>` and writes the release to `C:\AuthLens\Build\<version>\<build-id>` and the installers to
+`C:\AuthLens\Installer\<version>\<build-id>`; it never overwrites anything. The test launcher searches `Build\<version>\<build-id>` and legacy run
+directories' `build\<release folder>` by default (`-BuildsRoot C:\AuthLens`); select a reviewed candidate explicitly with
+`-ReleasePath C:\AuthLens\Build\<version>\<build-id>`. Its runtime state
+(data, certificate, logs, local configuration) lives under `C:\AuthLens\server-test`, separate from every build directory, release folder and the
 installed application in `C:\ProgramData\AuthLens`.
 
 `build-release.ps1` builds the solution (which builds the UI once, [build and publish flow](../development/README.md#build-and-publish-flow)), runs the tests, publishes both executables, validates the packages, writes `README.txt`,
@@ -151,8 +152,7 @@ inside its application folder (`startup refused: The data directory must be outs
 replaced or deleted without touching data.
 
 ```powershell
-$run = 'C:\AuthLens\<reviewed run directory>'   # select explicitly; never the newest partial run
-$release = Get-Item (Get-ChildItem "$run\build" -Directory -Filter 'AuthLens-*-win-x64').FullName
+$release = Get-Item 'C:\AuthLens\Build\<version>\<build-id>'   # select explicitly; never the newest partial build
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\src\AuthLens\backend\scripts\verify-release.ps1 -ReleasePath $release.FullName   # after copying a release, too
 Get-Content (Join-Path $release.FullName 'build-manifest.json') | Select-Object -First 12
 & (Join-Path $release.FullName 'server\AuthLens.Api.exe') --version
@@ -162,7 +162,7 @@ Get-Content (Join-Path $release.FullName 'build-manifest.json') | Select-Object 
 ## 2. Start the Server with the test launcher (recommended)
 
 `backend\scripts\start-server-test.ps1` is a development and acceptance-testing utility, **not** a deployment mechanism.
-It picks the newest complete release under `C:\AuthLens` (inside each run directory's `build\`, or directly under the root; one with `build-manifest.json`, `server\AuthLens.Api.exe` and `e_sqlite3.dll`;
+It picks the newest complete release under `C:\AuthLens` (`Build\<version>\<build-id>`, a legacy run directory's `build\`, or directly under the root; one with `build-manifest.json`, `server\AuthLens.Api.exe` and `e_sqlite3.dll`;
 earlier folder-publish releases with `manifest.json` and `server-win-x64\` are still recognized), validates the
 configuration and runs the Server in the foreground.
 
@@ -391,8 +391,8 @@ $filter = Get-ALTestFilter focused
 # Produces the canonical acceptance package (release, installers, summary); never installs or starts it.
 .\build.ps1 -OutputRoot C:\AuthLens -TestFilter $filter
 if ($LASTEXITCODE) { throw 'Acceptance build failed' }
-$run = 'C:\AuthLens\<run directory printed by build.ps1>'
-& .\backend\scripts\verify-release.ps1 -ReleasePath (Get-ChildItem "$run\build" -Directory -Filter 'AuthLens-*-win-x64').FullName
+$release = 'C:\AuthLens\Build\<version>\<build-id printed by build.ps1>'
+& .\backend\scripts\verify-release.ps1 -ReleasePath $release
 ```
 
 Stop on a dirty checkout, unexpected branch, divergent history, failed checks or dirty manifest. Do not reset local changes or install a service

@@ -63,7 +63,7 @@ OutputBaseFilename=AuthLens-{#FullVersion}-Setup
 Name: desktopicon; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [Files]
-Source: "{#ReleaseDir}\*"; DestDir: "{app}\setup\{#PackageName}\payload\{#PackageName}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#ReleaseDir}\*"; DestDir: "{app}\setup\{#PackageName}\payload\{#PackageName}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "\build-summary.json,\build.log,\.build-claim,\branding-verification.json"
 Source: "{#ToolsDir}\*"; DestDir: "{app}\setup\{#PackageName}\tools"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#RepoRoot}\LICENSE.md"; DestDir: "{app}\setup\{#PackageName}"; Flags: ignoreversion
 

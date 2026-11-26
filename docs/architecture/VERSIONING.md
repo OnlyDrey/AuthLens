@@ -15,8 +15,9 @@ Frontend package metadata mirrors that value. Builds do not increment the produc
 | Desktop data root | `%LOCALAPPDATA%\AuthLens` |
 | Configuration variables | `AUTHLENS_*` |
 | Deployment module | `AuthLens.Deploy`, functions `*-AL*` |
-| Desktop installer | `AuthLens-<version>-Setup.exe` |
-| Server installer | `AuthLens-Server-<version>-Setup.exe` |
+| Desktop installer | `AuthLens-<version>-Desktop-Setup.exe` (WP32, RC6 and later; earlier candidates `AuthLens-<version>-Setup.exe`) |
+| Server installer | `AuthLens-<version>-Server-Setup.exe` (WP32, RC6 and later; earlier candidates `AuthLens-Server-<version>-Setup.exe`) |
+| Build artifacts | `C:\AuthLens\{Build,Installer,Acceptance}\<version>\<UTC yyyy-MM-dd_HHmm>-<sha7>`, `Packages\AuthLens-<version>-<build-id>.zip`; installed release folders keep `AuthLens-<version>-<yyyyMMdd-HHmmss>-<sha7>-win-x64` |
 | Branding sources | [assets/branding](../../assets/branding/) |
 
 ## Version, channel and build

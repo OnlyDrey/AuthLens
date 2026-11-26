@@ -9,7 +9,8 @@
      deployment's focused validation does).
   3. Publishes both self-contained single-file executables (no trimming, Native AOT or compression) into a new versioned release folder:
 
-       <Output>\AuthLens-<version>-<yyyyMMdd-HHmmss>-<commit>-win-x64\
+       <Output>\AuthLens-<version>-<yyyyMMdd-HHmmss>-<commit>-win-x64\   (build.ps1 passes -ReleaseDirectory C:\AuthLens\Build\<version>\<build-id>
+       instead: the same content directly in that directory, beside the build record files that the manifest never lists)
          server\AuthLens.Api.exe          Server (console or Windows service), plus e_sqlite3.dll and libSkiaSharp.dll (SQLite and image/PDF native libraries, loaded from beside the exe)
          desktop\AuthLens.exe            Desktop (WebView2, loopback only)
          symbols\server\, symbols\desktop\   .pdb files for diagnostics (not needed at runtime)
@@ -31,7 +32,10 @@ param(
     [switch]$SkipPublishTests,
     # Runs only the tests matching this test filter expression (for example a deployment's focused selection) instead of the whole suite.
     [string]$TestFilter = '',
-    [string]$BuildTimestampUtc = ''
+    [string]$BuildTimestampUtc = '',
+    # WP32 (build.ps1): publish directly into this existing Build\<version>\<build-id> directory, which may hold only the build record files
+    # (build-summary.json, build.log, .build-claim, branding-verification.json). They are never part of the manifest.
+    [string]$ReleaseDirectory = ''
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -63,8 +67,15 @@ $channel = if ($Matches[5]) { $Matches[5] } else { 'stable' }
 $fileVersion = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3], $(if ($Matches[6]) { [int]$Matches[6] } else { 0 }))
 $uiVersion = (Get-Content (Join-Path $root '..\frontend\package.json') -Raw | ConvertFrom-Json).version   # checked by the frontend prebuild contract
 $built = if ($BuildTimestampUtc) { [DateTime]::Parse($BuildTimestampUtc).ToUniversalTime() } else { [DateTime]::UtcNow }
-$release = Join-Path $Output ('AuthLens-{0}-{1}-{2}-{3}' -f $version, $built.ToString('yyyyMMdd-HHmmss'), $sha.Substring(0, 7), $platform)
-if (Test-Path -LiteralPath $release) { throw "Release folder $release exists; an existing release is never overwritten." }
+$recordFiles = @('build-summary.json', 'build.log', '.build-claim', 'branding-verification.json')
+if ($ReleaseDirectory) {
+    $release = [IO.Path]::GetFullPath($ReleaseDirectory).TrimEnd('\', '/')
+    if (-not (Test-Path -LiteralPath $release -PathType Container)) { throw "Release directory $release does not exist; build.ps1 claims it first." }
+    if (@(Get-ChildItem -LiteralPath $release -Force | Where-Object { $_.PSIsContainer -or $_.Name -notin $recordFiles }).Count) { throw "Release directory $release already holds release content; an existing release is never overwritten." }
+} else {
+    $release = Join-Path $Output ('AuthLens-{0}-{1}-{2}-{3}' -f $version, $built.ToString('yyyyMMdd-HHmmss'), $sha.Substring(0, 7), $platform)
+    if (Test-Path -LiteralPath $release) { throw "Release folder $release exists; an existing release is never overwritten." }
+}
 $identity = "-p:SourceRevisionId=$sha"
 
 # MSBuild owns the frontend build (AuthLensBuildFrontend in AuthLens.Api.csproj). A release removes frontend\dist first and builds it exactly once,
@@ -143,10 +154,10 @@ $manifest = [ordered]@{
     publish = [ordered]@{ self_contained = $true; single_file = $true; trimmed = $false; native_aot = $false; compressed = $false
         server_native_libraries = 'beside the executable (e_sqlite3.dll, libSkiaSharp.dll)'; desktop_native_libraries = 'bundled, extracted to a temporary folder at start' }
     executables = [ordered]@{ server = 'server/AuthLens.Api.exe'; desktop = 'desktop/AuthLens.exe' }
-    artifacts = @(Get-Artifacts $release @('build-manifest.json', 'SHA256SUMS'))
+    artifacts = @(Get-Artifacts $release (@('build-manifest.json', 'SHA256SUMS') + $recordFiles))
 }
 [System.IO.File]::WriteAllText((Join-Path $release 'build-manifest.json'), ($manifest | ConvertTo-Json -Depth 5))
-$sums = Get-Artifacts $release @('SHA256SUMS') | ForEach-Object { '{0}  ./{1}' -f $_.sha256, $_.path }
+$sums = Get-Artifacts $release (@('SHA256SUMS') + $recordFiles) | ForEach-Object { '{0}  ./{1}' -f $_.sha256, $_.path }
 [System.IO.File]::WriteAllText((Join-Path $release 'SHA256SUMS'), (($sums -join "`n") + "`n"))
 
 # No secrets or environment-specific values in the release (key/certificate/secret files, token formats, and the personal values listed in the

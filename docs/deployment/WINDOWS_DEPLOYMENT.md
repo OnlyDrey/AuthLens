@@ -209,6 +209,9 @@ write on binaries, is reported per entry in `named_principals` with a classifica
 `status` is `SAFE`, `REVIEW_REQUIRED` or `UNSAFE` (broad access or missing required access are always `UNSAFE`); `-Action AuditAcl` exits 0,
 3 or 2 respectively. `safe` keeps its earlier meaning (no broad principal, required access present) because installation, upgrade and repair
 gates rely on it, so a `REVIEW_REQUIRED` or `UNSAFE` named-account finding does not block an upgrade; strict gates and acceptance use `status`.
+`Test-AuthLensUpgradeReadiness.ps1` reports the installation status as `acl_status` (a warning unless `SAFE`); with `-StrictAcl` it refuses
+anything but `SAFE` (`acl_status_review_required`, `acl_status_unsafe`, `acl_status_unverifiable`), which is the gate for a production
+candidate. Readiness never changes an ACL.
 
 - **Authorize** intended access: `Deploy-AuthLens.ps1 -Action AuthorizeAclPrincipal -Principal <account or SID> -AclScope private|binaries|all
   -Reason <text> -Yes` (`-DryRun` previews; `RevokeAclPrincipal` removes it). The record is `<WorkRoot>\acl-authorizations.json` in the protected
@@ -506,6 +509,73 @@ Status: implemented after RC4 in the sources (Pester `Recovery-Tooling`, `Acl-Na
   it before any change (create-only, the service identity's Modify right; an existing folder is validated and never widened; authorizations are
   untouched). Status reports `source_authority: present|missing`, and the API answers 409 with this explanation instead of a generic error.
   RC4 and earlier: run the installer Repair or `Deploy-AuthLens.ps1 -Action InstallService -Reconfigure -Yes` to provision it.
+- **Packaged recovery tooling and Service Manager (QA-028).** Status: implemented, native verification pending. The recovery bundle and
+  rehearsal scripts (with the acceptance module the rehearsal imports) are part of the packaged helper inventory (`installer-tools.json`:
+  `recovery/New-AuthLensRecoveryBundle.ps1`, `recovery/Test-AuthLensRestoreRehearsal.ps1`, `acceptance/AuthLens.Acceptance.psm1`), so
+  Setup stages them in `app\setup\<package>\tools\recovery` and the portable package carries them; no repository is needed. Readiness and the
+  administrative bootstrap accept this inventory and the seven-helper inventory of earlier packages. Service Manager (group 4, Backup and
+  recovery keys) runs the installed, hash-verified tooling: `-Action CreateRecoveryBundle -Directory <recovery root> -Yes` (elevated; an
+  explicit root outside the installation and its data directory, default suggestion `C:\AuthLens-Recovery` in the menu; private ACL, verified
+  backup with the installation key and again with the copied key; the service keeps running) and `-Action VerifyRecoveryBundle -Path <bundle>`
+  (`New-AuthLensRecoveryBundle.ps1 -VerifyBundle`: inventory and archive hashes, private ACL, decryption with the bundle's copied key and
+  program in a private temporary probe that is removed afterwards; nothing is written to the bundle or the installation). Both report that
+  backup verification is not a restore rehearsal; neither restores, overwrites or changes active data. Failures name the failed stage and the
+  report file. The CLI scripts keep working unchanged.
+
+### Storage preflight and installation artifact retention (WP34)
+
+Status: implemented and covered by focused Pester tests (`Server-Setup.Tests.ps1`, `Artifact-Retention.Tests.ps1`, `Service-Manager.Tests.ps1`);
+native Windows acceptance (DASH1-like volume sizes, GUI dialog text) is pending.
+
+**Finding (DASH1 refused RC5 preflight with about 2 GB free).** The earlier check in `Get-ALServerSetupPlan` reserved, per drive and summed,
+`2 x payload + 64 MB` on the root, `2 x data + 64 MB` on the backup root and `2 x data + 64 MB` in the temporary folder, where *data* was every
+file of the data directory. On a single-volume installation that is `2P + 4D + 192 MB`. Evidence from the code:
+the transaction-time recheck (`Install-AuthLens.ps1` without `-PreflightOnly`, called by `AuthLens-Transaction.iss` with the staged payload
+`app\setup\<package>\payload\<package>`) counted the already staged payload again (double counting); the publication (`Publish-ALRelease`)
+copies only the server package (no `desktop\` and `symbols\`; about 130 of 302 MB for RC5) and reuses an identical published release; the
+pre-deployment backup (`ApplicationBackups.WriteArchive`) never reads `<data>\backups` (in-app archives) although they were counted four times;
+the backup write (work copies and `payload.zip` in `<data>\backups\work-*`, then the sealed archive) and its verification (`--backup-verify`:
+unsealed payload and extraction in `%TEMP%`) run one after the other but were summed; and the data volume itself was never reserved when the
+data directory is on its own volume (an undercount). The calculation was therefore conservative and partly duplicated for the common
+single-volume case and incomplete for split volumes.
+
+**Current calculation (`Get-ALInstallerStoragePlan`).** Per volume and category: `setup_staging` (payload; zero when the package is already the
+staged copy), `release_publication` (server files; zero when the same release is published and reused, never for Repair), `backup_work` (backup
+source plus archive reservation, data volume), `backup_archive` (archive reservation, backup root) and `verification_extract` (archive reservation
+plus source, temporary folder). The backup source excludes `<data>\backups`; the archive reservation is `source + 1% + 1 MB` (incompressible data
+and the envelope). A volume reserves its persistent items (staging, publication, the kept archive) plus the larger of the two backup phases,
+plus a fixed 256 MB safety margin (previously 64 MB per reservation, 192 MB on one volume). Fresh installations and upgrades refuse pending
+schema migrations elsewhere, so no migration backup is reserved. Package extraction is checked separately by `Expand-AuthLensPackage.ps1`
+(contents plus 64 MB on the destination volume); the ZIP and the extracted copy are already on disk when Setup runs and are not counted again.
+
+**Diagnostics.** A refusal keeps its public message and appends one line with, per volume, available, required and deficit storage, the
+category breakdown, what was already present and not counted again, the excluded in-app backup size and guidance (free the deficit on the named
+volume; nothing is deleted automatically; superseded artifacts eligible for reviewed cleanup with the preview command). The line is shown in
+the Setup error dialog (first line of the diagnostic), stored with the structured `storage` object in the operation result, and a successful
+preflight shows it on the Ready page (`storage_summary` in the private INI plan). `Test-AuthLensUpgradeReadiness.ps1` reports it as
+`storage_preflight`.
+
+**Installation artifact inventory and retention.**
+
+```powershell
+& $entry -Action ArtifactInventory -ConfigFile $config                                               # read-only
+& $entry -Action PruneArtifacts -ConfigFile $config -ArtifactCategory release,setup_stage -DryRun    # exact selection, selection_sha256
+& $entry -Action PruneArtifacts -ConfigFile $config -ArtifactCategory release,setup_stage -ExpectedSelectionSha256 <hash> -Yes
+```
+
+Categories: `setup_stage` (`<Root>\app\setup\<package>`), `release`, `failed_publication` (`<ReleasesRoot>\.staging`), `deployment_run`
+(`<WorkRoot>\runs`), `predeploy_backup` and `failed_backup` (`*.partial` in the backup root). Preserved with a recorded reason: the active
+release, journal from/to releases, the installed-product release, the newest `-KeepPreviousReleases` (default 1, minimum 1) other releases;
+setup stages of preserved releases, the newest stage (uninstaller and Service Manager shortcut), stages with a failure receipt, diagnostic or
+a missing or non-completed operation result; the journal run, runs referenced by `recovery-audit.jsonl`, runs with repair or manual-recovery
+evidence, the newest `-KeepRuns` (20) and those younger than `-KeepRunDays` (90, minimum 7); the journal's pre-deployment backup and the
+newest `-KeepBackups` (2, minimum 1) archives; anything with a reparse point. While a deployment journal is not terminal or a repair,
+uninstall, firewall or configuration change is pending, nothing is eligible and cleanup is refused. Application data and review evidence,
+in-app backups, recovery keys, configuration, TLS and deployment state/audit files are only reported as protected. `PruneArtifacts` follows
+the D-006 policy (`-DryRun` simulation, `-Yes` approval), needs explicit categories and the preview hash, re-validates every path, reports the
+reclaimed storage per volume and appends `<WorkRoot>\artifact-retention.jsonl`. Setup, upgrades, deployment and recovery never call it.
+Service Manager offers only the read-only preview (Diagnostics and logs, **Storage and artifact inventory**, `-Action ArtifactInventory`);
+retention values are per-invocation parameters rather than stored configuration, so no administrative setting can enable automatic deletion.
 
 ### Service restart
 
@@ -901,7 +971,8 @@ a fresh backup when needed and actual native upgrade/recovery acceptance remain 
 copied or hashed; normal concurrent application writes cannot be treated as a consistent file fingerprint.
 Focused Windows PowerShell 5.1 tests cover the wrapper contracts; no native acceptance is claimed.
 
-Metadata contracts are distinct: `build-summary.json` and the release `build-manifest.json` use schema 1;
+Metadata contracts are distinct: the release `build-manifest.json` uses schema 1; `build-summary.json` uses schema 2 (WP32 category layout,
+with `layout`, `version`, `id` and `package`) and schema 1 in legacy run directories; the portable package adds `package-manifest.json` (schema 1);
 the current `build-installers.ps1` emits an unversioned installer manifest with exactly product, version, source SHA,
 branch, build timestamp, dirty-source flag, executable mapping and artifact inventory. Readiness validates that known
 contract instead of accessing a nonexistent installer `schema` property. Unsupported fields/schema declarations still
@@ -1035,6 +1106,10 @@ disruptive actions show a summary and need `YES`. A refused or failed action ret
 (action, error type and message) are appended to `<Root>\logs\service-manager\service-manager-<date>.log` when that folder is writable. Key
 values, passwords and one-use codes never appear in that log. The tool never stops or starts the service outside the actions marked restart
 (network change, certificate replacement, recovery that applies a certificate or rolls back; Resume starts a stopped service).
+Group 4 also creates and verifies independent recovery bundles (QA-028, `CreateRecoveryBundle`/`VerifyRecoveryBundle`; see
+[recovery bundle](#recovery-bundle-restore-rehearsal-and-source-authority-wp22-wp23-after-rc4)); group 7 shows the read-only storage and artifact
+inventory (WP34, `ArtifactInventory`; see [storage preflight](#storage-preflight-and-installation-artifact-retention-wp34)). Service Manager never
+deletes artifacts.
 
 **Recovery copy export.** The menu asks for the destination folder and the file name separately; the default name is
 `AuthLens-<computer>-recovery`, `.key` is added once (also `.KEY` is kept, never `.key.key`), quotes and spaces are accepted. Before anything
@@ -1106,13 +1181,13 @@ requires isolated elevated SCM, compiled installer and interactive WebView2 acce
 
 Ground rules: an elevated **Windows PowerShell 5.1** prompt in a clean checkout of `experiment/dotnet-backend`; synthetic data first, a real backup
 only as a **copy** in an isolated root; existing installations, their folders, ports, certificates and
-firewall rules are never stopped, changed or reused. Keep the evidence files of each step under `C:\AuthLens\acceptance\<run directory name>`
-(no secrets, codes, passwords or keys in them).
+firewall rules are never stopped, changed or reused. Keep the evidence files of each step under `C:\AuthLens\Acceptance\<version>\<build-id>\<run>`
+(legacy RC5 and older candidates: `C:\AuthLens\acceptance\<run directory name>`; no secrets, codes, passwords or keys in them).
 
 ### 0. Baseline of the existing installations (read only)
 
 ```powershell
-$ev = 'C:\AuthLens\acceptance\<run directory name>'
+$ev = 'C:\AuthLens\Acceptance\<version>\<build-id>\<run>'
 New-Item -ItemType Directory -Force $ev | Out-Null
 Get-CimInstance Win32_Service | Where-Object Name -eq 'AuthLens' |
   Select-Object Name, DisplayName, State, StartMode, StartName, PathName | ConvertTo-Json | Set-Content "$ev\00-services-before.json"
@@ -1127,14 +1202,15 @@ For a fresh install, stop if the intended service/root already exists. For an up
 git status --short; git rev-parse HEAD                                      # clean, expected commit
 Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force
 .\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)
-$run = '<C:\AuthLens\AuthLens-2.0.0-... run directory printed as "Summary: passed | ...">'
-$release = (Get-ChildItem "$run\build" -Directory -Filter 'AuthLens-*-win-x64').FullName
+$release = '<C:\AuthLens\Build\2.0.0\<build-id> printed as "Summary: passed | ...">'   # the release itself, no nested folder
+$installers = $release -replace '\\Build\\', '\Installer\'
 & .\backend\scripts\verify-release.ps1 -ReleasePath $release *>&1 | Tee-Object "$ev\01-verify.txt"
-Get-ChildItem "$release\server", "$release\desktop", "$run\installer" | Select-Object Name, Length | Out-File "$ev\01-files.txt"
+Get-ChildItem "$release\server", "$release\desktop", $installers | Select-Object Name, Length | Out-File "$ev\01-files.txt"
 ```
 
 Pass: `Release verified` for win-x64; `server\AuthLens.Api.exe` and `desktop\AuthLens.exe` exist; manifest product `AuthLens`, version
-`2.0.0`; `AuthLens-2.0.0-Setup.exe` and `AuthLens-Server-2.0.0-Setup.exe` are produced.
+`2.0.0`; `AuthLens-2.0.0-Desktop-Setup.exe` and `AuthLens-2.0.0-Server-Setup.exe` are produced (candidates before WP32:
+`AuthLens-2.0.0-Setup.exe` and `AuthLens-Server-2.0.0-Setup.exe`).
 
 ### 2. Native test suites
 
@@ -1645,67 +1721,106 @@ changes services. CI triggers, product version and runtime configuration are unc
 ```powershell
 Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force
 .\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)
+# Optional portable deployment package after a passed build (off by default):
+.\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused) -ZipPackage
+```
+
+#### Artifact layout (WP32, from RC6)
+
+Status: implemented and covered by focused Pester tests (`Artifact-Layout.Tests.ps1`, `Build-Workflow.Tests.ps1`); the first native build with
+this layout (RC6) and native package extraction remain **pending Windows acceptance**. No intermediate build was made for this change.
+
+```text
+C:\AuthLens\
+  Build\<version>\<build-id>\            the verified release itself (no nested release folder)
+    server\AuthLens.Api.exe  desktop\AuthLens.exe  symbols\  build-manifest.json  SHA256SUMS  README.txt  Service-Manager.ps1
+    build-summary.json  build.log  .build-claim  branding-verification.json      build record, never listed in build-manifest.json
+  Installer\<version>\<build-id>\
+    AuthLens-<version>-Server-Setup.exe  AuthLens-<version>-Desktop-Setup.exe  installer-manifest.json  installers-SHA256SUMS
+    installer-tools-<unique-id>\          deployment, verification and recovery tooling (installer-tools.json inventory)
+    DEPLOY.txt  Expand-AuthLensPackage.ps1
+  Acceptance\<version>\<build-id>\<run>\  evidence of each acceptance run (several runs per build)
+  Packages\AuthLens-<version>-<build-id>.zip and AuthLens-<version>-<build-id>.zip.sha256   only with -ZipPackage or New-AuthLensPackage.ps1
 ```
 
 | Rule | Value |
 | --- | --- |
-| Build entry point | Root-level `build.ps1` only; it orchestrates `build-release.ps1`, `verify-release.ps1`, the release secret scan, `build-installers.ps1` and branding verification. Do not run those directly for a candidate |
+| Build entry point | Root-level `build.ps1` only; it orchestrates `build-release.ps1` (`-ReleaseDirectory`), `verify-release.ps1`, the release secret scan, `build-installers.ps1`, branding verification and, with `-ZipPackage`, packaging. Do not run those directly for a candidate |
 | Output root | `C:\AuthLens` (the default). No RC, acceptance, development or user-profile roots without explicit approval |
-| Run directory | `C:\AuthLens\AuthLens-<version>-<UTC yyyy-MM-dd_HHmm>-<sha7>` (suffix `-02`, `-03` on a same-minute collision), containing `build\<release folder>`, `installer\`, `build-summary.json` (identity, tools, test filter and status, verification flags, relative artifact paths and hashes) and `build.log` |
+| Build id | `<UTC yyyy-MM-dd_HHmm>-<sha7>` (for example `2026-11-25_2145-b10dd50`): generated once per build and reused by the installer, acceptance and package steps. No product name, version or RC number; the version is its own directory level. Manifests keep the full SHA and the round-trip UTC timestamp with seven fractional digits; `build-summary.json` (schema 2, `layout: category`) records `version`, `id` and the category directories |
+| Collision handling | An id is used only when none of `Build\<version>\<id>`, `Installer\<version>\<id>`, `Acceptance\<version>\<id>`, `Packages\AuthLens-<version>-<id>.zip(.sha256)` or a legacy run directory `AuthLens-<version>-<id>` exists; otherwise `-02`, `-03` ... is appended. `Build\<version>\<id>` is claimed with `New-Item` without `-Force` plus an exclusive `.build-claim`; an installer directory that appears after the claim stops the build. Nothing is reused, overwritten, moved or renamed |
+| Release name | The installed release and Setup staging name keeps its convention `AuthLens-<version>-<yyyyMMdd-HHmmss>-<sha7>-win-x64` (`releases\<name>`, `app\setup\<name>`); it is derived from the manifest because the build directory name is the build id (`Get-AuthLensReleaseName`, `Get-ALReleaseName`) |
+| Directory names | `server\`, `desktop\` and `symbols\` keep their lower-case names: `build-manifest.json`, `verify-release.ps1`, the Setup payload and the installed release bind these relative paths (Windows paths are case-insensitive) |
 | Standard tests | `-TestFilter (Get-ALTestFilter focused)`: the deployment focused classes; record any additional classes explicitly in the acceptance tracker. FULL runs only with approval |
-| Acceptance evidence | `C:\AuthLens\acceptance\<run directory name>\` (beside, never inside, the run directory) |
-| Installed Server | `C:\ProgramData\AuthLens` (unchanged) |
-| Retention | Earlier run directories and their evidence are never overwritten, moved or deleted; a build moved from elsewhere keeps the canonical run-directory name derived from its `build-summary.json` identity |
+| Acceptance evidence | `C:\AuthLens\Acceptance\<version>\<build-id>\<run>` (the acceptance runner's default; several runs per build). Release approval and acceptance status stay in the [acceptance tracker](../validation/ACCEPTANCE_TRACKER.md) and evidence, never in the immutable manifests; promoting an accepted candidate neither rebuilds nor moves binaries |
+| Installed Server | `C:\ProgramData\AuthLens` (unchanged); `C:\AuthLens-Recovery` is never changed by artifact organization |
+| Backward compatibility | Legacy run directories `C:\AuthLens\AuthLens-<version>-<UTC>-<sha7>` (RC5 and earlier, with `build\<release folder>`, `installer\`, schema-1 `build-summary.json`, Setup names `AuthLens-<version>-Setup.exe` and `AuthLens-Server-<version>-Setup.exe`) and their evidence under `C:\AuthLens\acceptance\<run directory name>` remain valid inputs to readiness, acceptance, the test launcher and verification. They are resolved in place (`Resolve-AuthLensCandidate`) and never moved, renamed, migrated or deleted; the compatibility mechanism is read-only resolution, not copying, because existing evidence holds absolute paths |
 
-`-SkipTests` exists for local packaging experiments only and never produces a candidate.
+The verified release is published directly into `Build\<version>\<build-id>`; `build-release.ps1 -ReleaseDirectory` refuses a directory that
+already holds release content, excludes the build record files from `build-manifest.json` and `SHA256SUMS`, and `verify-release.ps1` tolerates
+exactly those four top-level record files only when the folder name is a build id. Both Setup scripts exclude them from the payload. Installer
+names are set with ISCC `/F` (`AuthLens-<version>-Server-Setup.exe`, `AuthLens-<version>-Desktop-Setup.exe`); the scripts' own default names are
+unchanged. The summary records tools, test status, checks, artifact hashes (`build/...` and `installer/...` logical paths, identical in both
+layouts), the package outcome and the failure reason. A failure returns nonzero and retains partial outputs and logs. Dirty checkout rejection
+happens before an id is claimed. Start a new build after a failure; never overwrite a partial directory. This is traceable orchestration, not a
+claim of byte-for-byte reproducible executable timestamps or compression output.
 
-`-TestFilter` selects focused backend validation; the default release command runs the existing backend release test selection.
-Do not use a development build as evidence that full release acceptance passed.
+#### Portable deployment package (BUILD-009, BUILD-010)
 
-Each invocation generates one UTC timestamp and keeps its full Git SHA. The top-level run directory is
-`AuthLens-{version}-{yyyy-MM-dd_HHmm}-{shortSha}`: the canonical product version (including any prerelease
-suffix), UTC date/minute and first seven SHA characters. For example,
-`C:\AuthLens\AuthLens-2.0.0-2026-11-24_0948-8ec7f77`. An occupied name advances to `-02`, `-03`, etc.,
-including when another process claims it during creation. Existing files and directories are never reused,
-overwritten or renamed; non-collision creation failures stop the build. The exclusive `.build-claim` remains.
-The minute display affects only this directory name: summary, release and installer metadata retain the
-complete SHA and round-trip UTC timestamp with seven fractional-second digits. Internal release directory
-names, installer filenames and the layout below are unchanged:
+`-ZipPackage` (off by default) runs after the build, installers and verification passed. Packaging an existing verified build without rebuilding:
 
-```text
-C:\AuthLens\AuthLens-<version>-<yyyy-MM-dd_HHmm>-<shortSha>\
-  build\AuthLens-<version>-<timestamp>-<sha>-win-x64\
-    desktop\AuthLens.exe
-    server\AuthLens.Api.exe
-    symbols\
-    build-manifest.json
-    SHA256SUMS
-  installer\
-    AuthLens-<version>-Setup.exe
-    AuthLens-Server-<version>-Setup.exe
-    installer-manifest.json
-    installers-SHA256SUMS
-    installer-tools-<unique-id>\
-  build-summary.json
-  build.log
-  .build-claim
+```powershell
+.\backend\scripts\New-AuthLensPackage.ps1 -Candidate C:\AuthLens\Build\2.0.0\<build-id>     # explicit selection; nothing is chosen automatically
 ```
 
-The run's `build` subdirectory also contains `branding-verification.json`. Canonical packaging checks the actual PE icon resources of Desktop, Server
-and both installers against the canonical multi-size ICO, plus exact web-image bytes in each embedded UI and frontend output. A mismatch fails
-the build even with `-SkipTests`; see [branding sources](../architecture/DESIGN_SYSTEM.md#branding-source-assets).
+Before packaging, the passed summary, release and installer manifest identity, every file of `Installer\<version>\<build-id>` (size and SHA-256
+against `build-summary.json`; files added later are refused), both Setup programs, the packaged installation, verification and recovery tooling
+(`installer-tools.json`), `DEPLOY.txt` and `Expand-AuthLensPackage.ps1` are verified. Missing installers are never regenerated; legacy run
+directories are refused (they lack the extraction tooling). The archive contains only `Installer\<version>\<build-id>\` (the verified installer
+directory plus `package-manifest.json` with identity, file hashes and Authenticode status): no sources, tests, Build outputs, evidence,
+credentials, keys, certificates, databases or machine configuration. It is written as `*.partial-<guid>`, extracted and verified independently
+into a private temporary folder with the packaged `Expand-AuthLensPackage.ps1`, and only then renamed; the `.zip.sha256` file
+(`<sha256> *<name>`) is renamed last. Existing packages are never overwritten. A packaging failure removes only that run's partial files, leaves
+Build and Installer unchanged, is recorded in `build-summary.json` (`package`) and makes the `-ZipPackage` run exit 1. The summary and console
+report the package path, size, SHA-256, release identity and Authenticode status. **A checksum proves integrity against the recorded digest, not
+publisher authenticity; the current installers are unsigned (`NotSigned`) until an authorized signing step exists.**
 
-The summary records tools, test status, checks, artifact hashes and failure reason. The release and installer manifests carry identical product,
-version, full SHA, branch and timestamp. A failure returns nonzero and retains partial outputs/logs. Dirty checkout rejection happens before
-creating a build directory. Start a new build after a failure; never overwrite a partial directory. This is traceable orchestration, not a claim
-of byte-for-byte reproducible executable timestamps or compression output.
+Operator workflow on the target machine (no repository or Build directory required):
 
-Previously generated `<UTC-timestamp>-<short-sha>` run directories remain valid inputs to explicit-path
-inspection/readiness tooling. Consumers discover manifests and verify metadata rather than parsing the run
-directory name. They are not renamed or upgraded in place; older second-precision timestamp metadata remains
-accepted. Focused build-workflow tests cover stable/prerelease names, UTC/calendar independence, collision
-suffixes and a real provider creation race, retained legacy artifacts and precise metadata expressions. Native
-release packaging with this convention awaits a manual build; no application or installer was built for this change.
+```powershell
+# 1. Copy AuthLens-<version>-<build-id>.zip and .zip.sha256 to C:\AuthLens, then verify the checksum
+$zip = 'C:\AuthLens\AuthLens-2.0.0-<build-id>.zip'
+(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -eq ((Get-Content "$zip.sha256").Split(' ')[0])
+# 2. Read only the extraction script out of the verified archive into a new private temporary folder
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$tmp = New-Item -ItemType Directory (Join-Path $env:TEMP ('authlens-expand-' + [guid]::NewGuid().ToString('N')))
+$archive = [IO.Compression.ZipFile]::OpenRead($zip)
+try { $entry = @($archive.Entries | Where-Object { $_.FullName -like 'Installer/*/Expand-AuthLensPackage.ps1' })[0]; [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $tmp 'Expand-AuthLensPackage.ps1')) } finally { $archive.Dispose() }
+# 3. Verify and extract into C:\AuthLens\Installer\<version>\<build-id> (never overwrites; temporary .x-* folder renamed only after verification)
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $tmp 'Expand-AuthLensPackage.ps1') -Package $zip -Destination C:\AuthLens
+# 4. Re-verify at any time; a directory that merely exists is not proof of a complete extraction
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\AuthLens\Installer\2.0.0\<build-id>\Expand-AuthLensPackage.ps1 -VerifyOnly -ExtractedDirectory C:\AuthLens\Installer\2.0.0\<build-id>
+# 5. Launch AuthLens-2.0.0-Server-Setup.exe (elevated) or AuthLens-2.0.0-Desktop-Setup.exe
+```
+
+The extraction script checks the ZIP SHA-256, rejects absolute, drive, traversing, duplicate, out-of-prefix and unlisted entries before writing,
+checks free space on the destination volume (contents plus 64 MB), refuses an existing target, verifies every size and hash plus the identity of
+`package-manifest.json` against `installer-manifest.json`, and reports Authenticode status. An interrupted extraction leaves only a `.x-*`
+folder, which is reported and never treated as a package.
+
+#### Build-host artifact inventory and retention (WP34)
+
+```powershell
+.\backend\scripts\Invoke-AuthLensArtifactRetention.ps1 -OutputRoot C:\AuthLens                       # read-only preview (dry run)
+.\backend\scripts\Invoke-AuthLensArtifactRetention.ps1 -Remove -Item '<id from the preview>' -ExpectedSelectionSha256 <hash> -Yes
+```
+
+Items are classified by category, version and build id (`build:`, `installer:`, `package:` with the `.zip` and `.zip.sha256` as one item,
+`acceptance:`). Never eligible: acceptance evidence, legacy run directories, builds and installers of an id with acceptance evidence,
+incomplete or unreadable builds, artifacts without a Build record (ownership not established), incomplete packages, a package that is the only
+remaining copy of its installers, the newest `-KeepPassed` (default 3) passed ids, `-Preserve` ids, reparse points and unrecognized entries.
+Deletion needs explicit item ids, `-Yes` and the preview's `selection_sha256`, reports the reclaimed storage and appends
+`C:\AuthLens\Build\retention-audit.jsonl`. Builds never call it.
 
 ### Preparation diagnostics and remaining acceptance
 
@@ -1740,11 +1855,11 @@ Before upgrading, verify backups and the old build, record fingerprints and veri
 replacing the build-folder variable with the actual successful output:
 
 ```powershell
-$built = 'C:\AuthLens\AuthLens-<version>-<yyyy-MM-dd_HHmm>-<shortSha>'
+$installers = 'C:\AuthLens\Installer\<version>\<build-id>'
 # Desktop: current user, selected isolated data profile, no service
-& "$built\installer\AuthLens-2.0.0-alpha.1-Setup.exe" /DIR="C:\AuthLens-Desktop-Acceptance\app" /DATADIR="C:\AuthLens-Desktop-Acceptance\data" /LOG="C:\AuthLens-Desktop-Acceptance\setup-upgrade.log"
+& "$installers\AuthLens-<version>-Desktop-Setup.exe" /DIR="C:\AuthLens-Desktop-Acceptance\app" /DATADIR="C:\AuthLens-Desktop-Acceptance\data" /LOG="C:\AuthLens-Desktop-Acceptance\setup-upgrade.log"
 # Server: elevated operator, explicit isolated root/service/port/TLS in this configuration
-& "$built\installer\AuthLens-Server-2.0.0-alpha.1-Setup.exe" /CONFIGFILE="C:\AuthLens-Server-Acceptance\config\deploy.json" /OPERATION=Upgrade /LOG="C:\AuthLens-Server-Acceptance\setup-upgrade.log"
+& "$installers\AuthLens-<version>-Server-Setup.exe" /CONFIGFILE="C:\AuthLens-Server-Acceptance\config\deploy.json" /OPERATION=Upgrade /LOG="C:\AuthLens-Server-Acceptance\setup-upgrade.log"
 ```
 
 Use a configuration already validated for the disposable Server service and certificate; placeholders are not an initialization recipe.
@@ -1764,7 +1879,7 @@ Desktop profiles and earlier-product paths are refused. A missing/invalid regist
 Setup supports one canonical `AuthLens` service per machine. `Root` owns `app`, `releases`, `config`, `tls`, `keys` and `deployment` conventions;
 existing nonstandard releases/deployment layouts need separate review rather than automatic relocation. Custom data and predeployment backup
 paths are preserved and may be external, but cannot overlap each other or program/configuration/TLS/key/deployment storage. Long staged paths
-are rejected before permanent writes. Disk estimates include immutable staging/publication, backup size and temporary verification workspace.
+are rejected before permanent writes. Disk estimates follow the [storage preflight](#storage-preflight-and-installation-artifact-retention-wp34) per volume.
 
 The Ready page is the consolidated configuration review: storage paths, access mode (fresh) or "existing configuration (preserved)" (upgrade),
 HTTPS listener and allowed hosts, proxy hosts and trusted peers when configured, certificate (with a note for generated self-signed certificates),
@@ -1925,17 +2040,17 @@ any full regression; the packaging command below deliberately skips it.
 Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force
 .\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)
 # Select an explicit output whose build-summary.json status and verification fields passed; never blindly select the newest partial folder
-$built = 'C:\AuthLens\<verified-build-directory>'
-$release = (Get-ChildItem "$built\build" -Directory | Where-Object Name -Like 'AuthLens-*-win-x64').FullName
-$tools = (Get-ChildItem "$built\installer" -Directory -Filter 'installer-tools-*').FullName
+$release = 'C:\AuthLens\Build\<version>\<build-id>'          # the verified release itself
+$installers = 'C:\AuthLens\Installer\<version>\<build-id>'
+$tools = (Get-ChildItem $installers -Directory -Filter 'installer-tools-*').FullName
 $config = 'C:\AuthLens-Server-Acceptance\config\deploy.json'
 # Elevated lab operator; each result path must be new. These two steps do not provision the target.
 & "$tools\Install-AuthLens.ps1" -Mode Server -ResolveOnly -ConfigFile $config -ResultFile "$env:TEMP\authlens-resolve-unique.json"
 & "$tools\Install-AuthLens.ps1" -Mode Server -PreflightOnly -Operation Install -Package $release -ConfigFile $config -ResultFile "$env:TEMP\authlens-preflight-unique.json"
 # Fresh GUI: no DIR workaround. Repeat later with Upgrade and a newer compatible build.
-& "$built\installer\AuthLens-Server-2.0.0-alpha.1-Setup.exe" "/CONFIGFILE=$config" /OPERATION=Install
+& "$installers\AuthLens-<version>-Server-Setup.exe" "/CONFIGFILE=$config" /OPERATION=Install
 # Silent upgrade of the lab instance only; same engine and safety checks
-& "$built\installer\AuthLens-Server-2.0.0-alpha.1-Setup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/CONFIGFILE=$config" /OPERATION=Upgrade
+& "$installers\AuthLens-<version>-Server-Setup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/CONFIGFILE=$config" /OPERATION=Upgrade
 # Read-only offline same-build repair preflight (owned lab service must already be stopped) / uninstall planning
 & "$tools\Install-AuthLens.ps1" -Mode Server -PreflightOnly -Operation Repair -Package $release -ConfigFile $config -ResultFile "$env:TEMP\authlens-repair-unique.json"
 & "$tools\Install-AuthLens.ps1" -Mode Server -Operation UninstallPlan -ConfigFile $config -ResultFile "$env:TEMP\authlens-uninstall-plan-unique.json"

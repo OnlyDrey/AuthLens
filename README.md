@@ -67,18 +67,25 @@ is `C:\AuthLens`; choose another with `-OutputRoot`:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -OutputRoot 'C:\AuthLens-Builds'
 ```
 
-Each run creates a new `AuthLens-{version}-{yyyy-MM-dd_HHmm}-{shortSha}` directory under that output root,
-using the canonical version (including any prerelease suffix), UTC time and the first seven commit characters.
-For example: `C:\AuthLens\AuthLens-2.0.0-2026-11-24_0948-8ec7f77`. Collisions append `-02`, `-03`, etc.;
-existing directories are never reused or renamed. Manifests and build metadata retain the full timestamp precision
-and complete commit SHA. The internal layout is unchanged:
+Each build generates one build id `{yyyy-MM-dd_HHmm}-{shortSha}` (UTC time and the first seven commit characters, for example
+`2026-11-25_2145-b10dd50`) and reuses it in every artifact category below. Collisions append `-02`, `-03`, etc.; existing directories,
+packages and earlier run directories are never reused, overwritten, moved or renamed. Manifests and build metadata retain the full timestamp
+precision and complete commit SHA.
 
-| Location within the run directory | Contents |
+| Location under the output root | Contents |
 | --- | --- |
-| `build-summary.json`, `build.log` | Build/test status, tool versions, verification results, artifact hashes and console log |
-| `build\AuthLens-<version>-<timestamp>-<sha>-win-x64\` | `server\AuthLens.Api.exe`, `desktop\AuthLens.exe`, symbols, `build-manifest.json` and `SHA256SUMS` |
-| `installer\` | Both Setup executables, `installer-manifest.json`, `installers-SHA256SUMS` and packaged helpers |
-| `build\branding-verification.json` | Executable, installer and frontend branding checks |
+| `Build\<version>\<build-id>\` | The verified release itself: `server\AuthLens.Api.exe`, `desktop\AuthLens.exe`, symbols, `build-manifest.json`, `SHA256SUMS`, plus `build-summary.json`, `build.log` and `branding-verification.json` |
+| `Installer\<version>\<build-id>\` | `AuthLens-<version>-Server-Setup.exe`, `AuthLens-<version>-Desktop-Setup.exe`, `installer-manifest.json`, `installers-SHA256SUMS`, packaged installation, verification and recovery tooling, `DEPLOY.txt` and `Expand-AuthLensPackage.ps1` |
+| `Acceptance\<version>\<build-id>\<run>\` | Acceptance evidence, written later by the acceptance tooling |
+| `Packages\AuthLens-<version>-<build-id>.zip` and `.zip.sha256` | Optional portable deployment package (`-ZipPackage`, off by default) |
+
+Run directories of RC5 and earlier (`AuthLens-<version>-<yyyy-MM-dd_HHmm>-<shortSha>\build`, `\installer`) stay valid and are never moved.
+
+**Build with the portable deployment package** (after the build, installers and verification passed):
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -ZipPackage
+```
 
 Building does **not install AuthLens or modify Windows services**. For detailed switches, output layout
 and failure handling, see the [canonical Windows build guide](docs/deployment/WINDOWS_DEPLOYMENT.md#canonical-windows-build).

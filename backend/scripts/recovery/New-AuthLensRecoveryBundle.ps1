@@ -20,12 +20,65 @@ param(
     [string]$ConfigFile = 'C:\ProgramData\AuthLens\config\deploy.json',
     [string]$RecoveryRoot = 'C:\AuthLens-Recovery',
     [string]$ReportDirectory = '',
-    [string]$ServiceName = ''
+    [string]$ServiceName = '',
+    # QA-028: re-verify an existing bundle (private inventory hashes, archive hash, private ACL and decryption of the archive with the bundle's
+    # COPIED key and program in a new private temporary probe folder). Read-only for the installation and the bundle; it is not a restore
+    # rehearsal (Test-AuthLensRestoreRehearsal.ps1). A report is written only when -ReportDirectory is given.
+    [string]$VerifyBundle = ''
 )
 Set-StrictMode -Version 3
 $ErrorActionPreference = 'Stop'
 $started = [DateTime]::UtcNow
 $stamp = $started.ToString('yyyyMMddTHHmmssfffffffZ')
+if ($VerifyBundle) {
+    $check = [ordered]@{ schema = 1; tool = 'New-AuthLensRecoveryBundle -VerifyBundle'; status = 'failed'; verified = $false; started_utc = $started.ToString('o'); failure_stage = 'elevation'; bundle = ''
+        scope = 'Bundle integrity, private ACL and decryption of the archive with the copied key. Not a restore rehearsal; nothing is restored.' }
+    $probe = $null
+    try {
+        if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Administrator terminal required.' }
+        Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'deploy\AuthLens.Deploy.psm1') -Force
+        $bundle = [IO.Path]::GetFullPath($VerifyBundle).TrimEnd('\', '/'); $check.bundle = $bundle
+        $check.failure_stage = 'private inventory'
+        $inventory = Get-Content -LiteralPath (Join-Path $bundle 'private-inventory.json') -Raw | ConvertFrom-Json
+        if ($inventory.schema -ne 2 -or -not @($inventory.files).Count) { throw 'The private inventory is not a schema-2 recovery bundle inventory.' }
+        foreach ($file in @($inventory.files)) {
+            if (-not (Test-ALPathWithin $file.copy $bundle) -or -not (Test-Path -LiteralPath $file.copy -PathType Leaf) -or (Get-FileHash -LiteralPath $file.copy -Algorithm SHA256).Hash -ine $file.sha256) { throw "A recovery copy is missing or changed ($($file.category))." }
+        }
+        foreach ($required in 'selected\deploy.json', 'selected\server.pfx', 'selected\cert-password', 'selected\host-recovery.key', 'program\server\AuthLens.Api.exe', 'program\build-manifest.json') {
+            if (-not (Test-Path -LiteralPath (Join-Path $bundle $required) -PathType Leaf)) { throw "Critical recovery material is missing ($required)." }
+        }
+        $check.failure_stage = 'archive'
+        $archive = [string]$inventory.backup.file
+        if (-not (Test-ALPathWithin $archive $bundle) -or -not (Test-Path -LiteralPath $archive -PathType Leaf) -or (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ine $inventory.backup.sha256) { throw 'The archive is missing or differs from the inventory.' }
+        $check.failure_stage = 'bundle ACL'
+        $audit = Get-ALAclReport @([pscustomobject]@{ Path = $bundle; Class = 'private'; Role = 'recovery bundle'; Recurse = $true }) -ExpectedSids @([Security.Principal.WindowsIdentity]::GetCurrent().User.Value)
+        $check.acl_safe = $audit.safe; $check.named_principal_access = $audit.named_principal_access
+        if (-not $audit.safe -or $audit.named_principal_access) { throw 'Recovery bundle ACL verification failed (broad or unexpected named access).' }
+        $check.failure_stage = 'independent key verification'
+        $probe = Join-Path ([IO.Path]::GetTempPath()) ('authlens-bundle-verify-' + [guid]::NewGuid().ToString('N'))
+        New-ALInstallerPrivateDirectory $probe
+        $env:AUTHLENS_BACKUP_KEY_FILE = $null; $env:AUTHLENS_BACKUP_PASSPHRASE = $null
+        $copied = Join-Path $bundle 'program\server\AuthLens.Api.exe'
+        $null = Invoke-ALMaintenance $copied @('--backup-key', 'use', (Join-Path $bundle 'selected\host-recovery.key'), '--data-dir', $probe)
+        $independent = Invoke-ALMaintenance $copied @('--backup-verify', $archive, '--data-dir', $probe)
+        if (-not $independent.verified -or $independent.sha256 -ine $inventory.backup.sha256) { throw 'The archive did not verify with the copied key.' }
+        $check.files_verified = @($inventory.files).Count; $check.archive_sha256 = ([string]$inventory.backup.sha256).ToLowerInvariant()
+        $check.status = 'passed'; $check.verified = $true; $check.failure_stage = ''
+    } catch {
+        $check.error_type = $_.Exception.GetType().Name
+        $check.error = if ($_.Exception.Message.Length -lt 200 -and $_.Exception.Message -notmatch '[A-Za-z]:\\') { $_.Exception.Message } else { '' }
+    } finally {
+        if ($probe -and (Test-Path -LiteralPath $probe)) { Remove-Item -LiteralPath $probe -Recurse -Force }
+        $check.completed_utc = [DateTime]::UtcNow.ToString('o')
+        if ($ReportDirectory -and (Test-Path -LiteralPath $ReportDirectory -PathType Container)) {
+            $file = Join-Path $ReportDirectory "verify-result-$stamp.json"
+            if (-not (Test-Path -LiteralPath $file)) { [IO.File]::WriteAllText($file, ($check | ConvertTo-Json -Depth 5)) }
+        }
+        Write-Host ('Recovery bundle verification: ' + $check.status + $(if ($check.failure_stage) { ' at ' + $check.failure_stage } else { '' }))
+        Write-Host ('AUTHLENS-RECOVERY-BUNDLE-VERIFY: ' + ($check | ConvertTo-Json -Compress -Depth 5))
+    }
+    if ($check.verified) { exit 0 } else { exit 1 }
+}
 if (-not $ReportDirectory) { $ReportDirectory = Join-Path $RecoveryRoot 'reports' }
 $report = Join-Path $ReportDirectory "backup-result-$stamp.json"
 $result = [ordered]@{ schema = 2; tool = 'New-AuthLensRecoveryBundle'; status = 'failed'; verified = $false; started_utc = $started.ToString('o'); failure_stage = 'elevation'

@@ -334,7 +334,10 @@ begin
   Fresh := ServerFreshInstall();
   Result := 'Operation: ' + ServerValue('operation') + NewLine + 'Version: AuthLens {#FullVersion}' + NewLine + NewLine +
     'Storage' + NewLine + Space + 'Root: ' + ServerRoot + NewLine + Space + 'Program staging: ' + WizardDirValue() + NewLine +
-    Space + 'Application data: ' + ServerValue('data_directory') + NewLine + Space + 'Predeployment backups: ' + ServerValue('backup_directory') + NewLine + NewLine + 'Network' + NewLine;
+    Space + 'Application data: ' + ServerValue('data_directory') + NewLine + Space + 'Predeployment backups: ' + ServerValue('backup_directory') + NewLine;
+  // WP34: the preflight's per-volume free-storage breakdown (available, required, deficit, categories); a refusal shows it in the error dialog.
+  if ServerValue('storage_summary') <> '' then Result := Result + Space + 'Free storage check: ' + ServerValue('storage_summary') + NewLine;
+  Result := Result + NewLine + 'Network' + NewLine;
   if Fresh and (ServerCreatePage.SelectedValueIndex = 1) then Result := Result + Space + 'Access mode: ' + ServerAccessLabel() + NewLine
   else Result := Result + Space + 'Access mode: existing configuration (preserved)' + NewLine;
   Result := Result + Space + 'HTTPS listener: ' + ServerValue('listen_address') + ':' + ServerValue('port') + NewLine +

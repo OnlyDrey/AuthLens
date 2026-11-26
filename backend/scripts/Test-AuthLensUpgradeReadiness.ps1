@@ -5,13 +5,17 @@ Read-only Windows Server upgrade checks. Never authorizes or performs an upgrade
 Uses the existing packaged -Operation Upgrade -PreflightOnly contract. Child output is held in memory, never logged.
 Recovery checks verify the previous verification report and current file hashes, not an actual restore or backup freshness.
 No report files, directories, locks, configuration, keys or databases are created. Run from an administrator terminal.
+-BuildDirectory accepts the WP32 category layout (C:\AuthLens\Build\<version>\<build-id> or C:\AuthLens\Installer\<version>\<build-id>; summary schema 2) and legacy run
+directories (C:\AuthLens\<id> with build\ and installer\ inside; summary schema 1, RC5 and earlier), read in place.
 #>
 [CmdletBinding()]
 param(
     [string]$BuildDirectory='',
     [string]$ExpectedSourceSha='',
     [string]$ConfigFile='',
-    [string]$RecoveryReport=''
+    [string]$RecoveryReport='',
+    # WP31 (SEC-5): a strict gate also refuses REVIEW_REQUIRED and UNSAFE installation ACL status; without it the status is reported as a warning.
+    [switch]$StrictAcl
 )
 Set-StrictMode -Version 3
 $ErrorActionPreference='Stop'
@@ -53,6 +57,16 @@ function Assert-ReadinessManifestIdentity($Manifest,$Identity,[ValidateSet('rele
         }
         Stop-Readiness ($Context+'_identity_or_executable_mismatch')
     }
+}
+# WP31 (SEC-5): installation ACL status with the AuditAcl semantics (read-only). Broad access already fails the existing gates; named
+# principals that are unreviewed or have unauthorized binary write make the status REVIEW_REQUIRED or UNSAFE. Strict mode refuses anything
+# but SAFE; otherwise the status is returned for the report and printed as a warning. Nothing is changed.
+function Get-ReadinessAclStatus($Config,[bool]$Strict) {
+    try{$report=Get-ALAclReport (Get-ALAclPlan $Config) -ExpectedSids (Get-ALAclExpectedSids $Config) -Authorizations (Get-ALAclAuthorizations $Config)}
+    catch{if($Strict){Stop-Readiness 'acl_status_unverifiable'};return 'UNVERIFIABLE'}
+    $status=if($report.PSObject.Properties['status']){[string]$report.status}elseif(Test-ReadinessTrue $report.safe){'SAFE'}else{'UNSAFE'}
+    if($status -cne 'SAFE' -and $Strict){Stop-Readiness ('acl_status_'+$status.ToLowerInvariant())}
+    $status
 }
 function Resolve-ReadinessPath([string]$Path,[string]$Within='') {
     if(-not $Path -or $Path -notmatch '^[A-Za-z]:[\\/]' -or $Path.Substring(2).Contains(':')){Stop-Readiness 'invalid_local_path'}
@@ -108,23 +122,33 @@ function Assert-ReadinessBaseline($Baseline,$Config) {
     if((Get-ReadinessRegistration) -cne $Baseline.registration -or (Get-ALLink (Get-ALCurrentLink $Config)) -cne $Baseline.release){Stop-Readiness 'installation_identity_changed_during_check'}
     foreach($file in $Baseline.files.Keys){if((Get-ReadinessHash $file) -cne $Baseline.files[$file]){Stop-Readiness 'protected_file_changed_during_check'}}
 }
-function Get-ReadinessArtifactMap($Summary,[string]$Root) {
+# WP32: $Root is a legacy run directory path (artifact paths relative to it) or a resolved candidate (Resolve-AuthLensCandidate), whose
+# build/... and installer/... artifact paths map to build\<id> and installer\<id> in the split layout or to the run directory's subfolders.
+function Resolve-ReadinessArtifactPath($Root,[string]$Relative) {
+    if($Root -is [string]){return (Resolve-ReadinessPath (Join-Path $Root $Relative) $Root)}
+    $parts=@($Relative.Split('/'))
+    $base=switch($parts[0]){'build'{$Root.BuildDirectory}'installer'{$Root.InstallerDirectory}default{$null}}
+    if(-not $base -or $parts.Count -lt 2){Stop-Readiness 'invalid_build_artifact_inventory'}
+    $base=Resolve-ReadinessPath $base
+    Resolve-ReadinessPath (Join-Path $base (($parts[1..($parts.Count-1)]) -join '\')) $base
+}
+function Get-ReadinessArtifactMap($Summary,$Root) {
     $map=@{}
     foreach($entry in @($Summary.artifacts)){
         Assert-ReadinessFields $entry @('path','size','sha256') 'build_artifact'
         $relative=([string]$entry.path).Replace('\','/')
         if(-not $relative -or $relative -match '(^/|[:*?"<>|])' -or @($relative.Split('/')|Where-Object{$_ -in @('','.', '..')}).Count -or
             $map.ContainsKey($relative) -or $entry.sha256 -notmatch '^[a-fA-F0-9]{64}$' -or $entry.size -lt 0){Stop-Readiness 'invalid_build_artifact_inventory'}
-        $null=Resolve-ReadinessPath (Join-Path $Root $relative) $Root
+        $null=Resolve-ReadinessArtifactPath $Root $relative
         $map[$relative]=$entry
     }
     if(-not $map.Count){Stop-Readiness 'empty_build_artifact_inventory'}
     $map
 }
-function Assert-ReadinessArtifact($Map,[string]$Root,[string]$Relative) {
+function Assert-ReadinessArtifact($Map,$Root,[string]$Relative) {
     $relative=$Relative.Replace('\','/')
     if(-not $Map.ContainsKey($relative)){Stop-Readiness 'artifact_not_bound_to_build_summary'}
-    $path=Resolve-ReadinessPath (Join-Path $Root $relative) $Root
+    $path=Resolve-ReadinessArtifactPath $Root $relative
     if((Get-ReadinessHash $path) -ine $Map[$relative].sha256 -or (Get-Item -LiteralPath $path).Length -ne $Map[$relative].size){Stop-Readiness 'build_artifact_checksum_mismatch'}
 }
 function Invoke-ReadinessPreflight([string]$Tools,[string]$Package,[string]$Configuration,[string]$Fingerprint,$Identity,[string]$ExpectedJournal) {
@@ -145,6 +169,8 @@ function Invoke-ReadinessPreflight([string]$Tools,[string]$Package,[string]$Conf
         $proof.result.config_sha256 -ine $Fingerprint -or $proof.result.config_file -ine $Configuration -or
         -not(Test-ReadinessTrue $proof.deployment_journal_exists) -or -not $ExpectedJournal -or
         $proof.deployment_journal -ine $ExpectedJournal -or $proof.deployment_journal_expected -ine $ExpectedJournal){Stop-Readiness 'preflight_result_binding_mismatch'}
+    # WP34: the read-only preflight's storage breakdown (volume, available, required, deficit, categories) is reported, never acted on.
+    if($proof.result.PSObject.Properties['storage_summary']){[string]$proof.result.storage_summary}else{''}
 }
 
 $result=[ordered]@{schema=1;operation_id=[guid]::NewGuid().ToString('N');started_utc=[DateTime]::UtcNow.ToString('o');completed_utc='';
@@ -159,42 +185,54 @@ try {
     if($ExpectedSourceSha -and $ExpectedSourceSha -cnotmatch '^[a-f0-9]{40}$'){Stop-Readiness 'invalid_expected_source_sha'}
     Import-Module (Join-Path $PSScriptRoot 'deploy/AuthLens.Deploy.psm1') -Force
     . (Join-Path $PSScriptRoot 'Build-Workflow.ps1')
-    $build=Resolve-ReadinessPath $BuildDirectory
+    $requested=Resolve-ReadinessPath $BuildDirectory
+    # WP32: C:\AuthLens\Build\<version>\<build-id> (or Installer\... / Acceptance\...), or a legacy run directory C:\AuthLens\AuthLens-<version>-<id>
+    # (RC5 and earlier), read in place.
+    $result.stage='build candidate layout'
+    try{$candidate=Resolve-AuthLensCandidate $requested}catch{Stop-Readiness 'build_candidate_layout_unrecognized'}
+    foreach($directory in $candidate.RecordDirectory,$candidate.BuildDirectory,$candidate.InstallerDirectory){$null=Resolve-ReadinessPath $directory}
+    $build=Resolve-ReadinessPath $candidate.RecordDirectory
+    $result.candidate_id=$candidate.Id;$result.candidate_layout=$candidate.Layout
     $result.stage='build summary identity'
-    $summary=Read-ReadinessJson (Join-Path $build 'build-summary.json')
+    $summary=Read-ReadinessJson $candidate.SummaryFile
     Assert-ReadinessFields $summary @('schema','status','identity','verification','artifacts') 'build_summary'
     Assert-ReadinessFields $summary.identity @('product','version','source_sha','branch','build_timestamp_utc') 'build_identity'
-    if($summary.schema -ne 1 -or $summary.status -cne 'passed' -or $summary.identity.product -cne 'AuthLens' -or
+    # Summary schema 1 is the legacy run directory; schema 2 is the WP32 category layout and names its own version and build id.
+    $schemaLayout=if($summary.schema -eq 2 -and $summary.PSObject.Properties['layout'] -and $summary.layout -ceq 'category' -and $summary.PSObject.Properties['id'] -and $summary.id -ceq $candidate.Id -and $summary.PSObject.Properties['version'] -and $summary.version -ceq $candidate.Version){'category'}elseif($summary.schema -eq 1){'legacy'}else{''}
+    if($schemaLayout -cne $candidate.Layout){Stop-Readiness 'build_summary_layout_mismatch'}
+    if($summary.status -cne 'passed' -or $summary.identity.product -cne 'AuthLens' -or
         $summary.identity.source_sha -cnotmatch '^[a-f0-9]{40}$' -or
         ($ExpectedSourceSha -and $summary.identity.source_sha -cne $ExpectedSourceSha)){Stop-Readiness 'build_identity_refused'}
     Assert-ReadinessFields $summary.verification @('release','installers','secrets','branding') 'build_verification'
     foreach($check in 'release','installers','secrets','branding'){if(-not(Test-ReadinessTrue $summary.verification.$check)){Stop-Readiness ('build_verification_not_true_'+$check)}}
     $result.stage='build artifact inventory'
-    $artifacts=Get-ReadinessArtifactMap $summary $build
+    $artifacts=Get-ReadinessArtifactMap $summary $candidate
     $result.stage='release manifest discovery'
-    $buildPath=Resolve-ReadinessPath (Join-Path $build 'build') $build
+    $buildPath=Resolve-ReadinessPath $candidate.BuildDirectory
     $manifests=@(Get-ALTreeFiles $buildPath|Where-Object Name -eq 'build-manifest.json')
     if($manifests.Count -ne 1){Stop-Readiness 'release_manifest_missing_or_ambiguous'}
     $package=$manifests[0].DirectoryName
     $manifest=Read-ReadinessJson $manifests[0].FullName
     $result.stage='release manifest identity'
-    $relative=$manifests[0].FullName.Substring($build.Length+1)
-    Assert-ReadinessArtifact $artifacts $build $relative
+    $relative='build/'+$manifests[0].FullName.Substring($buildPath.Length+1).Replace('\','/')
+    Assert-ReadinessArtifact $artifacts $candidate $relative
     Assert-ReadinessManifestIdentity $manifest $summary.identity 'release_manifest'
     $product=Read-ReadinessJson (Join-Path $PSScriptRoot '../product-version.json')
     Assert-ReadinessFields $product @('version') 'product_version'
     if($manifest.version -cne $product.version){Stop-Readiness 'release_manifest_product_version_mismatch'}
     $result.source_sha=$manifest.source_sha;$result.version=$manifest.version
-    $installer=Resolve-ReadinessPath (Join-Path $build 'installer') $build
+    $installer=Resolve-ReadinessPath $candidate.InstallerDirectory
     $result.stage='installer manifest identity'
-    Assert-ReadinessArtifact $artifacts $build 'installer/installer-manifest.json'
+    Assert-ReadinessArtifact $artifacts $candidate 'installer/installer-manifest.json'
     $metadata=Read-ReadinessJson (Join-Path $installer 'installer-manifest.json')
     Assert-ReadinessManifestIdentity $metadata $summary.identity 'installer_manifest'
     $result.stage='installer artifact checksums'
-    $names=@("AuthLens-$($manifest.version)-Setup.exe","AuthLens-Server-$($manifest.version)-Setup.exe")
+    # WP32 names AuthLens-<version>-Server-Setup.exe / -Desktop-Setup.exe; legacy candidates keep their earlier names.
+    $setup=Get-AuthLensSetupNames $candidate $manifest.version
+    $names=@($setup.desktop,$setup.server)
     if((@($metadata.artifacts.path|Sort-Object)-join '|') -cne (@($names|Sort-Object)-join '|')){Stop-Readiness 'installer_inventory_refused'}
     foreach($entry in $metadata.artifacts){
-        Assert-ReadinessArtifact $artifacts $build ('installer/'+$entry.path)
+        Assert-ReadinessArtifact $artifacts $candidate ('installer/'+$entry.path)
         if($entry.sha256 -notmatch '^[a-fA-F0-9]{64}$' -or (Get-ReadinessHash (Join-Path $installer $entry.path)) -ine $entry.sha256){Stop-Readiness 'installer_checksum_mismatch'}
     }
     $result.stage='installer signature'
@@ -207,13 +245,17 @@ try {
     if($directories.Count -ne 1){Stop-Readiness 'packaged_tools_missing_or_ambiguous'}
     $tools=Resolve-ReadinessPath $directories[0].FullName $installer
     $toolRelative='installer/'+$directories[0].Name+'/'
-    Assert-ReadinessArtifact $artifacts $build ($toolRelative+'installer-tools.json')
+    Assert-ReadinessArtifact $artifacts $candidate ($toolRelative+'installer-tools.json')
     $proof=Read-ReadinessJson (Join-Path $tools 'installer-tools.json')
     $helperFiles=@('Install-AuthLens.ps1','verify-release.ps1','deploy/AuthLens.Deploy.psm1','deploy/Deploy-AuthLens.ps1',
         'deploy/AuthLens.Paths.ps1','deploy/AuthLens.Acl.ps1','deploy/AuthLens.Installer.ps1')
-    if($proof.schema -ne 1 -or (@($proof.files.path|Sort-Object)-join '|') -cne (@($helperFiles|Sort-Object)-join '|')){Stop-Readiness 'packaged_helper_inventory_refused'}
+    # QA-028: current packages also carry the recovery scripts; packages built before it carry exactly the seven deployment helpers.
+    $recoveryHelpers=@('recovery/New-AuthLensRecoveryBundle.ps1','recovery/Test-AuthLensRestoreRehearsal.ps1','acceptance/AuthLens.Acceptance.psm1')
+    $packed=(@($proof.files.path|Sort-Object)-join '|')
+    if($proof.schema -ne 1 -or ($packed -cne (@($helperFiles|Sort-Object)-join '|') -and $packed -cne (@(@($helperFiles)+@($recoveryHelpers)|Sort-Object)-join '|'))){Stop-Readiness 'packaged_helper_inventory_refused'}
+    $result.packaged_recovery_tools=($packed -cne (@($helperFiles|Sort-Object)-join '|'))
     foreach($entry in $proof.files){
-        Assert-ReadinessArtifact $artifacts $build ($toolRelative+$entry.path)
+        Assert-ReadinessArtifact $artifacts $candidate ($toolRelative+$entry.path)
         $packed=Get-ReadinessHash (Join-Path $tools $entry.path)
         if($packed -ine $entry.sha256 -or $packed -cne (Get-ReadinessHash (Join-Path $PSScriptRoot $entry.path))){Stop-Readiness 'packaged_helpers_differ_from_reviewed_source'}
     }
@@ -267,7 +309,7 @@ try {
     if($recovery.status -cne 'passed' -or -not(Test-ReadinessTrue $recovery.verified) -or
         $recovery.service_changed -isnot [bool] -or $recovery.service_changed){Stop-Readiness 'recovery_report_not_verified'}
     $bundle=Resolve-ReadinessPath $recovery.bundle
-    foreach($target in @($config.Root,$config.DataDirectory,$config.BackupRoot,$config.ReleasesRoot,$config.WorkRoot,$build,(Split-Path (Split-Path $PSScriptRoot)))){
+    foreach($target in @($config.Root,$config.DataDirectory,$config.BackupRoot,$config.ReleasesRoot,$config.WorkRoot,$build,$candidate.BuildDirectory,$candidate.InstallerDirectory,(Split-Path (Split-Path $PSScriptRoot)))){
         if(Test-ALPathOverlap $bundle $target){Stop-Readiness 'recovery_bundle_overlaps_upgrade_or_developer_storage'}
     }
     $audit=Get-ALAclReport @([pscustomobject]@{Path=$bundle;Class='private';Role='independent recovery';Recurse=$true})
@@ -313,8 +355,14 @@ try {
     $result.recovery_report_utc=(Get-Item -LiteralPath $RecoveryReport).LastWriteTimeUtc.ToString('o')
     $result.checks+='independent recovery ACL, archive and protected file hashes';Write-Host 'PASS: independent recovery ACL, archive and protected file hashes'
 
+    $result.stage='installation ACL status'
+    $result.acl_status=Get-ReadinessAclStatus $config ([bool]$StrictAcl)
+    $result.acl_gate=if($StrictAcl){'strict'}else{'report'}
+    if($result.acl_status -ceq 'SAFE'){$result.checks+='installation ACL status SAFE';Write-Host 'PASS: installation ACL status SAFE'}
+    else{Write-Host "WARNING: installation ACL status is $($result.acl_status); review it with Deploy-AuthLens.ps1 -Action AuditAcl (use -StrictAcl to refuse)."}
+
     $result.stage='supported read-only upgrade preflight'
-    Invoke-ReadinessPreflight $tools $package $config.ConfigFile $resolved.ConfigSha256 $manifest $journalPath
+    $result.storage_preflight=Invoke-ReadinessPreflight $tools $package $config.ConfigFile $resolved.ConfigSha256 $manifest $journalPath
     $result.checks+='supported read-only upgrade preflight';Write-Host 'PASS: supported read-only upgrade preflight'
     $passed=$true
 }catch{

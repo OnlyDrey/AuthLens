@@ -1,5 +1,5 @@
 // Read-only PE/ICO verification. Never loads or executes the inspected Windows binaries.
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { resolve, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -51,11 +51,19 @@ export function verifyExecutable(path) {
   for(const image of expected) if(!actual.has(image.hash)) throw Error(`${path}: missing canonical ${image.width}px icon resource`)
   return {path,icon_sizes:expected.map(image=>image.width),verified:true}
 }
+// WP32 Setup names (AuthLens-<version>-Desktop-Setup.exe, AuthLens-<version>-Server-Setup.exe); installer directories built before WP32 keep
+// AuthLens-<version>-Setup.exe and AuthLens-Server-<version>-Setup.exe. Exactly one complete naming scheme must be present.
+export function setupPrograms(installers,version) {
+  const schemes=[[`AuthLens-${version}-Desktop-Setup.exe`,`AuthLens-${version}-Server-Setup.exe`],[`AuthLens-${version}-Setup.exe`,`AuthLens-Server-${version}-Setup.exe`]]
+  const present=schemes.filter(names=>names.every(name=>existsSync(join(installers,name))))
+  if(present.length!==1) throw Error(`Expected exactly one complete set of Setup programs in ${installers}`)
+  return present[0].map(name=>join(installers,name))
+}
 if (process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).href) {
   const [release,installers,frontend,report]=process.argv.slice(2)
   if(!release||!installers||!frontend) throw Error('Usage: node scripts/verify-branding.mjs <release> <installer-directory> <frontend-dist>')
   const manifest=JSON.parse(readFileSync(join(release,'build-manifest.json'),'utf8'))
-  const result=[join(release,'desktop/AuthLens.exe'),join(release,'server/AuthLens.Api.exe'),join(installers,`AuthLens-${manifest.version}-Setup.exe`),join(installers,`AuthLens-Server-${manifest.version}-Setup.exe`)].map(verifyExecutable)
+  const result=[join(release,'desktop/AuthLens.exe'),join(release,'server/AuthLens.Api.exe'),...setupPrograms(installers,manifest.version)].map(verifyExecutable)
   for(const part of ['desktop/AuthLens.exe','server/AuthLens.Api.exe']) {
     const binary=readFileSync(join(release,part))
     for(const role of webAssets) if(!binary.includes(readFileSync(new URL(branding[role],brandingDirectory)))) throw Error(`Missing/stale embedded ${branding[role]} in ${part}`)

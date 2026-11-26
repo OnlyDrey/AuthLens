@@ -600,8 +600,20 @@ function Test-ALPublishedRelease([string]$Folder) {
 # The versioned deployment folder <ReleasesRoot>\<release name>. It is assembled in <ReleasesRoot>\.staging\<release name>, verified there and only
 # then moved into place, so an interrupted or incomplete copy is never visible as a release. An existing folder is reused only when its manifest
 # names the same commit and it verifies as a server package; it is never overwritten or repaired.
+# The installed release name keeps its convention AuthLens-<version>-<yyyyMMdd-HHmmss>-<sha7>-<platform>. A WP32 build directory
+# (C:\AuthLens\Build\<version>\<build-id>) does not carry it in its folder name, so it is derived from the verified manifest
+# (Build-Workflow.ps1 Get-AuthLensReleaseName is the same rule). Every other package keeps its own folder name.
+function Get-ALReleaseName([string]$Release, $Manifest = $null) {
+    $leaf = Split-Path ([IO.Path]::GetFullPath($Release).TrimEnd('\', '/')) -Leaf
+    if ($leaf -notmatch '^\d{4}-\d{2}-\d{2}_\d{4}-[0-9a-f]{7}(-\d{2})?$') { return $leaf }
+    if (-not $Manifest) { $Manifest = Get-Content -LiteralPath (Join-AL $Release 'build-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json }
+    $stamp = $Manifest.build_timestamp_utc
+    $built = if ($stamp -is [datetime]) { $stamp.ToUniversalTime() } else { [DateTime]::Parse([string]$stamp, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal) }
+    'AuthLens-{0}-{1}-{2}-{3}' -f $Manifest.version, $built.ToString('yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture), ([string]$Manifest.source_sha).Substring(0, 7), $Manifest.target_platform
+}
+
 function Publish-ALRelease($Config, [string]$Release, $Manifest, [string]$RepairId='') {
-    $name = Split-Path $Release -Leaf
+    $name = Get-ALReleaseName $Release $Manifest
     if($RepairId){
         if($RepairId -notmatch '^[a-f0-9]{32}$'){Stop-AL 'Invalid immutable repair publication identity.'}
         $name='repair-'+$RepairId
@@ -1284,9 +1296,9 @@ function Invoke-ALServiceRestart($Config, [switch]$DryRun) {
 # Every Deploy-AuthLens action is classified once. read_only actions never change anything; simulated actions implement -DryRun as a read-only
 # evaluation; any other changing action refuses -DryRun instead of running for real. -DryRun never replaces -Yes: without -DryRun an approval
 # action needs -Yes, and -DryRun with -Yes is still only a simulation.
-$script:ReadOnlyActions = @('Status', 'Health', 'AuditAcl')
-$script:SimulatedActions = @('Deploy', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestartService', 'AuthorizeAclPrincipal', 'RevokeAclPrincipal')
-$script:ApprovalActions = @('Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestoreAcl', 'RestartService', 'AuthorizeAclPrincipal', 'RevokeAclPrincipal')
+$script:ReadOnlyActions = @('Status', 'Health', 'AuditAcl', 'ArtifactInventory')
+$script:SimulatedActions = @('Deploy', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestartService', 'AuthorizeAclPrincipal', 'RevokeAclPrincipal', 'PruneArtifacts')
+$script:ApprovalActions = @('Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestoreAcl', 'RestartService', 'AuthorizeAclPrincipal', 'RevokeAclPrincipal', 'PruneArtifacts')
 
 function Get-ALActionPolicy([string]$Action, [switch]$DryRun, [switch]$Yes) {
     if ($Action -in $script:ReadOnlyActions) { return [pscustomobject]@{ action = $Action; mode = 'read_only'; approval_required = $false } }
@@ -1720,6 +1732,201 @@ function Invoke-ALRestore($Config, [string]$Backup, [string]$KeyFile) {
     Write-ALLog $operation.message
     [pscustomobject]@{ restored = $true; id = $operation.id; source_product = $staged.staged.preview.source_product; source_version = $staged.staged.preview.source_version
         created_at = $staged.staged.preview.created_at; message = $operation.message; status = (Get-ALStatus $Config) }
+}
+
+# ---- artifact inventory and retention (WP34, INST-119 to INST-121)
+
+# Categories that may become eligible for a reviewed cleanup. Everything else (application data and review evidence, in-app backups, keys,
+# configuration, TLS, the deployment journal, recovery audit, ACL backups and authorizations, firewall receipts) is reported as protected only.
+$script:ArtifactCategories = @('setup_stage', 'release', 'failed_publication', 'deployment_run', 'predeploy_backup', 'failed_backup')
+$script:ArtifactPendingMarkers = @('uninstall-pending.json', 'repair-pending.json', 'firewall-pending.json', 'configuration-pending.json', 'certificate-pending.json')
+
+# Size of a file or tree without following reparse points (a reparse point is reported, never traversed).
+function Measure-ALTree([string]$Path) {
+    $bytes = [long]0; $reparse = $false
+    if (-not (Test-Path -LiteralPath $Path)) { return [pscustomobject]@{ bytes = [long]0; reparse_points = $false } }
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { return [pscustomobject]@{ bytes = [long]0; reparse_points = $true } }
+    if (-not $item.PSIsContainer) { return [pscustomobject]@{ bytes = [long]$item.Length; reparse_points = $false } }
+    $stack = [Collections.Generic.Stack[string]]::new(); $stack.Push($item.FullName)
+    while ($stack.Count) {
+        foreach ($child in @(Get-ChildItem -LiteralPath $stack.Pop() -Force)) {
+            if ($child.Attributes -band [IO.FileAttributes]::ReparsePoint) { $reparse = $true; continue }
+            if ($child.PSIsContainer) { $stack.Push($child.FullName) } else { $bytes += $child.Length }
+        }
+    }
+    [pscustomobject]@{ bytes = $bytes; reparse_points = $reparse }
+}
+
+function Get-ALSelectionHash([object[]]$Items) {
+    $text = (@($Items | Sort-Object id | ForEach-Object { '{0}|{1}' -f $_.id, $_.bytes }) -join "`n")
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($text)))).Replace('-', '').ToLowerInvariant() } finally { $sha.Dispose() }
+}
+
+function Get-ALFullPath([string]$Path) { if ($Path) { [IO.Path]::GetFullPath($Path).TrimEnd('\', '/') } else { '' } }
+
+# Read-only inventory of installation artifacts with a retention preview. Never creates, changes or deletes anything.
+# Preserved, with the reason recorded per item:
+#   releases      the active release (releases\current), journal from/to releases, the installed-product release, the newest
+#                 -KeepPreviousReleases other releases (rollback targets), anything with a reparse point
+#   setup stages  the stage of every preserved release, the newest stage (Setup's uninstaller and Service Manager shortcut), stages with a failure
+#                 receipt, diagnostic or non-completed/missing operation result (incomplete deployment evidence)
+#   runs          the journal run, runs referenced by recovery-audit.jsonl, runs holding repair or manual-recovery evidence, the newest -KeepRuns
+#                 runs and every run younger than -KeepRunDays
+#   backups       the journal's pre-deployment backup and the newest -KeepBackups archives; a backup root that overlaps application data
+# While any deployment journal is not terminal or a repair, uninstall, firewall or configuration change is pending, nothing is eligible.
+function Get-ALArtifactInventory($Config, [int]$KeepPreviousReleases = 1, [int]$KeepBackups = 2, [int]$KeepRuns = 20, [int]$KeepRunDays = 90, [string[]]$Category = @(), [string]$ExcludeRun = '') {
+    if ($KeepPreviousReleases -lt 1 -or $KeepBackups -lt 1 -or $KeepRuns -lt 1 -or $KeepRunDays -lt 7) { Stop-AL 'Retention minimums: at least one previous release, one pre-deployment backup, one run and seven days of run logs are always kept.' }
+    foreach ($name in @($Category)) { if ($name -notin $script:ArtifactCategories) { Stop-AL 'Unknown artifact category. Use setup_stage, release, failed_publication, deployment_run, predeploy_backup or failed_backup.' } }
+    $items = [Collections.Generic.List[object]]::new()
+    $add = { param($Kind, $Path, $Built)
+        $m = Measure-ALTree $Path
+        $item = Get-Item -LiteralPath $Path -Force
+        $entry = [pscustomobject]@{ id = $Kind + ':' + $item.Name; category = $Kind; name = $item.Name; path = $item.FullName; bytes = $m.bytes; last_write_utc = $item.LastWriteTimeUtc.ToString('o')
+            built_utc = $Built; state = 'preserved'; reasons = [Collections.Generic.List[string]]::new() }
+        if ($m.reparse_points -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $entry.reasons.Add('contains_reparse_point') }
+        $items.Add($entry); $entry }
+    # Global state: anything awaiting recovery keeps every artifact.
+    $blocking = [Collections.Generic.List[string]]::new()
+    $journal = $null
+    try { $journal = Read-ALJournal $Config } catch { $blocking.Add('deployment_journal_unreadable') }
+    if ($journal -and $journal.PSObject.Properties['phase'] -and $journal.phase -notin $script:FinalPhases) { $blocking.Add('deployment_journal_' + $journal.phase) }
+    foreach ($marker in $script:ArtifactPendingMarkers) { if (Test-Path -LiteralPath (Join-AL $Config.WorkRoot $marker)) { $blocking.Add('pending_' + $marker) } }
+    $field = { param($Object, $Name) if ($null -ne $Object -and $Object.PSObject.Properties[$Name]) { $Object.$Name } else { $null } }
+    $active = ''; try { $active = Get-ALFullPath (Get-ALLink (Get-ALCurrentLink $Config)) } catch { $blocking.Add('release_pointer_unreadable') }
+    $installed = ''; try { $identity = Get-ALInstallerServerIdentity $Config; if ($identity) { $installed = Get-ALFullPath $identity.release } } catch { $blocking.Add('installed_product_record_invalid') }
+    $referenced = @{}
+    if ($active) { $referenced[$active.ToLowerInvariant()] = 'active_release' }
+    if ($installed -and -not $referenced.ContainsKey($installed.ToLowerInvariant())) { $referenced[$installed.ToLowerInvariant()] = 'installed_product_release' }
+    foreach ($name in 'from_release', 'to_release') { $value = [string](& $field $journal $name); if ($value -and -not $referenced.ContainsKey((Get-ALFullPath $value).ToLowerInvariant())) { $referenced[(Get-ALFullPath $value).ToLowerInvariant()] = 'rollback_dependency_' + $name } }
+    # Releases.
+    $releaseEntries = @()
+    if (Test-Path -LiteralPath $Config.ReleasesRoot) {
+        foreach ($dir in @(Get-ChildItem -LiteralPath $Config.ReleasesRoot -Directory -Force | Where-Object { $_.Name -notin @('current', '.staging') -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) })) {
+            $built = ''; try { $built = [string](Get-Content -LiteralPath (Join-AL $dir.FullName 'build-manifest.json') -Raw | ConvertFrom-Json).build_timestamp_utc } catch { $built = '' }
+            $entry = & $add 'release' $dir.FullName $built
+            $key = $entry.path.ToLowerInvariant(); if ($referenced.ContainsKey($key)) { $entry.reasons.Add($referenced[$key]) }
+            $releaseEntries += $entry
+        }
+        foreach ($dir in @(Get-ChildItem -LiteralPath (Join-AL $Config.ReleasesRoot '.staging') -Force -ErrorAction SilentlyContinue)) { $null = & $add 'failed_publication' $dir.FullName '' }
+    }
+    $others = @($releaseEntries | Where-Object { $_.reasons.Count -eq 0 } | Sort-Object @{ Expression = { if ($_.built_utc) { $_.built_utc } else { $_.last_write_utc } }; Descending = $true })
+    foreach ($entry in @($others | Select-Object -First $KeepPreviousReleases)) { $entry.reasons.Add('retention_keep_previous_release') }
+    $keptReleaseNames = @($releaseEntries | Where-Object { $_.reasons.Count } | ForEach-Object name)
+    # Setup stages.
+    $setupRoot = Join-AL (Join-AL $Config.Root 'app') 'setup'
+    if (Test-Path -LiteralPath $setupRoot) {
+        $stages = @(foreach ($dir in @(Get-ChildItem -LiteralPath $setupRoot -Directory -Force)) {
+            $entry = & $add 'setup_stage' $dir.FullName ''
+            if ($entry.name -in $keptReleaseNames) { $entry.reasons.Add('setup_stage_of_preserved_release') }
+            if ((Test-Path -LiteralPath (Join-AL $dir.FullName 'preflight-failure.json')) -or (Test-Path -LiteralPath (Join-AL $dir.FullName 'transaction-diagnostic.txt'))) { $entry.reasons.Add('setup_failure_evidence') }
+            $resultFile = Join-AL $dir.FullName 'operation-result.json'
+            if (-not (Test-Path -LiteralPath $resultFile)) { $entry.reasons.Add('setup_result_missing_incomplete_evidence') }
+            else { try { if ((Get-Content -LiteralPath $resultFile -Raw | ConvertFrom-Json).status -cne 'completed') { $entry.reasons.Add('setup_failure_evidence') } } catch { $entry.reasons.Add('setup_result_unreadable') } }
+            $entry })
+        foreach ($entry in @($stages | Sort-Object last_write_utc -Descending | Select-Object -First 1)) { $entry.reasons.Add('latest_setup_stage') }
+    }
+    # Deployment runs.
+    $runsRoot = Join-AL $Config.WorkRoot 'runs'
+    if (Test-Path -LiteralPath $runsRoot) {
+        $auditRuns = @(); try { $auditRuns = @(Read-ALRecoveryAudit $Config | ForEach-Object { [string](& $field $_ 'original_run'); [string](& $field $_ 'recovery_run') } | Where-Object { $_ }) } catch { $blocking.Add('recovery_audit_unreadable') }
+        $journalRun = [string](& $field $journal 'run')
+        $runs = @(foreach ($dir in @(Get-ChildItem -LiteralPath $runsRoot -Directory -Force | Where-Object { $_.Name -ne $ExcludeRun })) {
+            $entry = & $add 'deployment_run' $dir.FullName ''
+            if ($journalRun -and $entry.name -eq $journalRun) { $entry.reasons.Add('deployment_journal_run') }
+            if ($entry.name -in $auditRuns) { $entry.reasons.Add('recovery_audit_reference') }
+            foreach ($evidence in 'repair-journal.json', 'RECOVERY-REQUIRED.txt', 'uninstall-journal.json') { if (Test-Path -LiteralPath (Join-AL $dir.FullName $evidence)) { $entry.reasons.Add('recovery_evidence'); break } }
+            if ($dir.LastWriteTimeUtc -gt [DateTime]::UtcNow.AddDays(-$KeepRunDays)) { $entry.reasons.Add('retention_keep_recent_days') }
+            $entry })
+        foreach ($entry in @($runs | Sort-Object name -Descending | Select-Object -First $KeepRuns)) { $entry.reasons.Add('retention_keep_recent_runs') }
+    }
+    # Pre-deployment backups.
+    if (Test-Path -LiteralPath $Config.BackupRoot) {
+        $journalBackup = ''; $backup = & $field $journal 'backup'; if ($backup) { $journalBackup = Get-ALFullPath ([string](& $field $backup 'file')) }
+        $overlap = Test-ALPathOverlap $Config.BackupRoot $Config.DataDirectory
+        $archives = @()
+        foreach ($entryItem in @(Get-ChildItem -LiteralPath $Config.BackupRoot -Force)) {
+            $kind = if (-not $entryItem.PSIsContainer -and $entryItem.Name -like '*.slbak') { 'predeploy_backup' } elseif (-not $entryItem.PSIsContainer -and $entryItem.Name -like '*.partial') { 'failed_backup' } else { 'unrecognized_backup_entry' }
+            $entry = & $add $kind $entryItem.FullName ''
+            if ($overlap) { $entry.reasons.Add('backup_root_overlaps_application_data') }
+            if ($kind -eq 'unrecognized_backup_entry') { $entry.reasons.Add('unrecognized_never_touched') }
+            if ($journalBackup -and $entry.path -ieq $journalBackup) { $entry.reasons.Add('deployment_journal_backup') }
+            if ($kind -eq 'predeploy_backup') { $archives += $entry }
+        }
+        foreach ($entry in @($archives | Sort-Object last_write_utc -Descending | Select-Object -First $KeepBackups)) { $entry.reasons.Add('retention_keep_newest_backups') }
+    }
+    foreach ($entry in $items) {
+        if ($blocking.Count) { $entry.reasons.Add('incomplete_deployment_or_recovery') }
+        if ($entry.reasons.Count -eq 0 -and $entry.category -in $script:ArtifactCategories) {
+            $entry.state = 'eligible'
+            $entry.reasons.Add(@{ setup_stage = 'superseded_setup_stage'; release = 'superseded_release'; failed_publication = 'interrupted_publication_leftover'; deployment_run = 'expired_run_log'; predeploy_backup = 'superseded_predeploy_backup'; failed_backup = 'interrupted_backup_leftover' }[$entry.category])
+        }
+    }
+    # Protected locations: reported for operator guidance only, never eligible.
+    $protected = @(foreach ($pair in @(@('application_data_and_review_evidence', $Config.DataDirectory), @('in_app_backups', (Join-AL $Config.DataDirectory 'backups')), @('recovery_keys', (Join-AL $Config.Root 'keys')),
+            @('configuration', (Join-AL $Config.Root 'config')), @('tls', (Join-AL $Config.Root 'tls')), @('deployment_state_and_audit', $Config.WorkRoot))) {
+        if (Test-Path -LiteralPath $pair[1]) { [pscustomobject]@{ category = $pair[0]; path = $pair[1]; bytes = $(if ($pair[0] -eq 'deployment_state_and_audit') { [long]0 } else { (Measure-ALTree $pair[1]).bytes }); reason = 'never_deleted_by_retention' } }
+    })
+    $eligible = @($items | Where-Object state -eq 'eligible')
+    $selection = if (@($Category).Count) { @($eligible | Where-Object { $_.category -in $Category }) } else { $eligible }
+    $volumes = @(foreach ($volume in @(@($Config.Root, $Config.ReleasesRoot, $Config.BackupRoot, $Config.WorkRoot, $Config.DataDirectory) | ForEach-Object { [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($_)).ToUpperInvariant() } | Select-Object -Unique)) {
+        $available = $null; try { $available = [long](Get-ALInstallerFreeBytes $volume) } catch { $available = $null }
+        [pscustomobject]@{ volume = $volume; available_bytes = $available; eligible_bytes = [long](@($eligible | Where-Object { [IO.Path]::GetPathRoot($_.path).ToUpperInvariant() -eq $volume } | ForEach-Object bytes) | Measure-Object -Sum).Sum }
+    })
+    [pscustomobject]@{ schema = 1; generated_utc = [DateTime]::UtcNow.ToString('o'); read_only = $true; root = $Config.Root; cleanup_allowed = ($blocking.Count -eq 0); blocking = @($blocking)
+        retention = [pscustomobject]@{ keep_previous_releases = $KeepPreviousReleases; keep_backups = $KeepBackups; keep_runs = $KeepRuns; keep_run_days = $KeepRunDays }
+        items = @($items | ForEach-Object { [pscustomobject]@{ id = $_.id; category = $_.category; name = $_.name; path = $_.path; bytes = $_.bytes; last_write_utc = $_.last_write_utc; state = $_.state; reasons = @($_.reasons) } })
+        protected = $protected; volumes = $volumes
+        eligible_count = $eligible.Count; eligible_bytes = [long](@($eligible | ForEach-Object bytes) | Measure-Object -Sum).Sum
+        categories = @($Category); selection = @($selection | ForEach-Object id); selection_bytes = [long](@($selection | ForEach-Object bytes) | Measure-Object -Sum).Sum
+        selection_sha256 = (Get-ALSelectionHash $selection)
+        guidance = 'Read-only preview. Delete only after review: Deploy-AuthLens.ps1 -Action PruneArtifacts -ArtifactCategory <categories> -DryRun, then the same command with -ExpectedSelectionSha256 <selection_sha256> -Yes. Upgrades never delete artifacts.' }
+}
+
+# PruneArtifacts: -DryRun returns the exact preview (no mutation). Execution needs -Yes (D-006 policy), explicit categories, a terminal deployment
+# state and the preview's selection hash; it re-validates every path, deletes only that selection, reports the reclaimed storage per volume and
+# appends one line to <WorkRoot>\artifact-retention.jsonl. Never called by Setup, Deploy, Recover or any upgrade path.
+function Invoke-ALArtifactPrune($Config, [string[]]$Category, [string]$ExpectedSelectionSha256 = '', [int]$KeepPreviousReleases = 1, [int]$KeepBackups = 2, [int]$KeepRuns = 20, [int]$KeepRunDays = 90, [switch]$DryRun) {
+    if (-not @($Category).Count) { Stop-AL 'PruneArtifacts needs an explicit -ArtifactCategory selection (setup_stage, release, failed_publication, deployment_run, predeploy_backup, failed_backup); nothing was deleted.' }
+    $inventory = Get-ALArtifactInventory $Config $KeepPreviousReleases $KeepBackups $KeepRuns $KeepRunDays $Category $script:RunId
+    $selected = @($inventory.items | Where-Object { $_.id -in $inventory.selection })
+    if ($DryRun) {
+        return [pscustomobject]@{ preview = $true; cleanup_allowed = $inventory.cleanup_allowed; blocking = $inventory.blocking; categories = @($Category)
+            would_delete = @($selected | ForEach-Object { [pscustomobject]@{ id = $_.id; path = $_.path; bytes = $_.bytes; reasons = $_.reasons } }); would_reclaim_bytes = $inventory.selection_bytes
+            selection_sha256 = $inventory.selection_sha256; volumes = $inventory.volumes; preserved = @($inventory.items | Where-Object state -eq 'preserved' | ForEach-Object { [pscustomobject]@{ id = $_.id; reasons = $_.reasons } })
+            next = 'Repeat with -ExpectedSelectionSha256 ' + $inventory.selection_sha256 + ' -Yes (without -DryRun) to delete exactly this selection.' }
+    }
+    if (-not $inventory.cleanup_allowed) { Stop-AL 'Artifact cleanup is refused while a deployment, repair, uninstall, firewall or configuration change awaits recovery; all evidence was preserved.' 4 }
+    if ($ExpectedSelectionSha256 -notmatch '^[a-f0-9]{64}$' -or $ExpectedSelectionSha256 -cne $inventory.selection_sha256) { Stop-AL 'The artifact selection differs from the reviewed preview; run PruneArtifacts -DryRun again and pass its selection_sha256. Nothing was deleted.' }
+    $roots = @{ setup_stage = (Join-AL (Join-AL $Config.Root 'app') 'setup'); release = $Config.ReleasesRoot; failed_publication = (Join-AL $Config.ReleasesRoot '.staging'); deployment_run = (Join-AL $Config.WorkRoot 'runs'); predeploy_backup = $Config.BackupRoot; failed_backup = $Config.BackupRoot }
+    $never = @($Config.DataDirectory, (Join-AL $Config.Root 'keys'), (Join-AL $Config.Root 'config'), (Join-AL $Config.Root 'tls'), $Config.ConfigFile, $Config.CertificatePath)
+    $active = Get-ALFullPath (Get-ALLink (Get-ALCurrentLink $Config))
+    $before = @{}; foreach ($v in $inventory.volumes) { $before[$v.volume] = $v.available_bytes }
+    $deleted = [Collections.Generic.List[object]]::new(); $failure = ''
+    foreach ($item in $selected) {
+        try {
+            $full = Get-ALFullPath $item.path
+            if ((Split-Path $full -Parent) -ine (Get-ALFullPath $roots[$item.category]) -or ($active -and $full -ieq $active)) { Stop-AL "Refused $($item.id): it is not a direct entry of its artifact root or it is the active release." }
+            foreach ($path in $never) { if ($path -and (Test-ALPathOverlap $full $path)) { Stop-AL "Refused $($item.id): it overlaps protected data, keys, configuration or TLS." } }
+            Test-ALPathTree $full
+            if ((Measure-ALTree $full).reparse_points) { Stop-AL "Refused $($item.id): it contains a reparse point." }
+            Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop
+            $deleted.Add([pscustomobject]@{ id = $item.id; bytes = $item.bytes })
+            Write-ALLog "artifact retention: deleted $($item.id) ($($item.bytes) bytes)"
+        } catch { $failure = $_.Exception.Message; Write-ALLog "artifact retention stopped: $failure"; break }
+    }
+    $volumes = @(foreach ($v in $inventory.volumes) {
+        $after = $null; try { $after = [long](Get-ALInstallerFreeBytes $v.volume) } catch { $after = $null }
+        [pscustomobject]@{ volume = $v.volume; available_before = $before[$v.volume]; available_after = $after }
+    })
+    $operator = Get-ALOperatorIdentity
+    $record = [ordered]@{ schema = 1; recorded_utc = [DateTime]::UtcNow.ToString('o'); run = $script:RunId; operator = $operator.name; operator_sid = $operator.sid; categories = @($Category)
+        selection_sha256 = $inventory.selection_sha256; deleted = @($deleted); reclaimed_bytes = [long](@($deleted | ForEach-Object bytes) | Measure-Object -Sum).Sum; failure = $failure }
+    New-Item -ItemType Directory -Force $Config.WorkRoot | Out-Null
+    [IO.File]::AppendAllText((Join-AL $Config.WorkRoot 'artifact-retention.jsonl'), (($record | ConvertTo-Json -Compress -Depth 5) + "`n"), [Text.UTF8Encoding]::new($false))
+    if ($failure) { Stop-AL "Artifact retention stopped after $($deleted.Count) of $($selected.Count) items; the remaining artifacts were kept. Review artifact-retention.jsonl and the run log." 1 }
+    [pscustomobject]@{ pruned = $true; deleted = @($deleted); reclaimed_bytes = $record.reclaimed_bytes; volumes = $volumes; audit = (Join-AL $Config.WorkRoot 'artifact-retention.jsonl') }
 }
 
 . (Join-Path $PSScriptRoot 'AuthLens.Paths.ps1')

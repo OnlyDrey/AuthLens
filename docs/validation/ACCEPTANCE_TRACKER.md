@@ -328,7 +328,7 @@ Regression run after these corrections (isolated test host, Chromium): `user-fee
 | QA-008, 009 | Implemented (Lifecycle, not run natively) | Fingerprints (`--fingerprint-data`) before/after upgrade and repair compared separately; certificate thumbprint, configuration hash and service account/start/command line checked |
 | QA-017, 021, 022, 023 | Implemented | Readiness: mismatch category, side and file; recovery versus active program identity; explicit report selection reported, fallback warned |
 | QA-019, 020, 024 to 027, 029, 031 | Implemented | `backend/scripts/recovery` bundle and rehearsal scripts; restore rehearsal PASS natively |
-| QA-028 | Deferred | Service Manager does not package the recovery scripts yet (would change the packaged helper inventory); operators run them from the repository |
+| QA-028 | Implemented, native verification pending | Recovery bundle and rehearsal scripts (with the acceptance module the rehearsal imports) are in the packaged helper inventory and the portable package; Service Manager `CreateRecoveryBundle`/`VerifyRecoveryBundle` (elevated, explicit destination outside the installation, private ACL, verification with the copied key, no restore) run the installed hash-verified tooling; Pester `Service-Manager`, `AuthLens.Installer`, `Upgrade-Readiness`; not yet run natively |
 | QA-030 | Implemented | Lifecycle refuses without verified escrow; rehearsal uses only the bundle's copied key |
 | QA-032 | Implemented | Bundle ACL check includes named principals; AuditAcl named-account findings (D-008) |
 

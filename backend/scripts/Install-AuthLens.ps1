@@ -105,7 +105,7 @@ try {
     # Inno embeds these tools separately from the unchanged release manifest. Verify every helper before importing executable code.
     $proof = Join-Path $PSScriptRoot 'installer-tools.json'
     if (Test-Path -LiteralPath $proof) {
-        $expected=@('Install-AuthLens.ps1','verify-release.ps1','deploy/AuthLens.Deploy.psm1','deploy/Deploy-AuthLens.ps1','deploy/AuthLens.Paths.ps1','deploy/AuthLens.Acl.ps1','deploy/AuthLens.Installer.ps1')
+        $expected=@('Install-AuthLens.ps1','verify-release.ps1','deploy/AuthLens.Deploy.psm1','deploy/Deploy-AuthLens.ps1','deploy/AuthLens.Paths.ps1','deploy/AuthLens.Acl.ps1','deploy/AuthLens.Installer.ps1','recovery/New-AuthLensRecoveryBundle.ps1','recovery/Test-AuthLensRestoreRehearsal.ps1','acceptance/AuthLens.Acceptance.psm1')
         $entries=@((Get-Content -LiteralPath $proof -Raw -Encoding UTF8 | ConvertFrom-Json).files)
         if ((@($entries.path | Sort-Object) -join '|') -cne (@($expected | Sort-Object) -join '|')) { throw 'Installer helper inventory is incomplete or unexpected.' }
         foreach ($entry in $entries) {
@@ -255,6 +255,9 @@ try {
     $technical=Get-InstallerTechnicalDiagnostic $failure
     $known=@('Unknown installer operation. Use Auto, Install, Upgrade, Repair, Uninstall, Firewall, FirewallRemove, UninstallPlan, InspectState or QuarantineFailedSetup.','A previous installer result exists; it will not be overwritten.','Select only one recovery, resolve, preflight or preparation mode.','Server lifecycle options are not Desktop options.','Installation requires explicit -Yes after reviewing the selected paths and configuration.','Packaged installer helper integrity manifest is missing.','Installer helper integrity verification failed.','Installer helper inventory is incomplete or unexpected.','Invalid installer helper path.','Server Setup requires an elevated operator session.','Recover and PrepareOnly cannot be combined.')
     $reason=if ($failure.Exception.Message -in $known -or $failure.Exception.Message -in $installerPublicErrors) { $failure.Exception.Message } else { 'Prerequisite/helper/configuration error ('+$failure.Exception.GetType().Name+'). Review the explicit configuration and packaged helper integrity.' }
+    # WP34: a storage refusal carries its computed breakdown (volume roots, byte counts and category names only); the GUI shows this first line.
+    $storage=if($failure.Exception.Data.Contains('AuthLensStorage')){$failure.Exception.Data['AuthLensStorage']}else{$null}
+    if($storage -and $reason -ceq $failure.Exception.Message){$reason=$reason+' '+[string]$storage.summary}
     $reason=[regex]::Replace($reason,'(?i)(password|token|secret|credential|passphrase)\s*[:=]\s*[^\s;,]+','$1=[REDACTED]')
     $summary="Stage: $stage. $reason "+(Get-InstallerJournalState).message
     $diagnostic=$summary+"`n"+$technical
@@ -267,7 +270,9 @@ try {
     $code=if($stage -like '*transaction'){4}else{2}
     if ($failure.Exception.PSObject.Properties['ExitCode']) { $code=$failure.Exception.ExitCode }
     try{
-        Write-InstallerResult @{schema=1;operation_id=$operationId;status='refused_or_failed';exit_code=$code;stage=$stage;message=$reason;technical_diagnostic=$technical;diagnostic_file=$DiagnosticFile;deployment_journal=$journalPath}
+        $refusal=@{schema=1;operation_id=$operationId;status='refused_or_failed';exit_code=$code;stage=$stage;message=$reason;technical_diagnostic=$technical;diagnostic_file=$DiagnosticFile;deployment_journal=$journalPath}
+        if($storage){$refusal.storage=$storage}
+        Write-InstallerResult $refusal
         # Create-only evidence for a later, explicitly selected read-only retry. Never certify a
         # transaction failure or an old result, and never infer a transaction from an expected path.
         if($Mode -eq 'Server' -and $stage -eq 'Server installation preflight' -and $code -eq 2 -and $SetupMetadataFile -and $diagnosticWritten -and -not $FailedPreflightReceipt -and -not (Get-InstallerJournalState).exists){

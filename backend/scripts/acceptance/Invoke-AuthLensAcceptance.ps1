@@ -11,7 +11,8 @@
   Results: <EvidenceRoot>\<RunName>\results.json (machine-readable) and per-case output. Exit codes: 0 passed, 1 failed, 2 refused before
   running (context or prerequisites), 3 stopped on unexpected mutation.
 .EXAMPLE
-  powershell -NoProfile -ExecutionPolicy Bypass -File backend\scripts\acceptance\Invoke-AuthLensAcceptance.ps1 -Operation B14Elevation -Candidate C:\AuthLens\AuthLens-2.0.0-2026-11-25_0807-37eadd5 -RunName B14-elevation-1
+  powershell -NoProfile -ExecutionPolicy Bypass -File backend\scripts\acceptance\Invoke-AuthLensAcceptance.ps1 -Operation B14Elevation -Candidate C:\AuthLens\Build\<version>\<build-id> -RunName B14-elevation-1
+  (a legacy run directory such as C:\AuthLens\AuthLens-2.0.0-2026-11-25_1442-b10dd50 is still accepted in place)
 #>
 [CmdletBinding()]
 param(
@@ -33,14 +34,19 @@ Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AuthLens.Acceptance.psm1') -Force
 
-$candidateRoot = [IO.Path]::GetFullPath($Candidate)
-if (-not $EvidenceRoot) { $EvidenceRoot = Join-Path 'C:\AuthLens\acceptance' (Split-Path $candidateRoot -Leaf) }
-$summaryFile = Join-Path $candidateRoot 'build-summary.json'
-if (-not (Test-Path -LiteralPath $summaryFile)) { Write-Host "REFUSED: $summaryFile not found (a canonical build.ps1 run directory is required)."; exit 2 }
+# WP32: -Candidate is C:\AuthLens\Build\<version>\<build-id> (or Installer\<version>\<build-id>), or a legacy run directory
+# C:\AuthLens\AuthLens-<version>-<id> (RC5 and earlier), read in place. Evidence goes to C:\AuthLens\Acceptance\<version>\<build-id>\<RunName>
+# (legacy candidates: C:\AuthLens\acceptance\<run directory name>\<RunName>, as before) unless -EvidenceRoot is given.
+. (Join-Path (Split-Path $PSScriptRoot -Parent) 'Build-Workflow.ps1')
+try { $resolved = Resolve-AuthLensCandidate ([IO.Path]::GetFullPath($Candidate)) } catch { Write-Host "REFUSED: $($_.Exception.Message) (a canonical build.ps1 candidate is required)."; exit 2 }
+if (-not $EvidenceRoot) { $EvidenceRoot = if ($resolved.Layout -eq 'category') { Join-Path (Join-Path 'C:\AuthLens\Acceptance' $resolved.Version) $resolved.Id } else { Join-Path 'C:\AuthLens\acceptance' $resolved.LegacyName } }
+$summaryFile = $resolved.SummaryFile
 $identity = (Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json).identity
-$release = @(Get-ChildItem -LiteralPath (Join-Path $candidateRoot 'build') -Directory | Where-Object Name -Like 'AuthLens-*-win-x64')[0].FullName
-$package = Split-Path $release -Leaf
-$packagedTools = @(Get-ChildItem -LiteralPath (Join-Path $candidateRoot 'installer') -Directory -Filter 'installer-tools-*')[0].FullName
+$release = $resolved.ReleaseDirectory
+if (-not $release) { Write-Host 'REFUSED: the candidate has no single release folder.'; exit 2 }
+# The staged Setup payload keeps the installed release name AuthLens-<version>-<yyyyMMdd-HHmmss>-<sha7>-win-x64.
+$package = Get-AuthLensReleaseName $release
+$packagedTools = @(Get-ChildItem -LiteralPath $resolved.InstallerDirectory -Directory -Filter 'installer-tools-*')[0].FullName
 $staged = Join-Path $Root "app\setup\$package"
 # QA-007: installed-runtime tests use the installed, hash-verified tools Setup staged for this package, never a build copy.
 $deploy = if ($Tools -eq 'Installed') { Join-Path $staged 'tools\deploy\Deploy-AuthLens.ps1' } else { Join-Path $packagedTools 'deploy\Deploy-AuthLens.ps1' }
@@ -127,7 +133,7 @@ try {
         -ExpectedInstalledSha $ExpectedInstalledSha -InstalledSha $installedSha -KeyStatus $keyStatus -SnapshotAttestation $SnapshotAttestation
     $journal = Get-Content -LiteralPath (Join-Path $Root 'deployment\deployment-journal.json') -Raw | ConvertFrom-Json
     if ($journal.phase -notin 'complete', 'rolled_back') { throw "REFUSED: the deployment journal is '$($journal.phase)', not terminal." }
-    $server = Join-Path $candidateRoot "installer\AuthLens-Server-$($identity.version)-Setup.exe"
+    $server = Join-Path $resolved.InstallerDirectory (Get-AuthLensSetupNames $resolved $identity.version).server
     $expectedSetup = @((Get-Content -LiteralPath $summaryFile -Raw | ConvertFrom-Json).artifacts | Where-Object { $_.path -eq "installer/$(Split-Path $server -Leaf)" })[0].sha256
     if (-not $expectedSetup -or (Get-AcceptanceFileHash $server) -ne $expectedSetup.ToLowerInvariant()) { throw 'REFUSED: Server Setup hash differs from build-summary.json.' }
     New-AcceptanceDirectory $output

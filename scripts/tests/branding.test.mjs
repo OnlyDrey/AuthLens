@@ -2,7 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, existsSync } from 'node:fs'
 import { branding, brandingDirectory, brandingPlugin, webAssets } from '../branding.mjs'
-import { icoImages, peIconImages } from '../verify-branding.mjs'
+import { icoImages, peIconImages, setupPrograms } from '../verify-branding.mjs'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const root = new URL('../../', import.meta.url)
 test('canonical branding files exist with actual PNG/ICO formats and stable generic names', () => {
@@ -82,4 +85,15 @@ test('binary icon validation refuses malformed images and non-PE files',()=>{
   const ico=Buffer.from(readFileSync(new URL(branding.windowsIcon,brandingDirectory)))
   ico.writeUInt32LE(ico.length,18)
   assert.throws(()=>icoImages(ico),/bounds/)
+})
+
+test('WP32 Setup names are verified, legacy installer directories keep their names, and an ambiguous mix is refused', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'authlens-setup-names-'))
+  try {
+    assert.throws(() => setupPrograms(directory, '2.0.0'), /exactly one complete set/)
+    for (const name of ['AuthLens-2.0.0-Desktop-Setup.exe', 'AuthLens-2.0.0-Server-Setup.exe']) writeFileSync(join(directory, name), 'synthetic')
+    assert.deepEqual(setupPrograms(directory, '2.0.0'), [join(directory, 'AuthLens-2.0.0-Desktop-Setup.exe'), join(directory, 'AuthLens-2.0.0-Server-Setup.exe')])
+    for (const name of ['AuthLens-2.0.0-Setup.exe', 'AuthLens-Server-2.0.0-Setup.exe']) writeFileSync(join(directory, name), 'synthetic')
+    assert.throws(() => setupPrograms(directory, '2.0.0'), /exactly one complete set/)
+  } finally { rmSync(directory, { recursive: true, force: true }) }
 })
