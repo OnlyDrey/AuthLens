@@ -354,6 +354,17 @@ serves `/api/functional-groups/<id>/members` (no backend source change since `83
 
 Pills stay 28 px high (below the 44 px touch target guidance); no real iPhone check has run.
 
+### RC6 Dashboard filter layout (BUG-014, P1, target 2.0.0)
+
+Found during RC6 acceptance: the WP30 dashboard filters opened as a right-hand drawer over the cards instead of the integrated filter
+sidebar every other module uses. WP35 found frontend-only deployment not feasible, so BUG-013 and BUG-014 ship with the next consolidated
+candidate (RC7).
+
+| Item | Root cause | Resolution | Regression tests | Status |
+| --- | --- | --- | --- | --- |
+| BUG-014 Dashboard filters overlay the cards | WP30 built a dashboard-specific `SidePanel` (right, 460 px, over the content) instead of reusing `Shared/FilterLayout` | Dashboard uses `FilterLayout` like User Access: integrated left sidebar from 1024 px (no dialog, backdrop or focus trap), the shared drawer below; closed by default with its own remembered state (`storageKey`, `defaultOpen`, backward compatible); `FilterSection` groups; Apply at the top and bottom of the sidebar; Clear (`Reset dashboard filters`) in the sidebar header and **Reset filters** in the toolbar; card columns follow the workspace width (container query) so an open sidebar reflows the cards. Filter semantics, queries and drill-down unchanged | `dashboard-filters.spec.ts` (closed default, integrated left sidebar, reflow and hide, no dialog, no page overflow, toggling keeps filters and requests no dashboard data, chips, Apply, both Resets, drill-down, Saved Filters round-trip, matching mode, 375 px drawer, light/dark), `filter-consistency.spec.ts`, `dashboard-user-transactions.spec.ts`, `startup-reliability.spec.ts`: 21 passed | Fixed (source); DASH1 recheck with RC7 |
+| WP30 defect: saving dashboard filters failed (found by BUG-014) | `V1SavedFilters.Views` accepted `dashboard`, but `Allowed` had no field list for it, so every save raised `KeyNotFoundException` (HTTP 500) | Field list for `dashboard` (population dimensions, exact usernames, `access_scope`, Functional Group and Manager); a test asserts every accepted view has a field list. Backend change, so it needs RC7 | `DashboardAndSavedFiltersTests` 14/14 | Fixed (source) |
+
 Baseline browser failures investigated in RC6 (all test defects with outdated expectations; no assertion was weakened):
 
 | Spec | Root cause | Correction |

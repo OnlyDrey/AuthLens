@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { RotateCcw, Check } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { dashboardFilterOptionsKey, fetchDashboardFilterOptions, type DashboardFilterOptions } from '@/api/dashboard'
 import { SubjectFilters, subjectFilterParams, useOrganizationLabel, type SubjectFiltersValue } from '@/components/Shared/OrganizationFilter'
 import { MultiSelectFilter } from '@/components/Shared/MultiSelectFilter'
 import { FormField } from '@/components/Shared/Controls'
 import { Button } from '@/components/Shared/Button'
-import { SidePanel } from '@/components/Shared/SidePanel'
+import { FilterSection } from '@/components/Shared/FilterLayout'
 import { SavedFilters } from '@/components/Shared/SavedFilters'
 import { FilterChip } from '@/components/Shared/FilterChip'
 
@@ -76,39 +76,38 @@ function Dimension({ dimension, value, onChange, options, loading }: { dimension
   </FormField>
 }
 
-/** Right-hand, non-modal filter panel. Edits a draft; nothing changes on the dashboard until Apply. Reset clears the draft and the applied filters. */
-export function DashboardFilterPanel({ value, onApply, onClose }: { value: DashboardFilterValue; onApply: (value: DashboardFilterValue) => void; onClose: () => void }) {
+/** BUG-014: the contents of the integrated left filter sidebar (shared FilterLayout, as in User Access). Edits a draft; nothing changes on the
+ *  dashboard until Apply. Clearing (the sidebar's Clear, or Reset filters in the toolbar) resets the draft and the applied filters. Hiding the
+ *  sidebar keeps the draft and the applied filters. */
+export function DashboardFilterControls({ value, onApply }: { value: DashboardFilterValue; onApply: (value: DashboardFilterValue) => void }) {
   const [draft, setDraft] = useState(value)
-  // Applied filters can change outside the panel (chip removal, Reset filters); the draft follows them so Apply compares against what is shown.
+  // Applied filters can change outside the sidebar (chip removal, Reset filters); the draft follows them so Apply compares against what is shown.
   useEffect(() => setDraft(value), [value])
   const options = useQuery({ queryKey: dashboardFilterOptionsKey, queryFn: fetchDashboardFilterOptions, staleTime: 15_000 })
   const loading = options.isFetching && !options.data, directory = options.data?.directory_available ?? false
   const changed = JSON.stringify(draft) !== JSON.stringify(value)
-  const section = (area: string, title: string, note?: string) => <fieldset className="dashboard-filter-group" aria-label={title}>
-    <legend>{title}</legend>
+  const section = (area: string, title: string, note?: string) => <FilterSection title={title}>
     {note && <p className="ui-description">{note}</p>}
     {area === 'organization' && <SubjectFilters compact value={draft} onChange={subject => setDraft({ ...draft, ...subject })} />}
     {DIMENSIONS.filter(d => d.area === area && (area !== 'organization' || directory || draft[d.key].length)).map(d => <Dimension key={d.key} dimension={d} value={draft} onChange={setDraft} options={options.data} loading={loading} />)}
-  </fieldset>
-  return <SidePanel title="Dashboard filters" className="dashboard-filter-panel" onClose={onClose}
-    subtitle="Values combine with OR inside a filter and AND between filters. Only values present in the validated data are listed."
-    footer={<div className="flex flex-wrap items-center justify-end gap-2">
-      <Button variant="ghost" disabled={!activeFilterCount(draft) && !activeFilterCount(value)} onClick={() => { setDraft(emptyDashboardFilters()); onApply(emptyDashboardFilters()) }}><RotateCcw size={14} aria-hidden="true" />Reset</Button>
-      <Button variant="primary" disabled={!changed} onClick={() => onApply(draft)}><Check size={14} aria-hidden="true" />Apply filters</Button>
-    </div>}>
+  </FilterSection>
+  const apply = <div className="dashboard-filter-apply"><Button variant="primary" disabled={!changed} onClick={() => onApply(draft)}><Check size={14} aria-hidden="true" />Apply filters</Button></div>
+  return <div className="grid min-w-0 gap-3" role="group" aria-label="Dashboard filters">
+    <p className="ui-description">Values combine with OR inside a filter and AND between filters. Only values present in the validated data are listed. Changes take effect on Apply.</p>
+    {apply}
     <SavedFilters showClear={false} view="dashboard" state={{ ...draft }} apply={state => { const next = sanitize(state); setDraft(next); onApply(next) }} clear={() => setDraft(emptyDashboardFilters())} />
     {section('organization', 'Organization', directory ? `Department, site, title and directory status come from ${options.data?.matched_identities.toLocaleString()} matched Employee Directory identities.` : 'Department, site, title and directory status need an enabled Employee Directory with matched identities.')}
     {section('sap', 'SAP account')}
     {section('access', 'Access', 'Only currently valid assignments are considered. Organizational suffixes are final role-name segments used under at least two business-role stems.')}
-    <fieldset className="dashboard-filter-group" aria-label="Access matching">
-      <legend>Access matching</legend>
+    <FilterSection title="Access matching">
       <label className="flex items-start gap-2"><input type="radio" name="dashboard-access-scope" checked={draft.access_scope !== 'matching'} onChange={() => setDraft({ ...draft, access_scope: undefined })} />
         <span><strong>User population</strong> (default): users who hold the role or code through any current assignment; access metrics show their complete current access. Role and code may come from different assignments.</span></label>
       <label className="flex items-start gap-2"><input type="radio" name="dashboard-access-scope" checked={draft.access_scope === 'matching'} onChange={() => setDraft({ ...draft, access_scope: 'matching' })} />
         <span><strong>Matching access</strong>: one current assignment must match every access filter, and access metrics count only those assignments. SoD conflicts are still evaluated over the users' complete access.</span></label>
-    </fieldset>
+    </FilterSection>
     {section('governance', 'Governance', options.data && !options.data.sod_available ? 'SoD risk values need enabled SoD with a loaded SoD matrix. Review status is the current Account Review state; outdated reviews are also pending.' : 'SoD risk selects users with a current finding for the risk. Review status is the current Account Review state; outdated reviews are also pending.')}
-  </SidePanel>
+    {apply}
+  </div>
 }
 
 /** Removable chips for the applied filters, shown on the dashboard so the active population is always visible. */

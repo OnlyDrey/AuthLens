@@ -1,7 +1,8 @@
 import {Fragment,useState,type ReactNode} from 'react'
 import {type SubjectFiltersValue} from '@/components/Shared/OrganizationFilter'
-import {DashboardFilterPanel,DashboardFilterSummary,activeFilterCount,dashboardFilterParams,emptyDashboardFilters,usesDashboardOnlyDimensions,type DashboardFilterValue} from '@/components/DashboardFilters'
+import {DashboardFilterControls,DashboardFilterSummary,activeFilterCount,dashboardFilterParams,emptyDashboardFilters,usesDashboardOnlyDimensions,type DashboardFilterValue} from '@/components/DashboardFilters'
 import {Button} from '@/components/Shared/Button'
+import {FilterLayout,PageToolbar} from '@/components/Shared/FilterLayout'
 import {useModules} from '@/hooks/useModules'
 import {ModuleBadge} from '@/components/Modules/ModuleBadge'
 import {useSourceEvidence} from '@/components/Settings/SourceStatus'
@@ -98,7 +99,7 @@ interface Source {
 export function Dashboard() {
   const { view, change } = useViewHistory(),
     { loading } = useApplicationData()
-  const [filters,setFilters]=useState<DashboardFilterValue>(emptyDashboardFilters),[panel,setPanel]=useState(false)
+  const [filters,setFilters]=useState<DashboardFilterValue>(emptyDashboardFilters)
   const subjectParameters=dashboardFilterParams(filters).toString(),activeCount=activeFilterCount(filters),filtered=activeCount>0
   const sourceEvidence=useSourceEvidence('roles')
   const configuration=useQuery({queryKey:['configuration'],queryFn:fetchConfiguration})
@@ -365,15 +366,13 @@ export function Dashboard() {
   return (
     <section aria-label="Dashboard" className="space-y-5">
       <PageHeader title="Dashboard" icon={<LayoutDashboard size={22} aria-hidden="true"/>}/>
-      <div className="dashboard-filter-bar" role="toolbar" aria-label="Dashboard filters">
-        <Button aria-expanded={panel} aria-haspopup="dialog" onClick={()=>setPanel(!panel)}><SlidersHorizontal size={16} aria-hidden="true"/>Filters{activeCount>0&&<span className="ui-tab-count" aria-label={`${activeCount} active`}>{activeCount}</span>}</Button>
-        <p className="ui-description" role="status" aria-label="Dashboard scope">{filtered
+      <FilterLayout label="Filters" storageKey="authlens-dashboard-filter-sidebar" defaultOpen={false} activeCount={activeCount}
+        onClear={()=>setFilters(emptyDashboardFilters())} clearDisabled={!filtered} clearLabel="Reset dashboard filters"
+        toolbar={<PageToolbar lead={<p className="ui-description dashboard-scope" role="status" aria-label="Dashboard scope">{filtered
           ? `Filtered overview: user metrics count the selected user population${dashboardOnly&&query.data&&!population?'; drill-down opens with the organization filters only because the population has more than 500 users':''}. Catalogue, source integrity and Employee Directory totals stay global and are marked.`
-          : 'Global overview: all users in the validated SAP data.'}</p>
-        {filtered&&<Button size="compact" variant="ghost" onClick={()=>setFilters(emptyDashboardFilters())}>Reset filters</Button>}
-      </div>
+          : 'Global overview: all users in the validated SAP data.'}</p>}>{filtered&&<Button size="compact" variant="ghost" onClick={()=>setFilters(emptyDashboardFilters())}>Reset filters</Button>}</PageToolbar>}
+        sidebar={<DashboardFilterControls value={filters} onApply={setFilters}/>}>
       <DashboardFilterSummary value={filters} onChange={setFilters}/>
-      {panel&&<DashboardFilterPanel value={filters} onApply={value=>setFilters(value)} onClose={()=>setPanel(false)}/>}
       <p className="ui-description">Current validated SAP data and available capabilities.</p>
       <DataLifecycleStatus state={lifecycle} validatedAt={query.data?.last_successful_refresh} warning={query.data?.source_warning} onConfigure={()=>change({settings:true,settingsTarget:'roles'})}/>
       {query.data && (
@@ -384,6 +383,7 @@ export function Dashboard() {
           </div>
         </div>
       )}
+      </FilterLayout>
     </section>
   )
 }

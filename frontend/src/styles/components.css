@@ -1695,9 +1695,11 @@ header[role="banner"] { padding-top:env(safe-area-inset-top,0px); padding-left:e
   .app-header-row .app-utilities .ui-button, .app-header-row .app-utilities button, .app-header-row > button { flex-shrink:0; min-width:44px; min-height:44px; }
   .settings-workspace .settings-actions { padding-bottom:max(12px, env(safe-area-inset-bottom,0px)); }
 }
-/* WP30: dashboard filters. The toolbar wraps; the panel reuses .ui-side-panel (right side, non-modal). */
-.dashboard-filter-bar { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-2) var(--space-3); }
-.dashboard-filter-bar > p { flex:1 1 18rem; min-width:0; }
-.dashboard-filter-panel { width:min(460px,100vw); }
-.dashboard-filter-group { display:grid; gap:var(--space-3); min-width:0; padding:var(--space-3); border:1px solid var(--border); border-radius:var(--radius-md,8px); }
-.dashboard-filter-group > legend { padding:0 var(--space-1); font-size:13px; font-weight:650; }
+/* BUG-014: dashboard filters use the shared FilterLayout (integrated left sidebar on wide screens, the shared drawer on narrow ones). Cards
+   reflow by the width the workspace actually has, so an open sidebar never squeezes three columns or overflows the page. */
+.dashboard-scope { flex:1 1 18rem; min-width:0; }
+.dashboard-filter-apply { display:grid; }
+.dashboard-filter-apply > .ui-button { width:100%; justify-content:center; }
+.dashboard-workspace { container:dashboard-workspace / inline-size; }
+@container dashboard-workspace (max-width:1040px) { .dashboard-workspace > .dashboard-cards { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@container dashboard-workspace (max-width:640px) { .dashboard-workspace > .dashboard-cards { grid-template-columns:minmax(0,1fr); } }

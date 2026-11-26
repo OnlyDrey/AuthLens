@@ -29,9 +29,11 @@ Future assignment records are detected but not shown here.
 
 ## Global and filtered modes (WP30)
 
-One dashboard serves both modes. Without filters it is the **global overview** of the validated SAP data. The **Filters** button opens a
-right-hand, non-modal side panel (`Dashboard filters`, closed by default; at most 460 px wide, the full width on phones) that edits a draft: nothing changes until
-**Apply filters**; **Reset** clears the draft and the applied filters. The button shows the number of selected values, removable chips under
+One dashboard serves both modes. Without filters it is the **global overview** of the validated SAP data. The **Filters** button opens the
+shared filter sidebar used by User Access (BUG-014): integrated on the left of the cards from 1024 px wide (the cards reflow beside it; no
+overlay), the shared drawer on narrow screens. It is closed by default, remembers its own open state, and edits a draft: nothing changes until
+**Apply filters**; **Clear** in the sidebar header and **Reset filters** in the toolbar clear the draft and the applied filters. Showing or
+hiding the sidebar keeps the applied filters. The button shows the number of selected values, removable chips under
 the toolbar show every applied value, and a status line states whether the overview is global or filtered. Clearing the filters restores the
 global overview. Saved filters use the view `dashboard`; a loaded definition is validated value by value. Dashboard filters are temporary page
 filters: like every page (BUG-08), the dashboard opens in the global mode from the main navigation; a saved filter brings a population back.

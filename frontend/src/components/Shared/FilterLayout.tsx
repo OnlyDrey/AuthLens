@@ -5,7 +5,7 @@ import { Button, IconButton } from './Button'
 import { Select } from './Select'
 
 const WIDE = '(min-width: 1024px)'
-const storageKey = 'sap-lens-filter-sidebar'
+const defaultStorageKey = 'sap-lens-filter-sidebar'
 
 function useWide() {
   const query = () => typeof window !== 'undefined' && window.matchMedia(WIDE).matches
@@ -20,10 +20,10 @@ function useWide() {
 }
 
 /** Collapsible left filter sidebar on wide screens, an overlay drawer on narrow ones. Filter state belongs to the caller, so hiding never resets it. */
-export function FilterLayout({ activeCount, toolbar, sidebar, children, label = 'Filters', onClear, clearDisabled = false, clearLabel = 'Clear filters' }: { activeCount: number; toolbar?: ReactNode; sidebar: ReactNode; children: ReactNode; label?: string; onClear?: () => void; clearDisabled?: boolean; /** Accessible name of the Clear action where it clears something narrower than every filter of the view. */ clearLabel?: string }) {
+export function FilterLayout({ activeCount, toolbar, sidebar, children, label = 'Filters', onClear, clearDisabled = false, clearLabel = 'Clear filters', storageKey = defaultStorageKey, defaultOpen = true }: { activeCount: number; toolbar?: ReactNode; sidebar: ReactNode; children: ReactNode; label?: string; onClear?: () => void; clearDisabled?: boolean; /** Accessible name of the Clear action where it clears something narrower than every filter of the view. */ clearLabel?: string; /** Remembered open state of the wide sidebar; a view with its own key (Dashboard) does not share the investigation views' preference. */ storageKey?: string; /** Wide-screen state before the user chose one. */ defaultOpen?: boolean }) {
   const wide = useWide(),
     id = useId(),
-    [open, setOpen] = useState(() => { try { return localStorage.getItem(storageKey) !== 'closed' } catch { return true } }),
+    [open, setOpen] = useState(() => { try { const stored = localStorage.getItem(storageKey); return stored ? stored !== 'closed' : defaultOpen } catch { return defaultOpen } }),
     [drawer, setDrawer] = useState(false),
     trigger = useRef<HTMLButtonElement>(null)
   useEffect(()=>{if(wide)setDrawer(false)},[wide])
