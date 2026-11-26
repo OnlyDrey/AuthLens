@@ -6,7 +6,8 @@
   item is preserved or eligible, the reclaimable storage and a selection_sha256 over the selected items.
   Deletion only with -Remove -Item <ids from the preview> -ExpectedSelectionSha256 <preview hash> -Yes. Acceptance evidence, legacy run
   directories (RC5 and earlier), builds with acceptance evidence, incomplete builds, artifacts whose Build record is missing, the newest
-  -KeepPassed passed builds and anything unrecognized are never eligible. A package (.zip with its .zip.sha256) is one item. Builds never call
+  -KeepPassed passed builds and anything unrecognized are never eligible. A package (.zip with its .zip.sha256) is one item; later package revisions
+  (AuthLens-<version>-<build-id>-pkg<N>.zip) are separate items (package:<version>/<build-id>-pkg<N>). Builds never call
   this script; nothing is deleted automatically. Exit 0 success, 1 refused or failed.
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\Invoke-AuthLensArtifactRetention.ps1 -OutputRoot C:\AuthLens

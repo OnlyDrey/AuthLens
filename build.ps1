@@ -77,7 +77,7 @@ if ($ZipPackage -and $status -eq 'passed') {
     $packageResult=[ordered]@{requested=$true;status='failed';failure_reason=$null}
     try {
         $p=New-AuthLensPackage (Resolve-AuthLensCandidate $layout.BuildDirectory)
-        foreach ($name in 'path','checksum_file','size','sha256','version','build_id','source_sha','build_timestamp_utc','entries','signatures','independent_extraction','authenticity') { $packageResult[$name]=$p.$name }
+        foreach ($name in 'layout','revision','release_directory','path','checksum_file','size','sha256','version','build_id','source_sha','build_timestamp_utc','entries','signatures','independent_extraction','authenticity') { $packageResult[$name]=$p.$name }
         $packageResult.status='passed'
         Write-Host "Package: $($p.path) ($($p.size) bytes)"
         Write-Host "Package SHA-256: $($p.sha256) ($($p.checksum_file))"

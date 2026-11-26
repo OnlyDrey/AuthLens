@@ -1,4 +1,6 @@
 # Pure helpers shared by the canonical Windows build and its focused tests.
+# The packaging tooling (Expand-AuthLensPackage.ps1, package-README.txt) is taken from the folder this file was loaded from.
+$script:AuthLensToolingRoot=$PSScriptRoot
 function Invoke-AuthLensBuildProcess([string]$Executable, [string[]]$Arguments) {
     # Out-Host is intentional: direct native console output is otherwise absent from PS 5.1 transcripts.
     $saved=$ErrorActionPreference
@@ -61,13 +63,14 @@ function Get-AuthLensBuildArtifacts([string]$Directory) {
 #                                          installers-SHA256SUMS, installer-tools-<unique id>\ (deployment, verification and recovery tooling), DEPLOY.txt,
 #                                          Expand-AuthLensPackage.ps1
 # <root>\Acceptance\<version>\<build-id>\<run>\   evidence of each acceptance run (several runs per build)
-# <root>\Packages\AuthLens-<version>-<build-id>.zip and .zip.sha256   optional portable package (build.ps1 -ZipPackage or New-AuthLensPackage.ps1)
+# <root>\Packages\AuthLens-<version>-<build-id>.zip and .zip.sha256   optional flat portable package (build.ps1 -ZipPackage or New-AuthLensPackage.ps1);
+#                                          later package revisions of the same build: AuthLens-<version>-<build-id>-pkg<N>.zip
 # The build id is generated once and reused by the installer, acceptance and package steps. Collision handling (documented): an id is used only
 # when none of Build\<version>\<id>, Installer\<version>\<id>, Acceptance\<version>\<id>, Packages\AuthLens-<version>-<id>.zip(.sha256) or a legacy
 # run directory AuthLens-<version>-<id> exists; otherwise -02, -03 ... is appended. The Build directory is claimed atomically (New-Item without
 # -Force plus an exclusive .build-claim); an Installer directory that appears meanwhile stops the build. Nothing is reused, overwritten or moved.
 $script:AuthLensBuildRecordFiles=@('build-summary.json','build.log','.build-claim','branding-verification.json')
-$script:AuthLensPackagePattern='^AuthLens-(?<version>.+)-(?<id>\d{4}-\d{2}-\d{2}_\d{4}-[0-9a-f]{7}(?:-\d{2})?)\.zip$'
+$script:AuthLensPackagePattern='^AuthLens-(?<version>.+)-(?<id>\d{4}-\d{2}-\d{2}_\d{4}-[0-9a-f]{7}(?:-\d{2})?)(?:-pkg(?<revision>[2-9]|[1-9]\d))?\.zip$'
 function New-AuthLensCandidateRecord([string]$Root, [string]$Version, [string]$Id, [ValidateSet('category','legacy')][string]$Layout, [string]$LegacyName='') {
     $root=$Root.TrimEnd('\','/')
     if($Layout -eq 'category'){
@@ -256,24 +259,68 @@ function Assert-AuthLensPackageSource($Candidate) {
     $signatures=foreach($name in @($names.server,$names.desktop)){[ordered]@{file=$name;status=[string](Get-AuthenticodeSignature -LiteralPath (Join-Path $base $name)).Status}}
     [pscustomobject]@{summary=$summary;identity=$identity;files=@($inventory|Sort-Object {$_.path});signatures=@($signatures);names=$names}
 }
-# Creates Packages\AuthLens-<version>-<build-id>.zip(.sha256) from a verified candidate without rebuilding anything. The archive holds only
-# Installer\<version>\<build-id>\ (the verified installer directory plus package-manifest.json). It is written as *.partial-<guid>, verified by an
-# independent extraction with Expand-AuthLensPackage.ps1 into a private temporary folder, and only then renamed; the checksum file is renamed last.
-# Existing packages are never overwritten; a failure removes only this run's partial files and never touches Build or Installer.
-function New-AuthLensPackage($Candidate, [string]$TemporaryRoot='') {
+# Package file names: revision 1 is Packages\AuthLens-<version>-<build-id>.zip, a later revision of the same build (new packaging only, identical
+# installers) Packages\AuthLens-<version>-<build-id>-pkg<N>.zip; each with its .zip.sha256 for the build metadata. The revision is package metadata,
+# never part of the build identity.
+function Get-AuthLensPackagePaths($Candidate, [int]$Revision=1) {
+    if($Revision -lt 1 -or $Revision -gt 99){throw 'The package revision must be between 1 and 99.'}
+    $name='AuthLens-'+$Candidate.Version+'-'+$Candidate.Id+$(if($Revision -gt 1){'-pkg'+$Revision}else{''})+'.zip'
+    $file=Join-Path (Split-Path $Candidate.PackageFile -Parent) $name
+    [pscustomobject]@{Name=$name;File=$file;ChecksumFile=$file+'.sha256';Revision=$Revision}
+}
+function Get-AuthLensToolingCommit {
+    $commit='unknown';$dirty=$null
+    try{
+        $git=Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1
+        $head=& $git.Source -C $script:AuthLensToolingRoot rev-parse HEAD 2>$null
+        if($LASTEXITCODE -eq 0 -and [string]$head -match '^[0-9a-f]{40}$'){$commit=[string]$head
+            $status=@(& $git.Source -C $script:AuthLensToolingRoot status --porcelain -- 'Expand-AuthLensPackage.ps1' 'package-README.txt' 'Build-Workflow.ps1' 2>$null)
+            $dirty=[bool]($status.Count)}
+    }catch{}
+    [pscustomobject]@{commit=$commit;dirty=$dirty}
+}
+# Creates the flat portable package (WP32 amendment) from a verified candidate without rebuilding anything. Archive root: both Setup programs and
+# installer-manifest.json (the verified Installer directory, hashes unchanged), Expand-AuthLensPackage.ps1 and README.txt (from this packaging
+# tooling, because earlier Installer directories carry an extraction script that only knows the nested layout), package-manifest.json (package
+# identity and revision) and SHA256SUMS.txt (every other entry); Tools\ holds the packaged helpers with installer-tools.json. DEPLOY.txt and
+# installers-SHA256SUMS are superseded by README.txt and SHA256SUMS.txt and not packaged. Written as *.partial-<guid>, verified by an independent
+# extraction with the packaging tooling's Expand-AuthLensPackage.ps1 into a private temporary folder, and only then renamed; the checksum file is
+# renamed last. Existing packages are never overwritten; a failure removes only this run's partial files and never touches Build or Installer.
+function New-AuthLensPackage($Candidate, [string]$TemporaryRoot='', [int]$Revision=1) {
     $source=Assert-AuthLensPackageSource $Candidate
-    $packages=Split-Path $Candidate.PackageFile -Parent
-    foreach($existing in $Candidate.PackageFile,$Candidate.PackageChecksumFile){if(Test-Path -LiteralPath $existing){throw "$existing exists; packages are never overwritten. Nothing was created."}}
+    $target=Get-AuthLensPackagePaths $Candidate $Revision
+    $packages=Split-Path $target.File -Parent
+    foreach($existing in $target.File,$target.ChecksumFile){if(Test-Path -LiteralPath $existing){throw "$existing exists; packages are never overwritten. Choose another -PackageRevision. Nothing was created."}}
+    $expandSource=Join-Path $script:AuthLensToolingRoot 'Expand-AuthLensPackage.ps1'
+    $readmeSource=Join-Path $script:AuthLensToolingRoot 'package-README.txt'
+    foreach($tool in $expandSource,$readmeSource){if(-not (Test-Path -LiteralPath $tool -PathType Leaf)){throw "Packaging tooling $tool is missing."}}
     Assert-AuthLensArtifactContainer $packages
+    $installerBase=[IO.Path]::GetFullPath($Candidate.InstallerDirectory).TrimEnd('\','/')
+    $toolsDir=@(Get-ChildItem -LiteralPath $installerBase -Directory -Filter 'installer-tools-*')[0]
+    $toolsPrefix=$toolsDir.Name+'/'
+    # Payload: archive path -> source file (verified Installer files keep their bytes) or generated text.
+    $payload=[Collections.Generic.List[object]]::new()
+    foreach($name in @($source.names.server,$source.names.desktop,'installer-manifest.json')){$payload.Add([pscustomobject]@{path=$name;file=(Join-Path $installerBase $name);text=$null;sha256=($source.files|Where-Object{$_.path -ceq $name}).sha256})}
+    foreach($file in @($source.files|Where-Object{$_.path.StartsWith($toolsPrefix,[StringComparison]::Ordinal)})){
+        $payload.Add([pscustomobject]@{path='Tools/'+$file.path.Substring($toolsPrefix.Length);file=(Join-Path $installerBase ($file.path.Replace('/','\')));text=$null;sha256=$file.sha256})
+    }
+    $payload.Add([pscustomobject]@{path='Expand-AuthLensPackage.ps1';file=$expandSource;text=$null;sha256=(Get-AuthLensSha256 $expandSource)})
+    $readme=[IO.File]::ReadAllText($readmeSource).Replace('{{VERSION}}',$Candidate.Version).Replace('{{BUILD_ID}}',$Candidate.Id).Replace('{{SHA}}',[string]$source.identity.source_sha).Replace('{{REVISION}}',[string]$Revision)
+    $payload.Add([pscustomobject]@{path='README.txt';file=$null;text=$readme;sha256=$null})
+    $tooling=Get-AuthLensToolingCommit
+    $manifest=[ordered]@{schema=2;layout='flat';kind='AuthLens portable deployment package';product='AuthLens';version=$Candidate.Version;build_id=$Candidate.Id
+        source_sha=$source.identity.source_sha;branch=$source.identity.branch;build_timestamp_utc=$source.identity.build_timestamp_utc;package=$target.Name
+        release_directory=('AuthLens-'+$Candidate.Version+'-'+$Candidate.Id);package_revision=$Revision
+        packaging=[ordered]@{tool='New-AuthLensPackage';tooling_commit=$tooling.commit;tooling_dirty=$tooling.dirty;created_utc=[DateTime]::UtcNow.ToString('o');expand_sha256=(Get-AuthLensSha256 $expandSource)}
+        signatures=@($source.signatures)
+        authenticity='SHA256SUMS.txt proves the files match each other''s recorded digests; only the ZIP SHA-256 from trusted build metadata detects a replaced package, and no checksum authenticates the publisher. Authenticode status is reported per Setup program.'}
+    $payload.Add([pscustomobject]@{path='package-manifest.json';file=$null;text=($manifest|ConvertTo-Json -Depth 6);sha256=$null})
+    $utf8=[Text.UTF8Encoding]::new($false)
+    foreach($item in $payload){if($null -ne $item.text){$item.sha256=(([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($utf8.GetBytes($item.text)))).Replace('-','')).ToLowerInvariant()}}
+    $sums=(@($payload|Sort-Object {$_.path}|ForEach-Object{$_.sha256+' *'+$_.path}) -join "`n")+"`n"
     $null=[IO.Directory]::CreateDirectory($packages)
     $token=[guid]::NewGuid().ToString('N')
-    $partial=$Candidate.PackageFile+'.partial-'+$token; $partialSum=$Candidate.PackageChecksumFile+'.partial-'+$token
-    $prefix='Installer/'+$Candidate.Version+'/'+$Candidate.Id+'/'
-    $packageName=Split-Path $Candidate.PackageFile -Leaf
-    $manifest=[ordered]@{schema=1;kind='AuthLens portable deployment package';product='AuthLens';version=$Candidate.Version;build_id=$Candidate.Id
-        source_sha=$source.identity.source_sha;branch=$source.identity.branch;build_timestamp_utc=$source.identity.build_timestamp_utc;package=$packageName
-        root=$prefix.TrimEnd('/');files=@($source.files);signatures=@($source.signatures)
-        authenticity='SHA-256 values prove integrity against these recorded digests only; they do not authenticate the publisher. Authenticode status is reported per Setup program.'}
+    $partial=$target.File+'.partial-'+$token; $partialSum=$target.ChecksumFile+'.partial-'+$token
     $work=$null
     try{
         Add-Type -AssemblyName System.IO.Compression -ErrorAction Stop
@@ -282,35 +329,34 @@ function New-AuthLensPackage($Candidate, [string]$TemporaryRoot='') {
         try{
             $zip=[IO.Compression.ZipArchive]::new($stream,[IO.Compression.ZipArchiveMode]::Create,$true)
             try{
-                foreach($file in $source.files){
-                    $entry=$zip.CreateEntry($prefix+$file.path,[IO.Compression.CompressionLevel]::Optimal)
-                    $in=[IO.File]::OpenRead((Join-Path $Candidate.InstallerDirectory ($file.path.Replace('/','\'))));$out=$entry.Open()
-                    try{$in.CopyTo($out)}finally{$out.Dispose();$in.Dispose()}
+                foreach($item in @($payload|Sort-Object {$_.path})+@([pscustomobject]@{path='SHA256SUMS.txt';file=$null;text=$sums})){
+                    $entry=$zip.CreateEntry($item.path,[IO.Compression.CompressionLevel]::Optimal)
+                    $out=$entry.Open()
+                    try{
+                        if($null -ne $item.text){$bytes=$utf8.GetBytes($item.text);$out.Write($bytes,0,$bytes.Length)}
+                        else{$in=[IO.File]::OpenRead($item.file);try{$in.CopyTo($out)}finally{$in.Dispose()}}
+                    }finally{$out.Dispose()}
                 }
-                $entry=$zip.CreateEntry($prefix+'package-manifest.json',[IO.Compression.CompressionLevel]::Optimal)
-                $writer=[IO.StreamWriter]::new($entry.Open(),[Text.UTF8Encoding]::new($false))
-                try{$writer.Write(($manifest|ConvertTo-Json -Depth 6))}finally{$writer.Dispose()}
             }finally{$zip.Dispose()}
         }finally{$stream.Dispose()}
-        # The installer directory must not have changed while it was read.
-        foreach($file in $source.files){if((Get-AuthLensSha256 (Join-Path $Candidate.InstallerDirectory ($file.path.Replace('/','\')))) -cne $file.sha256){throw "Installer file $($file.path) changed while it was packaged."}}
+        # The verified sources must not have changed while they were read.
+        foreach($item in $payload){if($item.file -and (Get-AuthLensSha256 $item.file) -cne $item.sha256){throw "$($item.path) changed while it was packaged."}}
         $sha=Get-AuthLensSha256 $partial
-        [IO.File]::WriteAllText($partialSum,($sha+' *'+$packageName+"`n"),[Text.Encoding]::ASCII)
+        [IO.File]::WriteAllText($partialSum,($sha+' *'+$target.Name+"`n"),[Text.Encoding]::ASCII)
         # Independent extraction and verification with the packaged operator script, into a new private temporary folder.
         if(-not $TemporaryRoot){$TemporaryRoot=[IO.Path]::GetTempPath()}
         $work=Join-Path $TemporaryRoot ('alpk-'+$token.Substring(0,8))
         $null=New-Item -ItemType Directory -Path $work
-        $expand=Join-Path $Candidate.InstallerDirectory 'Expand-AuthLensPackage.ps1'
-        $check=& $expand -Package $partial -ChecksumFile $partialSum -ArchiveName $packageName -Destination $work 6>&1 | ForEach-Object { "$_" }
+        $check=& $expandSource -Package $partial -ChecksumFile $partialSum -ArchiveName $target.Name -Destination $work 6>&1 | ForEach-Object { "$_" }
         $line=@($check|Where-Object{$_ -like 'AUTHLENS-PACKAGE: *'})|Select-Object -Last 1
         $verdict=if($line){$line.Substring(18)|ConvertFrom-Json}else{$null}
-        if(-not $verdict -or $verdict.status -cne 'verified'){throw ('Independent extraction of the package failed: '+$(if($verdict){$verdict.reason}else{'no result'}))}
+        if(-not $verdict -or $verdict.status -cne 'verified' -or $verdict.layout -cne 'flat'){throw ('Independent extraction of the package failed: '+$(if($verdict){$verdict.reason}else{'no result'}))}
         if((Get-AuthLensSha256 $partial) -cne $sha){throw 'The package changed during verification.'}
-        [IO.File]::Move($partial,$Candidate.PackageFile)
-        [IO.File]::Move($partialSum,$Candidate.PackageChecksumFile)
-        [pscustomobject]@{status='passed';path=$Candidate.PackageFile;checksum_file=$Candidate.PackageChecksumFile;size=(Get-Item -LiteralPath $Candidate.PackageFile).Length;sha256=$sha
+        [IO.File]::Move($partial,$target.File)
+        [IO.File]::Move($partialSum,$target.ChecksumFile)
+        [pscustomobject]@{status='passed';layout='flat';revision=$Revision;path=$target.File;checksum_file=$target.ChecksumFile;size=(Get-Item -LiteralPath $target.File).Length;sha256=$sha
             version=$Candidate.Version;build_id=$Candidate.Id;source_sha=$source.identity.source_sha;build_timestamp_utc=$source.identity.build_timestamp_utc
-            entries=@($source.files).Count+1;signatures=@($source.signatures);independent_extraction='verified';authenticity=$manifest.authenticity}
+            release_directory=$manifest.release_directory;entries=$payload.Count+1;signatures=@($source.signatures);independent_extraction='verified';authenticity=$manifest.authenticity}
     } catch {
         foreach($file in $partial,$partialSum){if(Test-Path -LiteralPath $file){Remove-Item -LiteralPath $file -Force}}
         throw
@@ -341,7 +387,7 @@ function Get-AuthLensSelectionHash([object[]]$Items) {
     try{([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($text)))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose()}
 }
 # Read-only inventory of <root> by category, version and build id (never mutates). Items: build:<version>/<id>, installer:<version>/<id>,
-# package:<version>/<id> (the .zip and its .zip.sha256 as one item), acceptance:<version>/<id>, plus legacy run directories, legacy acceptance
+# package:<version>/<id> and package:<version>/<id>-pkg<N> (each .zip and its .zip.sha256 as one item), acceptance:<version>/<id>, plus legacy run directories, legacy acceptance
 # evidence and everything else. Preserved: all acceptance evidence (review evidence), every legacy run directory (its evidence may hold absolute
 # paths), builds/installers of an id with acceptance evidence, incomplete/running/unreadable builds, any artifact whose Build record is missing
 # (ownership not established), the newest -KeepPassed passed ids, -Preserve ids, incomplete packages, a package that is the only remaining copy of
@@ -359,7 +405,7 @@ function Get-AuthLensBuildInventory([string]$OutputRoot='C:\AuthLens', [int]$Kee
         if($reparse){$entry.reasons.Add('contains_reparse_point')}
         $items.Add($entry);$entry}
     $groups=@{}
-    $group={param($Version,$Id) $key=$Version+'/'+$Id; if(-not $groups.ContainsKey($key)){$groups[$key]=[pscustomobject]@{version=$Version;id=$Id;key=$key;build=$null;installer=$null;package=$null;acceptance=$null;status='missing';built=''}}; $groups[$key]}
+    $group={param($Version,$Id) $key=$Version+'/'+$Id; if(-not $groups.ContainsKey($key)){$groups[$key]=[pscustomobject]@{version=$Version;id=$Id;key=$key;build=$null;installer=$null;packages=[Collections.Generic.List[object]]::new();acceptance=$null;status='missing';built=''}}; $groups[$key]}
     foreach($category in 'Build','Installer','Acceptance'){
         $categoryDir=Join-Path $root $category
         if(-not (Test-Path -LiteralPath $categoryDir -PathType Container)){continue}
@@ -388,8 +434,10 @@ function Get-AuthLensBuildInventory([string]$OutputRoot='C:\AuthLens', [int]$Kee
                 $null=$zipName -match $script:AuthLensPackagePattern
                 $g=& $group $Matches['version'] $Matches['id']
                 $zip=Join-Path $packagesDir $zipName; $sum=$zip+'.sha256'
-                $g.package=& $add 'package' ($g.version+'/'+$g.id) @($zip,$sum) $g.version $g.id
-                if(-not (Test-Path -LiteralPath $zip -PathType Leaf) -or -not (Test-Path -LiteralPath $sum -PathType Leaf)){$g.package.reasons.Add('incomplete_package_or_checksum')}
+                $key=$g.version+'/'+$g.id+$(if($Matches['revision']){'-pkg'+$Matches['revision']}else{''})
+                $packageItem=& $add 'package' $key @($zip,$sum) $g.version $g.id
+                $g.packages.Add($packageItem)
+                if(-not (Test-Path -LiteralPath $zip -PathType Leaf) -or -not (Test-Path -LiteralPath $sum -PathType Leaf)){$packageItem.reasons.Add('incomplete_package_or_checksum')}
             } elseif(-not $file.PSIsContainer -and $name -match '^AuthLens-.+\.zip(\.sha256)?\.partial-[0-9a-f]{32}$'){
                 $e=& $add 'package_partial' $name @($file.FullName) '' ''
                 if($file.LastWriteTimeUtc -gt [DateTime]::UtcNow.AddDays(-1)){$e.reasons.Add('packaging_may_be_running')}
@@ -407,7 +455,7 @@ function Get-AuthLensBuildInventory([string]$OutputRoot='C:\AuthLens', [int]$Kee
                 try{$s=Read-AuthLensSummary $summaryFile;$g.status=[string]$s.status;if($s.PSObject.Properties['identity'] -and $s.identity){$g.built=[string]$s.identity.build_timestamp_utc}}catch{$g.status='unreadable'}
             }else{$g.status='incomplete'}
         }
-        foreach($member in @($g.build,$g.installer,$g.package)){
+        foreach($member in @(@($g.build,$g.installer)+@($g.packages))){
             if(-not $member){continue}
             $member.status=$g.status
             if(-not $g.build){$member.reasons.Add('ownership_not_established_no_build_record')}
@@ -415,10 +463,10 @@ function Get-AuthLensBuildInventory([string]$OutputRoot='C:\AuthLens', [int]$Kee
             if($g.id -in $Preserve -or $g.key -in $Preserve){$member.reasons.Add('operator_preserved')}
         }
         if($g.acceptance){$g.acceptance.reasons.Add('review_evidence_never_deleted');foreach($member in @($g.build,$g.installer)){if($member){$member.reasons.Add('acceptance_evidence_exists')}}}
-        if($g.package -and -not $g.installer){$g.package.reasons.Add('only_copy_of_installers')}
+        if($g.packages.Count -and -not $g.installer){$newestPackage=@($g.packages|Where-Object{-not $_.reasons.Contains('incomplete_package_or_checksum')}|Sort-Object {[IO.File]::GetLastWriteTimeUtc($_.paths[0])} -Descending)[0];if($newestPackage){$newestPackage.reasons.Add('only_copy_of_installers')}}
     }
     $passed=@($groups.Values|Where-Object{$_.status -eq 'passed'}|Sort-Object @{Expression={$_.built};Descending=$true},@{Expression={$_.id};Descending=$true})
-    foreach($g in @($passed|Select-Object -First $KeepPassed)){foreach($member in @($g.build,$g.installer,$g.package)){if($member){$member.reasons.Add('retention_keep_newest_passed')}}}
+    foreach($g in @($passed|Select-Object -First $KeepPassed)){foreach($member in @(@($g.build,$g.installer)+@($g.packages))){if($member){$member.reasons.Add('retention_keep_newest_passed')}}}
     foreach($entry in $items){
         if($entry.category -in @('build','installer','package','package_partial') -and $entry.reasons.Count -eq 0){
             $entry.state='eligible'

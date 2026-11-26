@@ -106,36 +106,112 @@ Describe 'WP32 layout and immutable build identity (BUILD-001 to BUILD-008)' {
     }
 }
 
-Describe 'Portable deployment package and safe extraction (BUILD-009, BUILD-010)' {
+Describe 'Flat portable deployment package and safe extraction (BUILD-009, BUILD-010, WP32 amendment)' {
+    BeforeAll {
+        Add-Type -AssemblyName System.IO.Compression
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        function script:Get-ZipEntries([string]$Path) { $zip = [IO.Compression.ZipFile]::OpenRead($Path); try { @($zip.Entries | ForEach-Object FullName) } finally { $zip.Dispose() } }
+        function script:Set-ZipEntry([string]$Path, [string]$Entry, [string]$Text) {
+            $zip = [IO.Compression.ZipFile]::Open($Path, [IO.Compression.ZipArchiveMode]::Update)
+            try { $old = $zip.GetEntry($Entry); if ($old) { $old.Delete() }; $writer = [IO.StreamWriter]::new($zip.CreateEntry($Entry).Open()); $writer.Write($Text); $writer.Dispose() } finally { $zip.Dispose() }
+        }
+        $script:Id = '2026-11-25_2145-b10dd50'
+        $script:RootFiles = @('AuthLens-2.0.0-Desktop-Setup.exe', 'AuthLens-2.0.0-Server-Setup.exe', 'Expand-AuthLensPackage.ps1', 'installer-manifest.json', 'package-manifest.json', 'README.txt', 'SHA256SUMS.txt')
+    }
     BeforeEach {
         $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $c = New-SyntheticCandidate $root ([datetime]::Parse('2026-11-25T21:45:00Z').ToUniversalTime()) 'b10dd507cca629a0b5ccd8d91ca460871deb196c'
         $target = Join-Path $TestDrive ('t' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+        $release = Join-Path $target "AuthLens-2.0.0-$script:Id"
     }
-    It 'packages an existing verified build without changing it and extracts it into Installer\version\build-id' {
+    It 'packages an existing verified build as a flat archive with installers, scripts and checksums at the root, without changing the build' {
         $before = @(Get-ChildItem $c.BuildDirectory, $c.InstallerDirectory -Recurse -File | ForEach-Object { (Get-FileHash $_.FullName).Hash })
         $p = New-AuthLensPackage $c
-        $p.status | Should -Be 'passed'
+        $p.status | Should -Be 'passed'; $p.layout | Should -Be 'flat'; $p.revision | Should -Be 1
         $p.path | Should -Be $c.PackageFile
-        (Get-Content $c.PackageChecksumFile) | Should -Be ($p.sha256 + ' *AuthLens-2.0.0-2026-11-25_2145-b10dd50.zip')
-        $p.independent_extraction | Should -Be 'verified'
-        @(Get-ChildItem (Join-Path $root 'Packages')).Name | Should -Be @('AuthLens-2.0.0-2026-11-25_2145-b10dd50.zip', 'AuthLens-2.0.0-2026-11-25_2145-b10dd50.zip.sha256')
+        $p.release_directory | Should -Be "AuthLens-2.0.0-$script:Id"
+        (Get-Content $c.PackageChecksumFile) | Should -Be ($p.sha256 + " *AuthLens-2.0.0-$script:Id.zip")
         @(Get-ChildItem $c.BuildDirectory, $c.InstallerDirectory -Recurse -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) | Should -Be $before
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        $zip = [IO.Compression.ZipFile]::OpenRead($p.path)
-        try { @($zip.Entries | Where-Object { -not $_.FullName.StartsWith('Installer/2.0.0/2026-11-25_2145-b10dd50/') }).Count | Should -Be 0 } finally { $zip.Dispose() }
+        $entries = Get-ZipEntries $p.path
+        @($entries | Where-Object { $_ -notmatch '/' } | Sort-Object) | Should -Be @($script:RootFiles | Sort-Object)
+        @($entries | Where-Object { $_ -match '/' -and -not $_.StartsWith('Tools/') }).Count | Should -Be 0 -Because 'only Tools holds folders'
+        $entries | Should -Not -Contain 'DEPLOY.txt'
+        $entries | Should -Not -Contain 'installers-SHA256SUMS'
+        @($entries | Where-Object { $_ -like 'Installer/*' }).Count | Should -Be 0
+        foreach ($helper in $script:AuthLensPackagedHelpers) { $entries | Should -Contain ('Tools/' + $helper) }
+        $entries | Should -Contain 'Tools/installer-tools.json'
         $result = Invoke-Expand @('-Package', $p.path, '-Destination', $target)
         $result.reason | Should -BeNullOrEmpty
-        $result.status | Should -Be 'verified'
-        $extracted = Join-Path $target 'Installer\2.0.0\2026-11-25_2145-b10dd50'
-        Test-Path (Join-Path $extracted 'AuthLens-2.0.0-Server-Setup.exe') | Should -BeTrue
-        Test-Path (Join-Path $target 'Build') | Should -BeFalse -Because 'the package never depends on the Build directory'
-        (Invoke-Expand @('-VerifyOnly', '-ExtractedDirectory', $extracted)).status | Should -Be 'verified'
+        $result.status | Should -Be 'verified'; $result.layout | Should -Be 'flat'; $result.target | Should -Be $release
+        $result.package_checksum | Should -Be 'verified_checksum_file'
+        Test-Path (Join-Path $target 'Installer') | Should -BeFalse -Because 'the build machine Installer hierarchy is not recreated'
+        Test-Path (Join-Path $target 'Build') | Should -BeFalse
+        # SHA256SUMS.txt: every distributed file except itself, with paths of the actual layout and their real hashes.
+        $sums = @(Get-Content (Join-Path $release 'SHA256SUMS.txt'))
+        $listed = @($sums | ForEach-Object { ($_ -split ' \*', 2)[1] } | Sort-Object)
+        $listed | Should -Be @($entries | Where-Object { $_ -ne 'SHA256SUMS.txt' } | Sort-Object)
+        foreach ($line in $sums) { $sha, $path = $line -split ' \*', 2; (Get-FileHash (Join-Path $release $path.Replace('/', '\'))).Hash.ToLowerInvariant() | Should -Be $sha }
+        # The original installer hashes are preserved.
+        foreach ($name in 'AuthLens-2.0.0-Server-Setup.exe', 'AuthLens-2.0.0-Desktop-Setup.exe') { (Get-FileHash (Join-Path $release $name)).Hash | Should -Be (Get-FileHash (Join-Path $c.InstallerDirectory $name)).Hash }
+        $package = Get-Content (Join-Path $release 'package-manifest.json') -Raw | ConvertFrom-Json
+        $package.schema | Should -Be 2; $package.layout | Should -Be 'flat'; $package.package_revision | Should -Be 1; $package.build_id | Should -Be $script:Id
+        (Get-Content (Join-Path $release 'README.txt') -Raw) | Should -Match ([regex]::Escape("AuthLens-2.0.0-$script:Id"))
+        (Invoke-Expand @('-VerifyOnly', '-ExtractedDirectory', $release)).status | Should -Be 'verified'
         $again = Invoke-Expand @('-Package', $p.path, '-Destination', $target)
         $again.status | Should -Be 'refused'; $again.reason | Should -BeLike '*never overwritten*'
-        Add-Content (Join-Path $extracted 'DEPLOY.txt') 'tampered'
-        (Invoke-Expand @('-VerifyOnly', '-ExtractedDirectory', $extracted)).reason | Should -BeLike '*differs*'
         { New-AuthLensPackage $c } | Should -Throw '*never overwritten*'
+    }
+    It 'keeps the standalone helpers usable from Tools with their own inventory' {
+        $p = New-AuthLensPackage $c
+        $null = Invoke-Expand @('-Package', $p.path, '-Destination', $target)
+        $proof = Get-Content (Join-Path $release 'Tools\installer-tools.json') -Raw | ConvertFrom-Json
+        @($proof.files.path | Sort-Object) | Should -Be @($script:AuthLensPackagedHelpers | Sort-Object)
+        foreach ($entry in $proof.files) { (Get-FileHash (Join-Path $release ('Tools\' + $entry.path))).Hash.ToLowerInvariant() | Should -Be $entry.sha256 }
+    }
+    It 'rejects a tampered payload in an extracted folder (<Case>)' -ForEach @(
+        @{ Case = 'Setup program'; File = 'AuthLens-2.0.0-Server-Setup.exe' }, @{ Case = 'helper'; File = 'Tools\deploy\AuthLens.Deploy.psm1' },
+        @{ Case = 'README'; File = 'README.txt' }, @{ Case = 'added file'; File = 'Tools\extra.txt' }) {
+        $p = New-AuthLensPackage $c
+        $null = Invoke-Expand @('-Package', $p.path, '-Destination', $target)
+        Add-Content (Join-Path $release $File) 'tampered'
+        $result = Invoke-Expand @('-VerifyOnly', '-ExtractedDirectory', $release)
+        $result.status | Should -Be 'refused'
+        $result.reason | Should -Match 'differs|Unexpected'
+    }
+    It 'reports the external ZIP check: not checked, expected SHA-256 matched or refused' {
+        $p = New-AuthLensPackage $c
+        $alone = Join-Path $TestDrive ('z' + [guid]::NewGuid().ToString('N').Substring(0, 6)); New-Item -ItemType Directory $alone | Out-Null
+        $copy = Join-Path $alone (Split-Path $p.path -Leaf); Copy-Item $p.path $copy
+        $wrong = Invoke-Expand @('-Package', $copy, '-Destination', $target, '-ExpectedSha256', ('0' * 64))
+        $wrong.status | Should -Be 'refused'; $wrong.reason | Should -BeLike '*differs from -ExpectedSha256*'
+        Test-Path $release | Should -BeFalse
+        $none = Invoke-Expand @('-Package', $copy, '-Destination', $target)
+        $none.status | Should -Be 'verified'; $none.package_checksum | Should -Be 'not_checked'
+        $target2 = Join-Path $TestDrive ('u' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+        $expected = Invoke-Expand @('-Package', $copy, '-Destination', $target2, '-ExpectedSha256', $p.sha256.ToUpperInvariant())
+        $expected.status | Should -Be 'verified'; $expected.package_checksum | Should -Be 'verified_expected_sha256'
+    }
+    It 'verifies a folder extracted by ordinary ZIP extraction and refuses one named for another release' {
+        $p = New-AuthLensPackage $c
+        [IO.Compression.ZipFile]::ExtractToDirectory($p.path, $release)
+        (Invoke-Expand @('-VerifyOnly', '-ExtractedDirectory', $release)).status | Should -Be 'verified'
+        $other = Join-Path $target 'AuthLens-2.0.0-2026-11-24_1000-1234567'
+        [IO.Compression.ZipFile]::ExtractToDirectory($p.path, $other)
+        (Invoke-Expand @('-VerifyOnly', '-ExtractedDirectory', $other)).reason | Should -BeLike '*names another release*'
+    }
+    It 'adds a separately named package revision of the same build without touching the earlier package' {
+        $first = New-AuthLensPackage $c
+        $firstHash = (Get-FileHash $first.path).Hash
+        $second = New-AuthLensPackage $c '' 2
+        $second.path | Should -Be (Join-Path $root "Packages\AuthLens-2.0.0-$script:Id-pkg2.zip")
+        Test-Path ($second.path + '.sha256') | Should -BeTrue
+        $second.build_id | Should -Be $script:Id -Because 'the revision is package metadata, not build identity'
+        (Get-FileHash $first.path).Hash | Should -Be $firstHash
+        $result = Invoke-Expand @('-Package', $second.path, '-Destination', $target)
+        $result.status | Should -Be 'verified'; $result.package_revision | Should -Be 2; $result.target | Should -Be $release
+        $renamed = Join-Path $TestDrive "AuthLens-2.0.0-$script:Id.zip"; Copy-Item $second.path $renamed
+        (Invoke-Expand @('-Package', $renamed, '-Destination', (Join-Path $TestDrive 'v1'))).reason | Should -BeLike '*different package revisions*'
+        { New-AuthLensPackage $c '' 2 } | Should -Throw '*never overwritten*'
     }
     It 'refuses a modified installer artifact, leaves no partial package and keeps the build unchanged' {
         Add-Content (Join-Path $c.InstallerDirectory 'DEPLOY.txt') 'changed after the build'
@@ -150,24 +226,50 @@ Describe 'Portable deployment package and safe extraction (BUILD-009, BUILD-010)
         { New-AuthLensPackage $c } | Should -Throw '*not a passed WP32 build*'
         { New-AuthLensPackage ([pscustomobject]@{ Layout = 'legacy' }) } | Should -Throw '*legacy run directories*'
     }
-    It 'refuses a wrong checksum, traversal, absolute and unexpected archive entries before writing anything (<Case>)' -ForEach @(
-        @{ Case = 'traversal'; Entry = 'Installer/2.0.0/2026-11-25_2145-b10dd50/../../evil.txt' },
-        @{ Case = 'absolute'; Entry = 'C:/evil.txt' },
-        @{ Case = 'outside'; Entry = 'Build/2.0.0/2026-11-25_2145-b10dd50/server/AuthLens.Api.exe' },
-        @{ Case = 'unexpected'; Entry = 'Installer/2.0.0/2026-11-25_2145-b10dd50/unexpected.txt' },
+    It 'refuses a wrong checksum, traversal, absolute, unlisted and misplaced archive entries before writing anything (<Case>)' -ForEach @(
+        @{ Case = 'traversal'; Entry = '../evil.txt' }, @{ Case = 'nested traversal'; Entry = 'Tools/../../evil.txt' },
+        @{ Case = 'absolute'; Entry = 'C:/evil.txt' }, @{ Case = 'folder outside Tools'; Entry = 'Other/evil.txt' },
+        @{ Case = 'old nested layout mixed in'; Entry = 'Installer/2.0.0/2026-11-25_2145-b10dd50/evil.txt' },
+        @{ Case = 'unlisted root file'; Entry = 'unexpected.txt' }, @{ Case = 'unlisted helper'; Entry = 'Tools/unexpected.ps1' },
         @{ Case = 'checksum'; Entry = '' }) {
         $p = New-AuthLensPackage $c
-        if ($Entry) {
-            Add-Type -AssemblyName System.IO.Compression.FileSystem
-            $zip = [IO.Compression.ZipFile]::Open($p.path, [IO.Compression.ZipArchiveMode]::Update)
-            try { $writer = [IO.StreamWriter]::new($zip.CreateEntry($Entry).Open()); $writer.Write('synthetic'); $writer.Dispose() } finally { $zip.Dispose() }
-            Set-Content $p.checksum_file ((Get-FileHash $p.path).Hash.ToLowerInvariant() + ' *' + (Split-Path $p.path -Leaf)) -Encoding ASCII
-        } else { Add-Content $p.path 'x' }
+        if ($Entry) { Set-ZipEntry $p.path $Entry 'synthetic'; Set-Content $p.checksum_file ((Get-FileHash $p.path).Hash.ToLowerInvariant() + ' *' + (Split-Path $p.path -Leaf)) -Encoding ASCII }
+        else { Add-Content $p.path 'x' }
         $result = Invoke-Expand @('-Package', $p.path, '-Destination', $target)
         $result.status | Should -Be 'refused'
-        Test-Path (Join-Path $target 'Installer\2.0.0\2026-11-25_2145-b10dd50') | Should -BeFalse
+        Test-Path $release | Should -BeFalse
         Test-Path (Join-Path $TestDrive 'evil.txt') | Should -BeFalse
         @(Get-ChildItem $target -Recurse -File -ErrorAction SilentlyContinue).Count | Should -Be 0
+    }
+    It 'refuses a payload whose content no longer matches SHA256SUMS.txt during extraction' {
+        $p = New-AuthLensPackage $c
+        Set-ZipEntry $p.path 'README.txt' 'replaced instructions'
+        Set-Content $p.checksum_file ((Get-FileHash $p.path).Hash.ToLowerInvariant() + ' *' + (Split-Path $p.path -Leaf)) -Encoding ASCII
+        $result = Invoke-Expand @('-Package', $p.path, '-Destination', $target)
+        $result.status | Should -Be 'refused'; $result.reason | Should -BeLike '*differs from SHA256SUMS.txt*'
+        Test-Path $release | Should -BeFalse
+        @(Get-ChildItem $target -Force -ErrorAction SilentlyContinue | Where-Object Name -like '.x-*').Count | Should -Be 0 -Because 'the temporary folder is removed'
+    }
+    It 'still verifies and extracts an original RC6 package (nested Installer tree, schema 1)' {
+        $prefix = "Installer/2.0.0/$script:Id/"
+        $files = @(foreach ($name in 'AuthLens-2.0.0-Server-Setup.exe', 'AuthLens-2.0.0-Desktop-Setup.exe', 'installer-manifest.json', 'DEPLOY.txt') { $f = Get-Item (Join-Path $c.InstallerDirectory $name); [ordered]@{ path = $name; size = $f.Length; sha256 = (Get-FileHash $f.FullName).Hash.ToLowerInvariant() } })
+        $identity = (Get-Content $c.SummaryFile -Raw | ConvertFrom-Json).identity
+        $manifest = [ordered]@{ schema = 1; product = 'AuthLens'; version = '2.0.0'; build_id = $script:Id; source_sha = $identity.source_sha; build_timestamp_utc = $identity.build_timestamp_utc; files = $files }
+        $legacyDir = Join-Path $TestDrive ('l' + [guid]::NewGuid().ToString('N').Substring(0, 6)); New-Item -ItemType Directory $legacyDir | Out-Null
+        $legacy = Join-Path $legacyDir "AuthLens-2.0.0-$script:Id.zip"
+        $zip = [IO.Compression.ZipFile]::Open($legacy, [IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($file in $files) { $null = [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, (Join-Path $c.InstallerDirectory $file.path), $prefix + $file.path) }
+            $writer = [IO.StreamWriter]::new($zip.CreateEntry($prefix + 'package-manifest.json').Open()); $writer.Write(($manifest | ConvertTo-Json -Depth 5)); $writer.Dispose()
+        } finally { $zip.Dispose() }
+        Set-Content ($legacy + '.sha256') ((Get-FileHash $legacy).Hash.ToLowerInvariant() + ' *' + (Split-Path $legacy -Leaf)) -Encoding ASCII
+        $result = Invoke-Expand @('-Package', $legacy, '-Destination', $target)
+        $result.reason | Should -BeNullOrEmpty
+        $result.status | Should -Be 'verified'; $result.layout | Should -Be 'installer-tree'; $result.package_checksum | Should -Be 'verified_checksum_file'
+        $extracted = Join-Path $target "Installer\2.0.0\$script:Id"
+        (Invoke-Expand @('-VerifyOnly', '-ExtractedDirectory', $extracted)).status | Should -Be 'verified'
+        Add-Content (Join-Path $extracted 'DEPLOY.txt') 'tampered'
+        (Invoke-Expand @('-VerifyOnly', '-ExtractedDirectory', $extracted)).reason | Should -BeLike '*differs*'
     }
 }
 
@@ -201,6 +303,14 @@ Describe 'Build-host artifact inventory and retention (WP34: Build, Installer, A
         $state['package:2.0.0/2026-11-24_1000-6666666'].reasons | Should -Contain 'incomplete_package_or_checksum'
         $state['legacy_run_directory:AuthLens-2.0.0-2026-11-25_1442-b10dd50'].reasons | Should -Contain 'legacy_layout_retained'
         @(Get-ChildItem $root -Recurse -Force | ForEach-Object FullName) | Should -Be $before
+    }
+    It 'lists a later package revision of a build as its own item with its checksum file' {
+        $null = New-AuthLensPackage $old '' 2
+        $inventory = Get-AuthLensBuildInventory $root 1
+        $revision = @($inventory.items | Where-Object id -eq "package:2.0.0/$($old.Id)-pkg2")[0]
+        $revision.state | Should -Be 'eligible'
+        @($revision.paths).Count | Should -Be 2 -Because 'the zip and its checksum are one item'
+        @($inventory.items | Where-Object id -eq "package:2.0.0/$($old.Id)")[0].state | Should -Be 'eligible'
     }
     It 'deletes only the reviewed selection with approval and the preview hash, and reports reclaimed storage' {
         $ids = @("package:2.0.0/$($old.Id)", "installer:2.0.0/$($old.Id)")
