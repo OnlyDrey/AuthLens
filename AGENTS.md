@@ -8,15 +8,23 @@
   (`dotnet test backend/tests/AuthLens.Tests`) and the complete browser suite are explicit FULL checks, not automatic development steps. Keep
   frontend type/build checks proportional to affected code.
 - **AuthLens is the .NET implementation in `backend/` with the React frontend in `frontend/`** (development target 2.0.0, NOT APPROVED for production until release gates pass; the product was
-  previously named SAP Lens and the repository keeps the name `sap-lens`; never call the current product "SAP Lens", "SAP Lens 2" or "AuthLens 2").
+  previously named SAP Lens; the repository is `OnlyDrey/AuthLens`; never call the current product "SAP Lens", "SAP Lens 2" or "AuthLens 2").
   Canonical identities: Windows service `AuthLens`, installation root `C:\ProgramData\AuthLens`, database `authlens.sqlite3`, server
   `AuthLens.Api.exe`, environment variables `AUTHLENS_*`. SAP Lens data reaches AuthLens only by restoring a backup into a fresh installation (or the
   explicit `--adopt-legacy-database`); never adopt, rename or change a SAP Lens service, data directory or database. Compatibility identifiers
   that keep an earlier name are listed in the naming register (docs/architecture/VERSIONING.md). SAP Lens 1 (Python/FastAPI) is archived **outside** this repository (a separate archive; the last commit with
   it in place is `604f21e`). Nothing active may depend on it: no `legacy/` paths, no Python fixtures or servers in builds and tests
-  (`scripts/check-structure.py` enforces this). Historical v1 documentation stays in `docs/archive/v1`.
+  (`scripts/check-structure.py` enforces this). The v1 documentation was retired together with the code; the current guides under `docs/`
+  replace it, and the SAP Lens 1 archive keeps the historical copy. Docker support is already removed (`check-structure.py` refuses it).
+  The remaining Python legacy (the v1 reference generators in `backend/tools`) and any further Python or Docker cleanup stay **deferred until
+  migration completion has been formally established**; do not delete them as a side task.
 - `.github/workflows/validate.yml` validates .NET, the frontend and focused Playwright only on push to `main`. No dispatch, PR,
   schedule or experiment/work trigger is permitted. Windows release, installer and deployment scripts are in `backend/scripts`.
+- **Operational safeguards (operator constraints, permanent):** never deploy to, upgrade, repair or reconfigure a live installation (DASH1,
+  VM130 or any production host) without explicit operator authorization for that operation; never delete or prune artifacts, evidence, user
+  data, deployment journals or recovery material automatically (destructive cleanup needs a preview and explicit approval); never weaken a
+  security control (ACL gates, host/origin checks, TLS validation, source authorization) to make a test or acceptance step pass; preserve data,
+  backups and recovery compatibility across upgrades.
 - **Documentation must evolve with the code.** Every change affecting functionality, architecture, configuration, security, deployment,
   operations or user-facing behavior must include corresponding documentation updates in the same development task. A development task is
   not complete until its relevant documentation is accurate and updated. Describe only what is implemented, and state whether it is verified,
@@ -29,7 +37,9 @@ For AuthLens development, the user is responsible for executing builds and tests
 These execution restrictions take precedence over instructions elsewhere in this file to automatically run validation,
 builds or repeated development cycles. Validation levels define the recommended scope, not standing authorization to execute.
 
-### Codex responsibilities
+### Agent responsibilities
+
+This policy applies to every coding agent (Codex, Claude Code and others); "Codex" below means the agent doing the work.
 
 - Analyze, implement and review code changes.
 - Identify the minimum necessary validation.
@@ -106,15 +116,26 @@ From the repository root ([development](docs/development/README.md)).
 
 - **Windows build and release output (mandatory):** only the root-level `build.ps1`, with `-OutputRoot C:\AuthLens`; the standard focused build is
   `Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force; .\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)`.
-  It creates `C:\AuthLens\AuthLens-<version>-<UTC yyyy-MM-dd_HHmm>-<sha7>` (with `build\`, `installer\`, `build-summary.json`, `build.log`). Do
-  not call `build-release.ps1`/`build-installers.ps1` directly for candidates, and do not use other output roots (RC, acceptance, development or
-  user-profile folders) without explicit approval. Acceptance evidence goes to `C:\AuthLens\acceptance\<run directory name>`. The installed
-  Server root stays `C:\ProgramData\AuthLens`. Never move, rename or delete earlier candidates and their evidence. Details:
-  [canonical Windows build](docs/deployment/WINDOWS_DEPLOYMENT.md#canonical-windows-build).
+  Append `-ZipPackage` for the optional portable deployment package. One build id `<UTC yyyy-MM-dd_HHmm>-<sha7>` (collisions get `-02` to
+  `-99`) names every category: the verified release plus `build-summary.json` and `build.log` in `C:\AuthLens\Build\<version>\<build-id>`, the
+  Setup programs, manifests and packaged tooling in `C:\AuthLens\Installer\<version>\<build-id>`, acceptance evidence in
+  `C:\AuthLens\Acceptance\<version>\<build-id>\<run>`, and with `-ZipPackage` `C:\AuthLens\Packages\AuthLens-<version>-<build-id>.zip` with its
+  `.zip.sha256`. An existing verified build is packaged without rebuilding by
+  `.\backend\scripts\New-AuthLensPackage.ps1 -Candidate C:\AuthLens\Build\<version>\<build-id>` (RC5 and older run directories cannot be packaged).
+  Do not call `build-release.ps1`/`build-installers.ps1` directly for candidates, and do not use other output roots (RC, acceptance, development
+  or user-profile folders) without explicit approval. RC5 and older candidates keep their legacy run directories
+  `C:\AuthLens\AuthLens-<version>-<UTC>-<sha7>` and evidence under `C:\AuthLens\acceptance\<run directory name>`; they are resolved in place.
+  The installed Server root stays `C:\ProgramData\AuthLens` and `C:\AuthLens-Recovery` holds independent recovery copies. Never move, rename,
+  overwrite or delete earlier candidates, packages and their evidence; build-host retention (`Invoke-AuthLensArtifactRetention.ps1`) is a
+  preview unless an operator approves named items. A documentation commit made after a build never becomes that build's source commit. Details:
+  [canonical Windows build](docs/deployment/WINDOWS_DEPLOYMENT.md#canonical-windows-build) and
+  [production transfer](docs/deployment/WINDOWS_DEPLOYMENT.md#production-package-transfer).
 - .NET: `cd backend && dotnet build AuthLens.slnx -c Release`; tests `dotnet test tests/AuthLens.Tests -c Release --no-build --filter
   "FullyQualifiedName~<Class>"` (affected classes), the whole suite only as FULL. The build embeds `frontend/dist` as it is (built only when missing or with `-p:BuildFrontend=true`); release scripts always rebuild it once.
-- Scripts: `pwsh -NoProfile -Command "Invoke-Pester backend/scripts/tests"` (deployment state machine, test launcher),
-  `bash backend/scripts/tests/deploy-windows.test.sh` (SSH orchestrator), PowerShell syntax via the parser for changed scripts.
+- Scripts: Pester 5 in Windows PowerShell 5.1 (`powershell`) or PowerShell 7 (`pwsh`): the affected files during development
+  (`Invoke-Pester backend/scripts/tests/<Name>.Tests.ps1`), the whole folder `Invoke-Pester backend/scripts/tests` only at a checkpoint;
+  `bash backend/scripts/tests/deploy-windows.test.sh` (SSH orchestrator), PowerShell syntax via the parser for changed scripts. Windows
+  PowerShell 5.1 scripts stay pure ASCII.
 - Frontend, in `frontend`: `npm ci`, `npm run check:types`, `npm run lint`, `npm run test:unit`, `npm run build`,
   `npm run test:browser`. Build first: Playwright serves `dist` through the isolated .NET test host
   (`scripts/browser-server.mjs`, `backend/tests/AuthLens.BrowserHost`) on 127.0.0.1:18745, and a stale server on that
@@ -152,15 +173,16 @@ From the repository root ([development](docs/development/README.md)).
 ## GitHub Actions CI policy (permanent)
 
 - **CI runs only on push to `main`** (completed merges): `validate.yml` is the single automatic workflow and its only trigger is `push: branches: [main]`.
-  The trigger is the push to `main`, not `pull_request`. No workflow runs on `work`, feature branches or pull requests, and none may be triggered
-  indirectly from them (no `workflow_run`, `workflow_call`, `schedule`, `pull_request(_target)` or repository-event triggers anywhere).
-- Intermediate and final development pushes to `work` do not trigger CI. No manual workflow is configured; do not execute GitHub Actions during development.
+  The trigger is the push to `main`, not `pull_request`. No workflow runs on `experiment/dotnet-backend`, `work`, feature branches or pull
+  requests, and none may be triggered indirectly from them (no `workflow_run`, `workflow_call`, `schedule`, `pull_request(_target)` or
+  repository-event triggers anywhere).
+- Intermediate and final development pushes to `experiment/dotnet-backend` (or `work`) do not trigger CI. No manual workflow is configured; do not execute GitHub Actions during development.
 - Validation moves local: run QUICK/TARGETED (the affected .NET test classes, Pester and the affected browser specs) during a phase, REGRESSION
   (the focused deployment set and affected suites) before pushing a finished phase, and FULL (the whole .NET suite, scripts tests, frontend and
   browser suites) before merging into `main`.
 - Existing validation jobs, security checks and release protections stay in place; they only run on `main` pushes ; no manual dispatch is configured.
   `scripts/check-workflows.py` and `scripts/tests/test_infrastructure.py` enforce the trigger policy; changing a trigger requires explicit authorization and matching contracts.
-- Never merge into `main`, publish a release or tag without explicit authorization. When a commit that only changes workflows must be pushed to `work`,
+- Never merge into `main`, publish a release or tag without explicit authorization. When a commit that only changes workflows must be pushed to a development branch,
   `[skip ci]` in its message is an additional safeguard.
 
 ## Working efficiently (AI agents)
@@ -253,15 +275,20 @@ planned checkpoints, never after every correction. Commands: [development](docs/
   `frontend/src/components/Sod` plus Shared `MatrixGrid`/`SidePanel`. Review decisions never
   change conflict detection, snapshots and decisions are immutable private data, reports render
   from one frozen model. Browser specs share `frontend/tests/sod-fixture.ts` (unique users per
-  test because reset keeps review history). Guides: [SoD workflow](docs/features/SOD.md),
-  [SoD architecture (v1 history)](docs/features/SOD.md), [SoD matrix reference](docs/data/SOD_MATRIX.md).
+  test because reset keeps review history). Guides: [SoD workflow and architecture](docs/features/SOD.md),
+  [SoD matrix reference](docs/data/SOD_MATRIX.md).
 - Business logic lives in the shared .NET projects; `AuthLens.Desktop` owns the Windows WebView2 lifecycle and `AuthLens.Api` the Server host
   (console or Windows service). Do not duplicate CSV import, role matching, transaction evidence or account interpretation per host.
 - Server mode must use separate mutable storage, enforce its authentication and
   host/origin boundary, and keep browser uploads local to the configured server.
   Optional disabled/missing sources are not permission to erase valid snapshots.
-- `backend/scripts/build-release.ps1`/`.sh` build the release folder, `build-installers.ps1` the installers and `deploy/` deploys the Windows
-  service. No automatic tags/releases/registry pushes from local builds.
+- Build and release tooling in `backend/scripts`: root `build.ps1` orchestrates `build-release.ps1` (release folder; `build-release.sh` is the
+  Linux equivalent), `verify-release.ps1`, the release secret scan, `build-installers.ps1` (Inno Setup), branding verification and, with
+  `-ZipPackage`, packaging (`Build-Workflow.ps1`; the same packaging for an existing build is `New-AuthLensPackage.ps1`); `Expand-AuthLensPackage.ps1` verifies and extracts a package
+  on the target; `Invoke-AuthLensArtifactRetention.ps1` inventories build-host artifacts; `deploy/` deploys and recovers the Windows service;
+  `recovery/` holds the independent recovery bundle and restore rehearsal tools; `Service-Manager.ps1` is the operator menu. Builds and
+  installers are unsigned until an authorized signing step exists: checksums prove integrity, not publisher authenticity. No automatic
+  tags/releases/registry pushes from local builds.
 - Reuse frontend Shared components, semantic tokens and isolated Component Library
   previews. Navigation links, content tabs, filters and actions have distinct
   semantics; preserve keyboard focus and source evidence.

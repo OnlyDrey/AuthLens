@@ -139,3 +139,30 @@ and does **not** delete the migration backup. Deleting it is a further, separate
 
 Every managed Windows deployment takes and verifies an encrypted pre-deployment backup with the running release before it stops the service, and
 never restores an older database automatically ([Windows deployment](../deployment/WINDOWS_DEPLOYMENT.md#deployment-sequence)).
+
+## Independent recovery bundle and restore rehearsal (Windows Server)
+
+Status: implemented; the restore rehearsal passed natively on VM130 for RC3-VM130; the Service Manager actions (QA-028) and their packaged
+copies await Windows acceptance on RC6.
+
+| Tool | Purpose | Never does |
+| --- | --- | --- |
+| Service Manager group 4, **Create a recovery bundle** (`-Action CreateRecoveryBundle -Directory <root> -Yes`, elevated) | Verified encrypted online backup of the installed release plus copies of configuration, TLS certificate and password file, recovery key and the active program, in a new private folder (default suggestion `C:\AuthLens-Recovery`); the archive is verified again with the copied key | Stop or reconfigure the service, overwrite an earlier bundle, write inside the installation |
+| **Verify a recovery bundle** (`-Action VerifyRecoveryBundle -Path <bundle>`) | Inventory and archive hashes, private ACL and decryption with the bundle's copied key in a temporary probe | Restore or change anything |
+| `recovery\Test-AuthLensRestoreRehearsal.ps1 -Bundle <bundle> -Verifier <AuthLens.Api.exe>` | Isolated restore into an owned loopback process, fingerprints compared with the archive and after a restart | Touch the active service, configuration, key or archive |
+
+A verified bundle proves that the backup opens with the copied key; it is **not** a restore rehearsal. Keep an operator copy outside the host
+(external escrow). The same scripts ship in every Installer folder and portable package (`installer-tools-*\recovery`). Details and report
+formats: [recovery bundle and rehearsal](../deployment/WINDOWS_DEPLOYMENT.md#recovery-bundle-restore-rehearsal-and-source-authority-wp22-wp23-after-rc4).
+
+## Storage preflight and artifact retention
+
+Setup and deployments check free storage per volume before changing anything and refuse with the deficit per volume; nothing is deleted to make
+room ([storage preflight](../deployment/WINDOWS_DEPLOYMENT.md#storage-preflight-and-installation-artifact-retention-wp34)). Superseded
+installation artifacts are listed read-only by `Deploy-AuthLens.ps1 -Action ArtifactInventory` (Service Manager: **Storage and artifact
+inventory**). `PruneArtifacts` deletes only after a `-DryRun` preview, explicit categories, the preview's `-ExpectedSelectionSha256` and `-Yes`;
+it always preserves the active release, the journal's releases, the newest previous release (rollback), protected setup stages, referenced runs
+and the newest backups, and refuses while a deployment or configuration change is pending. Application data, review evidence, in-app backups,
+recovery keys, configuration and TLS files are never eligible. The build host has its own read-only preview,
+`Invoke-AuthLensArtifactRetention.ps1` ([build-host retention](../deployment/WINDOWS_DEPLOYMENT.md#build-host-artifact-inventory-and-retention-wp34)).
+No retention runs automatically.

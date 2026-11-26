@@ -1,6 +1,6 @@
 # AuthLens 2.0.0 release candidate: Windows VM acceptance runbook
 
-**Status: procedure ready; not executed.** This is the ordered, operator-executed acceptance for a release candidate on a **disposable Windows
+**Status: procedure in use; RC4 and RC5 scenarios were run by the operator (results in the [tracker](ACCEPTANCE_TRACKER.md)); RC6 not yet run.** This is the ordered, operator-executed acceptance for a release candidate on a **disposable Windows
 VM**. Nothing here has been run natively by the development agent. Results recorded here are the only acceptance evidence; static checks, Pester
 with mocks, installer compilation and browser tests are not acceptance, even when they run on the VM. The candidate stays **NOT APPROVED** until
 every mandatory scenario passes and the final regression ([§J](#j-final-regression-and-release-sequence)) is approved and green.
@@ -132,9 +132,10 @@ candidate younger than 24 hours that used an explicit report, verified escrow, t
 hash from `build-summary.json` and a snapshot attestation (recorded as `operator_attested_not_verified`). The repair is validated read-only
 before the authorized stop; a refused plan starts the service again unchanged.
 
-### RC4 priority order
+### RC4 and RC5 priority order (historical)
 
-Run on RC5 (`C:\AuthLens\AuthLens-2.0.0-2026-11-25_1442-b10dd50`, [build record](ACCEPTANCE_TRACKER.md#rc5-build-record); verify A1 against its hashes first; RC4 results do not transfer) in this order, using the [acceptance harness](#acceptance-harness-wp21) where it covers the scenario; stop and record a failure before continuing:
+The current candidate is RC6: run the [RC6 scenarios](#rc6-scenarios-wp29-to-wp31-wp33-run-only-on-a-candidate-whose-build-record-lists-them) and the list in the [RC6 build record](ACCEPTANCE_TRACKER.md#rc6-build-record).
+This order was used on RC5 (`C:\AuthLens\AuthLens-2.0.0-2026-11-25_1442-b10dd50`, [build record](ACCEPTANCE_TRACKER.md#rc5-build-record); verify A1 against its hashes first; RC4 results do not transfer) in this order, using the [acceptance harness](#acceptance-harness-wp21) where it covers the scenario; stop and record a failure before continuing:
 
 1. B13 – simulation leaves the persistent installation state unchanged (D-006).
 2. B14 – approval enforcement for every mutating deployment action.

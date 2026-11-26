@@ -1,0 +1,70 @@
+# AuthLens 2.0.0 release overview (candidate)
+
+**Status: release candidate RC6, pending native Windows acceptance. NOT APPROVED for production and not published as a stable release.**
+This page is the draft text for the eventual GitHub Release; [GitHub Releases](https://github.com/OnlyDrey/AuthLens/releases) remains the
+release history (there is no changelog file). Open items: [RC6 candidate status](validation/STATUS.md#rc6-candidate-status).
+
+## Highlights
+
+- **AuthLens** is the new name of the product previously called SAP Lens, rebuilt on .NET 10 with the same React user interface.
+- **Two ways to run it:** a Windows **Server** (service, HTTPS, local accounts and roles, browser access) and a per-user **Desktop** app.
+- **Unified data sources:** every CSV source can be uploaded from your device or read from a file on the AuthLens host (local or network
+  share) within approved folders, with a separate static or dynamic update mode and validation before import.
+- **Dashboard analytics:** a global overview plus a filtered view by organization, SAP account, access and governance attributes, with saved
+  filters and drill-down.
+- **Safer installation, upgrade and recovery:** verified backups before every upgrade, preservation-only uninstall, independent recovery
+  bundles and clear storage checks.
+
+## What's new for users
+
+- **Dashboard.** Global and filtered modes; a Filters panel (closed by default) with Apply and Reset, an active-filter count, chips and Saved
+  Filters. Filter by department, site, title, user group and type, account validity and lock status, AD state, role, transaction, role type,
+  organizational suffix, SoD risk and review status. Choose whether access filters select users who hold any matching access or only the
+  matching assignments. Metrics state whether they are global or filtered; genuine SoD conflicts are never hidden by an access filter and
+  historical review evidence is never reinterpreted.
+- **Data sources.** One *File location* choice (upload, or file on the host) and one *Update mode* (static or dynamic) for the Role Catalogue,
+  User-Role Mapping, Employee Directory and SoD Matrix. An Explorer-like host file picker (also usable from a phone) shows approved locations,
+  breadcrumbs, search, sorting and recently used folders. Validate and import, validate only, or import a validated file later; the last valid
+  dataset is always kept when a source fails.
+- **Reviews and governance.** Account Review, the Reviews workspace (work queue, bulk review, remediation, review periods, reports and
+  evidence) and Segregation of Duties (risk and activity matrices, Access Explorer, review rules, frozen periods, DOCX/PDF reports) with
+  immutable decisions and evidence.
+- **Mobile.** Native pickers on touch devices (no duplicate dropdown), a one-row phone header with larger touch targets and safe-area support,
+  independent navigation drawers. Acceptance on a real iPhone is still pending.
+
+## Administration and operations
+
+- **Server Setup** authors fresh configuration (paths, access mode, TLS by generating a local certificate or importing a PFX, optional
+  source-restricted firewall rule), upgrades with a verified backup and keeps configuration, data, keys and certificates. Uninstall preserves
+  all persistent data.
+- **Service Manager** menu for status, restart, network and certificate changes, backup and recovery keys (including creating and verifying
+  an independent recovery bundle), diagnostics, and a read-only storage and artifact inventory.
+- **Security.** Loopback-only by default; network mode requires HTTPS, a host allow-list and explicit proxy trust. Installation ACLs are
+  reported as SAFE, REVIEW_REQUIRED or UNSAFE; named accounts are never removed automatically, and an optional strict readiness gate refuses
+  unreviewed findings. Host file sources are read with the service identity only; no SMB credentials are stored.
+- **Storage.** Setup checks free space per volume and explains any shortfall; cleanup of superseded installation artifacts is a previewed,
+  explicitly approved operation and never touches data or evidence.
+
+## Build and packaging (engineering)
+
+- One root `build.ps1` builds, tests, verifies and packages both products; every artifact of a build shares one immutable build id
+  (`<UTC yyyy-MM-dd_HHmm>-<sha7>`) under `C:\AuthLens\Build`, `Installer`, `Acceptance` and `Packages`.
+- Optional portable ZIP package with a SHA-256 file and a self-verifying extraction script; it never overwrites an existing folder.
+- Setup programs are named `AuthLens-<version>-Server-Setup.exe` and `AuthLens-<version>-Desktop-Setup.exe`.
+- CI runs only on pushes to `main`; development validation is local.
+
+## Compatibility
+
+- SAP Lens data moves to AuthLens by restoring a backup into a fresh installation (or the explicit legacy-database adoption); existing SAP
+  Lens services and data directories are never changed.
+- `AUTHLENS_*` replaces earlier environment variables; old names are ignored with a startup warning.
+- Existing source settings are read unchanged; restored host file paths need approval on the new host before they are read.
+- Candidates before RC6 keep their old artifact folders and Setup names; they cannot be packaged with the new ZIP workflow.
+
+## Known limitations of this candidate
+
+- Native Windows acceptance of RC6 (installation, upgrade, network shares, strict ACL gate, recovery bundle, storage and retention) is pending.
+- The data-source panel does not yet show, before import, that a file changed since validation; the change is refused at import.
+- Setup programs are not code-signed; checksums prove integrity only, not publisher authenticity.
+- Full regression has not yet run on this candidate.
+- Custom service accounts, automatic certificate renewal and a data-purge uninstall are not implemented.

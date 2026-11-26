@@ -105,6 +105,6 @@ the UI never auto-confirms an activated migration and confirmation never deletes
 
 ## Storage cost
 
-The prototype stores canonical records as JSON rows. For the large synthetic set (97 k role rows, 101 k user rows, 1.8 k SoD rows) the
+Canonical records are stored as JSON rows (the design measured during the migration). For the large synthetic set (97 k role rows, 101 k user rows, 1.8 k SoD rows) the
 database holds every revision; retired revisions are kept as evidence. A product needs a retention policy for retired revisions or a
 content-addressed record store (many revisions share most rows). Not measured: database file growth over many revisions.

@@ -97,7 +97,8 @@ browser only; the server still enforces approval). API: `GET /api/server/sources
 **Validate and import** (the normal flow) reads the complete dataset as the running backend identity and imports exactly that validated
 content (hash-bound; a suspicious reduction is still held for confirmation). **Validate only** checks without changing data; **Import
 validated file** imports it later only if its SHA-256 still matches, and disappears as soon as the path changes. A changed file requires
-validation again. Normal source configuration does not require editing JSON, registry or environment variables.
+validation again. **Limitation (FILE-008, partial):** the change is detected and refused at import (`source_changed`),
+but the panel does not yet indicate before import that the file changed since validation. Normal source configuration does not require editing JSON, registry or environment variables.
 
 Validation runs in the AuthLens server process, so it proves access for the actual service identity, not for an administrator's PowerShell
 session. Outcomes (`category`; the last valid dataset is always kept, `previous_preserved: true`):

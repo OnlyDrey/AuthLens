@@ -1,6 +1,6 @@
 # AuthLens 2.0.0 Windows acceptance tracker
 
-**Candidate status: accepted for controlled testing, NOT APPROVED for production.** This file records only results the operator actually
+**Current candidate: RC6** (`839123c`, build id `2026-11-26_0330-839123c`), built and verified, **native acceptance not started; NOT APPROVED for production.** This file records only results the operator actually
 produced on the disposable Windows VM. A scenario is **Passed** only with operator evidence; otherwise it is Not run, Blocked (environment) or
 Failed (product). Procedures: [VM acceptance runbook](WINDOWS_VM_ACCEPTANCE.md). Implementation status: [work packages](WORK_PACKAGES.md).
 
@@ -24,7 +24,7 @@ transfer to it.
 | Build id | `2026-11-26_0330-839123c` |
 | Build | `C:\AuthLens\Build\2.0.0\2026-11-26_0330-839123c` (`build-summary.json` schema 2, layout `category`, status `passed`) |
 | Installer | `C:\AuthLens\Installer\2.0.0\2026-11-26_0330-839123c` (both Setups, `installer-manifest.json`, `installers-SHA256SUMS`, `DEPLOY.txt`, `Expand-AuthLensPackage.ps1`, 10 packaged helpers) |
-| Acceptance | `C:\AuthLens\Acceptance\2.0.0\2026-11-26_0330-839123c\<run>` (no run yet) |
+| Acceptance | `C:\AuthLens\Acceptance\2.0.0\2026-11-26_0330-839123c\<run>` (created by the first acceptance run; the folder does not exist yet) |
 | Deployment package | `C:\AuthLens\Packages\AuthLens-2.0.0-2026-11-26_0330-839123c.zip`, 186,171,774 bytes, SHA-256 `f2ef8584f75ecb9dbd171f603c4c799bea3195601ed387b98a50a4a571e12d59` (checksum file `….zip.sha256`) |
 | Tests run by the build | Standard focused filter: **155 passed, 0 failed, 0 skipped** |
 | Build verification | installers, secrets, branding and release: all `true`; package: passed (independent extraction verified by the build) |
@@ -39,6 +39,9 @@ transfer to it.
 | `installer-manifest.json` | 924 | `a97baf6677a3bf85220ef3155b0320a6feed49ce1f1568e7c7793c517ef93dc5` |
 | `installers-SHA256SUMS` | 371 | `67c58a3767b2369b6a63fe63e2d2f98d035f25abc3d7567114e0315c7f655a89` |
 | `AuthLens-2.0.0-2026-11-26_0330-839123c.zip` | 186,171,774 | `f2ef8584f75ecb9dbd171f603c4c799bea3195601ed387b98a50a4a571e12d59` |
+
+**Known limits of RC6 (not acceptance results):** FILE-008 partial (no pre-import change indication); FULL regression not executed; both
+Setup programs unsigned; RC5 and older cannot be packaged as ZIP. See [RC6 candidate status](STATUS.md#rc6-candidate-status).
 
 **Acceptance to run on RC6** (it replaces RC5): A1 against this record; package transfer and extraction on the target (copy the ZIP and
 `.zip.sha256` to `C:\AuthLens`, verify, extract with `Expand-AuthLensPackage.ps1`); B17 Lifecycle upgrade RC5 to RC6 with repair; readiness
@@ -73,7 +76,7 @@ esults.json` |
 
 Built on VM130 by the agent session with the canonical `build.ps1` from `37eadd5`, the first candidate with the corrections for D-004 to D-006,
 G-003 to G-005, G-007, WP19 and WP20; see the [RC4 build record](#rc4-build-record). Product version 2.0.0 (RC4 is an internal identifier).
-**NOT APPROVED**: native acceptance ([runbook priority order](WINDOWS_VM_ACCEPTANCE.md#rc4-priority-order)) and the final FULL regression are
+**NOT APPROVED**: native acceptance ([runbook priority order](WINDOWS_VM_ACCEPTANCE.md#rc4-and-rc5-priority-order-historical)) and the final FULL regression are
 outstanding; D3 (UNC/SMB with the service identity) is a release blocker.
 
 ### RC3-VM130 (superseded by RC4 for new acceptance; artifacts and evidence preserved)

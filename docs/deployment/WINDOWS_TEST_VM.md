@@ -3,8 +3,8 @@
 A runbook for one **isolated Windows 11 Pro test VM**: building a release natively, starting the Server by hand or with the test launcher,
 checking HTTPS from the VM and from another machine, and recording what passed. The configuration reference (every option, environment
 variable, default and refusal) is [SERVER_NETWORK_ACCESS.md, section 2](SERVER_NETWORK_ACCESS.md#2-configuration); certificates
-are in [section 4](SERVER_NETWORK_ACCESS.md#1-hosting-boundary). The Windows service procedure is in
-[section 5](SERVER_NETWORK_ACCESS.md#7-windows-service-and-filesystem-permissions); it has **not** been run natively yet.
+are in [section 1](SERVER_NETWORK_ACCESS.md#1-hosting-boundary). The Windows service procedure is in
+[section 7](SERVER_NETWORK_ACCESS.md#7-windows-service-and-filesystem-permissions); native service results are recorded in the [acceptance tracker](../validation/ACCEPTANCE_TRACKER.md).
 
 ## Restricted unattended administration
 
@@ -108,7 +108,7 @@ then reports any tracked file that contains them.
 | Repository checkout | `C:\src\AuthLens` |
 
 The certificate and password file are created once by an administrator with the commands in
-[SERVER_NETWORK_ACCESS.md section 4](SERVER_NETWORK_ACCESS.md#7-windows-service-and-filesystem-permissions), using `$ip = '192.168.10.20'` and a DNS name
+[SERVER_NETWORK_ACCESS.md section 7](SERVER_NETWORK_ACCESS.md#7-windows-service-and-filesystem-permissions), using `$ip = '192.168.10.20'` and a DNS name
 of your choice. Nothing in this runbook creates or overwrites them.
 
 ## 1. Build a native release
@@ -173,7 +173,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-server-test.
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-server-test.ps1 -Background  # detached; logs and PID file in C:\AuthLens\server-test\logs
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-server-test.ps1 -Stop        # stops exactly the process -Background started
 .\scripts\start-server-test.ps1 -ListenAddress '192.168.10.20' -Port 18795 -DataDirectory 'C:\AuthLens\server-test\data' `
-    -AllowedHosts 'authlens.test.example','192.168.10.20' -ReleasePath "C:\AuthLens\$run\build\$name"
+    -AllowedHosts 'authlens.test.example','192.168.10.20' -ReleasePath 'C:\AuthLens\Build\<version>\<build-id>'
 ```
 
 | Parameter | Default (example VM) | Notes |

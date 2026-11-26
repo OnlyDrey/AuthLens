@@ -12,7 +12,9 @@
 ```powershell
 # Canonical Windows workflow (mandatory output root C:\AuthLens): build, focused tests, package and verify both products; never installs
 Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force
-.\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)
+.\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)              # add -ZipPackage for the portable package
+# Package an existing verified build (RC6 and later) without rebuilding
+.\backend\scripts\New-AuthLensPackage.ps1 -Candidate C:\AuthLens\Build\<version>\<build-id>
 # Managed Windows service deployment on the host (or over SSH with backend/scripts/deploy/deploy-windows.sh)
 .\backend\scripts\deploy\Deploy-AuthLens.ps1 -Action Status
 ```

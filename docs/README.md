@@ -12,6 +12,8 @@ AuthLens is a local-first SAP investigation and access-review application, with 
 | Security and network | [HTTPS, authentication, Origin, CSRF and proxies](deployment/SERVER_NETWORK_ACCESS.md) |
 | Recovery | [Backup and recovery](operations/BACKUP_AND_RECOVERY.md) |
 | Development | [Commands and validation](development/README.md), [CI policy](development/CI.md) |
+| Release | [2.0.0 release overview (candidate)](RELEASE_NOTES.md), [RC6 candidate status](validation/STATUS.md#rc6-candidate-status) |
+| Troubleshooting | [Windows troubleshooting](deployment/WINDOWS_DEPLOYMENT.md#troubleshooting) |
 | Acceptance | [Acceptance guide](validation/README.md), [current status](validation/STATUS.md), [2.0.0 work packages](validation/WORK_PACKAGES.md), [2.0.0 VM acceptance runbook](validation/WINDOWS_VM_ACCEPTANCE.md) |
 
 ## Quick start
@@ -19,7 +21,8 @@ AuthLens is a local-first SAP investigation and access-review application, with 
 1. Install .NET SDK 10 and Node.js 24 or 25.
 2. Build the frontend: `cd frontend`, `npm ci`, `npm run build`.
 3. Build the backend: `cd backend`, `dotnet build AuthLens.slnx -c Release`.
-4. Run Desktop on Windows, or configure Server using the [deployment guides](deployment/README.md).
+4. Run Desktop on Windows, or configure Server using the [deployment guides](deployment/README.md). Release builds, installers and
+   portable packages come only from the root `build.ps1` ([canonical Windows build](deployment/WINDOWS_DEPLOYMENT.md#canonical-windows-build)).
 5. Configure the four independent CSV sources through Settings. Use [CSV schemas](data/CSV_SCHEMAS.md) to prepare source files.
 
 The API contract is available at `/openapi/v1.json` on the running Server. Source data, local configuration, credentials, keys, backups and logs

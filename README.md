@@ -24,117 +24,181 @@
 
 ---
 
-AuthLens is a local-first SAP investigation and access-review application. Browse roles and transaction mappings, propose access packages,
-investigate user/release assignments, compare users, enrich identities with optional Employee Directory data, record Account Review decisions,
-and investigate and review potential Segregation of Duties conflicts with frozen periods and DOCX/PDF reports. Role-derived transaction coverage
-is investigation evidence, not proof of effective authorization or license consumption. No direct SAP connection or third-party data-upload
-service is required.
+## Overview
 
-## Getting Started
+AuthLens is a local-first SAP investigation and access-review application. It works on CSV exports you provide (role catalogue, user-role
+mapping, optional Employee Directory and SoD matrix); no direct SAP connection or third-party upload service is required. Role-derived
+transaction coverage is investigation evidence, not proof of effective authorization or license consumption.
 
-Build on Windows with **Windows PowerShell 5.1**, **Git**, **.NET SDK 10**, **Node.js 24 or 25 with npm**,
-**Python 3** (available as `python`) and **Inno Setup 6** (`ISCC.exe`). Git, .NET, Node, npm and Python must
-be available on `PATH`. Dependency restore needs access to NuGet/npm feeds or populated local caches.
-Inno Setup is detected in its standard installation locations; use `-Iscc 'C:\Tools\Inno Setup 6\ISCC.exe'`
-if installed elsewhere.
+**Release status:** `2.0.0` is a release candidate (RC6, built from `839123c`) awaiting native Windows acceptance. It is **NOT APPROVED for
+production** and has not been published as a stable release; see [current status](docs/validation/STATUS.md).
 
-Run all commands **from the repository root**, containing [build.ps1](build.ps1). The working tree must
-be clean, including untracked files: `git status --short` must print nothing. Commit reviewed changes
-before building; the build refuses dirty sources. `-ExecutionPolicy Bypass` applies to the launched
-PowerShell process and does not change the saved user or machine execution policy.
+## Key features
 
-**Standard Windows build:**
+- **Dashboard** with a global overview and a filtered analytical view (organization, SAP and governance dimensions, saved filters, drill-down).
+- **Role Lookup**, Role Comparison and proposed access packages; **User Access** and **Compare Users** investigations.
+- **Account Review** and the **Reviews** workspace with persistent, immutable decisions and evidence.
+- **Segregation of Duties**: risk and activity matrices, Access Explorer, review rules, frozen periods and DOCX/PDF reports.
+- **Unified file sources**: upload from the browser or select a file on the host (local or UNC, within approved roots), static or dynamic update
+  mode, validation before import and a retained last valid dataset.
+- **Server** (Windows service, HTTPS, local accounts and roles) and **Desktop** (single user, WebView2, loopback only) from one code base.
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
-```
+Feature guides: [features](docs/features/README.md). No screenshots are kept in the repository; the UI is described in the feature guides.
 
-**Build without regression tests:**
+## Architecture and technology
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -SkipTests
-```
-
-`-SkipTests` skips the release builder's .NET test execution, including publish tests. It still builds the
-frontend and .NET solution, publishes both products, scans the release for secrets, verifies build identity
-and release checksums, compiles both installers, and verifies installer hashes and branding. Neither command
-launches the separate browser or Pester suites. Skipped tests do not satisfy release acceptance.
-
-Both commands produce **Server and Desktop release artifacts and installers**. The default output root
-is `C:\AuthLens`; choose another with `-OutputRoot`:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -OutputRoot 'C:\AuthLens-Builds'
-```
-
-Each build generates one build id `{yyyy-MM-dd_HHmm}-{shortSha}` (UTC time and the first seven commit characters, for example
-`2026-11-25_2145-b10dd50`) and reuses it in every artifact category below. Collisions append `-02`, `-03`, etc.; existing directories,
-packages and earlier run directories are never reused, overwritten, moved or renamed. Manifests and build metadata retain the full timestamp
-precision and complete commit SHA.
-
-| Location under the output root | Contents |
+| Layer | Technology |
 | --- | --- |
-| `Build\<version>\<build-id>\` | The verified release itself: `server\AuthLens.Api.exe`, `desktop\AuthLens.exe`, symbols, `build-manifest.json`, `SHA256SUMS`, plus `build-summary.json`, `build.log` and `branding-verification.json` |
-| `Installer\<version>\<build-id>\` | `AuthLens-<version>-Server-Setup.exe`, `AuthLens-<version>-Desktop-Setup.exe`, `installer-manifest.json`, `installers-SHA256SUMS`, packaged installation, verification and recovery tooling, `DEPLOY.txt` and `Expand-AuthLensPackage.ps1` |
-| `Acceptance\<version>\<build-id>\<run>\` | Acceptance evidence, written later by the acceptance tooling |
-| `Packages\AuthLens-<version>-<build-id>.zip` and `.zip.sha256` | Optional portable deployment package (`-ZipPackage`, off by default) |
+| Backend | .NET 10, ASP.NET Core, EF Core SQLite (`authlens.sqlite3`), xUnit; solution [`backend/AuthLens.slnx`](backend) |
+| Frontend | React 18, TypeScript, Vite, TanStack Query, Tailwind 3; Playwright browser tests ([`frontend/`](frontend)) |
+| Server host | `AuthLens.Api.exe` as the Windows service `AuthLens` (installation root `C:\ProgramData\AuthLens`) or a console process |
+| Desktop host | `AuthLens.exe` (WinForms + WebView2), per user, OS-assigned loopback port, data in `%LOCALAPPDATA%\AuthLens` |
+| Installers | Inno Setup 6: `AuthLens-<version>-Server-Setup.exe`, `AuthLens-<version>-Desktop-Setup.exe` |
 
-Run directories of RC5 and earlier (`AuthLens-<version>-<yyyy-MM-dd_HHmm>-<shortSha>\build`, `\installer`) stay valid and are never moved.
-
-**Build with the portable deployment package** (after the build, installers and verification passed):
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -ZipPackage
-```
-
-Building does **not install AuthLens or modify Windows services**. For detailed switches, output layout
-and failure handling, see the [canonical Windows build guide](docs/deployment/WINDOWS_DEPLOYMENT.md#canonical-windows-build).
-Production approval remains subject to the [release gates](docs/validation/STATUS.md).
-
-## Implementation
-
-The implementation is an ASP.NET Core (.NET 10) backend in [`backend/`](backend) serving the React/Vite frontend in [`frontend/`](frontend),
-as a Windows service or console **Server** (browser access over HTTPS) and a WebView2 **Desktop** for one user.
-Development target `2.0.0` - **NOT APPROVED for production**; see [versioning and release gates](docs/architecture/VERSIONING.md).
-
-| Area | Status |
-| --- | --- |
-| UI and API | Shared React frontend and authenticated .NET API ([UI integration](docs/architecture/UI_INTEGRATION.md)) |
-| Data | SQLite system of record, immutable evidence and review history, encrypted backups ([database design](docs/architecture/DATABASE_DESIGN.md)) |
-| Windows Server | The `AuthLens` Windows service, HTTPS and verified package updates with backup and rollback ([Windows deployment](docs/deployment/WINDOWS_DEPLOYMENT.md)) |
-| Desktop | Per-user installation and loopback-only API with isolated application data |
-| Acceptance | Current verification and remaining checks are recorded in [validation status](docs/validation/STATUS.md) |
-
-
-## Repository layout
+Details: [architecture](docs/architecture/TARGET_ARCHITECTURE.md), [versioning and identities](docs/architecture/VERSIONING.md). The product
+was previously named SAP Lens; SAP Lens 1 (Python/FastAPI) is archived outside this repository.
 
 | Path | Content |
 | --- | --- |
-| [`backend/`](backend) | AuthLens .NET solution (`src/`, `tests/`), build, release, installer and deployment scripts (`scripts/`, `installer/`), offline fixture/reference utilities (`tools/`) |
+| [`backend/`](backend) | .NET solution (`src/`, `tests/`), build, release, installer, deployment and recovery scripts (`scripts/`, `installer/`), historical v1 reference generators (`tools/`) |
 | [`frontend/`](frontend) | React/Vite application UI |
-| [`docs/`](docs/README.md) | Documentation (canonical for AuthLens) |
-| [`scripts/`](scripts/README.md) | Repository-wide checks (documentation links, secrets, workflow contracts, frontend version and icon catalogue) |
+| [`docs/`](docs/README.md) | Documentation (canonical) |
+| [`scripts/`](scripts/README.md) | Repository-wide checks (documentation links, secrets, structure, workflow contracts) |
 | [`examples/`](examples/README.md), [`assets/`](assets) | Synthetic example data; product icon and logo |
 
-## Quick commands
+## Installation
 
-```bash
-npm --prefix frontend ci && npm --prefix frontend run build
-dotnet build backend/AuthLens.slnx -c Release
-dotnet test backend/tests/AuthLens.Tests -c Release --no-build --filter "Category!=Publish"
-backend/scripts/build-release.sh <output>                     # Linux; Windows: .\build.ps1
+Install from a verified build (or a verified portable package, below). Both Setup programs are currently **unsigned**.
+
+- **Server:** run `AuthLens-<version>-Server-Setup.exe` in an elevated session. A fresh installation creates the `AuthLens` service under
+  `C:\ProgramData\AuthLens`; upgrades take and verify a backup first and keep configuration, data, keys and certificates.
+- **Desktop:** run `AuthLens-<version>-Desktop-Setup.exe` as the user; no service and no Server configuration.
+
+Uninstall removes the program and owned service resources but preserves data, keys, certificates and backups. Procedures, upgrade, repair
+and recovery: [Windows deployment](docs/deployment/WINDOWS_DEPLOYMENT.md#installers), [Desktop and Server](docs/deployment/DESKTOP_SERVER_DEPLOYMENT.md).
+
+## Build from source
+
+**Prerequisites (Windows build host):** Windows PowerShell 5.1 (or PowerShell 7), Git, .NET SDK 10, Node.js 24 or 25 with npm, Python 3
+(as `python`) and Inno Setup 6 (`ISCC.exe`), all on `PATH` except Inno Setup, which is found in its standard locations (or `-Iscc`). Restore
+needs NuGet/npm access or populated caches. Run from the repository root; the working tree must be clean (`git status --short` prints
+nothing), because the build refuses dirty sources.
+
+```powershell
+# Standard release build
+.\build.ps1 -OutputRoot C:\AuthLens
+
+# Release build with portable deployment package
+.\build.ps1 -OutputRoot C:\AuthLens -ZipPackage
 ```
 
-Details: [development](docs/development/README.md), [deployment](docs/deployment/README.md).
+Without `-TestFilter` the build runs the whole .NET test suite. Development candidates use the focused deployment filter instead:
 
-## Security and operations
+```powershell
+Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force
+.\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)
+```
 
-* The Server listens on loopback unless `--network` is given; network mode requires HTTPS, an explicit host allow-list and, behind a reverse
-  proxy, an explicit trusted-proxy list ([network access and security](docs/deployment/SERVER_NETWORK_ACCESS.md)). The Desktop listens on loopback only.
-* Private CSVs, exports, logs, configuration, certificates and deployment settings never belong in Git or in build artifacts; the repository ships
-  synthetic [examples](examples/README.md) only.
-* Backups are encrypted and verified; every deployment takes and verifies a backup before it stops the service.
+| Parameter | Effect |
+| --- | --- |
+| `-OutputRoot` | Artifact root; default and mandatory standard `C:\AuthLens` (other roots only with explicit approval) |
+| `-TestFilter <filter>` | Runs only the matching .NET tests (`dotnet test --filter`) |
+| `-SkipTests` | Skips .NET test execution; everything else still runs. Skipped tests never satisfy release acceptance |
+| `-Iscc <path>` | Absolute path to `ISCC.exe` when Inno Setup is not in a standard location |
+| `-ZipPackage` | After build, installers and verification passed, also writes the portable deployment package |
 
+The build compiles the frontend and .NET solution, publishes both products, scans the release for secrets, verifies build identity and
+checksums, compiles both installers and verifies installer hashes and branding. It never installs AuthLens or changes services, and it does
+not run the browser or Pester suites. To package an **existing** verified build without rebuilding:
+
+```powershell
+.\backend\scripts\New-AuthLensPackage.ps1 -Candidate C:\AuthLens\Build\<version>\<build-id>
+```
+
+Only builds in the category layout (RC6 and later) can be packaged; RC5 and older run directories lack the extraction tooling and are refused.
+Details, failure handling and storage needs: [canonical Windows build](docs/deployment/WINDOWS_DEPLOYMENT.md#canonical-windows-build).
+Development commands and validation levels: [development](docs/development/README.md).
+
+## Build artifacts
+
+```text
+C:\AuthLens\
+    Build\
+        <version>\
+            <build-id>\
+    Installer\
+        <version>\
+            <build-id>\
+    Acceptance\
+        <version>\
+            <build-id>\
+    Packages\
+        AuthLens-<version>-<build-id>.zip
+        AuthLens-<version>-<build-id>.zip.sha256
+```
+
+The build id is `<UTC yyyy-MM-dd_HHmm>-<sha7>`: the UTC build time and the first seven characters of the source commit. It is generated once
+per build and shared by every category, so the release, its installers, its acceptance evidence and its package always carry the same
+immutable identity; manifests keep the full commit SHA and the exact timestamp. If any category already holds that id, the build appends
+`-02`, `-03` and so on up to `-99`; nothing is reused, overwritten, moved or renamed.
+
+| Location | Contents |
+| --- | --- |
+| `Build\<version>\<build-id>\` | Verified release (`server\AuthLens.Api.exe`, `desktop\AuthLens.exe`, symbols, `build-manifest.json`, `SHA256SUMS`) and the build record (`build-summary.json`, `build.log`, `branding-verification.json`) |
+| `Installer\<version>\<build-id>\` | Both Setup programs, `installer-manifest.json`, `installers-SHA256SUMS`, packaged installation, verification and recovery tooling, `DEPLOY.txt`, `Expand-AuthLensPackage.ps1` |
+| `Acceptance\<version>\<build-id>\<run>\` | Evidence of each acceptance run, written later by the acceptance tooling |
+| `Packages\` | Optional portable package and its SHA-256 file (`-ZipPackage` or `New-AuthLensPackage.ps1`) |
+
+RC5 and older candidates keep their legacy run directories `C:\AuthLens\AuthLens-<version>-<UTC>-<sha7>\` and stay valid where they are.
+
+## Portable deployment packages
+
+A package contains only `Installer\<version>\<build-id>\` plus a `package-manifest.json`: no sources, tests, Build outputs, evidence,
+credentials, keys, certificates or databases. On the target machine, copy the ZIP and its `.zip.sha256` to `C:\AuthLens`, verify the checksum
+and extract with the packaged `Expand-AuthLensPackage.ps1`, which refuses modified packages, unexpected entries and existing destinations.
+Neither the repository nor the Build directory is needed. The copy-paste procedure is in
+[production package transfer](docs/deployment/WINDOWS_DEPLOYMENT.md#production-package-transfer).
+
+A SHA-256 checksum proves that the files match the recorded digest (integrity), not who published them (authenticity). The current
+installers are not Authenticode-signed.
+
+## Security and recovery
+
+- The Server listens on loopback unless network mode is configured; network mode requires HTTPS, an explicit host allow-list and, behind a
+  reverse proxy, an explicit trusted-proxy list ([network access and security](docs/deployment/SERVER_NETWORK_ACCESS.md)). The Desktop listens
+  on loopback only.
+- Installation ACLs are assessed as SAFE, REVIEW_REQUIRED or UNSAFE; named principals are never removed automatically and the optional strict
+  readiness gate (`-StrictAcl`) refuses unreviewed findings ([NTFS permissions](docs/deployment/WINDOWS_DEPLOYMENT.md#ntfs-permissions)).
+- Host file sources are read with the service identity, only inside approved roots; AuthLens never stores SMB credentials or changes share or
+  NTFS permissions ([imports and refresh](docs/data/IMPORT_AND_REFRESH.md)).
+- Backups are encrypted and verified; every deployment takes and verifies a backup before it stops the service. An independent recovery
+  bundle (backup plus recovery key copy) can be created and verified from the Service Manager
+  ([backup and recovery](docs/operations/BACKUP_AND_RECOVERY.md)).
+- Private CSVs, exports, logs, configuration, certificates and deployment settings never belong in Git or in build artifacts; the repository
+  ships synthetic [examples](examples/README.md) only.
+
+## Documentation
+
+| Topic | Guide |
+| --- | --- |
+| Index | [Documentation index](docs/README.md) |
+| Features and data | [Features](docs/features/README.md), [data and CSV formats](docs/data/README.md) |
+| Build and deployment | [Deployment index](docs/deployment/README.md), [Windows deployment](docs/deployment/WINDOWS_DEPLOYMENT.md) |
+| Operations | [Backup and recovery](docs/operations/BACKUP_AND_RECOVERY.md), [troubleshooting](docs/deployment/WINDOWS_DEPLOYMENT.md#troubleshooting) |
+| Development | [Commands and validation](docs/development/README.md), [CI policy](docs/development/CI.md) |
+| Release | [2.0.0 release overview](docs/RELEASE_NOTES.md), [current status](docs/validation/STATUS.md), [acceptance tracker](docs/validation/ACCEPTANCE_TRACKER.md) |
+
+## Current release status
+
+| Item | State |
+| --- | --- |
+| Version | `2.0.0` (candidate RC6, build id `2026-11-26_0330-839123c`, source commit `839123c`) |
+| Automated validation | Focused .NET, Pester, browser and static checks passed for RC6; FULL regression not yet executed |
+| Native Windows acceptance | Pending (installation, upgrade, UNC sources, strict ACL gate, recovery bundle, storage and retention, real iPhone) |
+| Signing | Installers unsigned (`NotSigned`) |
+| Production | **NOT APPROVED** |
+
+Release history is published through [GitHub Releases](https://github.com/OnlyDrey/AuthLens/releases); no stable 2.0.0 release exists yet.
 
 ## Licensing
 

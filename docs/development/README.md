@@ -75,7 +75,7 @@ traceability and manual upgrade acceptance. The lower-level scripts described be
 `target_platform`, `dotnet_sdk`, `node`, `publish`, `executables` and `artifacts`; channel and file version follow from the version; the folder name
 carries version and platform; every artifact has a relative path, its size and SHA-256, and `SHA256SUMS` covers every file. Platform rules:
 `win-x64` lists `server/AuthLens.Api.exe`, a Desktop executable and `publish.desktop_native_libraries`; `linux-x64` lists only `server/AuthLens.Api`.
-Releases built before the rename to AuthLens keep verifying (naming register in [versioning](../architecture/VERSIONING.md)). The builders' texts
+Releases built before the rename to AuthLens keep verifying ([naming register](../architecture/VERSIONING.md#compatibility-identifiers-naming-register)). The builders' texts
 may differ where the platform does (for example the native-library note).
 
 Release folders on a Windows host are **server deployment packages** (no `desktop/`, no `symbols/`, a `deployment-package.json`): verify them
