@@ -197,6 +197,62 @@ public sealed class DashboardAndSavedFiltersTests : IAsyncLifetime
         Assert.True((int)Metric(dashboard, "assigned_roles")["value"]! <= (int)Metric(all, "assigned_roles")["value"]!);
     }
 
+    /// <summary>BUG-015: the SAP User Group heatmap (group_by=group) and its CSV follow the SoD Overview population (population=overview, the same
+    /// SubjectSelection resolver as /api/sod/overview): the filtered KPI and the heatmap's distinct total agree, every selected user keeps the
+    /// complete conflicts of their access, users in several groups count once in the distinct total, and no population means the global view.</summary>
+    [Fact]
+    public async Task SoD_group_heatmap_and_export_follow_the_overview_population()
+    {
+        foreach (var source in new[] { "roles", "users", "sod" })
+            await Import(source, File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "sod", "analysis", source + ".sod.txt")));
+        var settings = JsonNode.Parse(await _client.GetStringAsync("/api/configuration"))!["settings"]!.AsObject();
+        settings["features"]!["sod"] = true;
+        Assert.True((await _client.PostAsync("/api/configuration", new StringContent(settings.ToJsonString(), Encoding.UTF8, "application/json"))).IsSuccessStatusCode);
+        async Task<JsonNode> Get(string url) => JsonNode.Parse(await _client.GetStringAsync(url))!;
+        int Users(JsonNode overview) => (int)overview["governance"]!["users_with_conflicts"]!;
+        foreach (var kind in new[] { "risk", "activity" })
+        {
+            var globalMap = await Get($"/api/sod/matrix/{kind}?context=current&group_by=group&limit=200");
+            var globalOverview = await Get("/api/sod/overview?context=current");
+            Assert.Equal("global", (string)globalMap["population"]!);
+            Assert.Equal(Users(globalOverview), (int)globalMap["totals"]!["users"]!);                   // unfiltered: the same population
+            Assert.Equal(globalMap.ToJsonString(), (await Get($"/api/sod/matrix/{kind}?context=current&group_by=group&limit=200&population=overview")).ToJsonString());   // no population filter: the global view
+            var byUser = await Get($"/api/sod/matrix/{kind}?context=current&limit=200");
+            var users = byUser["rows"]!.AsArray().Select(r => r!.AsObject()).ToList();
+            Assert.True(users.Count >= 2, "the fixture needs at least two users with conflicts");
+            var chosen = users.Take(2).ToList();
+            var names = string.Join("&", chosen.Select(r => "usernames=" + Uri.EscapeDataString((string)r["user"]!)));
+            var filteredOverview = await Get($"/api/sod/overview?context=current&{names}");
+            var map = await Get($"/api/sod/matrix/{kind}?context=current&group_by=group&limit=200&population=overview&{names}");
+            Assert.Equal("overview", (string)map["population"]!);
+            Assert.Equal(2, Users(filteredOverview));
+            Assert.Equal(Users(filteredOverview), (int)map["totals"]!["users"]!);                        // KPI and heatmap agree (the reported discrepancy)
+            var expectedGroups = chosen.SelectMany(r => r["groups"]!.AsArray().Select(g => (string)g!)).Distinct().OrderBy(g => g, StringComparer.Ordinal).ToList();
+            var rows = map["rows"]!.AsArray().Select(r => r!.AsObject()).ToList();
+            if (expectedGroups.Count > 0) Assert.Equal(expectedGroups, rows.Select(r => (string)r["user"]!).Where(g => expectedGroups.Contains(g)).OrderBy(g => g, StringComparer.Ordinal).ToList());
+            Assert.True(rows.Sum(r => (int)r["users"]!) >= (int)map["totals"]!["users"]!);                // group rows may add up to more than the distinct total
+            // Complete conflicts: the population matrix keeps every cell of each selected user exactly as in the global matrix.
+            var scopedUsers = await Get($"/api/sod/matrix/{kind}?context=current&limit=200&population=overview&{names}");
+            foreach (var row in chosen)
+            {
+                var scoped = scopedUsers["rows"]!.AsArray().Single(r => (string)r!["user"]! == (string)row["user"]!)!;
+                Assert.Equal(row["cells"]!.AsObject().Select(c => c.Key).OrderBy(k => k, StringComparer.Ordinal), scoped["cells"]!.AsObject().Select(c => c.Key).OrderBy(k => k, StringComparer.Ordinal));
+            }
+            foreach (var column in map["columns"]!.AsArray()) Assert.True((int)column!["users"]! <= 2);
+            // The CSV export follows the same population.
+            var csv = await _client.GetStringAsync($"/api/sod/matrix/{kind}/group-export?context=current&population=overview&{names}");
+            var groupsInCsv = csv.Split('\n', StringSplitOptions.RemoveEmptyEntries).Skip(1).Select(l => l.Split(';')[0].Trim('"', '\r')).Distinct().ToList();   // v1 CSV: quoted, ';'
+            Assert.All(groupsInCsv, g => Assert.Contains(g, rows.Select(r => (string)r["user"]!)));
+            var globalCsv = await _client.GetStringAsync($"/api/sod/matrix/{kind}/group-export?context=current");
+            Assert.True(csv.Length <= globalCsv.Length);
+            // An empty population is empty, not global; an unknown population mode is refused.
+            var empty = await Get($"/api/sod/matrix/{kind}?context=current&group_by=group&population=overview&usernames=NO_SUCH_USER_X");
+            Assert.Equal(0, (int)empty["totals"]!["users"]!);
+            Assert.Empty(empty["rows"]!.AsArray());
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, (await _client.GetAsync($"/api/sod/matrix/{kind}?context=current&population=everyone")).StatusCode);   // the routes' validation status
+        }
+    }
+
     [Theory]
     [InlineData(0, "0–5")]
     [InlineData(5, "0–5")]

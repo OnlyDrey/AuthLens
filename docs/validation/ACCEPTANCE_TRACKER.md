@@ -354,6 +354,22 @@ serves `/api/functional-groups/<id>/members` (no backend source change since `83
 
 Pills stay 28 px high (below the 44 px touch target guidance); no real iPhone check has run.
 
+### RC6 SoD heatmap population (BUG-015, P1, target 2.0.0)
+
+Found during RC6 acceptance on DASH1: with Functional Group *Controlling (7)* the SoD Overview reported 7 users with potential conflicts
+while the **Conflicts by SAP User Group** heatmap still showed 249 distinct users. Backend and frontend change; ships with RC7.
+
+| Item | Root cause | Resolution | Regression tests | Status |
+| --- | --- | --- | --- | --- |
+| BUG-015 Heatmap ignores the Overview filters | `SodGroupHeatmap` always requested `/api/sod/matrix/{kind}?group_by=group` and the CSV with `emptyFilters`, so it was global on every page, while the Overview key figures use `SubjectSelection` | New optional `population=overview` on `/api/sod/matrix/{kind}` and `/group-export`: the population is resolved by the same `SubjectSelection` call as `/api/sod/overview` and selects whole users after conflict evaluation (complete conflicts kept); without the parameter the routes are unchanged. The heatmap sends the page's population (Overview filters, or the page's own filters without its group and risk/activity selection) to the matrix and the CSV, and states Global or Filtered | `DashboardAndSavedFiltersTests.SoD_group_heatmap_and_export_follow_the_overview_population` (global equality, KPI = distinct total, complete user conflicts, group rows, CSV, empty population, invalid mode; risk and activity), `sod-heatmap-population.spec.ts` (filtered KPI and heatmap agree in both modes, multi-conflict user, empty population, clearing, filtered CSV, drill-down keeps the population) | Fixed (source); DASH1 recheck with RC7 |
+
+Level 2 for BUG-015 (`sod-overview-heatmap`, `sod-shared-heatmap`, `filter-consistency`, `mobile-acceptance`, `consolidated-refinement`)
+found pre-existing test defects, not product defects: four `sod-shared-heatmap` tests and one `consolidated-refinement` test still expected
+Reviews, Review Periods and Reports inside the SoD workspace, but these moved to the top-level Reviews workspace, which intentionally has no
+SoD heatmap. The expectations now cover the four SoD subtabs and assert the heatmap's absence in the Reviews workspace; one layout-timing
+measurement (sidebar Clear/Close alignment, 3/3 alone, failing only under load) now waits for a settled layout with the same 2 px tolerance.
+Result after the corrections: all affected files passed.
+
 ### RC6 Dashboard filter layout (BUG-014, P1, target 2.0.0)
 
 Found during RC6 acceptance: the WP30 dashboard filters opened as a right-hand drawer over the cards instead of the integrated filter

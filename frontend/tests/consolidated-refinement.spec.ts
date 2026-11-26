@@ -230,10 +230,12 @@ test.describe('SoD views', () => {
     const menu = page.getByRole('group', { name: 'Synthetic menu period actions' })
     for (const name of ['Review in Risk Matrix', 'View Activity Matrix', 'View work queue', 'Delete…']) await expect(menu.getByRole('button', { name }).locator('svg')).toBeVisible()
     await page.keyboard.press('Escape')
-    await page.getByRole('link', { name: 'Reports', exact: true }).click()
+    // Reports and Evidence and the Work Queue live in the Reviews workspace (Review views navigation).
+    const reviewViews = page.getByRole('navigation', { name: 'Review views', exact: true })
+    await reviewViews.getByRole('link', { name: 'Reports and Evidence', exact: true }).click()
     await expect(page.locator('details.sod-report-details').first()).toHaveAttribute('open', '')
     await expect(page.getByRole('textbox', { name: 'Prepared by' })).toBeVisible()
-    await page.getByRole('link', { name: 'Reviews', exact: true }).click()
+    await reviewViews.getByRole('link', { name: 'Work Queue', exact: true }).click()
     const queue = page.getByRole('table', { name: 'SoD review work queue' })
     await expect(queue.locator('tbody tr').first().locator('.role-identifier')).toHaveCount(1)
     await expect(page.getByRole('region', { name: 'Review progress' }).getByRole('button', { name: /^All users/ })).toHaveAttribute('aria-pressed', 'true')
@@ -249,9 +251,9 @@ test('the filter sidebar header keeps Clear and Close compact and aligned', asyn
     const clear = header.getByRole('button', { name: 'Clear filters', exact: true }), close = header.getByRole('button', { name: 'Close filters', exact: true })
     await expect(clear).toContainText('Clear')
     await expect(clear).not.toContainText('all filters')
-    const [c, x] = [await clear.boundingBox(), await close.boundingBox()]
-    expect(Math.abs(c!.height - x!.height)).toBeLessThan(2)
-    expect(Math.abs((c!.y + c!.height / 2) - (x!.y + x!.height / 2))).toBeLessThan(2)
+    // Measured once the sidebar layout has settled (under load the first frame can still be laying out); the 2 px tolerance is unchanged.
+    const offsets = async () => { const [c, x] = [await clear.boundingBox(), await close.boundingBox()]; return [Math.abs(c!.height - x!.height), Math.abs((c!.y + c!.height / 2) - (x!.y + x!.height / 2))] }
+    await expect.poll(async () => Math.max(...await offsets())).toBeLessThan(2)
     await openFilters(page)
   } finally { await seeded.cleanup() }
 })
