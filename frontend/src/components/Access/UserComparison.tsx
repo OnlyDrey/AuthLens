@@ -669,15 +669,18 @@ export function UserComparison({
               {data.items.map((row) => (
                 <tr key={row.identifier}>
                   <td>
-                    {kind === 'roles' ? (
-                      <ComparisonRole row={row} />
-                    ) : (
-                      <>
-                        <p className="comparison-row-title">{row.description || 'Transaction'}</p>
-                        <button className="text-link" onClick={() => onTransaction(row.identifier)}>{row.identifier}</button>
-                        {!!row.areas.length && <small>{row.areas.join(' · ')}</small>}
-                      </>
-                    )}
+                    {/* COR-1: a bounded subject column; long descriptions and identifiers end in an ellipsis (BUG-09) instead of widening the table */}
+                    <div className="comparison-subject">
+                      {kind === 'roles' ? (
+                        <ComparisonRole row={row} />
+                      ) : (
+                        <>
+                          <p className="comparison-row-title">{row.description || 'Transaction'}</p>
+                          <button className="text-link" onClick={() => onTransaction(row.identifier)}>{row.identifier}</button>
+                          {!!row.areas.length && <small>{row.areas.join(' · ')}</small>}
+                        </>
+                      )}
+                    </div>
                   </td>
                   <td>
                     <span className="evidence-difference" data-difference={row.difference}>{row.difference === 'shared'

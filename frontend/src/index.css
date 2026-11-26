@@ -515,6 +515,9 @@ button.manager-identity:focus-visible { outline:var(--focus-width) solid var(--f
 .comparison-table { min-width:640px; }
 @media (max-width:700px) { .comparison-identity-grid,.health-source-grid { grid-template-columns:minmax(0,1fr); } .saved-filter-toolbar { align-items:stretch; } }
 .comparison-table th:nth-child(1) { min-width:180px; }
+/* COR-1: the subject column has a fixed content width; RoleEntry descriptions and identifiers truncate inside it, the table scrolls as a whole when the viewport is narrower. */
+.comparison-subject { width:22rem; max-width:22rem; min-width:0; }
+.comparison-subject .role-entry { min-width:0; max-width:100%; }
 .comparison-table th:nth-child(2) { min-width:115px; }
 .comparison-table th:nth-child(3), .comparison-table th:nth-child(4) { min-width:300px; }
 .feature-controls { display:flex; flex-direction:column; align-items:flex-end; gap:var(--space-2); }
