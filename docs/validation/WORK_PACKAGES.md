@@ -175,6 +175,89 @@ never deleted; every certificate change is a recorded transaction with rollback 
 
 Native acceptance for the next candidate: runbook scenarios C11 to C13, B11 and B12 ([runbook](WINDOWS_VM_ACCEPTANCE.md#c-security-and-administration-from-s1-snapshot-s2-admin-after-c4)).
 
+## Planned: navigation and information architecture (Phase 1 assessment, 2026-11-26, awaiting approval)
+
+Assessment only: nothing below is implemented, and no application behavior, schema, business rule or report changed. Implementation starts
+only after the decisions at the end are approved. Current behavior: [navigation](../architecture/NAVIGATION.md), [Reviews](../features/REVIEWS.md).
+
+**Current inventory** (`App.tsx`, `lib/navigationItems.tsx`, `hooks/useViewHistory.tsx`)
+
+| Main entry | Pages and routes | Gating |
+| --- | --- | --- |
+| Dashboard | `#/dashboard`; cards incl. *Directory & Data Health* (all roles) | `read` |
+| Role Lookup | `#/role-lookup`; role details, comparison, Access Package panel | `read` |
+| User Access | User directory `#/user-access` (`/user/<name>`), Account Review `/account-review`, Position Changes `/position-changes`, Compare users `/compare` | `read`; decisions `review` |
+| Release Roles | `#/release-roles`; Table and Matrix (one PR and one PO matrix, per SAP User Group when comparing) | `read` |
+| SoD | Overview `#/sod`, Risk Matrix, Activity Matrix, Access Explorer (heatmap in Overview) | SoD switch |
+| Reviews | Overview `#/reviews`; Work Queue, Bulk Review, Remediation, Review Periods, Reports and Evidence (`/queue`, `/bulk`, `/remediation`, `/periods`, `/reports`) | Overview always; the others follow the SoD switch; actions `review`/`approve` |
+| Settings (utility) | Data Sources (holds Data Health), Runtime & Scheduling, SoD Risk Configuration, Backup & Restore, Functional Groups, User Management, and others | `admin` |
+
+Legacy `#/sod/reviews*`, `#/sod/periods` and `#/sod/reports` already redirect through `normalize`. Saved Filters are keyed by view (`users`,
+`roles`, `release`, `dashboard`, `sod_queue`, ...; `V1SavedFilters.Allowed`). Exports exist only on their source pages (User directory CSV,
+Compare users CSV, Account Review CSV, Release role list, Access Package CSV, refresh change CSV, SoD matrix, heatmap and evidence CSVs, the
+configurable Work Queue export, formal review and remediation reports as DOCX/PDF/CSV).
+
+**Target mapping**
+
+| Target | Contents | From |
+| --- | --- | --- |
+| Dashboard | Unchanged; an admin-only *Data Health* shortcut | Dashboard |
+| Role Lookup | Unchanged | Role Lookup |
+| Users | User Directory, Compare Users, Release Access | User Access (directory, compare), Release Roles |
+| SoD | Overview (heatmap), Risk Matrix, Activity Matrix, Access Explorer | Unchanged |
+| Reviews | Overview, Work Queue, Position Changes, Account Review, Bulk Review, Remediation, Review Periods | Reviews; Account Review and Position Changes from User Access |
+| Reports | Review Reports (default), Access Reports, SoD Reports, Evidence | Reviews › Reports and Evidence; exports from the pages above |
+| Settings › Data Management | Data Health (admin only) | Settings › Data Sources |
+
+**SoD.** Keep SoD as the analysis workspace (Overview with the heatmap, the matrices and Access Explorer) with its *Open Work Queue* entry
+points; it holds no review pages. No change is recommended beyond losing nothing when Reports takes the SoD exports as launch points.
+
+**Reports and Evidence.** Reports is a hub over existing functions, not new report functionality. *Review Reports* is today's report
+generator (formal review report, access remediation report; one frozen period model). *Access Reports* and *SoD Reports* list the existing
+exports and open the source page with its filters, because every export follows that page's population; the export logic does not move.
+*Evidence* lists review periods with their frozen state and model checksum and opens them read-only. Review Reports, SoD Reports and Evidence
+follow the SoD switch; Access Reports does not. `#/reviews/reports` redirects to Review Reports.
+
+**Release Access combined matrix.** One matrix per scope: rows are Release Groups, columns are Release Strategies under a two-level header
+(PR, PO), and cells are distinct users as today, with the same click-through to the assignment list. The existing cell data already carries
+`document_type`, so the matrix itself needs no backend change. A row or grand total of distinct users *across* PR and PO cannot be summed from
+the per-kind cells (a user in both would count twice); it needs either a backend total or no combined total. Table view and its export stay.
+
+**Authorization and compatibility.** Permissions do not change: pages keep their `read`/`review`/`approve`/`admin` gates, Data Health stays
+admin-only (Settings is admin-only today), and Account Review and Position Changes must stay available with SoD turned off when they move
+into Reviews. Every current route keeps working through `normalize` (the SoD-to-Reviews pattern): `#/user-access/account-review` and
+`/position-changes` to Reviews, `#/release-roles` to Users › Release Access, `#/reviews/reports` to Reports; stored `history.state` views are
+normalized the same way. Saved-filter view keys and preference keys stay unchanged. Count-based browser assertions (main navigation links,
+submenu entries, Settings order) change with the structure and are updated in the same work package.
+
+**Work packages** (each with focused tests and documentation, in this order)
+
+| Package | Scope | Tests |
+| --- | --- | --- |
+| NAV-1 | Route model and redirects (`normalize`, `pageHref`, aliases), no visible change | `navigation-*`, deep links, Back/Forward |
+| NAV-2 | Users group: rename, Release Access under Users | User Access and Release Roles specs, saved filters |
+| NAV-3 | Reviews takes Account Review and Position Changes; SoD-off behavior kept | Account Review, Position Changes, Reviews workspace specs |
+| NAV-4 | Reports hub (Review Reports default, Access Reports, SoD Reports, Evidence) over existing exports | Reports and export specs, SoD-off and viewer role |
+| NAV-5 | Settings › Data Management with Data Health; admin Dashboard shortcut | Settings order, Dashboard, viewer role |
+| NAV-6 | Release Access combined PR/PO matrix | Release Roles matrix specs, counts reconcile with Table |
+| NAV-7 | Documentation, Component Library and count-based assertions consolidated | `check-docs.py`, affected specs |
+
+**Risks.** Broken bookmarks or Back/Forward (mitigated by NAV-1 first); Account Review accidentally following the SoD switch; Reports showing
+exports to roles or with SoD off where the source page would not; merged counters between Account Review and SoD access reviews (they stay
+separate); a longer mobile drawer; stale count-based tests; documentation drift across README, NAVIGATION, REVIEWS and the feature guides.
+
+**Decisions needing approval**
+
+1. Move Account Review (and Position Changes) into Reviews. This reverses the package 18 decision that kept Account Review in User Access as a
+   separate governance concept; decisions and counters stay separate either way.
+2. URL scheme: keep the `#/user-access/...` paths behind the new *Users* label (lowest risk), or introduce `#/users/...` with redirects.
+3. Whether Reports appears with SoD turned off (Access Reports only) and for viewers (all roles hold `read` and `export` today).
+4. Whether Access Reports and SoD Reports only launch the source pages (recommended) or run exports in place, which would need their own
+   filter panels.
+5. *Data Management*: a new Settings group, or a rename of *Data & Integrations*.
+6. The Dashboard *Directory & Data Health* card is visible to every role today: keep it, and add only the admin shortcut, or restrict it.
+7. Release Access: no combined distinct-user total, or a backend total (a backend change).
+
 ## Tenth round: RC7 consolidation (WP37 and RC6 acceptance defects, 2026-11-26)
 
 Source-level work after RC6 (`839123c`); RC6 stays the immutable packaged baseline and remains installed on VM130 and DASH1 (operator

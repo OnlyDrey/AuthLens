@@ -5,7 +5,7 @@
 | Pattern | Purpose | AuthLens implementation |
 | --- | --- | --- |
 | Main navigation | Major application destinations | Dashboard, Role Lookup, User Access, Release Roles, SoD, Reviews; Settings is a compact utility opening the existing workspace |
-| Secondary navigation | Related pages within a major area | User directory, Account Review, Compare users; real anchor destinations and bottom-border current-page indicator |
+| Secondary navigation | Related pages within a major area | User directory, Account Review, Position Changes, Compare users; real anchor destinations and bottom-border current-page indicator |
 | Content tabs | Associated content in one investigation | User Details role sections and Settings import sources; roving focus and an associated tabpanel |
 | Actions / filter controls | Perform an operation or constrain results | Canonical buttons, neutral Clear filters, pressed button groups for Table/Matrix and AND/OR |
 
@@ -19,6 +19,7 @@ The existing `useViewHistory` hash/history architecture is extended, not replace
 - `#/role-lookup`
 - `#/user-access` (directory)
 - `#/user-access/account-review`
+- `#/user-access/position-changes`
 - `#/user-access/compare`
 - `#/release-roles`
 - `#/sod`, `#/sod/risk-matrix`, `#/sod/activity-matrix`, `#/sod/explorer`
@@ -64,7 +65,10 @@ Role sections retain the actual existing ZC/ZO investigation scopes; these namin
 
 ## Main navigation submenus
 
-On desktop, modules with pages (User Access: User directory, Account Review, Compare users; SoD: Overview, Risk Matrix, Activity Matrix, Access Explorer; Reviews: Overview, Work Queue, Bulk Review, Remediation, Review Periods, Reports and Evidence) are `MainNavigationGroup`s: the module link and a separate chevron button (`<Module> pages`). The link opens the module (returning to where it was left when coming from another module, and its main page when the module is already open); the chevron opens a submenu of direct page links with the module's icons (`lib/navigationItems.tsx`, shared with the secondary navigation). The group stays highlighted while a child page is open, the active entry is marked `aria-current="page"`, modified clicks open a new tab, Escape closes the menu and returns focus to the chevron. Modules without pages (Dashboard, Role Lookup, Release Roles) show no chevron. After following a manager link the way back is **Return to previous user** inside the Organization section next to the manager relationship (the trail keeps every previous SAP username), not in the top navigation. The submenu is the shared `Popover` with the `ui-popover-menu` variant: it overlays the page, sizes to its items, never scrolls and never changes the navbar size. The current page uses the shared primary tint (no left border on hover, focus or the current entry); Escape, outside click and keyboard behavior come from `Popover`. The main navigation strip is not a scroll container (it wraps when its items exceed the header): a scroll container shows classic scrollbars as soon as the SoD chevron group makes the strip wider than the header, which is what produced the scrollbar when opening a submenu at narrow widths; secondary strips and tabs remain horizontal scroll strips.
+A restructured information architecture (Users, Reviews, Reports) is assessed and awaiting approval; it is not implemented
+([assessment](../validation/WORK_PACKAGES.md#planned-navigation-and-information-architecture-phase-1-assessment-2026-11-26-awaiting-approval)).
+
+On desktop, modules with pages (User Access: User directory, Account Review, Position Changes, Compare users; SoD: Overview, Risk Matrix, Activity Matrix, Access Explorer; Reviews: Overview, Work Queue, Bulk Review, Remediation, Review Periods, Reports and Evidence) are `MainNavigationGroup`s: the module link and a separate chevron button (`<Module> pages`). The link opens the module (returning to where it was left when coming from another module, and its main page when the module is already open); the chevron opens a submenu of direct page links with the module's icons (`lib/navigationItems.tsx`, shared with the secondary navigation). The group stays highlighted while a child page is open, the active entry is marked `aria-current="page"`, modified clicks open a new tab, Escape closes the menu and returns focus to the chevron. Modules without pages (Dashboard, Role Lookup, Release Roles) show no chevron. After following a manager link the way back is **Return to previous user** inside the Organization section next to the manager relationship (the trail keeps every previous SAP username), not in the top navigation. The submenu is the shared `Popover` with the `ui-popover-menu` variant: it overlays the page, sizes to its items, never scrolls and never changes the navbar size. The current page uses the shared primary tint (no left border on hover, focus or the current entry); Escape, outside click and keyboard behavior come from `Popover`. The main navigation strip is not a scroll container (it wraps when its items exceed the header): a scroll container shows classic scrollbars as soon as the SoD chevron group makes the strip wider than the header, which is what produced the scrollbar when opening a submenu at narrow widths; secondary strips and tabs remain horizontal scroll strips.
 
 ## Compact navbar and metadata
 

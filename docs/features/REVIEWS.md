@@ -10,7 +10,7 @@ the Reviews Overview. There is no second review engine, no new API and no databa
 
 | Area | Purpose | Pages |
 | --- | --- | --- |
-| User Access | Account and access analysis | User directory, Account Review, Compare users |
+| User Access | Account and access analysis | User directory, Account Review, Position Changes, Compare users |
 | SoD | Risk and activity analysis | Overview, Risk Matrix, Activity Matrix, Access Explorer (heatmap stays here) |
 | Reviews | Access governance: SoD access reviews and the entry to Account Review | Overview, Work Queue, Bulk Review, Remediation, Review Periods, Reports and Evidence |
 
