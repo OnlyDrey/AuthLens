@@ -7,10 +7,12 @@ Describe 'Deployment probes follow the runtime access boundary' {
         $config=[pscustomobject]@{ListenAddress='127.0.0.1';Port=18795;AllowedHosts=@('server.example.invalid','server');CertificatePath='synthetic.pfx';CertificatePasswordFile='synthetic-password-file';ServiceName='AuthLens';ReadyTimeoutSeconds=3}
         Mock -ModuleName AuthLens.Deploy Invoke-ALHttp {[pscustomobject]@{Status=200;Body='{}'}}
     }
-    It 'uses loopback authority even when a local-only configuration lists corporate hosts' {
+    It 'uses loopback authority for a loopback listener and refuses unreachable corporate hosts (D-003)' {
+        # D-003 (6fbfd48): the probe always uses the loopback authority; non-loopback hosts can never reach a loopback listener, so the service configuration refuses them.
         Invoke-ALConfiguredHttp $config '/health/ready'
         Should -Invoke -ModuleName AuthLens.Deploy Invoke-ALHttp -Times 1 -ParameterFilter {$Url -eq 'https://127.0.0.1:18795/health/ready' -and $HostHeader -eq '127.0.0.1:18795' -and $CertificatePath -eq 'synthetic.pfx'}
-        @(Get-ALServiceArguments ([pscustomobject]@{ListenAddress=$config.ListenAddress;Port=$config.Port;DataDirectory='synthetic';AllowedHosts=$config.AllowedHosts;CertificatePath=$config.CertificatePath;CertificatePasswordFile=$config.CertificatePasswordFile;TrustedProxies=@()}))|Should -Not -Contain '--network'
+        {Get-ALServiceArguments ([pscustomobject]@{ListenAddress=$config.ListenAddress;Port=$config.Port;DataDirectory='synthetic';AllowedHosts=$config.AllowedHosts;CertificatePath=$config.CertificatePath;CertificatePasswordFile=$config.CertificatePasswordFile;TrustedProxies=@()})}|Should -Throw '*loopback host names only*'
+        @(Get-ALServiceArguments ([pscustomobject]@{ListenAddress=$config.ListenAddress;Port=$config.Port;DataDirectory='synthetic';AllowedHosts=@('localhost');CertificatePath=$config.CertificatePath;CertificatePasswordFile=$config.CertificatePasswordFile;TrustedProxies=@()}))|Should -Not -Contain '--network'
     }
     It 'uses a configured authority for a specific LAN listener' {
         $config.ListenAddress='192.168.10.20'
@@ -81,10 +83,12 @@ Describe 'Explicit Server access modes preserve the runtime contract' {
         (Get-ALServerAccessPlan $config).network_access|Should -BeTrue
         @(Get-ALServiceArguments $config)|Should -Contain '--proxy-hosts'
     }
-    It 'preserves old loopback configurations without an explicit mode' {
-        $config.PSObject.Properties.Remove('AccessMode');$config.AllowedHosts=@('server.example.invalid')
+    It 'preserves old loopback configurations without an explicit mode and refuses unreachable hosts in them (D-003)' {
+        $config.PSObject.Properties.Remove('AccessMode');$config.AllowedHosts=@('localhost')
         (Get-ALServerAccessPlan $config).access_mode|Should -Be 'Auto'
         @(Get-ALServiceArguments $config)|Should -Not -Contain '--network'
+        $config.AllowedHosts=@('server.example.invalid')
+        {Get-ALServerAccessPlan $config}|Should -Throw '*loopback host names only*'
     }
     It 'refuses unsafe listener <Address> before service configuration' -ForEach @(@{Address='0.0.0.0'},@{Address='::'},@{Address='8.8.8.8'}) {
         $config.ListenAddress=$Address
