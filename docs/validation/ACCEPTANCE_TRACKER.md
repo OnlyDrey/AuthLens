@@ -354,6 +354,13 @@ serves `/api/functional-groups/<id>/members` (no backend source change since `83
 
 Pills stay 28 px high (below the 44 px touch target guidance); no real iPhone check has run.
 
+### Position Changes page and a pre-existing Account Review defect (after RC6)
+
+| Item | Finding | Resolution | Tests | Status |
+| --- | --- | --- | --- | --- |
+| Position Changes page | The priority table took most of Account Review | Dedicated User Access page reusing the Account Review rows, decisions and dialog; Account Review keeps the metric, which opens the page | `PositionChangeTests` (filters, overlapping counts, shared decision, validation), Account Review classes 18/18; `position-changes.spec.ts`, `account-review-refinement.spec.ts` (tile navigation instead of filtering), navigation specs | Implemented (source) |
+| Account Review *Review decision* filter returns no accounts | Reproduced at HEAD before this change: `account-review-completed.spec.ts:35` and `account-review-refinement.spec.ts:625` (expected 2 accounts, got 0) fail identically with and without the Position Changes change | Not fixed here; root cause to be investigated (recorded, not hidden) | — | **Open (pre-existing)** |
+
 ### RC7 build preparation (Windows release build of `7e5a6e7`)
 
 | Item | Root cause | Resolution | Tests | Status |

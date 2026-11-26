@@ -70,7 +70,21 @@ When a replacement Employee Directory is imported, AuthLens compares it with the
 
 These never count as a change: manager-only differences, spacing or capitalization differences, a missing old or new value, employees new to the directory, duplicate or ambiguous e-mail addresses, and a replacement with far fewer records or a mostly empty Department/Title column (a notice is stored instead). The first import is a baseline. Changes older than 90 days drop out.
 
-An open position change raises that account's **priority** to High and shows it as **Needs review**. The **Position changes · priority review** table at the top of Account Review lists SAP username (linked to the user), employee, previous and current position (department and job title together, labelled, changed values emphasized), a small priority indicator and a Review action with an icon. The first-detected time and the previous snapshot are shown in the review dialog, not as columns. It uses the normal review dialog: a decision saved after the detection closes the change, so there is no second decision record and the history is shared. Changing the Review finding filter to *Position changes* or sorting by *Priority* gives the same list in the main table. Dashboard shows **Users requiring review — Position changes**, separate from SoD conflicts and other account findings. A position change is a reason to review, not evidence that access is inappropriate.
+An open position change raises that account's **priority** to High and shows it as **Needs review**.
+
+**Position Changes page** (User Access > Position Changes, `#/user-access/position-changes`). The dedicated page replaces the former
+*Position changes · priority review* table in Account Review. It reuses the same rows, detection, priority, permissions, review dialog,
+decision and history; there are no separate review records. Key figures for the selected population: **Position changes** (every detected
+change, pending or reviewed), **Department changes** and **Job title changes** (they overlap when both changed; the page states how many
+changed both) and **Pending review** (open changes, the same figure as the Account Review metric and the Dashboard). Each figure applies its
+filter. Filters: search (SAP username, employee), change type (all, department, job title, both), review status (pending, reviewed, all;
+default pending) and the organizational filters (exact usernames, Functional Group, manager). The table shows SAP username (linked), employee,
+change type, previous and current position (changed values emphasized), priority, review status and a Review action, paged 25 at a time.
+The explanation (first-detected time, unknown real change date, review trigger only) is in the page's information tip. API:
+`/api/account-review` with the optional `position_status` and `position_type` parameters and the summary fields `position_total`,
+`position_department`, `position_title` and `position_both`; without them Account Review is unchanged. In Account Review the **Position
+changes** metric under Review attention opens this page; Dashboard's *Position changes* metric opens it too. A position change is a reason to
+review, not evidence that access is inappropriate. (The approved target navigation places this page under Reviews; that restructuring awaits implementation approval.)
 
 ## Unlicensed group classification
 

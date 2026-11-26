@@ -132,7 +132,8 @@ export function Dashboard() {
     metric.destination === 'review'
       ? change({
           page: 'users',
-          accessMode: 'review',
+          // Position changes have their own page (pending changes by default); the other review metrics filter Account Review.
+          accessMode: metric.id === 'position_changes' ? 'positions' : 'review',
           accountReviewFilters:{search:'',licenses:[],states:[],sort:'username',descending:false,groups:subjectFilters.functional_groups,managers:subjectFilters.managers,usernames:subjectFilters.usernames},
           kpiNavigation:{...view.kpiNavigation,users:(view.kpiNavigation?.users||0)+1},
           user: '',

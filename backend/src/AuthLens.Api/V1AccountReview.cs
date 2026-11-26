@@ -202,6 +202,21 @@ public static class V1AccountReview
         return (state, directory, rows, generation, settings);
     }
 
+    private static Dictionary<string, object?>? Position(Dictionary<string, object?> r) => r["position_change"] as Dictionary<string, object?>;
+    private static List<string> PositionFields(Dictionary<string, object?> r) =>
+        Position(r)?["fields"] is System.Text.Json.Nodes.JsonArray fields ? [.. fields.Select(f => (string)f!)] : [];
+    /// <summary>The Position Changes page filters: review status (pending = open change, reviewed, all) and the changed fields (department,
+    /// title, both). Empty values do not filter, so Account Review is unchanged.</summary>
+    private static bool PositionMatches(Dictionary<string, object?> r, string status, string type)
+    {
+        if (status.Length == 0 && type.Length == 0) return true;
+        if (Position(r) is not { } change) return false;
+        var open = (bool)change["open"]!;
+        if (status == "pending" && !open || status == "reviewed" && open) return false;
+        var fields = PositionFields(r);
+        return type switch { "department" => fields.Contains("department"), "title" => fields.Contains("title"), "both" => fields.Count == 2, _ => true };
+    }
+
     public static void Map(RouteGroupBuilder api)
     {
         var group = api.MapGroup("/account-review").AddEndpointFilter(async (context, next) =>
@@ -222,10 +237,14 @@ public static class V1AccountReview
             var sort = q["sort"].FirstOrDefault() ?? "username";
             var descending = q["descending"].FirstOrDefault() is "true" or "1";
             var includeCompleted = q["include_completed"].FirstOrDefault() is "true" or "1";
+            // Position Changes page: the existing position-change model, filtered by review status and the changed fields (both optional).
+            var positionStatus = q["position_status"].FirstOrDefault() ?? "";
+            var positionType = q["position_type"].FirstOrDefault() ?? "";
             var offset = int.TryParse(q["offset"].FirstOrDefault() ?? "0", out var o) ? o : -1;
             var limit = int.TryParse(q["limit"].FirstOrDefault() ?? "25", out var l) ? l : -1;
             if (search.Length > 256 || offset < 0 || limit is < 1 or > 100 || !Sorts.Contains(sort) || licenses.Any(x => x is not ("classified" or "exclude")) || states.Any(s => !States.Contains(s))
-                || wanted.Count > 32 || functionalGroups.Count > 50 || managers.Count > 50) return Detail(422, "Invalid account review query.");
+                || wanted.Count > 32 || functionalGroups.Count > 50 || managers.Count > 50 || positionStatus is not ("" or "pending" or "reviewed" or "all")
+                || positionType is not ("" or "department" or "title" or "both")) return Detail(422, "Invalid account review query.");
             if (wanted.Any(w => !FilterNames.Contains(w))) return Detail(422, "Unknown review finding.");
             var (state, directory, items, generation, _) = await CurrentAsync(services, ct);
             var (selectedNames, selectionError) = await SubjectSelection.ResolveAsync(services, q, ct);
@@ -245,17 +264,21 @@ public static class V1AccountReview
                 ["mismatch"] = population.Count(r => ((List<string>)r["findings"]!).Contains("ad_disabled_open")), ["requiring_review"] = population.Count(r => (bool)r["needs_review"]!),
                 ["position_changes"] = population.Count(r => r["position_change"] is Dictionary<string, object?> pc && (bool)pc["open"]!), ["unlicensed"] = population.Count(r => (bool)r["unlicensed"]!), ["reviewed"] = population.Count(r => Has(r, "reviewed")),
                 ["completed"] = population.Count(r => (string)r["workflow_status"]! == "completed"), ["pending"] = population.Count(r => Has(r, "pending")),
-            } : new[] { "total", "outdated", "matched", "missing", "mismatch", "requiring_review", "position_changes", "unlicensed", "reviewed", "completed", "pending" }.ToDictionary(k => k, _ => (object?)null);
+                // Every detected position change (pending or reviewed); department and job title overlap when both changed.
+                ["position_total"] = population.Count(r => Position(r) is not null), ["position_department"] = population.Count(r => PositionFields(r).Contains("department")),
+                ["position_title"] = population.Count(r => PositionFields(r).Contains("title")), ["position_both"] = population.Count(r => PositionFields(r).Count == 2),
+            } : new[] { "total", "outdated", "matched", "missing", "mismatch", "requiring_review", "position_changes", "unlicensed", "reviewed", "completed", "pending", "position_total", "position_department", "position_title", "position_both" }.ToDictionary(k => k, _ => (object?)null);
 
             var licenseFilter = licenses.Count == 1 ? licenses : [];
-            var showCompleted = includeCompleted || states.Contains("No action required") || wanted.Contains("reviewed");
+            var showCompleted = includeCompleted || states.Contains("No action required") || wanted.Contains("reviewed") || positionStatus is "reviewed" or "all";
             var matching = population.Where(r =>
             {
                 string[] fields = [(string)r["username"]!, (string)r["name"]!, .. (List<string>)r["groups"]!];
                 if (term.Length > 0 && !(term.Contains('*') ? fields.Any(f => TextMatching.TextMatches(f, term)) : TextMatching.TextMatches(string.Join(' ', fields), term))) return false;
                 return (wanted.Count == 0 || wanted.Any(w => Has(r, w))) && (licenseFilter.Count == 0 || (bool)r["unlicensed"]! == licenseFilter.Contains("classified"))
                     && (states.Count == 0 || states.Contains((string)r["review_state"]!))
-                    && (selectedNames is null || selectedNames.Contains(SubjectSelection.Key((string)r["username"]!)));
+                    && (selectedNames is null || selectedNames.Contains(SubjectSelection.Key((string)r["username"]!)))
+                    && PositionMatches(r, positionStatus, positionType);
             }).ToList();
             var hidden = showCompleted ? 0 : matching.Count(r => (string)r["workflow_status"]! == "completed");
             var visible = showCompleted ? matching : matching.Where(r => (string)r["workflow_status"]! != "completed").ToList();

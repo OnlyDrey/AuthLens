@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react'
-import { Activity, CalendarRange, ClipboardCheck, FileText, GitCompare, Grid3x3, LayoutDashboard, ListChecks, Search, Users, Wrench } from 'lucide-react'
+import { Activity, ArrowRightLeft, CalendarRange, ClipboardCheck, FileText, GitCompare, Grid3x3, LayoutDashboard, ListChecks, Search, Users, Wrench } from 'lucide-react'
 import type { ReviewsView, SodView } from '@/hooks/useViewHistory'
 
 /** One definition of the pages inside a module, shared by the main-navigation submenu and the secondary navigation, so labels, icons and order never diverge. */
-export const USER_ACCESS_VIEWS: { value: 'directory' | 'review' | 'compare'; label: string; icon: ReactNode }[] = [
+export const USER_ACCESS_VIEWS: { value: 'directory' | 'review' | 'positions' | 'compare'; label: string; icon: ReactNode }[] = [
   { value: 'directory', label: 'User directory', icon: <Users size={16} aria-hidden="true" /> },
   { value: 'review', label: 'Account Review', icon: <ClipboardCheck size={16} aria-hidden="true" /> },
+  { value: 'positions', label: 'Position Changes', icon: <ArrowRightLeft size={16} aria-hidden="true" /> },
   { value: 'compare', label: 'Compare users', icon: <GitCompare size={16} aria-hidden="true" /> },
 ]
 export const SOD_VIEWS: { value: SodView; label: string; icon: ReactNode }[] = [

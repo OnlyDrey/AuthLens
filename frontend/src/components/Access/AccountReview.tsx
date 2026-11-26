@@ -119,7 +119,10 @@ function PositionCell({ department, title, changed }: { department?: string | nu
   return <div className="position-cell">{line('Department', department, 'department')}{line('Job title', title, 'title')}</div>
 }
 
-export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
+/** Account Review, and with `mode="positions"` the dedicated Position Changes page: the same rows, decisions, history and review dialog,
+ *  filtered to detected position changes (no separate review records). */
+export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: string) => void; mode?: 'review' | 'positions' }) {
+  const positions = mode === 'positions'
   const { loading: dataLoading } = useApplicationData()
   const [retainedFindings, setFindings] = useHistoryValue('reviewFindings')
   const findings = retainedFindings ?? []
@@ -132,10 +135,12 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
     [groupFilter, setGroupFilter] = useState<string[]>(retained?.groups||[]),
     [managerFilter, setManagerFilter] = useState<string[]>(retained?.managers||[]),
     [usernames, setUsernames] = useState<string[]>(retained?.usernames||[]),
-    [sort, setSort] = useState(retained?.sort||'username'),
+    [sort, setSort] = useState(positions ? 'priority' : retained?.sort||'username'),
     [descending, setDescending] = useState(retained?.descending||false),
-    [offset, setOffset] = useState(0)
-  useEffect(()=>change({accountReviewFilters:{search,licenses,states,sort,descending,groups:groupFilter,managers:managerFilter,usernames}},true),[search,licenses,states,sort,descending,groupFilter,managerFilter,usernames,change])
+    [offset, setOffset] = useState(0),
+    [positionStatus, setPositionStatus] = useState<'pending' | 'reviewed' | 'all'>('pending'),
+    [positionType, setPositionType] = useState<'' | 'department' | 'title' | 'both'>('')
+  useEffect(()=>{if(!positions)change({accountReviewFilters:{search,licenses,states,sort,descending,groups:groupFilter,managers:managerFilter,usernames}},true)},[positions,search,licenses,states,sort,descending,groupFilter,managerFilter,usernames,change])
   const [term, setTerm] = useState(''),
     [feedback, setFeedback] = useState(''),
     [busy, setBusy] = useState(false),
@@ -158,17 +163,22 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
   }, [search])
   useEffect(
     () => setOffset(0),
-    [term, findings.join('|'), licenses.join('|'), states.join('|'), groupFilter.join('|'), managerFilter.join('|'), usernames.join('|'), includeCompleted, sort, descending],
+    [term, findings.join('|'), licenses.join('|'), states.join('|'), groupFilter.join('|'), managerFilter.join('|'), usernames.join('|'), includeCompleted, sort, descending, positionStatus, positionType],
   )
   const params = new URLSearchParams({
     search: term,
     sort,
     descending: String(descending),
   })
-  findings.forEach(value => params.append('findings', value))
-  licenses.forEach(value => params.append('license_groups', value))
-  states.forEach(value => params.append('review_states', value))
-  if (includeCompleted) params.set('include_completed', 'true')
+  if (positions) {
+    params.set('position_status', positionStatus)
+    if (positionType) params.set('position_type', positionType)
+  } else {
+    findings.forEach(value => params.append('findings', value))
+    licenses.forEach(value => params.append('license_groups', value))
+    states.forEach(value => params.append('review_states', value))
+    if (includeCompleted) params.set('include_completed', 'true')
+  }
   groupFilter.forEach(value => params.append('functional_groups', value))
   managerFilter.forEach(value => params.append('managers', value))
   usernames.forEach(value=>params.append('usernames',value))
@@ -213,6 +223,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
     const activeFinding = (name: string) => findings.includes(name)
     const tile = ([key, label, icon, target]: [string, string, ReactNode, { finding: string }], extra = '') => {
       const value = data.summary[key]
+      if (key === 'position_changes') return <Kpi key={key} className={extra} icon={icon} label={label} value={value?.toLocaleString() ?? 'Unavailable'} tone={kpiTone(key, value)} title="Opens the Position Changes page" onClick={() => change({ page: 'users', accessMode: 'positions', user: '' })} />   // same geometry as the other tiles
       return <Kpi key={key} className={extra} icon={icon} label={label} value={value?.toLocaleString() ?? 'Unavailable'} tone={kpiTone(key, value)} active={activeFinding(target.finding)} onClick={() => toggleTile(target)} />
     }
     return (
@@ -242,12 +253,6 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
   const findingOptions = ['any', 'matched', 'directory_missing', 'directory_ambiguous', 'reviewed', 'pending', 'position_change', 'manager_change', 'functional_group_review', ...Object.keys(data?.finding_labels || {}), 'stale']
   const findingLabel = (key: string) => FINDING_NAMES[key] || data?.finding_labels[key] || key
   const clearAll = () => { setOffset(0); setSearch(''); setTerm(''); setFindings([]); setLicenses([]); setStates([]); setGroupFilter([]); setManagerFilter([]); setUsernames([]); setIncludeCompleted(false); setSort('username'); setDescending(false) }
-  const queueParams = 'finding=position_change&sort=priority&limit=25'
-  const queue = useQuery({
-    queryKey: ['account-review', 'position-queue'],
-    queryFn: () => apiRequest<Results>(`/api/account-review?${queueParams}`),
-    enabled: (data?.summary.position_changes ?? 0) > 0,
-  })
   const closeEditor=()=>{
     if(busy)return
     const dirty=editing&&(rationale!==(editing.decision?.rationale||'')||decision!==editing.review_state)
@@ -375,6 +380,196 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
       setTimeout(() => URL.revokeObjectURL(url), 1000)
       setFeedback('Review CSV exported.')
     })
+  const editor = editing ? (
+        <Dialog title={`Review account · ${editing.username}`} onClose={closeEditor}><section
+          className="review-dialog"
+          aria-label={`Review decision for ${editing.username}`}
+        >
+          <section aria-label="SAP identity" className="review-dialog-section"><h3>SAP identity</h3>
+            <MetadataList items={[
+              {label:'SAP username',value:<SAPUserLink reviewSupported={false} username={editing.username} copyLabel="username"/>},
+              {label:'Name',value:editing.name||'Name unavailable'},
+              {label:'SAP User Group',value:editing.groups.join(', ')||'Group unavailable'},
+              {label:'Directory match',value:matchLabel(editing.match_status)},
+            ]}/>
+            <div className="ui-toolbar"><Button onClick={()=>{if(rationale!==(editing.decision?.rationale||'')||decision!==editing.review_state){if(!window.confirm('Discard unsaved review changes and investigate this user?'))return}setEditing(null);onUser(editing.username)}}><ArrowUpRight size={16} aria-hidden="true"/>Investigate SAP user</Button></div>
+          </section>
+          {editing.classification.status !== 'Unassigned' && <FunctionalGroupReview username={editing.username}
+            department={editing.position_change?.fields.includes('department') ? { previous: editing.position_change.previous_department, current: editing.position_change.current_department } : undefined}
+            title={editing.position_change?.fields.includes('title') ? { previous: editing.position_change.previous_title, current: editing.position_change.current_title } : undefined}
+            manager={editing.manager_change ? { previous: editing.manager_change.previous_manager, current: editing.manager_change.current_manager } : null}
+            detectedAt={editing.position_change?.detected_at ?? editing.manager_change?.detected_at} />}
+          {editing.position_change&&<section aria-label="Position change that triggered this review" className="review-dialog-section review-dialog-trigger"><h3>Organizational position changes</h3>
+            <ConfigurableTable aria-label="Position change comparison" className="review-change-table"><thead><tr><th scope="col"><span className="sr-only">Field</span></th><th scope="col">Previous (last known)</th><th scope="col">Current</th></tr></thead><tbody>
+              <tr><th scope="row">Department</th><td>{editing.position_change.previous_department||'—'}</td><td data-changed={editing.position_change.fields.includes('department')||undefined}>{editing.position_change.current_department||'—'}</td></tr>
+              <tr><th scope="row">Job title</th><td>{editing.position_change.previous_title||'—'}</td><td data-changed={editing.position_change.fields.includes('title')||undefined}>{editing.position_change.current_title||'—'}</td></tr>
+              <tr><th scope="row">Employee Directory snapshot</th><td>{editing.position_change.previous_imported_at?`Imported ${formatTimestamp(editing.position_change.previous_imported_at)}`:'Import time not recorded'}</td><td>First detected {formatTimestamp(editing.position_change.detected_at)}</td></tr>
+            </tbody></ConfigurableTable>
+            <p className="ui-description">The organizational change itself happened at an unknown time between the two imports. A position change prompts a review; it is not evidence that access is inappropriate.</p></section>}
+          {actionError&&feedback&&<p role="alert">{feedback}</p>}
+          <section aria-label="Review decision" className="review-dialog-section"><h3>Review decision</h3>
+          <div className="review-dialog-fields">
+          <Filter label="Reviewer">
+            <input
+              className={inputClass}
+              disabled={busy}
+              maxLength={120}
+              readOnly
+              value={reviewer}
+              onChange={(e) => setReviewer(e.target.value)}
+            />
+          </Filter>
+          <Filter label="Decision">
+            <Select
+              className={inputClass}
+              aria-label="Decision"
+              disabled={busy}
+              value={decision}
+              onChange={(e) => setDecision(e.target.value)}
+            >
+              {data?.review_states.map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+            </Select>
+          </Filter>
+          </div>
+          <Filter label="Rationale">
+            <textarea
+              className={inputClass}
+              disabled={busy}
+              maxLength={2000}
+              rows={4}
+              placeholder="Why this decision follows from the current evidence"
+              value={rationale}
+              onChange={(e) => setRationale(e.target.value)}
+            />
+          </Filter>
+          <p className="text-xs">
+            Review decisions are application annotations. Identity provenance is recorded; Desktop profiles are
+            self-declared, not an authenticated approval, and nothing is sent to
+            or changed in SAP or Active Directory.
+          </p>
+          <div className="review-decision-actions"><Button
+            variant="primary"
+            disabled={!reviewIdentity.canReview || reviewIdentity.loading || busy || !reviewer.trim() || !rationale.trim()}
+            onClick={() =>
+              void action(async () => {
+                await apiRequest(
+                  `/api/account-review/decision/${encodeURIComponent(editing.username)}`,
+                  'POST',
+                  {
+                    state: decision,
+                    reviewer: reviewer.trim(),
+                    rationale: rationale.trim(),
+                    evidence_version: editing.evidence_version,
+                    expected_decision: editing.decision?.timestamp ?? '',
+                  },
+                )
+                await qc.invalidateQueries({
+                  predicate: (q) =>
+                    ['account-review', 'review-history', 'dashboard'].includes(
+                      String(q.queryKey[0]),
+                    ),
+                })
+                setEditing(null)
+                setFeedback('Review decision saved locally.')
+              })
+            }
+          >
+            <Save size={16} />
+            Save review decision
+          </Button>
+          <Button
+            className="settings-secondary-button"
+            disabled={busy}
+            onClick={closeEditor}
+          >
+            Cancel review changes
+          </Button></div>
+          </section>
+          <section aria-label="Review history" className="review-dialog-section"><h3>Previous decisions</h3>{history.isError&&<p role="alert">Review history could not be loaded. Existing annotations are retained.</p>}{history.isLoading&&<p role="status">Loading review history…</p>}{history.data&&!history.data.total&&<p>No previous decisions recorded.</p>}{history.data?.items.map((event,index)=><article key={`${event.timestamp}-${index}`} className="review-history-entry"><div><strong>{event.state}</strong><span>{event.reviewer} · {formatTimestamp(event.timestamp)}</span></div><p>{event.rationale}</p></article>)}<Pagination label="Review history pages" offset={historyOffset} total={history.data?.total||0} limit={25} onChange={setHistoryOffset}/></section>
+        </section></Dialog>
+  ) : null
+  if (positions) {
+    const summary = data?.summary
+    const value = (key: string) => (summary?.[key] ?? null)
+    const show = (status: 'pending' | 'reviewed' | 'all', type: '' | 'department' | 'title' | 'both') => { setPositionStatus(status); setPositionType(type) }
+    const changeType = (change: PositionChange) => change.fields.length === 2 ? 'Department and job title' : change.fields[0] === 'department' ? 'Department' : 'Job title'
+    const active = (search ? 1 : 0) + (positionStatus !== 'pending' ? 1 : 0) + (positionType ? 1 : 0) + groupFilter.length + managerFilter.length + usernames.length
+    const clearPositions = () => { setSearch(''); setTerm(''); show('pending', ''); setGroupFilter([]); setManagerFilter([]); setUsernames([]) }
+    return (
+      <section aria-label="Position Changes" className="space-y-4">
+        <PageHeader title="Position Changes" icon={<ArrowRightLeft size={22} aria-hidden="true" />} titleAction={<InfoTip label="About position changes">
+          Department or job title differs between two Employee Directory imports. The previous values are the last known before the replacement and the current values were first seen when it was published; the real date of the change is unknown. A position change is a prompt to review, not evidence that access is inappropriate. Reviews use the Account Review decision and history.
+        </InfoTip>} />
+        {data && !data.directory_available && <p role="status">Directory enrichment unavailable. Enable and import Employee Directory to detect position changes.</p>}
+        {summary && <section className="sod-tiles" aria-label="Position change key figures">
+          <Kpi icon={<ArrowRightLeft size={16} />} label="Position changes" value={value('position_total')?.toLocaleString() ?? 'Unavailable'} active={positionStatus === 'all' && !positionType} onClick={() => show('all', '')} />
+          <Kpi label="Department changes" value={value('position_department')?.toLocaleString() ?? 'Unavailable'} active={positionStatus === 'all' && positionType === 'department'} onClick={() => show('all', 'department')} />
+          <Kpi label="Job title changes" value={value('position_title')?.toLocaleString() ?? 'Unavailable'} active={positionStatus === 'all' && positionType === 'title'} onClick={() => show('all', 'title')} />
+          <Kpi label="Pending review" value={value('position_changes')?.toLocaleString() ?? 'Unavailable'} tone={kpiTone('position_changes', value('position_changes'))} active={positionStatus === 'pending' && !positionType} onClick={() => show('pending', '')} />
+        </section>}
+        {summary && <p className="ui-description">Department and job title changes overlap: {(value('position_both') ?? 0).toLocaleString()} changed both. Figures cover the selected population; status and change type narrow the table.</p>}
+        <FilterLayout label="Filters" activeCount={active} onClear={clearPositions} clearDisabled={!active}
+          toolbar={<PageToolbar><SortControl label="Sort position changes" value={sort} options={SORTS} descending={descending} onChange={setSort} onDescending={setDescending} /></PageToolbar>}
+          sidebar={<div className="grid min-w-0 gap-3" role="search" aria-label="Position change filters">
+            <FilterSection title="Search">
+              <SearchInput className={inputClass} aria-label="Search position changes" placeholder="SAP username or employee" value={search} onChange={(e) => setSearch(e.target.value)} onClear={() => setSearch('')} />
+            </FilterSection>
+            <FilterSection title="Change">
+              <FormField label="Change type">
+                <Select value={positionType} onChange={(event) => setPositionType(event.target.value as typeof positionType)}>
+                  <option value="">All</option><option value="department">Department</option><option value="title">Job title</option><option value="both">Department and job title</option>
+                </Select>
+              </FormField>
+              <FormField label="Review status">
+                <Select value={positionStatus} onChange={(event) => setPositionStatus(event.target.value as typeof positionStatus)}>
+                  <option value="pending">Pending review</option><option value="reviewed">Reviewed</option><option value="all">All</option>
+                </Select>
+              </FormField>
+            </FilterSection>
+            <FilterSection title="Organization">
+              <ExactUsernameFilter values={usernames} onChange={setUsernames} max={500} />
+              <FormField label="Functional Group">
+                <MultiSelectFilter label="Functional Group" values={groupFilter} options={(data?.functional_group_options || []).map(o => o.value)} optionLabel={item => data?.functional_group_options.find(o => o.value === item)?.label ?? item} onChange={setGroupFilter} placeholder="All Functional Groups" />
+              </FormField>
+              <FormField label="Manager">
+                <MultiSelectFilter label="Manager" values={managerFilter} options={(data?.manager_options || []).map(o => o.value)} optionLabel={item => { const o = data?.manager_options.find(entry => entry.value === item); return o ? `${o.label} (${o.count})` : item }} onChange={setManagerFilter} placeholder="All managers" />
+              </FormField>
+            </FilterSection>
+          </div>}>
+          {result.isError ? <p role="alert">Position changes could not be loaded.</p> : !data ? <p role="status">Loading position changes…</p> : !data.items.length
+            ? <p role="status" className="ui-description">{positionStatus === 'pending' && !positionType && !active ? 'No position change is waiting for review.' : 'No position changes match the selected filters.'}</p>
+            : <>
+              <div className="access-table" role="region" aria-label="Position change review queue" tabIndex={0}>
+                <ConfigurableTable aria-label="Position changes">
+                  <thead><tr><th>SAP username</th><th>Employee</th><th>Change type</th><th>Previous position</th><th>Current position</th><th>Priority</th><th>Review status</th><th><span className="sr-only">Review action</span></th></tr></thead>
+                  <tbody>
+                    {data.items.map((row) => {
+                      const change = row.position_change as PositionChange
+                      return (
+                        <tr key={row.username}>
+                          <td><SAPUserLink username={row.username} copyLabel="username" onOpen={() => onUser(row.username)} /></td>
+                          <td>{row.name || 'Unknown'}</td>
+                          <td>{changeType(change)}</td>
+                          <td><PositionCell department={change.previous_department} title={change.previous_title} /></td>
+                          <td><PositionCell department={change.current_department} title={change.current_title} changed={change.fields} /></td>
+                          <td><span className={`evidence-badge ${row.priority === 'High' ? 'evidence-warning' : ''}`.trim()}>{row.priority}</span></td>
+                          <td>{change.open ? 'Pending review' : 'Reviewed'}</td>
+                          <td><Button size="compact" className="settings-secondary-button" disabled={busy} onClick={() => startReview(row)} aria-label={`Review position change for ${row.username}`}><ClipboardCheck size={14} aria-hidden="true" />Review</Button></td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </ConfigurableTable>
+              </div>
+              <Pagination offset={offset} total={data.total} limit={25} onChange={setOffset} label="Position change pages" />
+            </>}
+        </FilterLayout>
+        {editor}
+      </section>
+    )
+  }
   return (
     <section aria-label="Account Review" className="space-y-4">
       <PageHeader title="Account Review" icon={<PageIcon size={22} aria-hidden="true"/>} titleAction={<InfoTip label="About Account Review">Investigation evidence only. No SAP accounts are modified. Configured unlicensed groups do not prove license entitlement or savings.</InfoTip>}/>
@@ -389,41 +584,6 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
             </p>
           )}
         </>
-      )}
-      {(data?.summary.position_changes ?? 0) > 0 && (
-        <section aria-label="Position changes priority queue" className="grid min-w-0 gap-2 rounded-card border border-line bg-surface p-4">
-          <h2 className="text-base font-semibold">Position changes · priority review</h2>
-          <p className="ui-description">
-            Department or job title differs between two Employee Directory imports. The previous values are the last known before the replacement and the current values were first seen when it was published; the real date of the change is unknown. A position change is a prompt to review, not evidence that access is inappropriate. Saving a review here uses the same Account Review decision and history.
-          </p>
-          {!queue.data ? <p role="status">Loading position changes…</p> : (
-            <div className="access-table" role="region" aria-label="Position change review queue" tabIndex={0}>
-              <ConfigurableTable aria-label="Position changes">
-                <thead>
-                  <tr>
-                    <th>SAP username</th><th>Employee</th><th>Previous position</th><th>Current position</th><th>Priority</th><th><span className="sr-only">Review action</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {queue.data.items.map((row) => {
-                    const change = row.position_change as PositionChange
-                    return (
-                      <tr key={row.username}>
-                        <td><SAPUserLink username={row.username} copyLabel="username" onOpen={()=>onUser(row.username)}/></td>
-                        <td>{row.name || 'Unknown'}</td>
-                        <td><PositionCell department={change.previous_department} title={change.previous_title} /></td>
-                        <td><PositionCell department={change.current_department} title={change.current_title} changed={change.fields} /></td>
-                        <td><span className="evidence-badge evidence-warning">{row.priority}</span></td>
-                        <td><Button size="compact" className="settings-secondary-button" disabled={busy} onClick={() => startReview(row)} aria-label={`Review position change for ${row.username}`}><ClipboardCheck size={14} aria-hidden="true" />Review</Button></td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </ConfigurableTable>
-            </div>
-          )}
-          {queue.data && queue.data.total > queue.data.items.length && <p className="ui-description">Showing {queue.data.items.length} of {queue.data.total}. Use the Review finding filter to see all.</p>}
-        </section>
       )}
       <FilterLayout label="Filters" activeCount={(includeCompleted ? 1 : 0) + findings.length + licenses.length + states.length + groupFilter.length + managerFilter.length + (search ? 1 : 0)} onClear={clearAll} clearDisabled={!(includeCompleted || findings.length || licenses.length || states.length || groupFilter.length || managerFilter.length || search) && sort === 'username' && !descending}
         toolbar={<PageToolbar>
@@ -603,116 +763,7 @@ export function AccountReview({ onUser }: { onUser: (name: string) => void }) {
         </>
       )}
       </FilterLayout>
-      {editing && (
-        <Dialog title={`Review account · ${editing.username}`} onClose={closeEditor}><section
-          className="review-dialog"
-          aria-label={`Review decision for ${editing.username}`}
-        >
-          <section aria-label="SAP identity" className="review-dialog-section"><h3>SAP identity</h3>
-            <MetadataList items={[
-              {label:'SAP username',value:<SAPUserLink reviewSupported={false} username={editing.username} copyLabel="username"/>},
-              {label:'Name',value:editing.name||'Name unavailable'},
-              {label:'SAP User Group',value:editing.groups.join(', ')||'Group unavailable'},
-              {label:'Directory match',value:matchLabel(editing.match_status)},
-            ]}/>
-            <div className="ui-toolbar"><Button onClick={()=>{if(rationale!==(editing.decision?.rationale||'')||decision!==editing.review_state){if(!window.confirm('Discard unsaved review changes and investigate this user?'))return}setEditing(null);onUser(editing.username)}}><ArrowUpRight size={16} aria-hidden="true"/>Investigate SAP user</Button></div>
-          </section>
-          {editing.classification.status !== 'Unassigned' && <FunctionalGroupReview username={editing.username}
-            department={editing.position_change?.fields.includes('department') ? { previous: editing.position_change.previous_department, current: editing.position_change.current_department } : undefined}
-            title={editing.position_change?.fields.includes('title') ? { previous: editing.position_change.previous_title, current: editing.position_change.current_title } : undefined}
-            manager={editing.manager_change ? { previous: editing.manager_change.previous_manager, current: editing.manager_change.current_manager } : null}
-            detectedAt={editing.position_change?.detected_at ?? editing.manager_change?.detected_at} />}
-          {editing.position_change&&<section aria-label="Position change that triggered this review" className="review-dialog-section review-dialog-trigger"><h3>Organizational position changes</h3>
-            <ConfigurableTable aria-label="Position change comparison" className="review-change-table"><thead><tr><th scope="col"><span className="sr-only">Field</span></th><th scope="col">Previous (last known)</th><th scope="col">Current</th></tr></thead><tbody>
-              <tr><th scope="row">Department</th><td>{editing.position_change.previous_department||'—'}</td><td data-changed={editing.position_change.fields.includes('department')||undefined}>{editing.position_change.current_department||'—'}</td></tr>
-              <tr><th scope="row">Job title</th><td>{editing.position_change.previous_title||'—'}</td><td data-changed={editing.position_change.fields.includes('title')||undefined}>{editing.position_change.current_title||'—'}</td></tr>
-              <tr><th scope="row">Employee Directory snapshot</th><td>{editing.position_change.previous_imported_at?`Imported ${formatTimestamp(editing.position_change.previous_imported_at)}`:'Import time not recorded'}</td><td>First detected {formatTimestamp(editing.position_change.detected_at)}</td></tr>
-            </tbody></ConfigurableTable>
-            <p className="ui-description">The organizational change itself happened at an unknown time between the two imports. A position change prompts a review; it is not evidence that access is inappropriate.</p></section>}
-          {actionError&&feedback&&<p role="alert">{feedback}</p>}
-          <section aria-label="Review decision" className="review-dialog-section"><h3>Review decision</h3>
-          <div className="review-dialog-fields">
-          <Filter label="Reviewer">
-            <input
-              className={inputClass}
-              disabled={busy}
-              maxLength={120}
-              readOnly
-              value={reviewer}
-              onChange={(e) => setReviewer(e.target.value)}
-            />
-          </Filter>
-          <Filter label="Decision">
-            <Select
-              className={inputClass}
-              aria-label="Decision"
-              disabled={busy}
-              value={decision}
-              onChange={(e) => setDecision(e.target.value)}
-            >
-              {data?.review_states.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </Select>
-          </Filter>
-          </div>
-          <Filter label="Rationale">
-            <textarea
-              className={inputClass}
-              disabled={busy}
-              maxLength={2000}
-              rows={4}
-              placeholder="Why this decision follows from the current evidence"
-              value={rationale}
-              onChange={(e) => setRationale(e.target.value)}
-            />
-          </Filter>
-          <p className="text-xs">
-            Review decisions are application annotations. Identity provenance is recorded; Desktop profiles are
-            self-declared, not an authenticated approval, and nothing is sent to
-            or changed in SAP or Active Directory.
-          </p>
-          <div className="review-decision-actions"><Button
-            variant="primary"
-            disabled={!reviewIdentity.canReview || reviewIdentity.loading || busy || !reviewer.trim() || !rationale.trim()}
-            onClick={() =>
-              void action(async () => {
-                await apiRequest(
-                  `/api/account-review/decision/${encodeURIComponent(editing.username)}`,
-                  'POST',
-                  {
-                    state: decision,
-                    reviewer: reviewer.trim(),
-                    rationale: rationale.trim(),
-                    evidence_version: editing.evidence_version,
-                    expected_decision: editing.decision?.timestamp ?? '',
-                  },
-                )
-                await qc.invalidateQueries({
-                  predicate: (q) =>
-                    ['account-review', 'review-history', 'dashboard'].includes(
-                      String(q.queryKey[0]),
-                    ),
-                })
-                setEditing(null)
-                setFeedback('Review decision saved locally.')
-              })
-            }
-          >
-            <Save size={16} />
-            Save review decision
-          </Button>
-          <Button
-            className="settings-secondary-button"
-            disabled={busy}
-            onClick={closeEditor}
-          >
-            Cancel review changes
-          </Button></div>
-          </section>
-          <section aria-label="Review history" className="review-dialog-section"><h3>Previous decisions</h3>{history.isError&&<p role="alert">Review history could not be loaded. Existing annotations are retained.</p>}{history.isLoading&&<p role="status">Loading review history…</p>}{history.data&&!history.data.total&&<p>No previous decisions recorded.</p>}{history.data?.items.map((event,index)=><article key={`${event.timestamp}-${index}`} className="review-history-entry"><div><strong>{event.state}</strong><span>{event.reviewer} · {formatTimestamp(event.timestamp)}</span></div><p>{event.rationale}</p></article>)}<Pagination label="Review history pages" offset={historyOffset} total={history.data?.total||0} limit={25} onChange={setHistoryOffset}/></section>
-        </section></Dialog>
-      )}
+      {editor}
     </section>
   )
 }
