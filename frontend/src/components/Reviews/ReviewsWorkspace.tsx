@@ -1,17 +1,22 @@
-import { ClipboardList, ShieldCheck, UserCheck } from 'lucide-react'
+import { Building2, CalendarRange, ClipboardCheck, ClipboardList, ListChecks, ShieldCheck, UserCheck, UsersRound, Wrench } from 'lucide-react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchConfiguration } from '@/api/configuration'
 import { apiRequest } from '@/api/client'
-import { emptyFilters, scopeParams, sod, type ContextInfo } from '@/api/sod'
+import { scopeParams, sod, type ContextInfo, type Filters } from '@/api/sod'
 import { useHistoryValue, useViewHistory, reviewsHref, userAccessHref, type ReviewsView } from '@/hooks/useViewHistory'
 import { availableReviewsViews, REVIEWS_VIEWS } from '@/lib/navigationItems'
 import { SecondaryNavigation } from '@/components/Shared/Navigation'
-import { Card, ErrorState, LoadingState, PageHeader, StatusBadge, Toolbar } from '@/components/Shared/Presentation'
+import { Card, DataTable, EmptyState, ErrorState, LoadingState, PageHeader, SectionHeader, StatusBadge, Toolbar } from '@/components/Shared/Presentation'
+import { InfoList, InfoRow } from '@/components/Shared/InfoList'
+import { SortControl } from '@/components/Shared/FilterLayout'
+import { FormField } from '@/components/Shared/Controls'
+import { Select } from '@/components/Shared/Select'
 import { Button } from '@/components/Shared/Button'
 import { Kpi } from '@/components/Shared/Kpi'
 import { useAuthentication } from '@/components/Auth/Authentication'
 import { stateTone } from '@/lib/kpiTone'
-import { ContextBar, CoverageNotice, hasStoredFilters, useSodContext, useSodFilters } from '@/components/Sod/SodShared'
+import { ContextBar, CoverageNotice, PAGE_FIELDS, readFilters, SodFilters, useSodContext, useSodFilters, writeFilters } from '@/components/Sod/SodShared'
 import { SodReviews } from '@/components/Sod/SodReviews'
 import { SodPeriods } from '@/components/Sod/SodPeriods'
 import { SodReports } from '@/components/Sod/SodReports'
@@ -62,9 +67,31 @@ function AccountReviewLink({ primary = false }: { primary?: boolean }) {
   return <a className={`ui-button ${primary ? 'ui-button-primary' : 'ui-button-secondary'} ui-button-default`} href={userAccessHref('review')} onClick={event => { if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); change({ page: 'users', accessMode: 'review', user: '', settings: false, detailRole: null }) }}><UserCheck size={16} aria-hidden="true" />Open Account Review</a>
 }
 
-interface QueueSummary extends ContextInfo { total: number; counts: Record<string, number> }
+type ReviewKind = 'assignment' | 'activity' | 'acceptance'
+interface ReviewCoverage { total: number; covered: number; manual: number; derived: number; pending: number; outdated: number; investigate: number; outstanding: number }
+interface GroupRow { key: string; label: string; users: number; complete: number; requiring_review: number }
+interface ReviewsOverviewData extends ContextInfo {
+  progress: { users: number; complete: number; requiring_review: number; partial: number; not_started: number; with_outdated: number; with_removal: number; historical_items: number }
+  review_coverage: Record<ReviewKind, ReviewCoverage>
+  decisions: Record<ReviewKind, Record<string, number>>
+  remediation: { removal_recommended: number; awaiting_action: number; open_actions: number; overdue: number; completed_actions: number; verified_removals: number; investigate: number; compensating_controls: number }
+  periods: { scope: 'global'; total: number; open: number; awaiting_approval: number; approved: number; closed: number; rejected: number }
+  groups: { group_by: string; available: boolean; reason: string | null; rows: GroupRow[]; distinct_users?: number }
+  filtered: boolean
+}
+/** Review types in the order the Work Queue shows them, with the labels Reports and Evidence uses. */
+const KINDS: { kind: ReviewKind; label: string }[] = [{ kind: 'assignment', label: 'Role reviews' }, { kind: 'activity', label: 'Activity reviews' }, { kind: 'acceptance', label: 'Risk reviews' }]
+/** Recorded review states per type (the existing decision model; no new states). */
+const DECISIONS: Record<ReviewKind, [string, string, 'success' | 'warning' | 'error' | 'neutral'][]> = {
+  assignment: [['Keep', 'Keep', 'success'], ['Removal required', 'Removal recommended', 'error'], ['Investigate', 'Investigate (not final)', 'warning']],
+  activity: [['Approved', 'Approved', 'success'], ['Conditional', 'Conditional', 'warning'], ['Removal required', 'Removal recommended', 'error'], ['Investigate', 'Investigate (not final)', 'warning']],
+  acceptance: [['Accepted', 'Risk accepted', 'success'], ['Rejected', 'Risk rejected', 'error']],
+}
+const GROUPINGS = [{ value: 'sap_user_group', label: 'SAP User Group' }, { value: 'functional_group', label: 'Functional Group' }, { value: 'manager', label: 'Manager' }, { value: 'department', label: 'Department' }, { value: 'site', label: 'Site' }]
+const GROUP_SORTS = [{ value: 'name', label: 'Group name' }, { value: 'completion', label: 'Completion' }, { value: 'outstanding', label: 'Users requiring review' }, { value: 'users', label: 'Total users' }]
+const percent = (value: number, max: number) => (max ? `${Math.floor((value / max) * 100)}%` : 'No applicable items')
 
-/** Landing page: global work-queue counters for the selected review context (same endpoint and definitions as the Work Queue, without its filters), then direct entry points. */
+/** Landing page: the SoD access-review dashboard (WP37) and the separate Account Review counters. */
 function ReviewsOverview({ sodEnabled }: { sodEnabled: boolean }) {
   return (
     <section className="grid min-w-0 gap-4" aria-label="Reviews overview">
@@ -74,56 +101,133 @@ function ReviewsOverview({ sodEnabled }: { sodEnabled: boolean }) {
   )
 }
 
-/** SoD access reviews: the Work Queue counters and workflow entry points. */
+/**
+ * WP37: operational SoD access-review dashboard for the selected review context. Every figure comes from /api/sod/reviews/overview, which reuses the
+ * Work Queue items, the Remediation rows and the period index; filters are the Work Queue's own filters (shared slot), so a drill-down opens a
+ * destination with the same population. Period lifecycle figures are global and say so.
+ */
 function AccessReviewsOverview() {
   const [context] = useSodContext(),
-    [filters] = useSodFilters('queue'),
+    [filters, setFilters] = useSodFilters('queue'),
+    [stored] = useHistoryValue('sodFilters'),
     { change } = useViewHistory(),
-    { canReview } = useAuthentication(),
-    filtered = hasStoredFilters({ queue: filters as Record<string, string | boolean | number | string[]> })
-  // Overview counters are global within the selected review context and the signed-in account's authorized data; the Work Queue keeps its own filtered counters.
-  const params = scopeParams(context, emptyFilters, { offset: 0, limit: 1 })
-  const summary = useQuery({ queryKey: ['sod-queue', 'users', params.toString()], queryFn: () => sod<QueueSummary>('/api/sod/queue/users', params) })
-  const data = summary.data, counts = data?.counts ?? {}
-  const all = counts.all ?? 0, complete = counts.complete ?? 0
-  const open = (reviewsView: ReviewsView) => change({ reviewsView })
-  const entries: { view: ReviewsView; text: string; primary?: boolean; review?: boolean }[] = [
-    { view: 'queue', text: 'One row per SAP user with each review type\'s progress. Open a user to record decisions.', primary: true },
-    { view: 'bulk', text: 'Record one decision for many matching review items after a preview.', review: true },
-    { view: 'remediation', text: 'Track removal recommendations and remediation actions until evidence confirms them.' },
-    { view: 'periods', text: 'Formal review periods with frozen evidence snapshots, approval gates and history.' },
-    { view: 'reports', text: 'Review reports and evidence rendered from one frozen model with checksums.' },
-  ]
+    [groupBy, setGroupBy] = useState('sap_user_group'),
+    [groupSort, setGroupSort] = useState('name'),
+    [groupDescending, setGroupDescending] = useState(false)
+  const params = scopeParams(context, filters, { group_by: groupBy })
+  const result = useQuery({ queryKey: ['sod-reviews-overview', params.toString()], queryFn: () => sod<ReviewsOverviewData>('/api/sod/reviews/overview', params) })
+  const data = result.data
+  // Drill-down keeps the review context and every applied filter, and adds the metric's own constraint.
+  const openQueue = (queueProgress: '' | 'outstanding' | 'complete' | 'removal', extra: Filters = {}) =>
+    change({ reviewsView: 'queue', queueProgress, ...(Object.keys(extra).length ? { sodFilters: writeFilters(stored, 'queue', PAGE_FIELDS.queue, { ...filters, ...extra }) } : {}) })
+  const openRemediation = (tracking: '' | 'untracked' | 'verified') =>
+    change({ reviewsView: 'remediation', sodFilters: writeFilters(stored, 'remediation', PAGE_FIELDS.remediation, { ...readFilters(stored, 'remediation'), tracking }) })
+  const p = data?.progress, r = data?.remediation, periods = data?.periods
+  const rows = (data?.groups.rows ?? []).slice().sort((a, b) => {
+    const ratio = (row: GroupRow) => (row.users ? row.complete / row.users : 0)
+    const order = groupSort === 'name' ? a.label.localeCompare(b.label) : groupSort === 'completion' ? ratio(a) - ratio(b) : groupSort === 'outstanding' ? a.requiring_review - b.requiring_review : a.users - b.users
+    return (groupDescending ? -order : order) || a.label.localeCompare(b.label)
+  })
+  const groupFilter = (row: GroupRow): Filters | null =>
+    groupBy === 'sap_user_group' && row.key ? { group: '', groups: [row.key] }
+      : groupBy === 'functional_group' ? { functional_group: '', functional_groups: [row.key] }
+      : groupBy === 'manager' ? { manager: '', managers: [row.key] } : null   // department and site have no Work Queue filter
   return (
     <section className="grid min-w-0 gap-4" aria-label="SoD access reviews">
-      <h2 className="flex items-center gap-2 text-base font-semibold"><ShieldCheck size={16} aria-hidden="true" />SoD access reviews</h2>
-      <CoverageNotice info={data} />
-      {summary.isError ? <ErrorState error={summary.error} onRetry={() => void summary.refetch()} title="Review progress could not be loaded" /> : !data ? <LoadingState /> : <>
-        <section className="sod-tiles" aria-label="Review progress">
-          <Kpi label="Total users" value={all.toLocaleString()} onClick={() => open('queue')} navigates />
-          <Kpi label="Needs review" value={(counts.outstanding ?? 0).toLocaleString()} tone={stateTone('Needs review', counts.outstanding ?? 0)} onClick={() => open('queue')} navigates />
-          <Kpi label="Complete" value={complete.toLocaleString()} tone={stateTone('Complete', complete)} onClick={() => open('queue')} navigates />
-          <Kpi label="Removal recommended" value={(counts.removal ?? 0).toLocaleString()} tone={stateTone('Removal recommended', counts.removal ?? 0)} onClick={() => open('remediation')} navigates />
-          <Kpi label="Completion" value={all ? `${Math.floor((complete / all) * 100)}%` : '–'} progress={{ value: complete, max: all, label: `${complete} of ${all} users complete` }} />
-        </section>
-        {filtered && <p role="note" className="flex flex-wrap items-center gap-2"><StatusBadge tone="info">Work Queue filters active</StatusBadge>The Work Queue currently shows a filtered subset of these users. <Button size="compact" onClick={() => open('queue')}>Open filtered Work Queue</Button></p>}
-        <p className="ui-description" data-testid="access-review-scope">Scope: every SAP user in the selected review context. Work Queue filters do not apply here; the Work Queue shows its own filtered counters. A user is complete when every role, activity and risk access-review item is decided. {data.frozen ? 'This period is a frozen snapshot; its population and decisions are read only.' : 'Current evidence is live and changes with imported data.'}</p>
-      </>}
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" aria-label="Review workflows">
-        {entries.filter(entry => !entry.review || canReview).map(entry => {
-          const item = REVIEWS_VIEWS.find(view => view.value === entry.view)!
-          return <Card key={entry.view} aria-label={item.label}>
-            <h2 className="flex items-center gap-2 text-base font-semibold">{item.icon}{item.label}</h2>
-            <p className="ui-description">{entry.text}</p>
-            <Toolbar><Button variant={entry.primary ? 'primary' : 'secondary'} onClick={() => open(entry.view)}>Open {item.label}</Button></Toolbar>
-          </Card>
-        })}
-      </section>
-      <Card aria-label="Related analysis">
-        <h2 className="flex items-center gap-2 text-base font-semibold"><ShieldCheck size={16} aria-hidden="true" />Related analysis</h2>
-        <p className="ui-description">Risk and activity matrices, the SAP User Group heatmap and Access Explorer stay in SoD.</p>
-        <Toolbar><Button onClick={() => change({ page: 'sod', sodView: 'overview' })}>Open SoD analysis</Button></Toolbar>
-      </Card>
+      <SodFilters view="sod_queue" filters={filters} setFilters={setFilters} storageKey="authlens-reviews-overview-filter-sidebar" defaultOpen={false}
+        fields={['group', 'username', 'risk', 'activity', 'role', 'role_suffix', 'tcode', 'category', 'validity']}
+        actions={<Button variant="primary" onClick={() => openQueue('')}>Open Work Queue</Button>}>
+        <CoverageNotice info={data} />
+        <p className="ui-description" data-testid="access-review-scope">Access Review Progress for SoD access reviews (roles, activities and risks) in the selected review context{data?.filtered ? ' and the applied Work Queue filters' : ''}. {data?.frozen ? 'This period is a frozen snapshot; its population and decisions are read only.' : 'Current evidence is live and changes with imported data.'} Account Review is a separate process and is counted below.</p>
+        {result.isError ? <ErrorState error={result.error} onRetry={() => void result.refetch()} title="The Reviews Overview could not be loaded" /> : !data || !p || !r || !periods ? <LoadingState /> : <>
+          <div className="dashboard-workspace">
+            <div className="dashboard-cards" aria-label="Review key figures">
+              <section className="dashboard-section min-w-0 rounded-card bg-surface p-4" aria-label="Access Review Progress">
+                <SectionHeader title="Access Review Progress" icon={<UsersRound size={18} aria-hidden="true" />} />
+                <InfoList>
+                  <InfoRow primary label="Users in scope" value={p.users.toLocaleString()} onClick={() => openQueue('')} navigates />
+                  <InfoRow label="Users requiring review" value={p.requiring_review.toLocaleString()} tone={p.requiring_review ? 'warning' : 'neutral'} onClick={() => openQueue('outstanding')} navigates note={`${p.partial.toLocaleString()} partly reviewed · ${p.not_started.toLocaleString()} not started`} />
+                  <InfoRow label="Users with completed reviews" value={p.complete.toLocaleString()} tone={p.complete ? 'success' : 'neutral'} onClick={() => openQueue('complete')} navigates
+                    progress={p.users ? { value: p.complete, max: p.users, label: `${p.complete} of ${p.users} users complete`, tone: 'success' } : undefined} />
+                  <InfoRow label="Completion" value={percent(p.complete, p.users)} />
+                  <InfoRow label="Users with removal recommendations" value={p.with_removal.toLocaleString()} tone={p.with_removal ? 'error' : 'neutral'} onClick={() => openQueue('removal')} navigates note="Overlaps with the counts above: a complete user can have a removal recommendation." />
+                  <InfoRow label="Users with outdated decisions" value={p.with_outdated.toLocaleString()} tone={p.with_outdated ? 'warning' : 'neutral'} note="Also counted as requiring review." />
+                </InfoList>
+              </section>
+              <section className="dashboard-section min-w-0 rounded-card bg-surface p-4" aria-label="Review Coverage">
+                <SectionHeader title="Review Coverage" icon={<ShieldCheck size={18} aria-hidden="true" />} />
+                <InfoList>
+                  {KINDS.map(({ kind, label }) => { const c = data.review_coverage[kind]; return <InfoRow key={kind} label={label} value={c.total ? `${c.covered.toLocaleString()} / ${c.total.toLocaleString()}` : 'No applicable items'}
+                    note={c.total ? `${percent(c.covered, c.total)} · ${c.manual.toLocaleString()} recorded, ${c.derived.toLocaleString()} derived` : undefined}
+                    progress={c.total ? { value: c.covered, max: c.total, label: `${c.covered} of ${c.total} ${label.toLowerCase()} covered`, tone: 'success' } : undefined} /> })}
+                </InfoList>
+                <p className="ui-description">Covered means decided by a recorded decision or derived from other decisions (each item once). Risk coverage is not formal risk acceptance, and coverage is not verified remediation. Review types are not combined into one percentage.</p>
+              </section>
+              <section className="dashboard-section min-w-0 rounded-card bg-surface p-4" aria-label="Review Workload">
+                <SectionHeader title="Review Workload" icon={<ListChecks size={18} aria-hidden="true" />} />
+                <InfoList>
+                  {KINDS.map(({ kind, label }) => <InfoRow key={kind} label={`Pending ${label.toLowerCase()}`} value={(data.review_coverage[kind].pending + data.review_coverage[kind].investigate).toLocaleString()} onClick={() => openQueue('outstanding')} navigates
+                    note={data.review_coverage[kind].investigate ? `${data.review_coverage[kind].investigate.toLocaleString()} under investigation` : undefined} />)}
+                  <InfoRow label="Outdated decisions" value={KINDS.reduce((sum, { kind }) => sum + data.review_coverage[kind].outdated, 0).toLocaleString()} tone="warning" onClick={() => openQueue('outstanding')} navigates note="Evidence changed after the decision; review again." />
+                  <InfoRow primary label="Outstanding review items" value={KINDS.reduce((sum, { kind }) => sum + data.review_coverage[kind].outstanding, 0).toLocaleString()} note="Pending, under investigation and outdated items, each counted once." />
+                </InfoList>
+              </section>
+              <section className="dashboard-section min-w-0 rounded-card bg-surface p-4" aria-label="Review Decisions">
+                <SectionHeader title="Review Decisions" icon={<ClipboardCheck size={18} aria-hidden="true" />} />
+                {KINDS.map(({ kind, label }) => <InfoList key={kind} label={`${label} decisions`}>
+                  <li className="ui-description font-semibold">{label}</li>
+                  {DECISIONS[kind].map(([state, name, tone]) => <InfoRow key={state} label={name} value={(data.decisions[kind][state] ?? 0).toLocaleString()} tone={data.decisions[kind][state] ? tone : 'neutral'} />)}
+                  {data.review_coverage[kind].derived > 0 && <InfoRow label="Derived coverage (no own decision)" value={data.review_coverage[kind].derived.toLocaleString()} />}
+                  {data.review_coverage[kind].outdated > 0 && <InfoRow label="Outdated (superseded evidence)" value={data.review_coverage[kind].outdated.toLocaleString()} tone="warning" />}
+                </InfoList>)}
+              </section>
+              <section className="dashboard-section min-w-0 rounded-card bg-surface p-4" aria-label="Remediation">
+                <SectionHeader title="Remediation" icon={<Wrench size={18} aria-hidden="true" />} />
+                <InfoList>
+                  <InfoRow primary label="Assignments recommended for removal" value={r.removal_recommended.toLocaleString()} tone={r.removal_recommended ? 'error' : 'neutral'} onClick={() => openRemediation('')} navigates note="A recommendation, not proof of removal." />
+                  <InfoRow label="Awaiting a remediation action" value={r.awaiting_action.toLocaleString()} tone={r.awaiting_action ? 'warning' : 'neutral'} onClick={() => openRemediation('untracked')} navigates />
+                  <InfoRow label="Open remediation actions" value={r.open_actions.toLocaleString()} onClick={() => openRemediation('')} navigates />
+                  <InfoRow label="Overdue actions" value={r.overdue.toLocaleString()} tone={r.overdue ? 'error' : 'neutral'} />
+                  <InfoRow label="Actions recorded as completed" value={r.completed_actions.toLocaleString()} note="Manually recorded, not proof of removal." />
+                  <InfoRow label="Removals confirmed by SAP evidence" value={r.verified_removals.toLocaleString()} tone={r.verified_removals ? 'success' : 'neutral'} onClick={() => openRemediation('verified')} navigates note="Newer imported SAP data no longer contains the assignment." />
+                </InfoList>
+              </section>
+              <section className="dashboard-section min-w-0 rounded-card bg-surface p-4" aria-label="Review Periods">
+                <SectionHeader title="Review Periods" icon={<CalendarRange size={18} aria-hidden="true" />} />
+                <InfoList>
+                  <InfoRow label="Open periods (Draft, In review)" value={periods.open.toLocaleString()} onClick={() => change({ reviewsView: 'periods' })} navigates />
+                  <InfoRow label="Awaiting approval" value={periods.awaiting_approval.toLocaleString()} tone={periods.awaiting_approval ? 'warning' : 'neutral'} onClick={() => change({ reviewsView: 'periods' })} navigates />
+                  <InfoRow label="Approved" value={periods.approved.toLocaleString()} tone={periods.approved ? 'success' : 'neutral'} />
+                  <InfoRow label="Closed" value={periods.closed.toLocaleString()} />
+                  {periods.rejected > 0 && <InfoRow label="Rejected (returned for review)" value={periods.rejected.toLocaleString()} tone="warning" />}
+                </InfoList>
+                <p className="ui-description">Global: every review period you can open, not limited by the review context or filters.</p>
+              </section>
+            </div>
+          </div>
+          <section className="dashboard-section min-w-0 rounded-card bg-surface p-4" aria-label="Organizational review progress">
+            <SectionHeader title="Organizational review progress" icon={<Building2 size={18} aria-hidden="true" />} />
+            <Toolbar aria-label="Organizational grouping">
+              <FormField label="Group by"><Select value={groupBy} onChange={(event) => setGroupBy(event.target.value)}>{GROUPINGS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}</Select></FormField>
+              <SortControl label="Sort groups" value={groupSort} options={GROUP_SORTS} descending={groupDescending} onChange={setGroupSort} onDescending={setGroupDescending} />
+            </Toolbar>
+            {!data.groups.available ? <p role="status" className="ui-description">{data.groups.reason}</p>
+              : !rows.length ? <EmptyState>No SAP users with access-review items match the selected scope.</EmptyState>
+              : <>
+                <DataTable caption="Users and completed access reviews per group" regionLabel="Organizational review progress table" density="compact">
+                    <thead><tr><th scope="col">{GROUPINGS.find((g) => g.value === groupBy)?.label}</th><th scope="col">Users</th><th scope="col">Complete</th><th scope="col">Requiring review</th><th scope="col">Completion</th></tr></thead>
+                    <tbody>{rows.map((row) => { const filter = groupFilter(row); return <tr key={row.key || '__none__'}>
+                      <th scope="row">{filter ? <button type="button" className="text-link" onClick={() => openQueue('', filter)} aria-label={`Open the Work Queue for ${row.label}`}>{row.label}</button> : row.label}</th>
+                      <td>{row.users.toLocaleString()}</td><td>{row.complete.toLocaleString()}</td>
+                      <td>{filter && row.requiring_review ? <button type="button" className="text-link" onClick={() => openQueue('outstanding', filter)} aria-label={`Open users requiring review in ${row.label}`}>{row.requiring_review.toLocaleString()}</button> : row.requiring_review.toLocaleString()}</td>
+                      <td><progress value={row.complete} max={row.users || 1} aria-label={`${row.complete} of ${row.users} users complete in ${row.label}`} /> {percent(row.complete, row.users)}</td>
+                    </tr> })}</tbody>
+                </DataTable>
+                <p className="ui-description">A user in several groups counts in each group; {(data.groups.distinct_users ?? 0).toLocaleString()} distinct users in total. Users without a value are listed in their own row.{groupBy === 'department' || groupBy === 'site' ? ' Department and site have no Work Queue filter, so their rows do not open the Work Queue.' : ''}</p>
+              </>}
+          </section>
+        </>}
+      </SodFilters>
     </section>
   )
 }

@@ -4,6 +4,18 @@
 This page is the draft text for the eventual GitHub Release; [GitHub Releases](https://github.com/OnlyDrey/AuthLens/releases) remains the
 release history (there is no changelog file). Open items: [RC6 candidate status](validation/STATUS.md#rc6-candidate-status).
 
+## Changes after RC6 (for the next candidate, RC7; not built yet)
+
+- **Reviews Overview** is now an operational dashboard: access-review progress, coverage per review type, outstanding work, recorded
+  decisions, remediation follow-up, review periods and progress per SAP User Group, Functional Group, manager, department or site, with the
+  Work Queue's filters in an integrated sidebar and links that open the matching filtered view.
+- **Dashboard filters** open in the same integrated left sidebar as User Access; saving dashboard filters works.
+- **Functional Group cells** show one named group and a `+X` count on a single line.
+- **SoD heatmap** follows the SoD Overview filters, so its distinct users match the key figures; its CSV export follows them too.
+- **Scheduled refresh and source dates** no longer depend on the server account's regional settings (next runs, last run and source
+  timestamps were shown as unavailable under some regional formats).
+- **Portable deployment package**: one ZIP with the Setup programs, an internal checksum list and the tools at its root.
+
 ## Highlights
 
 - **AuthLens** is the new name of the product previously called SAP Lens, rebuilt on .NET 10 with the same React user interface.

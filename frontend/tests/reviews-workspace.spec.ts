@@ -13,15 +13,14 @@ test('Reviews is a top-level workspace whose overview leads directly to the revi
  await expect(page).toHaveURL(/#\/reviews$/)
  const views=page.getByRole('navigation',{name:'Review views',exact:true})
  await expect(views.getByRole('link')).toHaveText(['Overview','Work Queue','Bulk Review','Remediation','Review Periods','Reports and Evidence'])
- const progress=page.getByRole('region',{name:'Review progress',exact:true})
- for(const label of ['Total users','Needs review','Complete','Removal recommended','Completion'])await expect(progress.getByText(label,{exact:true})).toBeVisible()
- // Overview counters are global for the review context; the scope is stated for both review kinds.
- await expect(page.getByTestId('access-review-scope')).toContainText('Work Queue filters do not apply here')
+ // WP37: an analytical dashboard replaces the navigation cards; the destinations stay in the Review views navigation.
+ for(const name of ['Access Review Progress','Review Coverage','Review Workload','Review Decisions','Remediation','Review Periods'])await expect(page.getByRole('region',{name,exact:true})).toBeVisible()
+ await expect(page.getByRole('region',{name:'Review workflows',exact:true})).toHaveCount(0)
+ await expect(page.getByTestId('access-review-scope')).toContainText('Access Review Progress for SoD access reviews')
  await expect(page.getByTestId('account-review-scope')).toContainText('Filters on the Account Review page do not apply here')
  // The analytical heatmap stays in SoD, so the queue entry point is not pushed below a large visualization.
  await expect(page.getByRole('region',{name:/heatmap/i})).toHaveCount(0)
- const workflows=page.getByRole('region',{name:'Review workflows',exact:true})
- await workflows.getByRole('button',{name:'Open Work Queue',exact:true}).click()
+ await page.getByRole('toolbar',{name:'Page actions',exact:true}).getByRole('button',{name:'Open Work Queue',exact:true}).click()
  await expect(page).toHaveURL(/#\/reviews\/queue$/)
  await expect(views.getByRole('link',{name:'Work Queue',exact:true})).toHaveAttribute('aria-current','page')
  await expect(page.getByRole('region',{name:'SoD review work queue',exact:true})).toBeVisible()

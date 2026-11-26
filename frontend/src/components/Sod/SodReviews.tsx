@@ -36,7 +36,7 @@ interface UserResult extends ContextInfo { items: UserQueueRow[]; total: number;
 function Queue() {
   const [context] = useSodContext(),
     [filters, setFiltersState] = useSodFilters('queue'),
-    [progress, setProgress] = useState(''),
+    [storedProgress, setStoredProgress] = useHistoryValue('queueProgress'), progress = storedProgress ?? '', setProgress = (value: string) => setStoredProgress(value as typeof progress),
     [offset, setOffset] = useState(0),
     [, setSubject] = useSodSubject(),
     [busy, setBusy] = useState(false),[,setReviewTab]=useHistoryValue('sodReviews')

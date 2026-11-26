@@ -9,7 +9,7 @@ namespace AuthLens.Api;
 /// <summary>Port of routers/sod_governance.py read routes and routers/sod.py overview: review context, matrices and group heatmaps, filter options, Access
 /// Explorer tables and exports, the bulk selection, the review queue (items, users, export), remediation (list, exports) and the SoD overview. Every route
 /// works for the live context and for review periods (frozen periods read their own snapshot); nothing here changes evidence or decisions.</summary>
-public static class V1SodGovernance
+public static partial class V1SodGovernance
 {
     public const int MaxColumns = 500, MatrixPageMax = 5000, SelectionLimit = 5000;
     private static readonly StringComparer Ordinal = StringComparer.Ordinal;
@@ -709,6 +709,7 @@ public static class V1SodGovernance
             return Json(result);
         }));
         api.MapGet("/sod/queue/users", (HttpContext http, CancellationToken ct) => Guard(() => QueueUsersAsync(http, ct)));
+        api.MapGet("/sod/reviews/overview", (HttpContext http, CancellationToken ct) => Guard(() => ReviewsOverviewAsync(http, ct)));
         api.MapGet("/sod/queue/export", (HttpContext http, CancellationToken ct) => Guard(async () =>
         {
             var (q, error) = await QueryAsync(http, ct);

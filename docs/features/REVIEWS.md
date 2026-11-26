@@ -44,18 +44,76 @@ correct Reviews page.
 
 ## Overview
 
-Product decision (2.0.0): Overview counters are **global** within the selected review context and the signed-in account's authorized data;
-filtered detail views (Work Queue, Account Review) keep their own filtered counters. Each card states its scope.
+**WP37 (RC7 target): the Reviews Overview is an operational dashboard** for SoD access reviews in the selected review context, plus the
+separate Account Review counters. It replaced the earlier navigation cards (Work Queue, Bulk Review, Remediation, Review Periods, Reports and
+Evidence, Related analysis); those destinations stay in the **Review views** navigation, and **Open Work Queue** sits in the page toolbar.
+Every figure comes from one request, `GET /api/sod/reviews/overview?context=…&group_by=…&<Work Queue filters>`, which reuses the authoritative
+models instead of recalculating them: the Work Queue items (lifecycle, review coverage and its manual or derived provenance, frozen period
+evidence), the Remediation rows and actions (the same removal follow-up as Reports and Evidence) and the period index.
 
-**SoD access reviews** (while SoD is enabled): the landing page shows the Work Queue counters from the same endpoint and definitions
-(`/api/sod/queue/users`) for the selected review context **without** the Work Queue filters: Total users, Needs review, Complete, Removal
-recommended and Completion (complete / total users). When Work Queue filters are active, a note says so and opens the filtered Work Queue. A user
-is complete when every role, activity and risk access-review item is decided. Counters are not combined across review contexts. Workflow cards
-lead to each page; Bulk Review is shown only with the effective `review` permission.
+**Filters.** The integrated left filter sidebar (shared `FilterLayout`, closed by default, its own remembered state, the drawer on narrow
+screens) shows the **Work Queue's own filters and Saved Filters** (`sod_queue`): SAP User Group, Functional Group, Manager, exact usernames,
+search, risk, activity, role, role suffix, transaction, category and assignment validity, OR within and AND between dimensions. The Overview
+and the Work Queue therefore always count the same population, and a drill-down never broadens or replaces it. Risk, activity, role and
+transaction filters narrow the review **items**, exactly as in the Work Queue, so user completion is measured within that item scope.
+
+**Cards** (three columns on wide screens, two or one when narrower or beside the sidebar; light and dark):
+
+- **Access Review Progress**: users in scope, users requiring review (with partly reviewed and not started), users with completed reviews,
+  completion with a progress bar, users with removal recommendations and users with outdated decisions. Removal and outdated overlap the
+  complete / requiring split and say so.
+- **Review Coverage**: for role, activity and risk reviews separately, covered items of applicable items, the percentage and the split into
+  recorded and derived coverage (each item once). Zero applicable items reads *No applicable items*, never 0% or 100%. No combined percentage;
+  risk coverage is not formal acceptance and coverage is not verified remediation.
+- **Review Workload**: pending role, activity and risk reviews (investigations included and named), outdated decisions, and the outstanding
+  total (pending, investigate and outdated, each item once).
+- **Review Decisions**: per review type, the recorded states of the existing model (Keep, Removal recommended, Investigate; Approved,
+  Conditional, Removal recommended, Investigate; Risk accepted, Risk rejected), derived coverage without an own decision, and outdated items.
+- **Remediation**: assignments recommended for removal (a recommendation, not proof), awaiting a remediation action, open actions, overdue
+  actions, actions recorded as completed (manual, not proof) and removals confirmed by newer SAP evidence.
+- **Review Periods**: open (Draft, In review), awaiting approval, approved, closed and rejected periods. **Global**: not limited by the review
+  context or filters, and labelled so.
+
+**Organizational review progress** (below the cards): group by SAP User Group, Functional Group, Manager, Department or Site, sortable by name,
+completion, users requiring review and total users. Each row shows users, complete, requiring review and completion. A user in several groups
+counts in each group; the distinct total is stated. Users without a value have their own row (No SAP User Group, Unassigned, No manager,
+Unmatched or not recorded). Department and site need an enabled Employee Directory with matched identities. **Frozen periods** offer SAP User
+Group only, from the period's own evidence; the other dimensions were not captured and are reported as unavailable, never filled from current
+data. SAP User Group, Functional Group and Manager rows open the Work Queue with that filter added; Department and Site have no Work Queue
+filter and do not navigate.
+
+**Drill-down** (keeps the review context and every applied filter, adds the metric's constraint): users in scope → Work Queue; users requiring
+review, pending and outdated work → Work Queue *Needs review*; completed users → Work Queue *Complete*; users with removal recommendations →
+Work Queue *Removal recommended*; recommended for removal and open actions → Remediation; awaiting action → Remediation *Awaiting action*;
+confirmed removals → Remediation *Verified removals*; periods → Review Periods. The Work Queue progress filter is kept in the view history
+(`queueProgress`) so the destination shows the matching tile and count.
+
+### Metric scope matrix (WP37)
+
+| Metric | Source | Unit | Numerator / denominator | Filters | Review context | Deduplication | Drill-down | Scope |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Users in scope | Work Queue items | SAP user | users with at least one current review item | Work Queue filters | context's items (period: frozen) | distinct user | Work Queue | filtered |
+| Users requiring review | Work Queue items | SAP user | users with an undecided item / users in scope | same | same | distinct user | Work Queue *Needs review* | filtered |
+| Users with completed reviews, Completion | Work Queue items | SAP user | users whose items are all covered / users in scope | same | same | distinct user | Work Queue *Complete* | filtered |
+| Users with removal recommendations | Work Queue items | SAP user | users with a *Removal required* item (overlaps) | same | same | distinct user | Work Queue *Removal recommended* | filtered |
+| Users with outdated decisions | Work Queue items | SAP user | users with an *Outdated* item (also requiring review) | same | same | distinct user | — | filtered |
+| Role, activity, risk coverage | Work Queue items, `review_coverage` | review item | covered / applicable items of that type | same | same | each item once (recorded or derived) | — | filtered |
+| Pending, outdated, outstanding | Work Queue items | review item | pending + investigate, outdated, their sum | same | same | each item once | Work Queue *Needs review* | filtered |
+| Decision states | Work Queue items, lifecycle | review item | items per recorded state and type | same | same | per type, not combined | — | filtered |
+| Recommended for removal, awaiting action | Remediation rows | exact role assignment | rows with *Remove assignment*, without a tracked action | same | same | one per assignment | Remediation, *Awaiting action* | filtered |
+| Open, completed actions | Remediation actions | action | actions Open or In progress, Completed | same | same | per action | Remediation | filtered |
+| Overdue actions | Remediation rows | role assignment | tracked removal or investigation past its due date | same | same | one per assignment | — | filtered |
+| Confirmed removals | removal verification | action | tracked removals absent from newer imported evidence | same | same | per action | Remediation *Verified removals* | filtered |
+| Period lifecycle | period index | period | periods per lifecycle state | none | all periods | per period | Review Periods | **global** |
+| Organizational progress | Work Queue items + group membership | SAP user per group | complete / users per group | same | current: all dimensions; period: SAP User Group only | distinct per group, overlap stated | Work Queue with the group filter | filtered |
 
 **Account reviews** (always): counters from the existing Account Review endpoint (`/api/account-review?limit=1`, its `summary`) for the whole SAP
-account population: SAP accounts, Requiring review and Completed. Account Review page filters do not apply to these counters, and they are never
-added to the access-review counters. **Open Account Review** opens the existing page; decisions are still recorded there with `review`.
+account population: SAP accounts, Requiring review and Completed. Account Review is a separate process (account and license findings); its
+completion is never combined with access-review completion, and Account Review page filters do not apply to these counters. **Open Account
+Review** opens the existing page; decisions are still recorded there with `review`.
+
+Status: implemented; backend `SodPeriodsTests.Reviews_overview_reconciles_with_the_work_queue_remediation_and_periods` and browser
+`reviews-overview.spec.ts`; native acceptance pending (R7-RV1).
 
 ## Context preservation
 

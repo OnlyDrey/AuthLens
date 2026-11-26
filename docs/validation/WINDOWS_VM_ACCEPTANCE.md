@@ -172,6 +172,16 @@ RC3 tools (D-006).
 | B17 | Upgrade and repair preserve certificates and data | Upgrade from RC3-VM130 to RC4, then Repair RC4; compare certificate thumbprint, `config\deploy.json`, record counts and review decisions | Certificate and configuration unchanged (no TLS generation), data and decisions intact, verified backup taken before the service stopped | Thumbprints, hashes, counts | Revert `S1` |
 | B13 | Simulation never changes state (D-006) | Leave an interrupted first install as in B12 (`manual_recovery_required`); copy `deployment-journal.json`, `config\deploy.json` and `Get-Service AuthLens` output; run `& $deploy -Action Recover -RecoveryAction VerifyCandidate -DryRun` and the same with `-Yes`; run `-Action Restore -DryRun`, `-Action Rollback -DryRun`, `-Action InstallService -DryRun`; then `& $deploy -Action Recover -RecoveryAction VerifyCandidate` (no `-Yes`) | Recover `-DryRun` prints `SIMULATION`, `simulation: true`, `changes_applied: false`, `would_succeed`; the journal, configuration, service PID and `WorkRoot` file list are byte-for-byte unchanged and no `runs\<id>` folder appears; the other `-DryRun` actions exit 2 ("-DryRun is not supported"); Recover without `-Yes` exits 2 | Hashes and file lists before/after, results | Revert `S0` |
 
+### RC7 scenarios (WP37 and the RC6 acceptance defects; run on the RC7 candidate)
+
+- **R7-RV1 Reviews Overview.** Reviews > Overview in current evidence: six cards plus organizational progress, filter sidebar closed. Apply a
+  Functional Group filter: every card except Review Periods changes; open *Users requiring review* and confirm the Work Queue *Needs review*
+  count equals the card. Switch the review context to a frozen period: figures change to the period's evidence and Functional Group grouping
+  reports that it was not captured. Check 375, 800 and 1280 px, light and dark, keyboard focus on every metric.
+- **R7-B13/B14** Functional Group pills (one line, `+X`) and the dashboard's integrated left filter sidebar.
+- **R7-B15** SoD Overview filtered by a Functional Group: the heatmap's distinct total equals *Users with potential conflicts*; CSV matches.
+- **R7-SR** Scheduled refresh procedure in the [acceptance tracker](ACCEPTANCE_TRACKER.md#rc6-scheduled-refresh-and-source-timestamps-no-identifier-assigned-target-200).
+
 ### RC6 scenarios (WP29 to WP31, WP33; run only on a candidate whose build record lists them)
 
 Source-verified only until an operator runs them. Record each against the exact candidate; earlier candidates are **Not applicable**. Run

@@ -237,9 +237,10 @@ function MultiOptionField({ field, listName, label, values, onChange, filters }:
 }
 
 /** Filters relevant to the page. The sidebar owns search and every filter; the toolbar keeps only sort, direction, actions and Reset. Hidden fields are cleared when a Saved Filter is applied so they cannot silently narrow results. */
-export function SodFilters({ view, filters, setFilters, fields, sorts, actions, children, defaults = emptyFilters, searchLabel = 'Search SoD data', extra, onReset }: {
+export function SodFilters({ view, filters, setFilters, fields, sorts, actions, children, defaults = emptyFilters, searchLabel = 'Search SoD data', extra, onReset, storageKey, defaultOpen }: {
   view: string; filters: Filters; setFilters: (value: Filters) => void; fields: FilterField[]; sorts?: { value: string; label: string }[]; actions?: ReactNode; children: ReactNode
   defaults?: Filters; searchLabel?: string; extra?: ReactNode; onReset?: () => void
+  /** A page's own remembered sidebar state (the Reviews Overview starts closed), see FilterLayout. */ storageKey?: string; defaultOpen?: boolean
 }) {
   const text = (name: string) => (typeof filters[name] === 'string' ? (filters[name] as string) : '')
   const update = (name: string, value: string | boolean) => setFilters({ ...filters, [name]: value })
@@ -344,7 +345,7 @@ export function SodFilters({ view, filters, setFilters, fields, sorts, actions, 
 
     </PageToolbar>
   )
-  return <FilterLayout activeCount={active} sidebar={sidebar} toolbar={toolbar} onClear={clear} clearLabel="Clear page filters" clearDisabled={!active && !text('search')}>{children}</FilterLayout>
+  return <FilterLayout activeCount={active} sidebar={sidebar} toolbar={toolbar} onClear={clear} clearLabel="Clear page filters" clearDisabled={!active && !text('search')} storageKey={storageKey} defaultOpen={defaultOpen}>{children}</FilterLayout>
 }
 
 export function AlertNote({ children }: { children: ReactNode }) {

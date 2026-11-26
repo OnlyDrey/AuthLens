@@ -175,6 +175,33 @@ never deleted; every certificate change is a recorded transaction with rollback 
 
 Native acceptance for the next candidate: runbook scenarios C11 to C13, B11 and B12 ([runbook](WINDOWS_VM_ACCEPTANCE.md#c-security-and-administration-from-s1-snapshot-s2-admin-after-c4)).
 
+## Tenth round: RC7 consolidation (WP37 and RC6 acceptance defects, 2026-11-26)
+
+Source-level work after RC6 (`839123c`); RC6 stays the immutable packaged baseline and remains installed on VM130 and DASH1 (operator
+report). Defects found in RC6 acceptance (BUG-013 to BUG-015, the WP30 saved-filter defect, culture-dependent scheduled-refresh timestamps)
+are recorded with root cause and tests in the [acceptance tracker](ACCEPTANCE_TRACKER.md); WP35 (frontend-only deployment) was assessed as not
+feasible without a backend change ([assessment](../architecture/UI_INTEGRATION.md#frontend-only-deployment-assessment-wp35-2026-11-26)).
+The brief's `REV-001` to `REV-013` are written `WP37/REV-n`; no `REV-` identifier exists elsewhere.
+
+| Requirement | Status | Evidence and limits |
+| --- | --- | --- |
+| WP37/REV-1 replace navigation cards | Implemented | Cards removed; Review views navigation unchanged; **Open Work Queue** in the page toolbar |
+| WP37/REV-2 shared dashboard design | Implemented | `dashboard-workspace`/`dashboard-cards` grid (container-query reflow from BUG-014), `SectionHeader`, `InfoList`/`InfoRow`, `DataTable`, shared states; light and dark |
+| WP37/REV-3 review progress | Implemented | Users, requiring review (partly reviewed, not started), complete, completion, removal and outdated as overlapping indicators. *Users with no applicable items* is not shown: users without review items are not part of the review population |
+| WP37/REV-4 review coverage | Implemented | Per type covered/applicable, recorded vs derived (each item once), explicit *No applicable items*, no combined percentage |
+| WP37/REV-5 review workload | Implemented | Pending (investigations named), outdated, outstanding total without double counting; links to the Work Queue *Needs review* (user level) |
+| WP37/REV-6 review decisions | Implemented | Existing states per type; derived coverage and outdated listed separately; no new states |
+| WP37/REV-7 remediation | Implemented | Removal follow-up definitions of Reports and Evidence; recommendation, action, completed (manual) and evidence-confirmed removal kept apart |
+| WP37/REV-8 review periods | Implemented | Existing lifecycle states, labelled global. No deadlines are shown: the period model has none beyond its start and end dates |
+| WP37/REV-9 organizational progress | Implemented | SAP User Group, Functional Group, Manager, Department, Site; distinct totals; unassigned rows; frozen periods: SAP User Group only |
+| WP37/REV-10 integrated filter panel | Implemented | Shared `FilterLayout` via `SodFilters` (new optional `storageKey`/`defaultOpen`), closed by default, Work Queue filters and Saved Filters (`sod_queue`). Department, site and review/decision/remediation status are not offered as filters: the Work Queue has no such population filter, and adding one would change its semantics |
+| WP37/REV-11 consistent scope | Implemented | One endpoint, the Work Queue population; metric scope matrix in [Reviews](../features/REVIEWS.md#metric-scope-matrix-wp37) |
+| WP37/REV-12 context-preserving drill-down | Implemented | Filters kept, metric constraint added (`queueProgress`, remediation `tracking`, group filters); destination counts reconcile (browser tests) |
+| WP37/REV-13 review context and history | Implemented | All metrics follow the context; frozen evidence read only; unavailable dimensions stated |
+
+Tests: backend `SodPeriodsTests.Reviews_overview_reconciles_with_the_work_queue_remediation_and_periods` (with the SoD route and saved-filter
+classes 39/39); browser `reviews-overview.spec.ts` and `reviews-workspace.spec.ts`. Native acceptance: R7-RV1.
+
 ## Ninth round: RC6 implementation and consolidation (WP29 to WP34, 2026-11-25)
 
 Source-level work after RC5 (`b10dd50`); RC5 stays the immutable packaged baseline. RC5 native results and the RC6 bug and baseline-failure
