@@ -1495,7 +1495,8 @@ summary:focus-visible,div[tabindex="0"]:focus-visible,a.role-identifier-link:foc
 .export-menu-item > span > span { color:var(--muted); font-size:var(--font-meta); }
 
 /* User Directory: scroll is confined to the table; selection and username stay pinned. */
-.user-directory-table { overflow-x:auto; overscroll-behavior-x:contain; }
+/* BUG-013: focus and scroll-into-view stop beside the two sticky columns (2.75rem + at least 9rem), never under them. */
+.user-directory-table { overflow-x:auto; overscroll-behavior-x:contain; scroll-padding-inline-start:calc(11.75rem + var(--space-2)); }
 .user-directory-table table { min-width:72rem; width:100%; }
 .user-directory-table th,.user-directory-table td { white-space:nowrap; }
 .user-directory-table tbody td { vertical-align:middle; }
