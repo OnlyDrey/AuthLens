@@ -3,16 +3,16 @@ import {SAPUserLink} from '@/components/Shared/SAPUserLink'
 import { Kpi } from '@/components/Shared/Kpi'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { downloadFile, scopeParams, sod, EXPORT_NAME, type ContextInfo, type UserQueueRow } from '@/api/sod'
+import { scopeParams, sod, type ContextInfo, type UserQueueRow } from '@/api/sod'
 import { useHistoryValue,useViewHistory } from '@/hooks/useViewHistory'
 import { Button } from '@/components/Shared/Button'
 import { UserGroupCell } from '@/components/Shared/UserGroup'
 import { ArrowUpDown, ArrowDown, ArrowUp, ClipboardCheck, ListChecks, Wrench } from 'lucide-react'
 import { ErrorState, DataTable, EmptyState, LoadingState } from '@/components/Shared/Presentation'
 import { ExportCSVButton } from '@/components/Shared/ExportCSVButton'
+import { SodQueueExportDialog } from './SodQueueExport'
 import { ContentTabs } from '@/components/Shared/Navigation'
 import { Pagination } from '@/components/Access/Shared'
-import { announceExport } from '@/lib/exportNotice'
 import { CoverageNotice, SodFilters, keepWithinContext, useFilterChangeReset, useSodContext, useSodFilters, useSodSubject } from './SodShared'
 import { stateTone } from '@/lib/kpiTone'
 import { RemediationView } from './SodRemediation'
@@ -39,32 +39,23 @@ function Queue() {
     [storedProgress, setStoredProgress] = useHistoryValue('queueProgress'), progress = storedProgress ?? '', setProgress = (value: string) => setStoredProgress(value as typeof progress),
     [offset, setOffset] = useState(0),
     [, setSubject] = useSodSubject(),
-    [busy, setBusy] = useState(false),[,setReviewTab]=useHistoryValue('sodReviews')
+    [,setReviewTab]=useHistoryValue('sodReviews')
   const reset = () => setOffset(0)
   useFilterChangeReset(filters, reset)
   const params = scopeParams(context, filters, { progress, offset, limit: 50 })
   const result = useQuery({ queryKey: ['sod-queue', 'users', params.toString()], queryFn: () => sod<UserResult>('/api/sod/queue/users', params), placeholderData: keepWithinContext(['sod-queue', 'users', params.toString()], params) as never })
   const data = result.data
-  const exportCsv = async () => {
-    setBusy(true)
-    try {
-      const name = await downloadFile('/api/sod/queue/export', { params: scopeParams(context, filters), namePattern: EXPORT_NAME })
-      announceExport(name ? { kind: 'success', message: `Exported ${name}.` } : { kind: 'info', message: 'Export cancelled.' })
-    } catch (cause) {
-      announceExport({ kind: 'error', message: cause instanceof Error ? cause.message : 'Export failed.' })
-    } finally {
-      setBusy(false)
-    }
-  }
+  const [exporting, setExporting] = useState(false)
   const sort=String(filters.queue_sort||''),descending=filters.descending===true
   const heading=(key:string,label:string)=><th aria-sort={sort===key?(descending?'descending':'ascending'):undefined}><button type="button" className="inline-flex items-center gap-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus" aria-label={`Sort by ${label}`} onClick={()=>{reset();setFiltersState({...filters,queue_sort:key,descending:sort===key?!descending:false})}}>{label}{sort===key?(descending?<ArrowDown size={13} aria-hidden="true"/>:<ArrowUp size={13} aria-hidden="true"/>):<ArrowUpDown size={13} aria-hidden="true"/>}</button></th>
   const part = (value: { total: number; decided: number }) => (value.total ? `${value.decided}/${value.total}` : '–')
   return (
     <section className="grid min-w-0 gap-4" aria-label="SoD review work queue">
+      {exporting && <SodQueueExportDialog context={context} filters={filters} onClose={() => setExporting(false)} />}
       <CoverageNotice info={data} />
       <SodFilters view="sod_queue" filters={filters} setFilters={(value) => { reset(); setFiltersState(value) }}
         fields={['group', 'username', 'risk', 'activity', 'role', 'role_suffix', 'tcode', 'category', 'validity']}
-        actions={<><Button onClick={()=>setReviewTab('bulk')} disabled={!data?.reviewable||!data.total}>Bulk review</Button><ExportCSVButton loading={busy} disabled={!data?.total} onClick={() => void exportCsv()} title="Exports every review item for the filtered users with its decision." /></>}>
+        actions={<><Button onClick={()=>setReviewTab('bulk')} disabled={!data?.reviewable||!data.total}>Bulk review</Button><ExportCSVButton disabled={!data?.total} onClick={() => setExporting(true)} title="Choose the export: full review export, role removal, pending review or custom columns." /></>}>
       {result.isError ? <ErrorState error={result.error} onRetry={() => void result.refetch()} /> : !data ? <LoadingState /> : <>
         <section className="sod-tiles" aria-label="Review progress">
           {PROGRESS.map(([value, label]) => <Kpi key={value} label={label} value={(data.counts[value || 'all'] ?? 0).toLocaleString()} tone={stateTone(label, data.counts[value || 'all'] ?? 0)} active={progress === value} onClick={() => { reset(); setProgress(value) }} />)}

@@ -390,4 +390,67 @@ public sealed class SodPeriodsTests : IAsyncLifetime
         Assert.Equal(1, (int)frozen["periods"]!["total"]!);
         Assert.Equal(1, (int)frozen["periods"]!["open"]!);
     }
+
+    private async Task DecideItem(string context, string kind, JsonObject item, string decision, string justification)
+    {
+        var info = await Get($"/api/sod/context?context={context}");
+        var (status, response) = await Post($"/api/sod/decisions/{kind}", new JsonObject
+        {
+            ["context"] = context, ["expected_revision"] = (int)info["revision"]!, ["expected_generation"] = (string)info["generation"]!, ["decision"] = decision, ["justification"] = justification,
+            ["items"] = new JsonArray(new JsonObject { ["key"] = item["key"]!.DeepClone(), ["user"] = item["user"]!.DeepClone(), ["ref"] = item["ref"]!.DeepClone(), ["evidence_version"] = item["evidence_version"]!.DeepClone() }),
+        });
+        Assert.True(status == HttpStatusCode.OK, response?.ToJsonString());
+    }
+
+    /// <summary>Configurable review export: the role-removal unit contains only exact user-role assignments decided Remove (mixed users keep their
+    /// other roles out), activity removals never become role removals, columns and delimiters are exact, preview equals the export, filters and
+    /// frozen contexts are respected, and invalid requests are refused.</summary>
+    [Fact]
+    public async Task Review_export_contains_only_actionable_role_removals_and_follows_columns_filters_and_context()
+    {
+        var assignments = (await Get("/api/sod/queue?context=current&kind=assignment&limit=200"))["items"]!.AsArray().Select(i => i!.AsObject()).ToList();
+        var mixed = assignments.GroupBy(i => (string)i["user"]!).First(g => g.Select(i => (string)i["ref"]!).Distinct().Count() >= 3);
+        var user = mixed.Key;
+        var (keep, remove) = (mixed.ElementAt(0), mixed.First(i => (string)i["ref"]! != (string)mixed.ElementAt(0)["ref"]!));
+        await DecideItem("current", "assignment", keep, "Keep", "Still needed");
+        await DecideItem("current", "assignment", remove, "Remove", "Remove; see \"ticket 42\"");
+        var other = (await Get("/api/sod/queue?context=current&kind=activity&limit=200"))["items"]!.AsArray().Select(i => i!.AsObject()).First(i => (string)i["user"]! != user);
+        await DecideItem("current", "activity", other, "Remove", "Activity removal");   // remediation: Investigate, never a role removal
+
+        async Task<string> Csv(string query)
+        {
+            var response = await _client.GetAsync("/api/sod/queue/export/configured?context=current&" + query);
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            Assert.True(response.IsSuccessStatusCode, $"{(int)response.StatusCode} {Encoding.UTF8.GetString(bytes)}");
+            Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes[..3]);                                   // UTF-8 with BOM
+            return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+        }
+        var csv = await Csv("unit=role_removal&columns=username&columns=role");
+        Assert.Equal($"SAP username;Role name\r\n{user};{(string)remove["ref"]!}\r\n", csv);   // only USER / ROLE_B: not the kept or pending roles
+        var preview = await Get("/api/sod/queue/export/configured?context=current&unit=role_removal&columns=username&columns=role&preview=true");
+        Assert.Equal(1, (int)preview["total_rows"]!);
+        Assert.Equal(1, (int)preview["users"]!);
+        Assert.Equal(0, (int)preview["excluded_ambiguous"]!);
+        Assert.Equal(new[] { user, (string)remove["ref"]! }, preview["rows"]![0]!.AsArray().Select(v => (string)v!));
+        // Column order, comma delimiter and escaping of delimiters and quotes.
+        csv = await Csv("unit=role_removal&delimiter=comma&columns=role&columns=username&columns=review_status&columns=review_comment&columns=reviewed_by");
+        var lines = csv.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("Role name,SAP username,Review status,Review comment,Reviewed by", lines[0]);
+        Assert.StartsWith($"{(string)remove["ref"]!},{user},Removal required,\"Remove; see \"\"ticket 42\"\"\",", lines[1]);   // quoted: delimiter and quotes
+        Assert.Equal(2, lines.Length);
+        // Review items: pending role reviews of the user, the decided ones excluded; the preview count equals the export rows.
+        var pending = await Get($"/api/sod/queue/export/configured?context=current&unit=review_items&kinds=assignment&decisions=Pending&columns=username&columns=item&preview=true&usernames={Uri.EscapeDataString(user)}");
+        Assert.Equal(mixed.Count() - 2, (int)pending["total_rows"]!);
+        var items = await Csv($"unit=review_items&kinds=assignment&decisions=Pending&columns=username&columns=item&usernames={Uri.EscapeDataString(user)}");
+        Assert.Equal((int)pending["total_rows"]! + 1, items.Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.DoesNotContain((string)remove["ref"]!, items);
+        // The applied population filters are respected server side.
+        Assert.Equal(0, (int)(await Get($"/api/sod/queue/export/configured?context=current&unit=role_removal&columns=username&preview=true&usernames={Uri.EscapeDataString((string)other["user"]!)}"))["total_rows"]!);
+        // Frozen evidence never borrows current data; invalid requests are refused.
+        var period = await Create("Synthetic export period");
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await _client.GetAsync($"/api/sod/queue/export/configured?context={(string)period["id"]!}&unit=role_removal&columns=username&columns=employee")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/sod/queue/export/configured?context={(string)period["id"]!}&unit=role_removal&columns=username&columns=role&preview=true")).StatusCode);
+        foreach (var bad in new[] { "unit=role_removal", "unit=role_removal&columns=item", "unit=role_removal&columns=username&decisions=Keep", "unit=review_items&columns=username&decisions=Done", "unit=role_removal&columns=username&delimiter=tab", "unit=everything&columns=username" })
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, (await _client.GetAsync("/api/sod/queue/export/configured?context=current&" + bad)).StatusCode);
+    }
 }

@@ -208,8 +208,12 @@ test('work queue has one row per user, batch review lives in the workspace and t
   await page.keyboard.press('Escape')
   await expect(rowA).toContainText('2/9')
   await expect(rowA).toContainText('2/3')
-  const download = page.waitForEvent('download')
+  // The export dialog keeps the existing full review export as a preset (same file and schema).
   await page.getByRole('button', { name: 'Export CSV', exact: true }).click()
+  const exportDialog = page.getByRole('dialog', { name: 'Export review CSV', exact: true })
+  await exportDialog.getByRole('combobox', { name: 'Export preset', exact: true }).selectOption('full')
+  const download = page.waitForEvent('download')
+  await exportDialog.getByRole('button', { name: 'Export', exact: true }).click()
   expect((await download).suggestedFilename()).toMatch(/^authlens-sod-review-queue-\d{4}-\d{2}-\d{2}\.csv$/)
 })
 

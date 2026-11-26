@@ -710,6 +710,7 @@ public static partial class V1SodGovernance
         }));
         api.MapGet("/sod/queue/users", (HttpContext http, CancellationToken ct) => Guard(() => QueueUsersAsync(http, ct)));
         api.MapGet("/sod/reviews/overview", (HttpContext http, CancellationToken ct) => Guard(() => ReviewsOverviewAsync(http, ct)));
+        api.MapGet("/sod/queue/export/configured", (HttpContext http, CancellationToken ct) => Guard(() => ReviewExportAsync(http, ct)));   // /sod/reviews/export is the legacy review export
         api.MapGet("/sod/queue/export", (HttpContext http, CancellationToken ct) => Guard(async () =>
         {
             var (q, error) = await QueryAsync(http, ct);

@@ -211,7 +211,7 @@ export async function downloadFile(path: string, options: { method?: 'GET' | 'PO
   return name
 }
 
-export const EXPORT_NAME = /^authlens-sod-(explorer-(user-risk|user-activity|access-list|lookup)|group-(risk|activity)-heatmap|review-queue|access-remediation|role-assignments)-\d{4}-\d{2}-\d{2}\.csv$/
+export const EXPORT_NAME = /^authlens-sod-(explorer-(user-risk|user-activity|access-list|lookup)|group-(risk|activity)-heatmap|review-queue|role-removal|review-items|access-remediation|role-assignments)-\d{4}-\d{2}-\d{2}\.csv$/
 export const REPORT_NAME = /^authlens-(sod-report-[a-f0-9]{32}|access-remediation-(current|[a-f0-9]{32}))-\d{4}-\d{2}-\d{2}\.(pdf|docx|csv)$/
 
 /** One filtered assignment, identified by its stable assignment id and carrying the evidence version the review is bound to. */

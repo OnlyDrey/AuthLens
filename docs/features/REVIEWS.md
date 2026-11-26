@@ -115,6 +115,30 @@ Review** opens the existing page; decisions are still recorded there with `revie
 Status: implemented; backend `SodPeriodsTests.Reviews_overview_reconciles_with_the_work_queue_remediation_and_periods` and browser
 `reviews-overview.spec.ts`; native acceptance pending (R7-RV1).
 
+## Work Queue export
+
+**Export CSV** in the Work Queue opens a dialog (shared `Dialog`, checkboxes, selects, `DataTable` preview) instead of downloading at once.
+
+| Preset | Rows | Default columns |
+| --- | --- | --- |
+| Full review export | the existing fixed export (`/api/sod/queue/export`, unchanged schema) | fixed |
+| Role removal | one row per exact SAP user and role whose **every** visible assignment of that role is decided *Remove* in role review | SAP username, Role name |
+| Pending review | review items in state Pending, Outdated or Investigate | SAP username, Review type, Review item, Review status |
+| Custom | review items filtered by review type and decision state | chosen |
+
+**Role removal eligibility.** Decided per exact role assignment, never per user: a user with Keep, Remove and pending roles exports only the
+Remove role. A user and role with differing assignment decisions is ambiguous and excluded (the preview says how many). Activity and risk
+decisions never become role removals; the remediation model treats them as investigations. **Scope**: current filtered results (the Work
+Queue filters, all pages) or all results in the review context. **Columns**: SAP username, role or review item, role description, review type,
+risks, employee name, SAP user group, Functional Group, department, manager, review status, comment, reviewer, review date; *Select all*,
+*Clear*, and up/down ordering; only selected columns are written, and export is disabled without columns. Role description, employee,
+Functional Group, department and manager need current data and are refused for a frozen review period (no current data is substituted).
+**File**: UTF-8 with BOM, semicolon or comma, CRLF, quotes only where a value contains the delimiter, a quote or a line break, ordered by user
+and role. Identifiers are written exactly; free text gets the formula guard, and the preview warns when an identifier could be read as a
+formula. **Preview**: the same server request with `preview=true` (first 10 rows, row count, distinct users). The last configuration is
+remembered in the browser (`authlens-queue-export`); presets stay available. API: `GET /api/sod/queue/export/configured`. Read only: no
+decision, remediation, evidence or history is changed.
+
 ## Context preservation
 
 Review context (current evidence or a frozen period), SoD filters and the selected subject are shared view-history state. Moving between SoD
