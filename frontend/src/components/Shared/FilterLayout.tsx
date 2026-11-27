@@ -100,6 +100,8 @@ function fieldLabels(field: Element) {
 function activeIn(element: Element) {
   let count = element.querySelectorAll('[data-filter-active="true"], button[aria-label^="Remove "]').length
   for (const input of element.querySelectorAll<HTMLInputElement>('input[type="text"], input[type="search"], input:not([type]), textarea')) if (input.value.trim() && !input.closest('[data-filter-discovery]') && !input.getAttribute('role')) count++
+  // a native select away from its first option (the "any" choice) is an active filter
+  for (const select of element.querySelectorAll<HTMLSelectElement>('select')) if (select.options.length && select.value !== select.options[0].value && !select.closest('[data-filter-active]')) count++
   return count
 }
 
@@ -128,8 +130,8 @@ function FilterPanelTools({ query, setQuery, setAll, anyVisible }: { query: stri
     <div className="filter-discovery" data-filter-discovery>
       <SearchInput aria-label="Find a filter" placeholder="Find a filter..." value={query} onChange={event => setQuery(event.target.value)} onClear={() => setQuery('')} clearLabel="Clear filter search" />
       <div className="filter-discovery-actions" role="group" aria-label="Filter sections">
-        <Button size="compact" variant="ghost" onClick={() => setAll(true)} disabled={!!query}><ChevronsUpDown size={14} aria-hidden="true" />Expand all</Button>
-        <Button size="compact" variant="ghost" onClick={() => setAll(false)} disabled={!!query}><ChevronsDownUp size={14} aria-hidden="true" />Collapse all</Button>
+        <Button size="compact" variant="ghost" aria-label="Expand all filter groups" onClick={() => setAll(true)} disabled={!!query}><ChevronsUpDown size={14} aria-hidden="true" />Expand all</Button>
+        <Button size="compact" variant="ghost" aria-label="Collapse all filter groups" onClick={() => setAll(false)} disabled={!!query}><ChevronsDownUp size={14} aria-hidden="true" />Collapse all</Button>
       </div>
       {query && !anyVisible && <p role="status" className="ui-description">No filters match “{query}”. Active filters stay applied.</p>}
     </div>
@@ -178,10 +180,11 @@ export function FilterSection({ title, children, defaultOpen = true, active }: {
     <section className="filter-section" data-filter-section={id} aria-labelledby={`${contentId}-label`} hidden={!hit}>
       <h3 className="filter-section-heading">
         <button type="button" className="filter-section-toggle" aria-expanded={open} aria-controls={contentId} id={`${contentId}-label`} disabled={!!query}
+          aria-label={count > 0 ? `${title} ${count} active` : title}
           onClick={() => panel.toggle(id, !open)}>
           <DisclosureChevron open={open} />
           <span className="filter-section-title">{title}</span>
-          {count > 0 && <span className="ui-tab-count filter-section-count" aria-label={`${count} active`}>{count}</span>}
+          {count > 0 && <span className="ui-tab-count filter-section-count" aria-hidden="true">{count}</span>}
         </button>
       </h3>
       <div id={contentId} ref={content} className="filter-section-body" hidden={!open}>{children}</div>

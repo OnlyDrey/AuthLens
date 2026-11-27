@@ -1,7 +1,7 @@
 import {test,expect,type Page,type Locator} from '@playwright/test'
 import {readFileSync} from 'node:fs'
 import {seedGovernance,cleanup,names,openSod,headers} from './sod-fixture'
-import {goTo,openSettings,postConfiguration} from './support'
+import {expandFilterSection,goTo,openSettings,postConfiguration} from './support'
 import {setReviewerName} from './reviewer-profile'
 
 let directory='',groupName='',otherName=''
@@ -73,6 +73,7 @@ test('population filters are available across user views and fit the narrow layo
  await goTo(page,'Compare Users') // NAV-2/3: a Users page, opened from Reviews through the navigation
  await expect(page.getByRole('combobox',{name:'Functional Group',exact:true})).toBeVisible()
  await goTo(page,'Release Access')
+ await expandFilterSection(page,'Population') // FLT-01/02: Release Access leads with Release classification; Population is collapsed by default
  await expect(page.getByRole('combobox',{name:'Functional Group',exact:true})).toBeVisible()
  await expect(page.getByRole('textbox',{name:'Exact usernames',exact:true})).toBeVisible()
  await openSettings(page,'Data Sources');await page.getByRole('tab',{name:'Employee Directory',exact:true}).click()

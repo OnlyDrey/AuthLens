@@ -82,7 +82,8 @@ test('category keyboard navigation, typeahead, selected icon and outside dismiss
   await expect(control.locator('[title]').first()).toHaveAttribute('title',`MM — ${longName} (2)`)
   await control.press('Enter');await control.press('Tab')
   await expect(control).toHaveAttribute('aria-expanded','false')
-  await control.click();await page.getByRole('searchbox',{name:'Search roles by name or description',exact:true}).click()
+  // outside dismissal: Role categories is the last filter group (FLT-01), so its list may open upwards over the search field; click outside it
+  await control.click();await page.getByRole('heading',{name:'Role Lookup',exact:true}).click()
   await expect(control).toHaveAttribute('aria-expanded','false')
   await expect(page.getByRole('article')).toHaveCount(2)
 })

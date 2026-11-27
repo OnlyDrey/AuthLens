@@ -35,6 +35,7 @@ for (const descending of [false, true]) test(`user global navigation crosses bou
   await page.goto('/#session=browser-test-session')
   await destination(page, 'Users')
   const list = page.getByRole('region', { name: 'Users', exact: true })
+  await page.getByRole('combobox', { name: 'User pages: rows per page', exact: true }).selectOption('50') // precondition: users 49 to 75 on one page (TBL-03 default is 25)
   const filteredResponse = page.waitForResponse(response => {
     const url = new URL(response.url())
     return url.pathname === '/api/access/users' && !url.searchParams.has('anchor') && url.searchParams.get('search') === 'DEMO_' && url.searchParams.getAll('groups').join() === 'GROUP_KEEP' && url.searchParams.get('sort') === 'first_name' && url.searchParams.get('descending') === String(descending)
@@ -95,7 +96,7 @@ test('complete release list preserves descending tie order and returns focus to 
   await list.getByRole('combobox', { name: 'Sort release roles', exact: true }).selectOption('assigned_users')
   await setDescending(list, true)
   const pager = list.getByRole('navigation',{name:'Release role pages'})
-  await pager.getByRole('combobox',{name:'Release role pages: rows per page'}).selectOption('100')
+  await list.getByRole('combobox',{name:'Release role pages: rows per page'}).selectOption('100') // TBL-03: the selector is in the table toolbar
   await expect(pager.getByRole('status')).toHaveText('1–100 of 125')
   await expect(list.getByRole('button',{name:'Release role details',exact:true})).toHaveCount(100)
   await list.getByRole('button', { name: 'Release role details', exact: true }).filter({ hasText: role(25) }).click()
@@ -139,6 +140,7 @@ test('direct user and release investigations locate global position and handle r
 test('a removed last-page record disables traversal and clamps an obsolete origin page', async ({ page, request }) => {
   await page.goto('/#session=browser-test-session'); await destination(page, 'Users')
   const list = page.getByRole('region', { name: 'Users', exact: true })
+  await page.getByRole('combobox', { name: 'User pages: rows per page', exact: true }).selectOption('50') // precondition: pages of 50 (TBL-03 default is 25)
   await pickMulti(list, 'SAP user group', 'GROUP_KEEP', page)
   const pages = page.getByRole('navigation', { name: 'User pages' })
   await pages.getByRole('button', { name: 'Next', exact: true }).click()
@@ -157,6 +159,8 @@ test('a removed last-page record disables traversal and clamps an obsolete origi
   await expect(page.getByText('This record is missing or no longer matches these filters.', { exact: false })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Detail records' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Back to users', exact: true }).click()
-  await expect(pages).toHaveCount(0) // single-page evidence has no pager
+  // TBL-03: a paged result table always shows its range; a single page has nowhere to go
+  await expect(pages.getByRole('status')).toHaveText('1–1 of 1')
+  await expect(pages.getByRole('button', { name: 'Next', exact: true })).toBeDisabled(); await expect(pages.getByRole('button', { name: 'Previous', exact: true })).toBeDisabled()
   await expect(list.getByRole('link', { name: user(0), exact: true })).toBeVisible()
 })

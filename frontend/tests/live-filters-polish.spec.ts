@@ -3,7 +3,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, setDescending, sortDirection, pickMulti, postConfiguration, goTo } from './support'
+import { headers, expandFilterSection, setDescending, sortDirection, pickMulti, postConfiguration, goTo } from './support'
 let directory: string
 const catalogue = 'FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,CHILD_AGR_TEXT,TCODE,TTEXT\nMM,ZC:MM:BUY:*,Purchasing,ZS:BUY,MM - Purchasing - Display,MIGO,Goods movement\nMM,ZC:MM:BUY:*,Purchasing,ZS:BUY,MM - Purchasing - Display,ME21N,Create purchase order\nSD,ZC:SD:VIEW:*,Sales,ZS:VIEW,SD - Sales - Display,VA03,Display sales order\nSD,ZC:SD:VIEW:*,Sales,ZS:VIEW,SD - Sales - Display,ME21N,Create purchase order\nFI,ZC:FI:EMPTY,No mappings,ZS:EMPTY,Missing exported mappings,,\n'
 test.beforeEach(async ({ request }) => {
@@ -111,6 +111,7 @@ test('evidence summary clear preserves directory search, group, sorting and expi
   await pickMulti(directory, 'SAP user group', 'G1', page)
   await directory.getByLabel('Sort users', { exact: true }).selectOption('last_name')
   await setDescending(directory, true)
+  await expandFilterSection(directory, 'Assignments') // FLT-02: collapsed by default
   await directory.getByLabel('Show expired assignments', { exact: true }).check()
   const clear = summary.getByRole('button', { name: 'Remove transaction MIGO', exact: true })
   await expect(clear.locator('.lucide-x')).toBeVisible()

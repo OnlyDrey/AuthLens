@@ -90,6 +90,12 @@ export const resetConfiguration = (request: APIRequestContext) => request.post('
 
 export const mainNavigation = (page: Page) => page.getByRole('navigation', { name: 'Main navigation', exact: true })
 
+/** FLT-02: open a filter group that is collapsed (by default or by preference), as a user would; an open group is left as it is. */
+export async function expandFilterSection(scope: Page | Locator, title: string) {
+  const toggle = scope.locator(`.filter-section-toggle:has(.filter-section-title:text-is("${title}"))`).first()
+  if (await toggle.getAttribute('aria-expanded') === 'false') await toggle.click()
+}
+
 /** Default landing page of each multi-page module (NAV-1) and the module of each subpage (NAV-2, NAV-3, NAV-4). */
 const moduleLanding: Record<string, string> = { Users: 'User Directory', SoD: 'Overview', Reviews: 'Overview', Reports: 'Review Reports' }
 const subpageModule: Record<string, string> = {

@@ -4,7 +4,7 @@ import {mkdtempSync,writeFileSync,readFileSync,rmSync} from 'node:fs'
 import {randomUUID} from 'node:crypto'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import { headers, goTo, parseDelimited, postConfiguration, selectSettingsSection } from './support'
+import { headers, expandFilterSection, goTo, parseDelimited, postConfiguration, selectSettingsSection } from './support'
 import { layoutMatrix } from './matrix'
 test.setTimeout(45_000)
 const columns='Site;Name;SamAccountName;UserPrincipalName;Mail;Department;Title;Enabled;DistinguishedName;ManagerDN;ManagerName;ManagerSamAccountName;ManagerMail;ManagerDepartment;ManagerTitle;ManagerLookupStatus'
@@ -146,7 +146,7 @@ test('task 31 directory exports all assignments for filtered users with explicit
  const file=await downloadAssignments(page)
  expect(file.rows).toHaveLength(5);expect(file.rows.some(row=>row.ASSIGNMENT_STATUS==='Expired')).toBe(false);expect(new Set(file.rows.map(row=>row.USERNAME))).toEqual(new Set([userA]));expect(file.rows.filter(row=>row.MATCHED_FILTER==='Yes')).toHaveLength(1)
   expect(file.rows.find(row=>row.ROLE_NAME.includes('PO_REL'))?.MATCHED_FILTER).toBe('No')
- await page.getByLabel('Show expired assignments',{exact:true}).check();const expired=await downloadAssignments(page);expect(expired.rows).toHaveLength(7);expect(expired.rows.filter(row=>row.MATCHED_FILTER==='Yes')).toHaveLength(2)
+ await expandFilterSection(page,'Assignments');await page.getByLabel('Show expired assignments',{exact:true}).check();const expired=await downloadAssignments(page);expect(expired.rows).toHaveLength(7);expect(expired.rows.filter(row=>row.MATCHED_FILTER==='Yes')).toHaveLength(2)
  await page.getByLabel('Search users',{exact:true}).fill('NO_SYNTHETIC_MATCH');await expect(page.getByRole('button',{name:'Export CSV',exact:true})).toBeDisabled()
 })
 test('task 31 release Table and Matrix export identical filtered intervals',async({page,request})=>{
@@ -160,7 +160,7 @@ test('task 31 release Table and Matrix export identical filtered intervals',asyn
 })
 test('task 31 export includes users beyond visible pagination',async({page,request})=>{
  writeFileSync(users,readFileSync(users,'utf8')+Array.from({length:125},(_,i)=>`PAGE_${String(i).padStart(3,'0')},ZC:SYN:B,SYN_PAGE,Synthetic,Page,,20000101,99991231,0,20000101,99991231\n`).join(''));await request.post('/api/refresh',{headers})
- await page.goto('/#session=browser-test-session');await goTo(page,'Users');await page.getByLabel('Search users',{exact:true}).fill('PAGE_');await expect(page.locator('.user-directory-table tbody tr')).toHaveCount(50)
+ await page.goto('/#session=browser-test-session');await goTo(page,'Users');await page.getByLabel('Search users',{exact:true}).fill('PAGE_');await expect(page.locator('.user-directory-table tbody tr')).toHaveCount(25) // one page of the TBL-03 default; the export still has all 125
  const file=await downloadAssignments(page);expect(file.rows).toHaveLength(125);expect(new Set(file.rows.map(row=>row.USERNAME)).size).toBe(125)
 })
 test('task 31 stale export metadata is rejected before a download',async({page})=>{

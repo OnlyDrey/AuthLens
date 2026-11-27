@@ -20,7 +20,8 @@ test('catalogue search visual order matches keyboard order and cards contain lon
  // Visual order (top to bottom) = DOM order = Tab order.
  await expect(tc).not.toBeFocused()
  const exclude=page.getByRole('textbox',{name:'Exclude roles by transaction',exact:true})
- const [nameBox,tcBox,excludeBox]=[(await name.boundingBox())!,(await tc.boundingBox())!,(await exclude.boundingBox())!]
+ // one synchronous measurement: separate boundingBox calls could straddle a scroll of the filter sidebar (seen only in long combined runs)
+ const [nameBox,tcBox,excludeBox]=await page.evaluate(()=>['Search roles by name or description','Filter catalogue by transaction','Exclude roles by transaction'].map(label=>{const b=document.querySelector(`[role="complementary"] [aria-label="${label}"]`)!.getBoundingClientRect();return {x:b.x,y:b.y,width:b.width,height:b.height}}))
  expect(nameBox.y+nameBox.height).toBeLessThanOrEqual(tcBox.y);expect(tcBox.y+tcBox.height).toBeLessThanOrEqual(excludeBox.y)
  expect(await name.evaluate((el,other)=>!!(el.compareDocumentPosition(other as Node)&Node.DOCUMENT_POSITION_FOLLOWING),await tc.elementHandle())).toBe(true)
  await tc.focus();await page.keyboard.press('Tab');await expect(exclude).toBeFocused()

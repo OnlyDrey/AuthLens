@@ -2,7 +2,7 @@ import { test, expect, type Page, type Locator } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, goTo, postConfiguration } from './support'
+import { headers, expandFilterSection, goTo, postConfiguration } from './support'
 
 // WP30 (DASH-001 to DASH-015): one dashboard with a global and a filtered mode. BUG-014: its filters use the shared FilterLayout (integrated
 // left sidebar on wide screens, the shared drawer on narrow ones) like User Access. Synthetic data only.
@@ -166,6 +166,7 @@ test('access matching mode requires one assignment to match every access filter'
   await choose(panel, page, 'Assigned transaction', /^ME21N/)
   await panel.getByRole('button', { name: 'Apply filters', exact: true }).first().click()
   await expect(usersValue(page)).toHaveText('1')                                             // DEMO_ONE: MM:A and ME21N through different roles
+  await expandFilterSection(panel, 'Access matching') // FLT-02: a secondary group, collapsed by default
   await panel.getByRole('radio', { name: /^Matching access/ }).check()
   await panel.getByRole('button', { name: 'Apply filters', exact: true }).first().click()
   await expect(usersValue(page)).toHaveText('0')                                             // no single assignment carries both

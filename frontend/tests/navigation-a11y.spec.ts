@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, postConfiguration, goTo, openFilters, closeFilters } from './support'
+import { headers, postConfiguration, goTo, openFilters, closeFilters, expandFilterSection } from './support'
 let directory: string
 const roles = `FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,CHILD_AGR_TEXT,TCODE,TTEXT
 MM,ZC:MM:A,Alpha purchasing,ZS:A1,MM - Purchasing,MIGO,Goods movement
@@ -113,7 +113,11 @@ const accessibleName = (page: Page) => page.evaluate(() => {
 test.describe('User Directory keyboard order', () => {
   // Reading order = DOM order: page toolbar, then the filter sidebar (wide) or no sidebar stops (narrow drawer is closed), then the results.
   // The search and exact-username filters lead the sidebar; DOM, visual (top to bottom) and Tab order were verified to agree (TS-1).
-  const wide = ['Hide filters', 'Sort users', 'Ascending order, switch to descending', 'Clear filters', 'Close filters', 'Saved filters', 'Search users', 'Exact usernames', 'SAP user group', 'Functional Group', 'Manager', 'Filter users by role', 'Roles the user must lack', 'Filter users by transaction', 'Exclude users by transaction', 'Currently valid roles', 'Show expired assignments']
+  // FLT-01/02/03: the panel's filter discovery and Expand/Collapse all, then each group header followed by its fields; the collapsed Assignments
+  // group keeps its fields out of the Tab order. DOM, visual (top to bottom within the scrolling sidebar) and Tab order measured to agree.
+  const wide = ['Hide filters', 'Sort users', 'Ascending order, switch to descending', 'Clear filters', 'Close filters', 'Find a filter', 'Expand all filter groups', 'Collapse all filter groups',
+    'Saved Filters', 'Saved filters', 'Search 1 active', 'Search users', 'Population', 'Exact usernames', 'SAP user group', 'Organization', 'Functional Group', 'Manager',
+    'Access', 'Filter users by role', 'Roles the user must lack', 'Filter users by transaction', 'Exclude users by transaction', 'Assignments']
   // Below 1024 px the search is in the filter drawer; after a search the page reads toolbar, then the active-filter chip (verified, TS-1).
   const narrow = ['Filters', 'Sort users', 'Ascending order, switch to descending', 'Remove user search filter']
   for (const width of [375, 800, 1280, 1600]) test(`Tab and Shift+Tab follow the reading order at ${width}`, { tag: ['@visual', '@a11y'] }, async ({ page }) => {
@@ -138,6 +142,7 @@ test.describe('User Directory keyboard order', () => {
   test('the expired checkbox label is clickable and keyboard operable; dropdowns do not move focus into other controls', { tag: '@a11y' }, async ({ page }) => {
     await page.goto('/#session=browser-test-session')
     await main(page).getByRole('link', { name: 'Users', exact: true }).click()
+    await expandFilterSection(page, 'Assignments') // FLT-02: a secondary group, collapsed by default
     const expired = page.getByRole('checkbox', { name: 'Show expired assignments', exact: true })
     await page.getByText('Show expired assignments', { exact: true }).click()
     await expect(expired).toBeChecked()
@@ -149,6 +154,8 @@ test.describe('User Directory keyboard order', () => {
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('Escape')
     await expect(group).toBeFocused()
+    await page.keyboard.press('Tab')
+    expect(await accessibleName(page)).toBe('Organization') // FLT-02: the next group's header is the next stop in reading order
     await page.keyboard.press('Tab')
     expect(await accessibleName(page)).toBe('Functional Group')
   })

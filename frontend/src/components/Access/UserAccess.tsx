@@ -283,7 +283,7 @@ export function UserAccess({
                 {(LEGACY_ASSIGNMENT_BANDS as readonly string[]).includes(assignmentBand) && <option value={assignmentBand}>{assignmentBand} roles (saved range)</option>}
               </Select>
             </Filter>
-            <label className="filter-toggle"><input type="checkbox" checked={expired} onChange={(e) => setExpired(e.target.checked)} />Show expired assignments</label>
+            <label className="filter-toggle" data-filter-active={expired || undefined}><input type="checkbox" checked={expired} onChange={(e) => setExpired(e.target.checked)} />Show expired assignments</label>
           </FilterSection>
         </div>}>
       <div className="grid min-w-0 gap-4">

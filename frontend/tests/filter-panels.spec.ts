@@ -53,9 +53,9 @@ test('FLT-02 sections collapse independently, remember their state per workspace
   await expect(toggle(sidebar, 'Assignments')).toHaveAttribute('aria-expanded', 'true')
   await expect(toggle(sidebar, 'Organization')).toHaveAttribute('aria-expanded', 'true')
   // Collapse all / Expand all
-  await sidebar.getByRole('button', { name: 'Collapse all', exact: true }).click()
+  await sidebar.getByRole('button', { name: 'Collapse all filter groups', exact: true }).click()
   for (const title of ['Search', 'Population', 'Organization', 'Access', 'Assignments']) await expect(toggle(sidebar, title)).toHaveAttribute('aria-expanded', 'false')
-  await sidebar.getByRole('button', { name: 'Expand all', exact: true }).click()
+  await sidebar.getByRole('button', { name: 'Expand all filter groups', exact: true }).click()
   for (const title of ['Search', 'Population', 'Organization', 'Access', 'Assignments']) await expect(toggle(sidebar, title)).toHaveAttribute('aria-expanded', 'true')
   await expect(sidebar.getByRole('group', { name: /SAP user group/ }).or(sidebar.getByRole('button', { name: /^Remove SAP user group G1/ })).first()).toBeVisible() // the value is still there
   // the state is remembered for this workspace across navigation and reload, not shared with another workspace
