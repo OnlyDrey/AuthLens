@@ -2,7 +2,7 @@ import { test, expect, type Locator, type Page } from '@playwright/test'
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, goTo, setDescending, sortDirection, postConfiguration } from './support'
+import { headers, goTo, setDescending, sortDirection, postConfiguration, selectSettingsSection } from './support'
 import { layoutMatrix } from './matrix'
 let root: string
 const mode = async (page: Page, name: string) => {
@@ -352,6 +352,10 @@ test('saved filters save load rename update delete and survive page reload', { t
   ).toHaveCount(0)
   await goTo(page, 'Users')
   await openSaved(page, viewForBar)
+  // Main navigation opens a fresh page (BUG-08), so no saved filter is selected; Delete acts on the chosen filter only
+  await expect(bar.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0)
+  await choose(page, 'Saved filter', 'Renamed')
+  await openSaved(page, viewForBar)
   page.once('dialog', (d) => d.accept())
   await bar.getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(
@@ -396,7 +400,7 @@ test('Data Health coverage and drilldown navigate to existing records', async ({
 }) => {
   await page.goto('/#session=browser-test-session')
   await page.getByRole('button', { name: 'Open settings', exact: true }).click()
-  await page.getByRole('tab', { name: 'Data Sources', exact: true }).click()
+  await selectSettingsSection(page,'Data Sources')
   await expect(
     page.getByText('Data Health & Coverage', { exact: true }),
   ).toBeVisible()
@@ -593,6 +597,9 @@ test('Role Lookup saved filters restore multi-transaction and sorting controls',
   await bar.getByLabel('Saved filter name').fill('Catalogue investigation')
   await bar.getByRole('button', { name: 'Save as new', exact: true }).click()
   await expect(bar).toContainText('Saved filters updated.')
+  // The grown popover flips above its trigger and covers the sidebar header (non-modal, by design); close it as a user would (TS-1)
+  await page.keyboard.press('Escape')
+  await expect(bar).toHaveCount(0)
   await page
     .getByRole('complementary', { name: 'Filters' })
     .locator('header')
@@ -680,7 +687,7 @@ for (const { theme, width } of layoutMatrix([375, 800, 1280]))
       await page
         .getByRole('button', { name: 'Open settings', exact: true })
         .click()
-      await page.getByRole('tab', { name: 'Data Sources', exact: true }).click()
+      await selectSettingsSection(page,'Data Sources')
       await expect(
         page.getByText('Data Health & Coverage', { exact: true }),
       ).toBeVisible()

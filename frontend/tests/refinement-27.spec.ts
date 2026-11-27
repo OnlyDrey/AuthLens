@@ -2,10 +2,10 @@ import {test,expect,type Page,type APIRequestContext} from '@playwright/test'
 import {mkdtempSync,writeFileSync,rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import { headers, goTo, postConfiguration } from './support'
+import { headers, goTo, postConfiguration, selectSettingsSection } from './support'
 let directory:string,userPath:string
 const config=async(request:APIRequestContext)=>(await(await request.get('/api/configuration',{headers})).json()).settings
-const settings=async(page:Page,tab:string)=>{await page.getByRole('button',{name:'Open settings',exact:true}).click();await page.getByRole('tab',{name:tab,exact:true}).click()}
+const settings=async(page:Page,tab:string)=>{await page.getByRole('button',{name:'Open settings',exact:true}).click();await selectSettingsSection(page,tab)}
 test.beforeEach(async({request})=>{
  await request.post('/api/configuration/reset',{headers});directory=mkdtempSync(path.join(tmpdir(),'authlens-refine-'));userPath=path.join(directory,'users.csv');const rolePath=path.join(directory,'roles.csv')
  writeFileSync(rolePath,'FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,TCODE\nMM,ZC:SYN:A,Synthetic Alpha,ZS:SYN:ONE,MIGO\nMM,ZC:SYN:B,Synthetic Beta,ZS:SYN:ONE,MIGO\nMM,ZC:SYN:B,Synthetic Beta,ZS:SYN:TWO,ME23N\nBC,ZC:SYN:'+ 'LONG_'.repeat(25)+',Synthetic Long,ZS:SYN:THREE,VA03\n')
@@ -16,9 +16,14 @@ test.afterEach(async({request})=>{await request.post('/api/configuration/reset',
 test('catalogue search visual order matches keyboard order and cards contain long identifiers',{ tag: '@a11y' }, async({page})=>{
  await page.goto('/#session=browser-test-session');await goTo(page,'Role Lookup')
  const tc=page.getByRole('textbox',{name:'Filter catalogue by transaction',exact:true}),name=page.getByPlaceholder('Search roles by name or description...')
- await expect(tc).not.toBeFocused();expect((await tc.boundingBox())!.x).toBeLessThan((await name.boundingBox())!.x)
- const exclude=page.getByRole('textbox',{name:'Exclude roles by transaction',exact:true});await tc.focus();await page.keyboard.press('Tab');await expect(exclude).toBeFocused() // include group, then exclude group, then the role search: DOM order = visual order
- expect((await exclude.boundingBox())!.y).toBeGreaterThan((await tc.boundingBox())!.y);expect((await name.boundingBox())!.x).toBeGreaterThan((await exclude.boundingBox())!.x)
+ // The controls are stacked in the shared filter sidebar: role search, categories, saved filters, then the include and exclude transaction groups.
+ // Visual order (top to bottom) = DOM order = Tab order.
+ await expect(tc).not.toBeFocused()
+ const exclude=page.getByRole('textbox',{name:'Exclude roles by transaction',exact:true})
+ const [nameBox,tcBox,excludeBox]=[(await name.boundingBox())!,(await tc.boundingBox())!,(await exclude.boundingBox())!]
+ expect(nameBox.y+nameBox.height).toBeLessThanOrEqual(tcBox.y);expect(tcBox.y+tcBox.height).toBeLessThanOrEqual(excludeBox.y)
+ expect(await name.evaluate((el,other)=>!!(el.compareDocumentPosition(other as Node)&Node.DOCUMENT_POSITION_FOLLOWING),await tc.elementHandle())).toBe(true)
+ await tc.focus();await page.keyboard.press('Tab');await expect(exclude).toBeFocused()
  for(const card of await page.locator('article.role-card').all()){const box=(await card.boundingBox())!;expect(box.x+box.width).toBeLessThanOrEqual(1280);await expect(card.getByRole('button',{name:/View details/})).toHaveCSS('min-height','34px')}
  await tc.fill('MIGO');await expect(page.locator('article.role-card')).toHaveCount(2)
 })
@@ -86,14 +91,16 @@ for(const theme of ['light','dark'])for(const width of [375,800,1280,1600])test(
  const value=await config(request);value.theme=theme;await postConfiguration(request, value);await page.setViewportSize({width,height:1000});await page.goto('/#session=browser-test-session')
  const capture=async(name:string)=>{expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();await page.screenshot({path:info.outputPath(name+'.png'),fullPage:true})}
  const distribution=(await page.getByRole('region',{name:'Role Distribution',exact:true}).boundingBox())!,sources=(await page.getByRole('region',{name:'Data Sources & Configuration',exact:true}).boundingBox())!;expect(sources.y).toBeGreaterThan(distribution.y)
- await capture('dashboard');await goTo(page,'Role Lookup');await capture('role-cards');await page.getByRole('button',{name:'View details for Synthetic Long',exact:true}).click();await capture('role-details');await page.getByRole('button',{name:'Close role details',exact:true}).click();await settings(page,'Appearance & Branding');await capture('appearance');await page.getByLabel('Logo file location',{exact:true}).scrollIntoViewIfNeeded();await capture('logo-controls');await page.getByRole('tab',{name:'SAP Modules',exact:true}).click();await page.getByRole('button',{name:/Edit MM —/}).click();await capture('module-dialog');await page.keyboard.press('Escape');await page.getByRole('tab',{name:'Component Library',exact:true}).click();await page.getByRole('tab',{name:'Status & Feedback',exact:true}).click();await page.emulateMedia({reducedMotion:'reduce'});await expect(page.locator('.animate-spin').first()).toHaveCSS('animation-name','none');await capture('component-library');await page.getByRole('tab',{name:'Runtime & Scheduling',exact:true}).click();await capture('runtime-scheduling')
+ await capture('dashboard');await goTo(page,'Role Lookup');await capture('role-cards');await page.getByRole('button',{name:'View details for Synthetic Long',exact:true}).click();await capture('role-details');await page.getByRole('button',{name:'Close role details',exact:true}).click();await settings(page,'Appearance & Branding');await capture('appearance');await page.getByLabel('Logo file location',{exact:true}).scrollIntoViewIfNeeded();await capture('logo-controls');await selectSettingsSection(page,'SAP Modules');await page.getByRole('button',{name:/Edit MM —/}).click();await capture('module-dialog');await page.keyboard.press('Escape');await selectSettingsSection(page,'Component Library');await page.getByRole('tab',{name:'Status & Feedback',exact:true}).click();await page.emulateMedia({reducedMotion:'reduce'});await expect(page.locator('.animate-spin').first()).toHaveCSS('animation-name','none');await capture('component-library');await selectSettingsSection(page,'Runtime & Scheduling');await capture('runtime-scheduling')
 })
 
 test('profile match placement and manual review wording preserve separate account evidence',async({page})=>{
  await page.goto('/#session=browser-test-session');await goTo(page,'Users');await page.getByRole('link', { name: 'SYN_REVIEW',exact:true}).click()
  const identity=page.getByRole('region',{name:'User profile',exact:true});await expect(identity.getByRole('button',{name:/Directory matching details/})).toBeVisible()
  await page.getByRole('button',{name:'Back to users',exact:true}).click();await goTo(page,'Account Review')
- const row=page.getByRole('row').filter({has:page.getByRole('link', { name: 'SYN_REVIEW',exact:true})});await expect(row).toContainText('No automated findings');await expect(row).not.toContainText('Pending manual review');await expect(row.getByRole('button',{name:'Needs review',exact:true})).toBeVisible();await expect(row.locator('.review-account-dates')).toHaveCount(0);await expect(row.locator('td').nth(4)).toContainText('Valid')
+ const row=page.getByRole('row').filter({has:page.getByRole('link', { name: 'SYN_REVIEW',exact:true})});await expect(row).toContainText('No automated findings');await expect(row).not.toContainText('Pending manual review');await expect(row.getByRole('button',{name:'Needs review',exact:true})).toBeVisible();await expect(row.locator('.review-account-dates')).toHaveCount(0)
+ const validity=row.locator(`[data-column-index="${await page.getByRole('table',{name:'Account Review results'}).getByRole('columnheader',{name:'SAP validity',exact:true}).getAttribute('data-column-index')}"]`) // by column, not position (Functional Group and Manager columns, f4cb364)
+ await expect(validity).toContainText('Valid')
 })
 
 test('release fields align and Data Health reuses canonical source state',async({page})=>{

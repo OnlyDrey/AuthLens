@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, postConfiguration } from './support'
+import { headers, postConfiguration, goTo, openFilters, closeFilters } from './support'
 let directory: string
 const roles = `FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,CHILD_AGR_TEXT,TCODE,TTEXT
 MM,ZC:MM:A,Alpha purchasing,ZS:A1,MM - Purchasing,MIGO,Goods movement
@@ -112,16 +112,19 @@ const accessibleName = (page: Page) => page.evaluate(() => {
 
 test.describe('User Directory keyboard order', () => {
   // Reading order = DOM order: page toolbar, then the filter sidebar (wide) or no sidebar stops (narrow drawer is closed), then the results.
-  const wide = ['Hide filters', 'Sort users', 'Ascending order, switch to descending', 'Clear filters', 'Close filters', 'Saved filters', 'SAP User Group', 'Functional Group', 'Manager', 'Filter users by role', 'Roles the user must lack', 'Filter users by transaction', 'Exclude users by transaction', 'Currently valid roles', 'Show expired assignments', 'Search users']
-  const narrow = ['Filters', 'Sort users', 'Ascending order, switch to descending', 'Search users']
+  // The search and exact-username filters lead the sidebar; DOM, visual (top to bottom) and Tab order were verified to agree (TS-1).
+  const wide = ['Hide filters', 'Sort users', 'Ascending order, switch to descending', 'Clear filters', 'Close filters', 'Saved filters', 'Search users', 'Exact usernames', 'SAP User Group', 'Functional Group', 'Manager', 'Filter users by role', 'Roles the user must lack', 'Filter users by transaction', 'Exclude users by transaction', 'Currently valid roles', 'Show expired assignments']
+  // Below 1024 px the search is in the filter drawer; after a search the page reads toolbar, then the active-filter chip (verified, TS-1).
+  const narrow = ['Filters', 'Sort users', 'Ascending order, switch to descending', 'Remove user search filter']
   for (const width of [375, 800, 1280, 1600]) test(`Tab and Shift+Tab follow the reading order at ${width}`, { tag: ['@visual', '@a11y'] }, async ({ page }) => {
     const order = width >= 1024 ? wide : narrow
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/#session=browser-test-session')
-    if(width<1024)await page.getByRole('button',{name:'Open navigation',exact:true}).click()
-    await main(page).getByRole('link', { name: 'Users', exact: true }).click()
+    await goTo(page, 'Users') // the navigation drawer below 1024 px
+    await openFilters(page)
     await page.getByLabel('Search users', { exact: true }).fill('DEMO')
     await expect(page.getByLabel('Search users', { exact: true })).toHaveValue('DEMO')
+    await closeFilters(page)
     await page.getByRole('toolbar', { name: 'Page actions' }).getByRole('button').first().focus()
     const forward = [await accessibleName(page)]
     for (let step = 1; step < order.length; step++) { await page.keyboard.press('Tab'); forward.push(await accessibleName(page)) }
@@ -205,6 +208,6 @@ test('SoD secondary navigation shows an icon for every view', { tag: '@a11y' }, 
   await page.goto('/#session=browser-test-session')
   await main(page).getByRole('link', { name: 'SoD', exact: true }).click()
   const links = page.getByRole('navigation', { name: 'SoD views', exact: true }).getByRole('link')
-  await expect(links).toHaveCount(7)
+  await expect(links).toHaveText(['Overview', 'Risk Matrix', 'Activity Matrix', 'Access Explorer']) // review pages moved to Reviews (e457ab6)
   for (const link of await links.all()) await expect(link.locator('svg')).toHaveCount(1)
 })

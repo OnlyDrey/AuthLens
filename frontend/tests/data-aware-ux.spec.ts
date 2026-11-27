@@ -201,7 +201,12 @@ test('stale desktop session recovers through a trusted document without replayin
   const headers={...response.headers(),'content-security-policy':response.headers()['content-security-policy'].replace("script-src 'self'","script-src 'self' 'nonce-synthetic-recovery'")}
   await route.fulfill({response,headers,body})
  })
+ // Synchronize on the write itself: the page's earlier state already satisfies the checks below, so without this they could run before the
+ // refused POST was sent (TS-1: the intermittent posts=0 failure). A background read may start the recovery first; the write is still sent once.
+ const write=page.waitForRequest(request=>request.method()==='POST'&&new URL(request.url()).pathname.startsWith('/api/'))
  await page.getByRole('button',{name:'Refresh role data from CSV',exact:true}).click()
+ await write
+ await expect.poll(()=>newReads).toBeGreaterThan(0)
  // Nothing typed would be lost and no restore ran lately, so the session is re-established automatically through the guarded document; the manual
  // button (covered by session-recovery.spec.ts) is only offered when that is not safe. The failed write is never replayed.
  await expect(page.getByRole('heading',{name:'Role Lookup',exact:true})).toBeVisible()

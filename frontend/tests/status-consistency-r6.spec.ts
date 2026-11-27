@@ -34,7 +34,7 @@ test('status labels are never lowercase enum values and Enabled, Disabled, Stati
   await expect(modes.first()).toBeVisible()
   for (let index = 0; index < await modes.count(); index++) await expect(modes.nth(index).locator('svg')).toHaveCount(1)
   await openSod(page); await check()
-  await page.getByRole('link', { name: 'Review Periods', exact: true }).click(); await check()
+  await goTo(page, 'Review Periods'); await check() // a Reviews page since e457ab6 (NAV-3)
   await page.getByRole('button', { name: 'Open settings', exact: true }).click()
   await page.getByRole('tab', { name: 'Health & Diagnostics', exact: true }).click(); await check()
   const enabled = page.locator('.evidence-badge', { hasText: /^(Enabled|Disabled)$/ })

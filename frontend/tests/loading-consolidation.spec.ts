@@ -395,7 +395,7 @@ test('restored user detail waits for the startup publication instead of flashing
   ).toContainText('Demo One')
 })
 
-test('Dashboard catalogue action leaves comparison mode and preserves unrelated user filters', async ({
+test('Dashboard catalogue action leaves comparison mode; a main-navigation return to Users opens it fresh (BUG-08)', async ({
   page,
   request,
 }) => {
@@ -424,8 +424,10 @@ test('Dashboard catalogue action leaves comparison mode and preserves unrelated 
     .getByRole('button', { name: 'Catalogue roles', exact: true })
     .click()
   await expect(page.getByRole('article')).toHaveCount(2)
+  await expect(page.getByRole('button', { name: 'Back to roles', exact: false })).toHaveCount(0)
+  // Main navigation is a page boundary (BUG-08, docs/architecture/NAVIGATION.md): the earlier temporary search is not restored silently
   await goTo(page, 'Users')
   await expect(
     page.getByRole('textbox', { name: 'Search users', exact: true }),
-  ).toHaveValue('ONE')
+  ).toHaveValue('')
 })

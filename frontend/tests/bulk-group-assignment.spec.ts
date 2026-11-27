@@ -58,8 +58,14 @@ test('bulk assignment: toolbar order, replacement confirmation, results, profile
   await submit.click()
   await expect(dialog).toContainText('2 users updated')
   await dialog.getByRole('button', { name: 'Done', exact: true }).click()
-  await expect(row(page, 'BULK_A')).toContainText(target); await expect(row(page, 'BULK_B')).toContainText(target)
-  await expect(row(page, 'BULK_B')).toContainText(other)                                                   // the existing membership is kept
+  // BUG-013 one-pill cell: the first group is named and further groups are behind +X, whose list holds the full membership.
+  // Both selected groups were added to both users; BULK_B keeps its earlier membership.
+  for (const user of ['BULK_A', 'BULK_B']) {
+    await row(page, user).getByRole('button', { name: `Show all 2 Functional Groups of ${user}`, exact: true }).click()
+    const membership = page.getByRole('dialog', { name: `Functional Groups of ${user}`, exact: true })
+    await expect(membership).toContainText(target); await expect(membership).toContainText(other)
+    await page.keyboard.press('Escape'); await expect(membership).toHaveCount(0)
+  }
   await expect(row(page, 'BULK_C')).toContainText('Unassigned')
   // Clear selection keeps data and filters
   await page.getByRole('button', { name: 'Clear selection' }).click()
