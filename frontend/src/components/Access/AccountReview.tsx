@@ -432,12 +432,24 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
           <Kpi label="Pending review" value={value('position_changes')?.toLocaleString() ?? 'Unavailable'} tone={kpiTone('position_changes', value('position_changes'))} active={positionStatus === 'pending' && !positionType} onClick={() => show('pending', '')} />
         </section>}
         {summary && <p className="ui-description">Department and job title changes overlap: {(value('position_both') ?? 0).toLocaleString()} changed both. Figures cover the selected population; status and change type narrow the table.</p>}
-        <FilterLayout label="Filters" activeCount={active} onClear={clearPositions} clearDisabled={!active}
+        <FilterLayout workspace="position-changes" label="Filters" activeCount={active} onClear={clearPositions} clearDisabled={!active}
           toolbar={<PageToolbar><SortControl label="Sort position changes" value={sort} options={SORTS} descending={descending} onChange={setSort} onDescending={setDescending} />
             <Button className="settings-secondary-button" disabled={busy || !data?.loaded || !data?.directory_available} onClick={() => void exportCSV()}><Download size={16} />Export position changes CSV</Button></PageToolbar>}
           sidebar={<div className="grid min-w-0 gap-3" role="search" aria-label="Position change filters">
             <FilterSection title="Search">
               <SearchInput className={inputClass} aria-label="Search position changes" placeholder="SAP username or employee" value={search} onChange={(e) => setSearch(e.target.value)} onClear={() => setSearch('')} />
+            </FilterSection>
+            
+            <FilterSection title="Population">
+              <ExactUsernameFilter values={usernames} onChange={setUsernames} max={500} />
+            </FilterSection>
+            <FilterSection title="Organization">
+              <FormField label="Functional Group">
+                <MultiSelectFilter label="Functional Group" values={groupFilter} options={(data?.functional_group_options || []).map(o => o.value)} optionLabel={item => data?.functional_group_options.find(o => o.value === item)?.label ?? item} onChange={setGroupFilter} placeholder="All Functional Groups" />
+              </FormField>
+              <FormField label="Manager">
+                <MultiSelectFilter label="Manager" values={managerFilter} options={(data?.manager_options || []).map(o => o.value)} optionLabel={item => { const o = data?.manager_options.find(entry => entry.value === item); return o ? `${o.label} (${o.count})` : item }} onChange={setManagerFilter} placeholder="All managers" />
+              </FormField>
             </FilterSection>
             <FilterSection title="Change">
               <FormField label="Change type">
@@ -449,15 +461,6 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
                 <Select value={positionStatus} onChange={(event) => setPositionStatus(event.target.value as typeof positionStatus)}>
                   <option value="pending">Pending review</option><option value="reviewed">Reviewed</option><option value="all">All</option>
                 </Select>
-              </FormField>
-            </FilterSection>
-            <FilterSection title="Organization">
-              <ExactUsernameFilter values={usernames} onChange={setUsernames} max={500} />
-              <FormField label="Functional Group">
-                <MultiSelectFilter label="Functional Group" values={groupFilter} options={(data?.functional_group_options || []).map(o => o.value)} optionLabel={item => data?.functional_group_options.find(o => o.value === item)?.label ?? item} onChange={setGroupFilter} placeholder="All Functional Groups" />
-              </FormField>
-              <FormField label="Manager">
-                <MultiSelectFilter label="Manager" values={managerFilter} options={(data?.manager_options || []).map(o => o.value)} optionLabel={item => { const o = data?.manager_options.find(entry => entry.value === item); return o ? `${o.label} (${o.count})` : item }} onChange={setManagerFilter} placeholder="All managers" />
               </FormField>
             </FilterSection>
           </div>}>
@@ -508,7 +511,7 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
           )}
         </>
       )}
-      <FilterLayout label="Filters" activeCount={(includeCompleted ? 1 : 0) + findings.length + licenses.length + states.length + groupFilter.length + managerFilter.length + (search ? 1 : 0)} onClear={clearAll} clearDisabled={!(includeCompleted || findings.length || licenses.length || states.length || groupFilter.length || managerFilter.length || search) && sort === 'username' && !descending}
+      <FilterLayout workspace="account-review" label="Filters" activeCount={(includeCompleted ? 1 : 0) + findings.length + licenses.length + states.length + groupFilter.length + managerFilter.length + (search ? 1 : 0)} onClear={clearAll} clearDisabled={!(includeCompleted || findings.length || licenses.length || states.length || groupFilter.length || managerFilter.length || search) && sort === 'username' && !descending}
         toolbar={<PageToolbar>
           <SortControl label="Sort account reviews" value={sort} options={SORTS} descending={descending} onChange={setSort} onDescending={setDescending} />
           <Button className="settings-secondary-button" disabled={busy || !data?.loaded} onClick={() => void exportCSV()}>
@@ -524,6 +527,19 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
           <FilterSection title="Search">
             <SearchInput className={inputClass} aria-label="Search account reviews" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} onClear={() => setSearch('')} />
           </FilterSection>
+          
+          <FilterSection title="Population">
+            <p className="ui-description">Progress and tiles cover the selected population, including completed reviews. Finding, classification, decision and completion filters narrow the work table.</p>
+            <ExactUsernameFilter values={usernames} onChange={setUsernames} max={500}/>
+          </FilterSection>
+          <FilterSection title="Organization">
+            <FormField label="Functional Group">
+              <MultiSelectFilter label="Functional Group" values={groupFilter} options={(data?.functional_group_options || []).map(o => o.value)} optionLabel={value => data?.functional_group_options.find(o => o.value === value)?.label ?? value} onChange={setGroupFilter} placeholder="All Functional Groups" />
+            </FormField>
+            <FormField label="Manager">
+              <MultiSelectFilter label="Manager" values={managerFilter} options={(data?.manager_options || []).map(o => o.value)} optionLabel={value => { const o = data?.manager_options.find(item => item.value === value); return o ? `${o.label} (${o.count})` : value }} onChange={setManagerFilter} placeholder="All managers" />
+            </FormField>
+          </FilterSection>
           <FilterSection title="Review">
             <FormField label="Review finding">
               <MultiSelectFilter label="Review finding" values={findings} options={findingOptions} optionLabel={findingLabel} onChange={setFindings} placeholder="All accounts · type to search" />
@@ -535,16 +551,6 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
               <MultiSelectFilter label="Review decision" values={states} options={data?.review_states || []} onChange={setStates} placeholder="All decisions" />
             </FormField>
             <Checkbox checked={includeCompleted} onChange={event => setIncludeCompleted(event.target.checked)}>Include completed reviews</Checkbox>
-          </FilterSection>
-          <FilterSection title="Organization">
-            <p className="ui-description">Progress and tiles cover the selected population, including completed reviews. Finding, classification, decision and completion filters narrow the work table.</p>
-            <ExactUsernameFilter values={usernames} onChange={setUsernames} max={500}/>
-            <FormField label="Functional Group">
-              <MultiSelectFilter label="Functional Group" values={groupFilter} options={(data?.functional_group_options || []).map(o => o.value)} optionLabel={value => data?.functional_group_options.find(o => o.value === value)?.label ?? value} onChange={setGroupFilter} placeholder="All Functional Groups" />
-            </FormField>
-            <FormField label="Manager">
-              <MultiSelectFilter label="Manager" values={managerFilter} options={(data?.manager_options || []).map(o => o.value)} optionLabel={value => { const o = data?.manager_options.find(item => item.value === value); return o ? `${o.label} (${o.count})` : value }} onChange={setManagerFilter} placeholder="All managers" />
-            </FormField>
           </FilterSection>
         </div>}>
       {(findings.length > 0 || licenses.length > 0 || states.length > 0 || groupFilter.length > 0 || managerFilter.length > 0 || usernames.length > 0 || search) && <div className="active-filter-row" aria-label="Active review filters">

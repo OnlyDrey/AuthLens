@@ -86,7 +86,7 @@ export function DashboardFilterControls({ value, onApply }: { value: DashboardFi
   const options = useQuery({ queryKey: dashboardFilterOptionsKey, queryFn: fetchDashboardFilterOptions, staleTime: 15_000 })
   const loading = options.isFetching && !options.data, directory = options.data?.directory_available ?? false
   const changed = JSON.stringify(draft) !== JSON.stringify(value)
-  const section = (area: string, title: string, note?: string) => <FilterSection title={title}>
+  const section = (area: string, title: string, note?: string, defaultOpen = true) => <FilterSection title={title} defaultOpen={defaultOpen}>
     {note && <p className="ui-description">{note}</p>}
     {area === 'organization' && <SubjectFilters compact value={draft} onChange={subject => setDraft({ ...draft, ...subject })} />}
     {DIMENSIONS.filter(d => d.area === area && (area !== 'organization' || directory || draft[d.key].length)).map(d => <Dimension key={d.key} dimension={d} value={draft} onChange={setDraft} options={options.data} loading={loading} />)}
@@ -96,16 +96,16 @@ export function DashboardFilterControls({ value, onApply }: { value: DashboardFi
     <p className="ui-description">Values combine with OR inside a filter and AND between filters. Only values present in the validated data are listed. Changes take effect on Apply.</p>
     {apply}
     <SavedFilters showClear={false} view="dashboard" state={{ ...draft }} apply={state => { const next = sanitize(state); setDraft(next); onApply(next) }} clear={() => setDraft(emptyDashboardFilters())} />
+    {section('sap', 'Population')}
     {section('organization', 'Organization', directory ? `Department, site, title and directory status come from ${options.data?.matched_identities.toLocaleString()} matched Employee Directory identities.` : 'Department, site, title and directory status need an enabled Employee Directory with matched identities.')}
-    {section('sap', 'SAP account')}
     {section('access', 'Access', 'Only currently valid assignments are considered. Organizational suffixes are final role-name segments used under at least two business-role stems.')}
-    <FilterSection title="Access matching">
+    <FilterSection title="Access matching" defaultOpen={false}>
       <label className="flex items-start gap-2"><input type="radio" name="dashboard-access-scope" checked={draft.access_scope !== 'matching'} onChange={() => setDraft({ ...draft, access_scope: undefined })} />
         <span><strong>User population</strong> (default): users who hold the role or code through any current assignment; access metrics show their complete current access. Role and code may come from different assignments.</span></label>
       <label className="flex items-start gap-2"><input type="radio" name="dashboard-access-scope" checked={draft.access_scope === 'matching'} onChange={() => setDraft({ ...draft, access_scope: 'matching' })} />
         <span><strong>Matching access</strong>: one current assignment must match every access filter, and access metrics count only those assignments. SoD conflicts are still evaluated over the users' complete access.</span></label>
     </FilterSection>
-    {section('governance', 'Governance', options.data && !options.data.sod_available ? 'SoD risk values need enabled SoD with a loaded SoD matrix. Review status is the current Account Review state; outdated reviews are also pending.' : 'SoD risk selects users with a current finding for the risk. Review status is the current Account Review state; outdated reviews are also pending.')}
+    {section('governance', 'Governance', options.data && !options.data.sod_available ? 'SoD risk values need enabled SoD with a loaded SoD matrix. Review status is the current Account Review state; outdated reviews are also pending.' : 'SoD risk selects users with a current finding for the risk. Review status is the current Account Review state; outdated reviews are also pending.', false)}
     {apply}
   </div>
 }

@@ -13,7 +13,7 @@ test('wide screens show a collapsible filter sidebar that keeps filter state and
   await openSod(page, 'Risk Matrix')
   const sidebar = page.getByRole('complementary', { name: 'Filters', exact: true })
   await expect(sidebar).toBeVisible()
-  await expect(sidebar.locator('legend').first()).toHaveText('Saved Filters')
+  await expect(sidebar.locator('.filter-section-title').first()).toHaveText('Saved Filters') // FLT-02 section heading
   await pickMulti(sidebar, 'Risk ID', 'R1', page)
   await page.getByRole('button', { name: /^Hide filters/ }).click()
   await expect(sidebar).toBeHidden()

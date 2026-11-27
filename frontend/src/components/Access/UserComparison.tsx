@@ -429,7 +429,7 @@ export function UserComparison({
           )
         })}
       </div>
-      <FilterLayout label="Filters" activeCount={[validity !== 'active', kind !== 'roles', search, areas.length > 0, difference].filter(Boolean).length} onClear={clear}
+      <FilterLayout workspace="compare-users" label="Filters" activeCount={[validity !== 'active', kind !== 'roles', search, areas.length > 0, difference].filter(Boolean).length} onClear={clear}
         clearDisabled={validity === 'active' && kind === 'roles' && !search && !areas.length && !difference && sort === 'identifier' && !descending}
         toolbar={<PageToolbar>
           <SortControl label="Sort comparison" value={sort} descending={descending} onChange={setSort} onDescending={setDescending}

@@ -563,6 +563,18 @@ progress::-moz-progress-bar { background:var(--progress-fill); }
 .filter-backdrop { position: fixed; inset: 0; z-index: 70; background: rgb(0 0 0 / 0.4); }
 .filter-section { display: grid; min-width: 0; gap: 0.5rem; margin: 0; padding: 0; border: 0; }
 .filter-section > legend { margin-bottom: 0.25rem; padding: 0; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+/* FLT-02/FLT-03: collapsible sections and the filter discovery field, one appearance in every filter panel and drawer */
+.filter-section[hidden], .filter-section-body[hidden], .filter-section-body > [hidden] { display:none; }
+.filter-section-heading { margin:0; }
+.filter-section-toggle { display:flex; align-items:center; gap:var(--space-2); width:100%; min-height:var(--control-height-compact, 32px); padding:var(--space-1) 0; border:0; background:transparent; color:var(--muted); font-size:0.75rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; text-align:left; cursor:pointer; border-radius:var(--radius-control); }
+.filter-section-toggle:hover:not(:disabled) { color:var(--text); }
+.filter-section-toggle:focus-visible { outline:var(--focus-width) solid var(--focus); outline-offset:var(--focus-offset); }
+.filter-section-toggle:disabled { cursor:default; }
+.filter-section-title { flex:1 1 auto; min-width:0; }
+.filter-section-count { text-transform:none; letter-spacing:0; }
+.filter-section-body { display:grid; min-width:0; gap:0.5rem; }
+.filter-discovery { position:sticky; top:0; z-index:2; display:grid; gap:var(--space-1); padding-bottom:var(--space-2); background:var(--surface); }
+.filter-discovery-actions { display:flex; flex-wrap:wrap; gap:var(--space-1); }
 .sod-sort { display: inline-flex; flex-flow: row nowrap; align-items: center; gap: 0.25rem; }
 
 /* Risk and activity identifier pills: text carries the meaning, tint is supplementary. */

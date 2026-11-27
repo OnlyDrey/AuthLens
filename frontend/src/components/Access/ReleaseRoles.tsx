@@ -211,7 +211,7 @@ export function ReleaseRoles({
         naming tokens; no release-authority meaning is assumed.
       </p>
       <EvidenceNote />
-      <FilterLayout label="Filters" activeCount={activeFilterCount} onClear={clearAll} clearDisabled={!activeFilterCount}
+      <FilterLayout workspace="release-access" label="Filters" activeCount={activeFilterCount} onClear={clearAll} clearDisabled={!activeFilterCount}
         toolbar={<PageToolbar lead={<ButtonGroup label="Release results view" value={matrix?'matrix':'table'} onChange={value=>setMatrix(value==='matrix')} options={[{value:'matrix',label:'Matrix',icon:<Grid3X3 size={16} aria-hidden="true"/>},{value:'table',label:'Table',icon:<List size={16} aria-hidden="true"/>}]}/>}>
           <SortControl label="Sort release roles" value={sort} options={RELEASE_SORTS} descending={descending} onChange={setSort} onDescending={setDescending} />
         </PageToolbar>}
@@ -230,9 +230,9 @@ export function ReleaseRoles({
                 setAssignmentDates(previous=>Object.fromEntries(Object.entries(previous).map(([k,v])=>[k,typeof s[k]===typeof v?s[k]:v])) as typeof previous)}}
               clear={clearAll}/>
           </FilterSection>
-          <FilterSection title="Population"><SubjectFilters value={subjectFilters} onChange={setSubjectFilters} compact/></FilterSection><FilterSection title="Release classification">
-            <ReleaseMultiFilter field="group" label="Release SAP user group" values={userGroups} onChange={setUserGroups} context={context}/>
+          <FilterSection title="Release classification">
             <ReleaseFilter field="document_type" label="PR/PO" value={kind} onChange={setKind} context={{ ...context, user_groups:userGroups }}/>
+            <ReleaseMultiFilter field="group" label="Release SAP user group" values={userGroups} onChange={setUserGroups} context={context}/>
             <ReleaseMultiFilter field="release_area" label="Release area" values={releaseAreas} onChange={changeAreas} context={{ ...context, user_groups:userGroups, document_type:kind }}/>
             <ReleaseMultiFilter field="release_group" label="Release group" values={releaseGroups} onChange={setReleaseGroups} context={{ ...context, user_groups:userGroups, document_type:kind, release_areas:releaseAreas }}/>
             <ReleaseMultiFilter field="strategy" label="Release strategy" values={strategies} onChange={setStrategies} context={{ ...context, user_groups:userGroups, document_type:kind, release_areas:releaseAreas, release_groups:releaseGroups }}/>
@@ -247,6 +247,7 @@ export function ReleaseRoles({
             </Filter>
             <AssignmentDateFilters value={assignmentDates} onChange={setAssignmentDates}/>
           </FilterSection>
+          <FilterSection title="Population" defaultOpen={false}><SubjectFilters value={subjectFilters} onChange={setSubjectFilters} compact/></FilterSection>
         </div>}>
       <div className="grid min-w-0 gap-4">
       <div className="results-toolbar release-toolbar">

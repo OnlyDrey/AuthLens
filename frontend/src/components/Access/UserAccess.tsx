@@ -215,7 +215,7 @@ export function UserAccess({
       {modeButtons}<PageHeader title="Users" icon={<PageIcon size={22} aria-hidden="true"/>}/>
       <EvidenceNote />
 
-      <FilterLayout label="Filters" activeCount={activeFilterCount} onClear={clearAll} clearDisabled={clearDisabled}
+      <FilterLayout workspace="user-directory" label="Filters" activeCount={activeFilterCount} onClear={clearAll} clearDisabled={clearDisabled}
         toolbar={<PageToolbar>
           <SortControl label="Sort users" value={sort} options={USER_SORTS} descending={descending} onChange={setSort} onDescending={setDescending} />
         </PageToolbar>}
@@ -223,7 +223,7 @@ export function UserAccess({
           <FilterSection title="Saved Filters">
             <SavedFilters showClear={false} view="users" state={{usernames,assignmentBand,search,groups,sort,descending,roles,tcodes:directoryTransaction.codes,transactionMode,excludeTcodes:excludeTransaction.codes,excludeMode,missingRoles,missingMode,expired}} apply={s=>{if(typeof s.usernames==='string'){setUsernames(s.usernames.slice(0,12000));setUsernameDraft(s.usernames.slice(0,12000))};setMissingRoles(Array.isArray(s.missingRoles)?s.missingRoles.filter((name:unknown):name is string=>typeof name==='string').slice(0,20):[]);setMissingMode(s.missingMode==='all'?'all':'any');setAssignmentBand(typeof s.assignmentBand==='string'?s.assignmentBand:'');if(typeof s.search==='string')setSearch(s.search);if(Array.isArray(s.groups))setGroups(s.groups.filter((v:unknown):v is string=>typeof v==='string').slice(0,50));else if(typeof s.group==='string'&&s.group)setGroups([s.group]);if(typeof s.sort==='string'&&['username','group','first_name','last_name','email','account_status','relevant_roles'].includes(s.sort))setSort(s.sort);if(typeof s.descending==='boolean')setDescending(s.descending);if(Array.isArray(s.roles))setRoles(s.roles.filter((v:unknown):v is string=>typeof v==='string').slice(0,50));else if(typeof s.role==='string'&&s.role)setRoles([s.role]);if(Array.isArray(s.tcodes)){directoryTransaction.setInput('');directoryTransaction.setChips(s.tcodes)};if(s.transactionMode==='and'||s.transactionMode==='or')setTransactionMode(s.transactionMode);if(Array.isArray(s.excludeTcodes)){excludeTransaction.setInput('');excludeTransaction.setChips(s.excludeTcodes)}else excludeTransaction.clear();setExcludeMode(s.excludeMode==='all'?'all':'any');if(typeof s.expired==='boolean')setExpired(s.expired)}} clear={clearAll}/>
           </FilterSection>
-          <FilterSection title="Users">
+          <FilterSection title="Search">
         <Filter label="Search users">
           <input
             className={inputClass}
@@ -238,6 +238,8 @@ export function UserAccess({
             placeholder="Username, name, email or group"
           />
         </Filter>
+          </FilterSection>
+          <FilterSection title="Population">
         <Filter label="Exact usernames">
           <textarea className={inputClass} rows={3} value={usernameDraft} maxLength={16000} aria-label="Exact usernames" aria-describedby="exact-usernames-help"
             onChange={(e) => setUsernameDraft(e.target.value)} placeholder="Paste usernames from Excel or a list" />
@@ -251,13 +253,15 @@ export function UserAccess({
         <Filter label="SAP user group">
           <MultiSelectFilter label="SAP user group" values={groups} options={result.data?.groups || []} onChange={setGroups} placeholder="All groups · type to search"/>
         </Filter>
+          </FilterSection>
+          <FilterSection title="Organization">
         <Filter label="Functional Group"><OrganizationFilter kind="functional_group" values={functionalGroups} onChange={setFunctionalGroups}/></Filter>
         <Filter label="Manager"><OrganizationFilter kind="manager" values={managers} onChange={setManagers}/></Filter>
+          </FilterSection>
+          <FilterSection title="Access">
         <Filter label="Filter users by role">
           <MultiSelectFilter label="Filter users by role" values={roles} options={(roleOptions.data || []).slice(0,100).map(item=>item.agr_name)} onChange={setRoles} onSearch={setRoleSearch} loading={roleOptions.isFetching} hasMore={(roleOptions.data?.length||0)>100} optionDescription={value=>roleOptions.data?.find(item=>item.agr_name===value)?.text ?? ''} placeholder="Role name or description" scope="in the role catalogue"/>
         </Filter>
-          </FilterSection>
-          <FilterSection title="Missing roles">
       <section className="directory-missing grid min-w-0 gap-2" aria-label="Users lacking roles">
         <Filter label="Roles the user must lack">
           <MultiSelectFilter label="Roles the user must lack" values={missingRoles} options={(missingOptions.data || []).slice(0,100).map(item=>item.agr_name)} optionDescription={value=>missingOptions.data?.find(item=>item.agr_name===value)?.text ?? ''} onChange={values=>setMissingRoles(values.slice(0,20))} onSearch={setMissingSearch} loading={missingOptions.isFetching} hasMore={(missingOptions.data?.length||0)>100} maxSelected={20} placeholder="Add catalogue roles to find users lacking them" scope="in the role catalogue"/>
@@ -269,11 +273,9 @@ export function UserAccess({
           <p className="transaction-help text-xs text-[var(--muted)]" role="status">{missingMode==='all'?'Missing ALL: users lacking every selected role.':'Missing ANY: users lacking at least one selected role.'} Only users whose current assignments are all mapped to catalogue roles are listed; missing or unmapped evidence is never read as missing access.</p>
         </>}
       </section>
-          </FilterSection>
-          <FilterSection title="Transactions">
             <TransactionFilterGroups subject="users" groups={transactionGroups} includeLabel="Filter users by transaction" excludeLabel="Exclude users by transaction" />
           </FilterSection>
-          <FilterSection title="Assignments">
+          <FilterSection title="Assignments" defaultOpen={false}>
             <Filter label="Currently valid roles">
               <Select aria-label="Currently valid roles" className={inputClass} value={assignmentBand} onChange={event => setAssignmentBand(event.target.value)}>
                 <option value="">Any number of roles</option>

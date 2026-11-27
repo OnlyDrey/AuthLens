@@ -48,7 +48,7 @@ const E2 = 'ZO:MM:M:PR_REL_ST_E2_N1:ALL', E3 = 'ZO:MM:M:PO_REL_ST_E3_N2:ALL', N1
 test('Release Area is derived from the Release Group and multi-selects combine OR within and AND between filters', async ({ page }) => {
   await open(page)
   const sidebar = page.getByRole('complementary', { name: 'Filters' })
-  await expect(sidebar.locator('legend').first()).toHaveText('Saved Filters')
+  await expect(sidebar.locator('.filter-section-title').first()).toHaveText('Saved Filters') // FLT-02 section heading
   await expect(sidebar.getByRole('combobox', { name: 'Release area', exact: true })).toBeVisible()
   await page.getByRole('combobox', { name: 'Release area', exact: true }).click()
   await expect(page.getByRole('listbox', { name: 'Release Area options' }).getByRole('option')).toHaveText(['E', 'N'])

@@ -186,9 +186,10 @@ const FIELD_LABELS: Record<string, [string, number]> = {
   composite_role: ['Catalogue role', 512], single_role: ['Single role', 512],
 }
 const FIELD_SECTIONS: { title: string; fields: FilterField[] }[] = [
-  { title: 'Subject', fields: ['functional_group', 'manager', 'group', 'username', 'account_status', 'multiple_risks'] },
+  { title: 'Population', fields: ['group', 'username', 'account_status', 'multiple_risks'] },
+  { title: 'Organization', fields: ['functional_group', 'manager'] },
+  { title: 'Access', fields: ['role', 'role_suffix', 'composite_role', 'single_role', 'validity'] },
   { title: 'Risk and activity', fields: ['risk', 'activity', 'tcode', 'category', 'criticality', 'risk_type'] },
-  { title: 'Roles and assignments', fields: ['role', 'role_suffix', 'composite_role', 'single_role', 'validity'] },
   { title: 'Review status', fields: ['review_status', 'activity_decision', 'assignment_decision', 'acceptance'] },
 ]
 const DECISION_LABELS: Record<string, string> = { activity_decision: 'Activity review', assignment_decision: 'Role assignment review', acceptance: 'Risk acceptance' }
@@ -345,7 +346,7 @@ export function SodFilters({ view, filters, setFilters, fields, sorts, actions, 
 
     </PageToolbar>
   )
-  return <FilterLayout activeCount={active} sidebar={sidebar} toolbar={toolbar} onClear={clear} clearLabel="Clear page filters" clearDisabled={!active && !text('search')} storageKey={storageKey} defaultOpen={defaultOpen}>{children}</FilterLayout>
+  return <FilterLayout workspace={view} activeCount={active} sidebar={sidebar} toolbar={toolbar} onClear={clear} clearLabel="Clear page filters" clearDisabled={!active && !text('search')} storageKey={storageKey} defaultOpen={defaultOpen}>{children}</FilterLayout>
 }
 
 export function AlertNote({ children }: { children: ReactNode }) {

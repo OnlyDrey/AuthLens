@@ -371,7 +371,7 @@ export function Dashboard() {
   return (
     <section aria-label="Dashboard" className="space-y-5">
       <PageHeader title="Dashboard" icon={<LayoutDashboard size={22} aria-hidden="true"/>}/>
-      <FilterLayout label="Filters" storageKey="authlens-dashboard-filter-sidebar" defaultOpen={false} activeCount={activeCount}
+      <FilterLayout workspace="dashboard" label="Filters" storageKey="authlens-dashboard-filter-sidebar" defaultOpen={false} activeCount={activeCount}
         onClear={()=>setFilters(emptyDashboardFilters())} clearDisabled={!filtered} clearLabel="Reset dashboard filters"
         toolbar={<PageToolbar lead={<p className="ui-description dashboard-scope" role="status" aria-label="Dashboard scope">{filtered
           ? `Filtered overview: user metrics count the selected user population${dashboardOnly&&query.data&&!population?'; drill-down opens with the organization filters only because the population has more than 500 users':''}. Catalogue, source integrity and Employee Directory totals stay global and are marked.`
