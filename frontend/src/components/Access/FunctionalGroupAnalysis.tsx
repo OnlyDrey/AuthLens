@@ -30,7 +30,7 @@ function RoleMembers({ role, data }: { role: Analysis['roles'][number]; data: An
       <Input aria-label={`Search members for ${role.role}`} placeholder="Search members" value={search} onChange={event => setSearch(event.target.value)} />
       {rows.length ? (
         <ConfigurableTable className="ui-data-table" aria-label={`Members compared for ${role.role}`}>
-          <thead><tr><th>SAP user</th><th>Full name</th><th>Role</th><th>SAP account</th></tr></thead>
+          <thead><tr><th data-column-key="SAP user">SAP username</th><th data-column-key="Full name">Employee</th><th data-column-key="Role">Role name</th><th>SAP account</th></tr></thead>
           <tbody>{rows.map(user => (
             <tr key={user.username}><td><SAPUserLink username={user.username} copyLabel="username" /></td><td>{user.full_name || '—'}</td>
               <td><StatusBadge tone={user.has ? 'success' : 'neutral'}>{user.has ? 'Has role' : 'Missing role'}</StatusBadge></td><td>{user.account_status || '—'}</td></tr>))}</tbody>
@@ -74,13 +74,13 @@ export function FunctionalGroupAnalysis({ id, name, onClose, onViewMembers }: { 
             {panel === 'compared' ? (
               compared.length ? (
                 <DataTable caption="Members included in the analysis" density="compact">
-                  <thead><tr><th>SAP user</th><th>Full name</th><th>Active roles</th><th>SAP account</th></tr></thead>
+                  <thead><tr><th data-column-key="SAP user">SAP username</th><th data-column-key="Full name">Employee</th><th>Active roles</th><th>SAP account</th></tr></thead>
                   <tbody>{compared.map(user => <tr key={user.username}><td><SAPUserLink username={user.username} copyLabel="username" /></td><td>{user.full_name || '—'}</td><td>{user.roles}</td><td>{user.account_status || '—'}</td></tr>)}</tbody>
                 </DataTable>
               ) : <EmptyState>No compared member matches.</EmptyState>
             ) : roles.length ? (
               <DataTable caption="Role frequency" density="compact" sticky>
-                <thead><tr><th>Role</th><th>Members</th><th>Frequency</th><th>Pattern</th></tr></thead>
+                <thead><tr><th data-column-key="Role">Role name</th><th>Members</th><th>Frequency</th><th>Pattern</th></tr></thead>
                 <tbody>{roles.map(role => (
                   <Fragment key={role.role}>
                     <tr><td><code>{role.role}</code></td>
@@ -93,7 +93,7 @@ export function FunctionalGroupAnalysis({ id, name, onClose, onViewMembers }: { 
             ) : <EmptyState>{data.roles.length ? 'No role matches the current filter.' : 'No active role assignments among the compared members.'}</EmptyState>}
             {panel === 'roles' && users.length > 0 && (
               <DataTable caption="User-level access differences" density="compact">
-                <thead><tr><th>SAP user</th><th>Roles</th><th>Additional uncommon roles</th><th>Missing common roles</th></tr></thead>
+                <thead><tr><th data-column-key="SAP user">SAP username</th><th>Roles</th><th>Additional uncommon roles</th><th>Missing common roles</th></tr></thead>
                 <tbody>{users.map(user => (
                   <tr key={user.username}><td><SAPUserLink username={user.username} copyLabel="username" /></td><td>{user.roles}</td>
                     <td>{user.additional_roles.join(', ') || '—'}</td><td>{user.missing_common_roles.join(', ') || '—'}</td></tr>))}</tbody>

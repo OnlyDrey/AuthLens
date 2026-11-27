@@ -180,7 +180,7 @@ test('suggestion rule: contains matching, View Matches, select all, and assignme
   await section.getByRole('tab', { name: 'Suggestion Rules', exact: true }).click()
   await section.getByRole('button', { name: 'New rule' }).click()
   const form = page.getByRole('dialog', { name: 'New suggestion rule' })
-  await form.getByLabel('Directory Department contains').fill('supply chain')                                  // substring, case-insensitive: A, B and C
+  await form.getByLabel('Department contains').fill('supply chain')                                  // substring, case-insensitive: A, B and C
   await form.getByLabel('Suggested Functional Group').selectOption({ label: name })
   await form.getByRole('button', { name: 'Create rule' }).click()
   const rules = section.getByRole('table', { name: 'Functional Group suggestion rules' })

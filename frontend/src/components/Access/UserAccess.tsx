@@ -1,3 +1,4 @@
+import { usePageSize } from '@/lib/pageSize'
 import { TableRegion } from '@/components/Shared/TableRegion'
 import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 import {FunctionalGroupPills} from '@/components/Shared/FunctionalGroupPills'
@@ -51,12 +52,13 @@ import {
   EvidenceNote,
   Filter,
   inputClass,
+  PageSizeControl,
   Pagination,
   QueryState,
 } from "./Shared";
 
 const USER_SORTS = [
-  { value: 'username', label: 'Username' }, { value: 'group', label: 'User group' }, { value: 'first_name', label: 'First name' },
+  { value: 'username', label: 'SAP username' }, { value: 'group', label: 'SAP user group' }, { value: 'first_name', label: 'First name' },
   { value: 'last_name', label: 'Last name' }, { value: 'email', label: 'Email' }, { value: 'account_status', label: 'Account status' },
   { value: 'relevant_roles', label: 'Relevant role count' }, { value: 'job_title', label: 'Job title' }, { value: 'department', label: 'Department' },
 ]
@@ -129,6 +131,8 @@ export function UserAccess({
   const [exportUserScope,setExportUserScope] = useState<'matching'|'selected'>('matching');
   // #35: which assignments of the exported users the CSV contains. It never changes the listed population; it is sent only when it is not the default.
   const [assignmentScope,setAssignmentScope] = useState<'matching'|'all_assignments'>('matching');
+  const [pageSize, storePageSize] = usePageSize('user-directory'); // TBL-03
+  const setPageSize = (size: number) => { storePageSize(size); setOffset(0) }
   const scopeParams: Record<string,string> = assignmentScope==='all_assignments'?{export_scope:'all_assignments'}:{};
   useEffect(() => {
     const t = setTimeout(() => setTerm(search), 250);
@@ -159,9 +163,10 @@ export function UserAccess({
       missingMode,
       offset,
       expired,
+      pageSize,
     ],
     queryFn: () =>
-      accessQuery<Page<UserRow>>("users", { ...filters, offset }),
+      accessQuery<Page<UserRow>>("users", { ...filters, offset, limit: pageSize }),
   });
   const pageNames = (result.data?.items ?? []).map((u) => u.username);
   const pageAll = pageNames.length > 0 && pageNames.every((u) => picked.has(u));
@@ -243,8 +248,8 @@ export function UserAccess({
           </div>
         </Filter>
 
-        <Filter label="SAP User Group">
-          <MultiSelectFilter label="SAP User Group" values={groups} options={result.data?.groups || []} onChange={setGroups} placeholder="All groups · type to search"/>
+        <Filter label="SAP user group">
+          <MultiSelectFilter label="SAP user group" values={groups} options={result.data?.groups || []} onChange={setGroups} placeholder="All groups · type to search"/>
         </Filter>
         <Filter label="Functional Group"><OrganizationFilter kind="functional_group" values={functionalGroups} onChange={setFunctionalGroups}/></Filter>
         <Filter label="Manager"><OrganizationFilter kind="manager" values={managers} onChange={setManagers}/></Filter>
@@ -334,13 +339,13 @@ export function UserAccess({
             <p className="ui-description">{!roles.length?'No role filter is active: exports all imported assignments for the chosen users.':assignmentScope==='matching'?'Exports only assignments matching the selected role filters.':'Exports every assignment of the chosen users, including roles outside the role filters; MATCHED_FILTER marks the matching ones.'} {exportRows===undefined?'Counting assignment rows…':`${exportRows.toLocaleString()} assignment rows for all matching users.`} {expired?'Expired assignments are included.':'Expired assignments are excluded while Show expired assignments is off.'} All active user filters still apply, including when exporting selected users. All matching users covers every page. MATCHED_FILTER identifies contributing evidence; it does not expand the exported role scope. Role-derived transactions do not prove effective SAP authorization.</p>
           </div></details>
 
-          <TableRegion className="access-table user-directory-table" tabIndex={0} role="region" aria-label="User directory table">
+          <TableRegion className="access-table user-directory-table" tabIndex={0} role="region" aria-label="User directory table" toolbar={<PageSizeControl label="User pages" limit={pageSize} onPageSize={setPageSize} />}>
             <ConfigurableTable aria-label="User directory">
               <thead>
                 <tr>
                   <th className="col-select ud-sticky-1"><input type="checkbox" aria-label="Select all users on this page" checked={pageAll} ref={el=>{if(el)el.indeterminate=pageSome&&!pageAll}} onChange={()=>setPicked(prev=>{const n=new Set(prev);if(pageAll)pageNames.forEach(u=>n.delete(u));else pageNames.forEach(u=>n.add(u));return n})}/></th>
-                  <th className="ud-sticky-2">Username</th>
-                  {<th>Full name</th>}
+                  <th className="ud-sticky-2" data-column-key="Username">SAP username</th>
+                  {<th data-column-key="Full name">Employee</th>}
                   {<th>Job title</th>}
                   {<th>Department</th>}
                   {<th>Functional Group</th>}
@@ -384,6 +389,8 @@ export function UserAccess({
             offset={offset}
             total={result.data.total}
             onChange={setOffset}
+            limit={pageSize}
+            alwaysShow
             label="User pages"
           />
         </>
@@ -470,7 +477,7 @@ export function UserDetails({
           <UserProfile user={user}/>
           {user.account_total > 1 && <details className="settings-advanced"><summary>User validity and account evidence · {user.account_total} source records</summary>
             <p className="text-sm text-[var(--muted)]">Distinct source records are retained below; a summary does not override conflicting validity or lock evidence.</p>
-            <TableRegion className="access-table"><ConfigurableTable aria-label="Account source observations"><thead><tr><th>User group</th><th>User validity</th><th>Account status</th><th>Lock status</th><th>User type</th></tr></thead><tbody>
+            <TableRegion className="access-table"><ConfigurableTable aria-label="Account source observations"><thead><tr><th data-column-key="User group">SAP user group</th><th>User validity</th><th>Account status</th><th>Lock status</th><th>User type</th></tr></thead><tbody>
               {user.accounts.map((a, i) => <tr key={i}><td>{a.user_group || 'Unknown'}</td><td>{dates(a.valid_from, a.valid_to)}</td><td><AccountStatus value={a.status}/></td><td><LockStatus value={a.locked == null ? 'Unknown' : a.locked ? 'Locked' : 'Unlocked'}/></td><td>{a.user_type || 'Unknown'}</td></tr>)}
             </tbody></ConfigurableTable></TableRegion>
             <Pagination offset={accountOffset} total={user.account_total} onChange={setAccountOffset} label="Account evidence pages"/>
@@ -540,7 +547,7 @@ export function UserDetails({
             <ConfigurableTable aria-label="User assignments">
               <thead>
                 <tr>
-                  <th>Exact assigned role</th>
+                  <th data-column-key="Exact assigned role">Role name</th>
                   {scope === 'release' && <><th>Type</th><th>Release group</th><th>Release strategy</th></>}
                   <th>Valid from</th><th>Valid to</th>
                   <th>Assignment status</th>

@@ -53,7 +53,7 @@ export function ComponentLibraryStates() {
         </section>
         <section aria-label="Identifier and group preview" className="grid gap-2">
           <div className="flex flex-wrap items-center gap-2"><IdPill kind="risk" value="R001" /><IdPill kind="activity" value="A010" /></div>
-          <ConfigurableTable className="w-auto"><caption className="sr-only">SAP User Group cells</caption><tbody>
+          <ConfigurableTable className="w-auto"><caption className="sr-only">SAP user group cells</caption><tbody>
             <tr><th scope="row">Several groups</th><td><UserGroupCell groups={['FINANCE', 'SUPPORT']} /></td></tr>
             <tr><th scope="row">No group</th><td><UserGroupCell groups={null} /></td></tr>
           </tbody></ConfigurableTable>

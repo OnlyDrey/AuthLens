@@ -107,7 +107,7 @@ const DECISIONS: Record<ReviewKind, [string, string, 'success' | 'warning' | 'er
   activity: [['Approved', 'Approved', 'success'], ['Conditional', 'Conditional', 'warning'], ['Removal required', 'Removal recommended', 'error'], ['Investigate', 'Investigate (not final)', 'warning']],
   acceptance: [['Accepted', 'Risk accepted', 'success'], ['Rejected', 'Risk rejected', 'error']],
 }
-const GROUPINGS = [{ value: 'sap_user_group', label: 'SAP User Group' }, { value: 'functional_group', label: 'Functional Group' }, { value: 'manager', label: 'Manager' }, { value: 'department', label: 'Department' }, { value: 'site', label: 'Site' }]
+const GROUPINGS = [{ value: 'sap_user_group', label: 'SAP user group' }, { value: 'functional_group', label: 'Functional Group' }, { value: 'manager', label: 'Manager' }, { value: 'department', label: 'Department' }, { value: 'site', label: 'Site' }]
 const GROUP_SORTS = [{ value: 'name', label: 'Group name' }, { value: 'completion', label: 'Completion' }, { value: 'outstanding', label: 'Users requiring review' }, { value: 'users', label: 'Total users' }]
 const percent = (value: number, max: number) => (max ? `${Math.floor((value / max) * 100)}%` : 'No applicable items')
 

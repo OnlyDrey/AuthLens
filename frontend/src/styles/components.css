@@ -1635,7 +1635,10 @@ button.fg-chip:focus-visible { outline:var(--focus-width) solid var(--focus); ou
    scrolls vertically, because hiding it there would hide the vertical scrollbar as well. */
 .table-frame { display:grid; min-width:0; max-width:100%; }
 .table-frame-head { position:sticky; top:var(--app-header-height,0px); z-index:6; display:grid; min-width:0; background:var(--bg); }
+.table-frame[data-nested-scroll] > .table-frame-head { top:0; background:var(--surface); }
 .table-frame-toolbar:empty { display:none; }
+.table-frame-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-2) var(--space-3); min-width:0; padding-block:var(--space-1); }
+.table-frame-toolbar .table-page-size { display:inline-flex; align-items:center; gap:var(--space-2); }
 .table-frame-toolbar .table-presentation-controls { position:static; padding-inline:0; background:transparent; }
 .table-top-scroll { overflow-x:auto; overflow-y:hidden; height:calc(var(--scrollbar-size, 10px) + 2px); min-width:0; border-radius:var(--radius-control); background:var(--scrollbar-track); }
 .table-top-scroll[hidden] { display:none; }
@@ -1643,6 +1646,13 @@ button.fg-chip:focus-visible { outline:var(--focus-width) solid var(--focus); ou
 .table-top-scroll::-webkit-scrollbar { height:var(--scrollbar-size, 10px); }
 [data-top-scroll]::-webkit-scrollbar { height:0; }
 @supports not selector(::-webkit-scrollbar) { [data-top-scroll]:not([data-vertical-scroll]) { scrollbar-width:none; } }
+/* TBL-05 frozen SAP username column (data-sticky-column, set by ConfigurableTable): opaque theme backgrounds so scrolled cells cannot show
+   through, a hairline and soft shadow as the separation, above the scrolled cells and below the sticky header row of height-limited regions. */
+table [data-sticky-column="start"][data-column-index] { position:sticky; left:0; z-index:2; background:var(--surface); box-shadow:inset -1px 0 0 var(--border), 6px 0 8px -8px color-mix(in srgb, var(--text) 45%, transparent); }
+table thead [data-sticky-column="start"][data-column-index] { z-index:3; background:var(--surface2); }
+.access-table[data-sticky] thead [data-sticky-column="start"][data-column-index] { top:0; z-index:4; }
+table tbody tr:hover > [data-sticky-column="start"][data-column-index] { background:linear-gradient(var(--hover), var(--hover)), var(--surface); }
+@media (max-width:640px) { table [data-sticky-column="start"] { max-width:42vw; } }
 .table-presentation-controls { position:sticky; left:0; display:flex; flex-wrap:wrap; gap:var(--space-2); width:fit-content; max-width:100%; padding:var(--space-2); background:var(--surface); z-index:6; }
 .access-table table[data-nowrap],table.sod-heatmap[data-nowrap] { table-layout:auto; }
 table[data-nowrap] > thead > tr > th,table[data-nowrap] > tbody > tr > td,table[data-nowrap] > tbody > tr > th { white-space:nowrap; overflow-wrap:normal; word-break:normal; }

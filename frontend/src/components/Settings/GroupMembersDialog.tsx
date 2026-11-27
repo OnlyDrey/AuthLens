@@ -77,7 +77,7 @@ export function GroupMembersDialog({ group, onClose, readOnly = false }: { group
           <DataTable caption={`Members of ${group.name}`} density="compact">
             <thead><tr>
               {!readOnly && <th className="col-select"><Checkbox aria-label="Select all members on this page" checked={allOnPage} onChange={() => setPicked(previous => { const next = new Set(previous); for (const item of items) { if (allOnPage) next.delete(item.username); else next.add(item.username) } return next })}><span className="sr-only">Select</span></Checkbox></th>}
-              <th>SAP user</th><th>Full name</th><th>Department</th><th>Job title</th><th>Status</th><th>Last confirmed</th>{!readOnly && <th className="col-actions"><span className="sr-only">Actions</span></th>}</tr></thead>
+              <th data-column-key="SAP user">SAP username</th><th data-column-key="Full name">Employee</th><th>Department</th><th>Job title</th><th>Status</th><th>Last confirmed</th>{!readOnly && <th className="col-actions"><span className="sr-only">Actions</span></th>}</tr></thead>
             <tbody>{items.map(member => (
               <tr key={member.username} data-selected={picked.has(member.username) ? '' : undefined}>
                 {!readOnly && <td className="col-select"><Checkbox aria-label={`Select ${member.username}`} checked={picked.has(member.username)} onChange={() => toggle(member.username)}><span className="sr-only">Select</span></Checkbox></td>}

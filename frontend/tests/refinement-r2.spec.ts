@@ -64,7 +64,7 @@ test('SAP role identifiers never wrap and the copied value is the complete ident
 test('multi-select shows Select all, Clear and Close with icons, and Clear is visible but disabled without a selection', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/#session=browser-test-session'); await goTo(page, 'Users')
-  await page.getByRole('combobox', { name: 'SAP User Group', exact: true }).click()
+  await page.getByRole('combobox', { name: 'SAP user group', exact: true }).click()
   const popup = page.locator('.multi-popup'), actions = popup.locator('.multi-popup-actions').getByRole('button')
   await expect(actions).toHaveCount(3)
   for (const index of [0, 1, 2]) await expect(actions.nth(index).locator('svg')).toHaveCount(1)

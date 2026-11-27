@@ -8,7 +8,7 @@ test.beforeEach(async ({ request }) => { directory = await seedGovernance(reques
 test.afterEach(async ({ request }) => { await cleanup(request, directory) })
 test.setTimeout(120_000)
 
-/** The seeded fixture has three users, so the matrix API is answered with a synthetic population (244 users in three SAP User Groups) built on a real response. */
+/** The seeded fixture has three users, so the matrix API is answered with a synthetic population (244 users in three SAP user groups) built on a real response. */
 async function population(page: Page, count = 244) {
   const names = ['FIN', 'HR', 'P2P'], requests: URL[] = []
   const users = Array.from({ length: count }, (_, index) => ({ user: `USER${String(index + 1).padStart(4, '0')}`, group: names[index % 3] }))
@@ -71,7 +71,7 @@ test('filter and grouping changes return to the first page; grouped pages never 
   const requests = await population(page)
   await openSod(page, 'Risk Matrix')
   await next(page).click(); await expect(range(page)).toHaveText('51–100 of 244 users')
-  await pickMulti(sidebar(page), 'SAP User Group', 'FIN', page)
+  await pickMulti(sidebar(page), 'SAP user group', 'FIN', page)
   await expect(range(page)).toHaveText('1–50 of 244 users')
   expect(requests.at(-1)!.searchParams.get('offset')).toBe('0')
   await next(page).click(); await expect(range(page)).toHaveText('51–100 of 244 users')

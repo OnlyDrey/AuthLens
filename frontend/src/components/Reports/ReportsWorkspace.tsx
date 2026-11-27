@@ -1,3 +1,4 @@
+import { reportColumnLabel } from '@/lib/fieldLabels'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Download, Eye, FileText, Settings2 } from 'lucide-react'
@@ -152,7 +153,7 @@ function ReportCard({ report }: { report: ReportDefinition }) {
           {(p.kind === 'context' ? [['current', 'Current evidence'] as [string, string], ...(periods.data?.items || []).filter(() => report.contexts.includes('period')).map(item => [item.id, `${item.name} · ${item.state}`] as [string, string])] : p.options || []).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </Select>}</FormField>)}</div>}
     {report.columns && <fieldset className="min-w-0"><legend className="mb-1 text-sm font-semibold">Columns</legend>
-      <div className="flex flex-wrap gap-x-4 gap-y-1">{report.columns.map(c => <Checkbox key={c.key} checked={columns.includes(c.key)} disabled={c.required} onChange={() => toggle(c.key)}>{c.label}{c.required ? ' (required)' : ''}</Checkbox>)}</div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1">{report.columns.map(c => <Checkbox key={c.key} checked={columns.includes(c.key)} disabled={c.required} onChange={() => toggle(c.key)}>{reportColumnLabel(c.key, c.label)}{c.required ? ' (required)' : ''}</Checkbox>)}</div>
     </fieldset>}
     {report.columns && <FormField label="Delimiter"><Select value={delimiter} onChange={event => setDelimiter(event.target.value)}><option value="">Report default</option><option value="semicolon">Semicolon (;)</option><option value="comma">Comma (,)</option></Select></FormField>}
     {missing.length > 0 && <p className="ui-description">Required: {missing.join(', ')}.</p>}
@@ -164,7 +165,7 @@ function ReportCard({ report }: { report: ReportDefinition }) {
     {preview && <>
       <p role="status">{preview.total_rows.toLocaleString()} {preview.total_rows === 1 ? 'row' : 'rows'} match{preview.total_rows > preview.rows.length ? `; the first ${preview.rows.length} are shown` : ''}.</p>
       {preview.rows.length > 0 && <DataTable caption={`${report.title} preview`} regionLabel={`${report.title} preview`} density="compact">
-        <thead><tr>{preview.columns.map(c => <th key={c.key}>{c.label}</th>)}</tr></thead>
+        <thead><tr>{preview.columns.map(c => <th key={c.key} title={`CSV header: ${c.label}`}>{reportColumnLabel(c.key, c.label)}</th>)}</tr></thead>
         <tbody>{preview.rows.map((row, index) => <tr key={index}>{row.map((cell, i) => <td key={i}>{cell}</td>)}</tr>)}</tbody>
       </DataTable>}
     </>}

@@ -267,7 +267,7 @@ public static class V1FunctionalGroups
         mapped.MapGet("/history/{**username}", async (string username, HttpContext http, FunctionalGroupStore store, int? offset, int? limit, CancellationToken ct) =>
         {
             var (o, l) = (offset ?? 0, limit ?? 25);
-            if (o < 0 || l is < 1 or > 100) return Detail(422, "Invalid history query.");
+            if (o < 0 || l is < 1 or > V1Access.TablePageMax) return Detail(422, "Invalid history query.");
             var (snapshot, _) = await StateAsync(http, ct);
             var known = Known(snapshot, username);
             if (known is null) return Detail(404, "SAP user not found.");

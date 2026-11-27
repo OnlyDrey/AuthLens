@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { goTo, headers, seedSources, type SeededSources } from './support'
 
 /** MW-1 Release Access Matrix width: every matrix uses the whole content width beside the filter sidebar (all of it when the sidebar is
- *  closed), fills it when its columns are few and scrolls only inside its own container when they exceed it, with Compare SAP User Groups on
+ *  closed), fills it when its columns are few and scrolls only inside its own container when they exceed it, with Compare SAP user groups on
  *  or off and after column visibility changes. Geometry is asserted, not screenshots. */
 const roles = `FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,TCODE
 MM,ZC:MM:BUY:ENP,Buyer plant,ZS:SH,MIGO
@@ -13,7 +13,7 @@ U1,ZO:MM:M:PO_REL_ST_E3_N2:ALL,G1,20200101,99991231
 U2,ZO:MM:M:PR_REL_ST_E2_N1:ALL,G2,20200101,99991231
 U2,ZO:MM:M:PO_REL_ST_E3_N2:ALL,G2,20200101,99991231
 `
-// 40 strategy keys, far wider than 1600 px at the matrix's minimum column width; two SAP User Groups for Compare
+// 40 strategy keys, far wider than 1600 px at the matrix's minimum column width; two SAP user groups for Compare
 const keys = ['S', 'T', 'U', 'V'].flatMap(letter => Array.from({ length: 10 }, (_, digit) => `${letter}${digit}`))
 const many = 'USERNAME,ROLE_NAME,USER_GROUP,ROLE_VALID_FROM,ROLE_VALID_TO\n'
   + keys.flatMap((key, index) => ['G1', 'G2'].map(group => `MW${index}${group},ZO:MM:M:${index % 2 ? 'PO' : 'PR'}_REL_ST_E${index % 3}_${key}:ALL,${group},20200101,99991231`)).join('\n') + '\n'
@@ -27,7 +27,7 @@ const measure = (page: Page) => page.evaluate((): Geometry => ({
   pageOverflow: document.documentElement.scrollWidth > innerWidth + 1,
   matrices: [...document.querySelectorAll<HTMLElement>('[role="region"][aria-label$="release matrix scroll area"]')].map(scroll => {
     const main = scroll.closest<HTMLElement>('.filter-layout-main')!, style = getComputedStyle(main)
-    const table = scroll.querySelector('table')!, toolbar = scroll.closest('.table-frame')?.querySelector('.table-presentation-controls') ?? null // TBL-02: in the table frame's toolbar, box = scroll.getBoundingClientRect()
+    const table = scroll.querySelector('table')!, toolbar = scroll.closest('.table-frame')?.querySelector('.table-presentation-controls') ?? null, box = scroll.getBoundingClientRect() // TBL-02: the toolbar is in the table frame
     return {
       label: scroll.getAttribute('aria-label')!, main: main.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight), scroll: box.width, left: box.left,
       clientWidth: scroll.clientWidth, scrollWidth: scroll.scrollWidth, table: table.getBoundingClientRect().width,
@@ -91,7 +91,7 @@ for (const [name, users] of [['few', few], ['many', many]] as const)
       await expect(matrix).toBeVisible()
       const strategies = name === 'few' ? ['N1', 'N2'] : keys
       await expect(matrix.getByRole('columnheader')).toHaveText(['Release group', ...strategies, 'Users']) // strategy-only headers, unchanged column set
-      // Compare SAP User Groups off: one matrix
+      // Compare SAP user groups off: one matrix
       await sidebarCycle(page, width, wide, 1)
       // Column visibility through the Columns control: hiding a strategy column keeps the matrix at the full width
       await page.getByRole('button', { name: 'Columns for release matrix', exact: true }).click()
@@ -100,8 +100,8 @@ for (const [name, users] of [['few', few], ['many', many]] as const)
       await columns.getByRole('button', { name: 'Done', exact: true }).click(); await expect(columns).toHaveCount(0)
       await expect(matrix.getByRole('columnheader', { name: strategies[0], exact: true })).toBeHidden()
       expectFilled(await measure(page), wide, 1)
-      // Compare SAP User Groups on: one matrix per group, each across the whole width
-      await page.getByRole('group', { name: 'Release actions' }).getByLabel('Compare SAP User Groups').check()
+      // Compare SAP user groups on: one matrix per group, each across the whole width
+      await page.getByRole('group', { name: 'Release actions' }).getByLabel('Compare SAP user groups').check()
       await expect(page.getByRole('table', { name: 'G2 release matrix', exact: true })).toBeVisible()
       await sidebarCycle(page, width, wide, 2)
     })

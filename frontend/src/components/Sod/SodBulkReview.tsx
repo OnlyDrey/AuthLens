@@ -90,7 +90,7 @@ export function BulkReviewDialog({ action, picks: livePicks, info:liveInfo, atom
           <section aria-label="Selected role suffixes"><h3 className="text-sm font-semibold">Role suffixes</h3>
             <ul className="bulk-chip-list">{suffixes.map(([name, count]) => <li key={name}><StatusBadge>{name} · {count}</StatusBadge></li>)}</ul></section>
         </div>
-        <details><summary className="cursor-pointer">Selected assignments ({picks.length})</summary><DataTable caption="Confirmed assignment scope" density="compact"><thead><tr><th>SAP user</th><th>Assigned role</th><th>Current decision</th><th>Proposed decision</th></tr></thead><tbody>{picks.map(pick=><tr key={pick.key}><td>{pick.user}</td><td className="font-mono">{pick.ref}</td><td><LifecycleBadge value={pick.decision}/></td><td>{action}</td></tr>)}</tbody></DataTable></details>
+        <details><summary className="cursor-pointer">Selected assignments ({picks.length})</summary><DataTable caption="Confirmed assignment scope" density="compact"><thead><tr><th data-column-key="SAP user">SAP username</th><th data-column-key="Assigned role">Role name</th><th>Current decision</th><th>Proposed decision</th></tr></thead><tbody>{picks.map(pick=><tr key={pick.key}><td>{pick.user}</td><td className="font-mono">{pick.ref}</td><td><LifecycleBadge value={pick.decision}/></td><td>{action}</td></tr>)}</tbody></DataTable></details>
         {!!reviewed.length && (
           <section aria-label="Existing decisions" className="review-dialog-trigger">
             <h3>{reviewed.length} {reviewed.length === 1 ? 'assignment has' : 'assignments have'} an earlier review decision</h3>

@@ -19,9 +19,17 @@ function assign<T>(target: Ref<T> | undefined, value: T) {
  */
 export function TableRegion({ children, className, toolbar, scrollRef, ...props }: HTMLAttributes<HTMLDivElement> & { className: string; toolbar?: ReactNode; scrollRef?: Ref<HTMLDivElement> }) {
   const [tools, setTools] = useState<HTMLElement | null>(null), [scroller, setScroller] = useState<HTMLDivElement | null>(null)
+  const [frame, setFrame] = useState<HTMLDivElement | null>(null), [nested, setNested] = useState(false)
   const region = useCallback((node: HTMLDivElement | null) => { setScroller(node); assign(scrollRef, node) }, [scrollRef])
+  // The head sits beneath the application header only when the page itself scrolls; inside a scrolling dialog or panel it sticks to that
+  // container's top instead (an application-header offset there would cover the first rows).
+  useLayoutEffect(() => {
+    let element = frame?.parentElement, inside = false
+    while (element && element !== document.body) { const overflow = getComputedStyle(element).overflowY; if (overflow === 'auto' || overflow === 'scroll' || element.matches('[role="dialog"]')) { inside = true; break } element = element.parentElement }
+    setNested(inside)
+  }, [frame])
   return (
-    <div className="table-frame">
+    <div className="table-frame" ref={setFrame} data-nested-scroll={nested || undefined}>
       <div className="table-frame-head">
         <div className="table-frame-toolbar" ref={setTools}>{toolbar}</div>
         {scroller && <TopScrollbar region={scroller} />}

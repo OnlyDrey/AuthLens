@@ -1,3 +1,4 @@
+import { usePageSize } from '@/lib/pageSize'
 import { MultiSelectFilter } from '@/components/Shared/MultiSelectFilter'
 import { Popover } from '@/components/Shared/Popover'
 import { announceExport } from '@/lib/exportNotice'
@@ -35,7 +36,7 @@ import { Select } from '@/components/Shared/Select'
 import { AccountStatus } from '@/components/Shared/AccountStatus'
 import { SavedFilters } from '@/components/Shared/SavedFilters'
 import { formatDate } from '@/lib/dateFormat'
-import { inputClass, Pagination, QueryState } from './Shared'
+import { inputClass, PageSizeControl, Pagination, QueryState } from './Shared'
 import { downloadFile } from '@/api/sod'
 interface Row {
   identifier: string
@@ -185,7 +186,7 @@ function EvidenceCell({
                 {e.role_name!==row.identifier&&<><RoleModuleBadge catalogueRoles={e.match_status==='exact'||e.match_status==='wildcard'?e.catalogue_roles:undefined}/>
                 <RoleIdentifier value={e.role_name} onOpen={e.catalogue_roles.length===1&&['exact','wildcard'].includes(e.match_status)?()=>onRole(e.catalogue_roles[0]):undefined} openLabel={`Open catalogue details for ${e.role_name}`}/></>}
                 <div className="assignment-status-control"><Popover label={`Assignment validity for ${e.role_name}`} trigger={<AssignmentStatus value={e.status}/>}><dl className="ui-metadata-list"><div><dt>Valid from</dt><dd>{formatDate(e.valid_from)}</dd></div><div><dt>Valid to</dt><dd>{formatDate(e.valid_to)}</dd></div><div><dt>Evaluated assignment status</dt><dd><AssignmentStatus value={e.status}/></dd></div></dl></Popover></div>
-                <p className="ui-description whitespace-nowrap">SAP User Group: {e.user_group || 'Unknown'}</p>
+                <p className="ui-description whitespace-nowrap">SAP user group: {e.user_group || 'Unknown'}</p>
 
               </div>
             ),
@@ -315,11 +316,12 @@ export function UserComparison({
     },
     [],
   )
-  useEffect(() => setOffset(0), [key])
+  const [pageSize, storePageSize] = usePageSize('compare-users') // TBL-03
+  useEffect(() => setOffset(0), [key, pageSize])
   const result = useQuery({
-    queryKey: ['user-comparison', key, offset],
+    queryKey: ['user-comparison', key, offset, pageSize],
     queryFn: () =>
-      apiRequest<Result>(`/api/user-comparison?${params}&offset=${offset}`),
+      apiRequest<Result>(`/api/user-comparison?${params}&offset=${offset}&limit=${pageSize}`),
     enabled: !!a && !!b && a !== b,
   })
   const data = result.data
@@ -545,6 +547,7 @@ export function UserComparison({
             </p>
           )}
           <DataTable
+            toolbar={<PageSizeControl label="Comparison pages" limit={pageSize} onPageSize={storePageSize} />}
             caption="User comparison evidence"
             tableClassName="comparison-table"
             regionLabel="Scrollable comparison evidence"
@@ -599,7 +602,8 @@ export function UserComparison({
             label="Comparison pages"
             offset={offset}
             total={data.total}
-            limit={25}
+            limit={pageSize}
+            alwaysShow
             onChange={setOffset}
           />
         </>

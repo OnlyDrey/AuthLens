@@ -1,3 +1,4 @@
+import { usePageSize } from '@/lib/pageSize'
 import { TableRegion } from '@/components/Shared/TableRegion'
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {SubjectFilters,type SubjectFiltersValue} from '@/components/Shared/OrganizationFilter'
@@ -46,15 +47,15 @@ import {
   Filter,
   inputClass,
   Pagination,
-  PAGE_SIZES,
+  PageSizeControl,
   QueryState,
 } from "./Shared";
 
 type Drill = ReleaseDrill;
 const RELEASE_TYPES = ['PR', 'PO'] as const;
 export const RELEASE_SORTS = [
-  { value: 'role_name', label: 'Role name' }, { value: 'document_type', label: 'PR/PO' }, { value: 'release_group', label: 'Release Group' },
-  { value: 'release_strategy', label: 'Release Strategy' }, { value: 'assigned_users', label: 'Assigned users' },
+  { value: 'role_name', label: 'Role name' }, { value: 'document_type', label: 'PR/PO' }, { value: 'release_group', label: 'Release group' },
+  { value: 'release_strategy', label: 'Release strategy' }, { value: 'assigned_users', label: 'Assigned users' },
 ]
 const STATUS_OPTIONS = [['active', 'Currently valid'], ['all', 'All, including expired / future / unknown'], ['expired', 'Expired'], ['future', 'Future'], ['unknown', 'Unknown validity']]
 /** More roles than this need an explicit confirmation before a bulk add. */
@@ -94,7 +95,7 @@ export function ReleaseRoles({
     [matrixOffset, setMatrixOffset] = useState(0),
     [compareGroups, setCompareGroups] = useState(false),
     [offset, setOffset] = useState(0),
-    [pageSize, setPageSize] = useState(20),
+    [pageSize, storePageSize] = usePageSize('release-access'), // TBL-03 (was 10, 20, 50, 100 with 20)
     [drill, setDrillState] = useHistoryValue('release'),
     [usersOf, setUsersOf] = useState('');
   const [query, setQuery] = useState({ username: "", role: "" });
@@ -218,7 +219,7 @@ export function ReleaseRoles({
           <FilterSection title="Saved Filters">
             <SavedFilters showClear={false} view="release" state={{...subjectFilters,userGroups,kind,releaseAreas,releaseGroups,strategies,username,role,status,sort,descending,...assignmentDates}}
               apply={s=>{setSubjectFilters({functional_groups:Array.isArray(s.functional_groups)?textList(s.functional_groups):[],managers:Array.isArray(s.managers)?textList(s.managers):[],usernames:Array.isArray(s.usernames)?s.usernames:[]});
-                // Filters saved before multi-select stored one SAP User Group string.
+                // Filters saved before multi-select stored one SAP user group string.
                 setUserGroups(Array.isArray(s.userGroups)?textList(s.userGroups):typeof s.group==='string'&&s.group?[s.group]:[]);if(typeof s.kind==='string')setKind(s.kind);if(Array.isArray(s.strategies))setStrategies(s.strategies.filter((v:unknown):v is string=>typeof v==='string'));else if(typeof s.strategy==='string'&&s.strategy)setStrategies([s.strategy]);
                 if(typeof s.username==='string')setUsername(s.username);if(typeof s.role==='string')setRole(s.role);
                 setReleaseAreas(textList(s.releaseAreas).map(value=>value.toUpperCase()));
@@ -230,11 +231,11 @@ export function ReleaseRoles({
               clear={clearAll}/>
           </FilterSection>
           <FilterSection title="Population"><SubjectFilters value={subjectFilters} onChange={setSubjectFilters} compact/></FilterSection><FilterSection title="Release classification">
-            <ReleaseMultiFilter field="group" label="Release SAP User Group" values={userGroups} onChange={setUserGroups} context={context}/>
+            <ReleaseMultiFilter field="group" label="Release SAP user group" values={userGroups} onChange={setUserGroups} context={context}/>
             <ReleaseFilter field="document_type" label="PR/PO" value={kind} onChange={setKind} context={{ ...context, user_groups:userGroups }}/>
-            <ReleaseMultiFilter field="release_area" label="Release Area" values={releaseAreas} onChange={changeAreas} context={{ ...context, user_groups:userGroups, document_type:kind }}/>
-            <ReleaseMultiFilter field="release_group" label="Release Group" values={releaseGroups} onChange={setReleaseGroups} context={{ ...context, user_groups:userGroups, document_type:kind, release_areas:releaseAreas }}/>
-            <ReleaseMultiFilter field="strategy" label="Release Strategy" values={strategies} onChange={setStrategies} context={{ ...context, user_groups:userGroups, document_type:kind, release_areas:releaseAreas, release_groups:releaseGroups }}/>
+            <ReleaseMultiFilter field="release_area" label="Release area" values={releaseAreas} onChange={changeAreas} context={{ ...context, user_groups:userGroups, document_type:kind }}/>
+            <ReleaseMultiFilter field="release_group" label="Release group" values={releaseGroups} onChange={setReleaseGroups} context={{ ...context, user_groups:userGroups, document_type:kind, release_areas:releaseAreas }}/>
+            <ReleaseMultiFilter field="strategy" label="Release strategy" values={strategies} onChange={setStrategies} context={{ ...context, user_groups:userGroups, document_type:kind, release_areas:releaseAreas, release_groups:releaseGroups }}/>
           </FilterSection>
           <FilterSection title="Assignment">
             <ReleaseFilter field="username" label="Release username" placeholder="All · separate several with commas" value={username} onChange={setUsername} context={{ ...context, user_groups:userGroups, document_type:kind, release_areas:releaseAreas, release_groups:releaseGroups, strategies }}/>
@@ -254,7 +255,7 @@ export function ReleaseRoles({
           {matrix && (
             <label className="filter-toggle release-compare-toggle">
               <input type="checkbox" checked={compareGroups} onChange={(e) => setCompareGroups(e.target.checked)} />
-              Compare SAP User Groups
+              Compare SAP user groups
             </label>
           )}
           <Button onClick={addFiltered} disabled={!settled || bulkBusy || !result.data?.total} title="Adds every distinct release role matching the filters, across pages, to the access package."><Plus size={16} aria-hidden="true"/>Add filtered roles</Button>
@@ -283,15 +284,15 @@ export function ReleaseRoles({
           </>
         ) : (
           <>
-            <TableRegion className="access-table release-directory-table" role="region" aria-label="Release role results" tabIndex={0} data-density="compact">
+            <TableRegion className="access-table release-directory-table" role="region" aria-label="Release role results" tabIndex={0} data-density="compact" toolbar={<PageSizeControl label="Release role pages" limit={pageSize} onPageSize={storePageSize} />}>
               <ConfigurableTable>
                 <thead>
                   <tr>
                     <th>Role name</th>
                     <th>PR/PO</th>
-                    <th>Area</th>
-                    <th>Group</th>
-                    <th>Strategy</th>
+                    <th data-column-key="Area">Release area</th>
+                    <th data-column-key="Group">Release group</th>
+                    <th data-column-key="Strategy">Release strategy</th>
                     <th data-align="end">Users</th>
                     <th>Assignment validity</th>
                     <th className="col-actions">Package</th>
@@ -327,7 +328,7 @@ export function ReleaseRoles({
                 </tbody>
               </ConfigurableTable>
             </TableRegion>
-            <Pagination label="Release role pages" offset={offset} total={result.data.total} limit={pageSize} onChange={setOffset} pageSizes={PAGE_SIZES} onPageSize={setPageSize} />
+            <Pagination label="Release role pages" offset={offset} total={result.data.total} limit={pageSize} alwaysShow onChange={setOffset} />
             {result.data.total === 0 && (
               <p>
                 No release assignments match. Unknown or future validity is
@@ -484,10 +485,11 @@ function ReleaseDetail({
 }) {
   const {loading:dataLoading}=useApplicationData();
   const [offset, setOffset] = useState(0)
+  const [pageSize, storePageSize] = usePageSize('release-assignments')
   const dateKey = JSON.stringify(assignmentDates)
-  useEffect(() => setOffset(0), [drill, dateKey, status])
+  useEffect(() => setOffset(0), [drill, dateKey, status, pageSize])
   const result = useQuery({
-    queryKey: ['release-assignments', drill, status, offset, assignmentDates],
+    queryKey: ['release-assignments', drill, status, offset, assignmentDates, pageSize],
     queryFn: () =>
       accessQuery<
         Page<Assignment> & {
@@ -499,6 +501,7 @@ function ReleaseDetail({
         ...dateParams(assignmentDates),
         status,
         offset,
+        limit: pageSize,
       } as Record<string, string | number | boolean | string[]>),
   })
   const info = result.data?.role_info
@@ -540,8 +543,8 @@ function ReleaseDetail({
             <dd>{result.data?.total ?? '…'}</dd>
           </div>
         </dl>
-        {drill.group && <p>SAP User Group: {drill.group}</p>}
-        {!!drill.user_groups?.length && <p>SAP User Group: {drill.user_groups.join(', ')}</p>}
+        {drill.group && <p>SAP user group: {drill.group}</p>}
+        {!!drill.user_groups?.length && <p>SAP user group: {drill.user_groups.join(', ')}</p>}
       </header>
       <div className="release-assignment-toolbar flex flex-wrap gap-3 items-end">
         <Filter label="Assignment status">
@@ -580,15 +583,16 @@ function ReleaseDetail({
           <TableRegion
             className="access-table"
             role="region"
+            toolbar={<PageSizeControl label="Release assignment pages" limit={pageSize} onPageSize={storePageSize} />}
             aria-label="Release role user assignments"
             tabIndex={0}
           >
             <ConfigurableTable>
               <thead>
                 <tr>
-                  {!drill.role && <th>Exact assigned role</th>}
-                  <th>Username</th>
-                  <th>User group</th>
+                  {!drill.role && <th data-column-key="Exact assigned role">Role name</th>}
+                  <th data-column-key="Username">SAP username</th>
+                  <th data-column-key="User group">SAP user group</th>
                   <th>Valid from</th>
                   <th>Valid to</th>
                   <th>Assignment status</th>
@@ -636,6 +640,8 @@ function ReleaseDetail({
             offset={offset}
             total={result.data.total}
             onChange={setOffset}
+            limit={pageSize}
+            alwaysShow
             label="Release assignment pages"
           />
         </>
@@ -673,7 +679,7 @@ function ReleaseRoleUsersPanel({ role, filters, status, dates, onUser, onClose }
         <p role="status" className="ui-description">{data.distinct_users} {data.distinct_users === 1 ? 'user' : 'users'} · {data.total} assignment {data.total === 1 ? 'record' : 'records'} in the current validity scope</p>
         <TableRegion className="access-table" role="region" aria-label="Users with this release role" tabIndex={0} data-density="compact">
           <ConfigurableTable>
-            <thead><tr><th>SAP username</th><th>Name</th><th>SAP User Group</th><th>Assignment</th><th className="col-actions"><span className="sr-only">Details</span></th></tr></thead>
+            <thead><tr><th>SAP username</th><th data-column-key="Name">Employee</th><th data-column-key="SAP User Group">SAP user group</th><th>Assignment</th><th className="col-actions"><span className="sr-only">Details</span></th></tr></thead>
             <tbody>{data.items.map((a) => (
               <tr key={a.id}>
                 <td><SAPUserLink routeLink={false} username={a.username} onOpen={()=>onUser(a.username)} openLabel={`Open user ${a.username}`}/></td>

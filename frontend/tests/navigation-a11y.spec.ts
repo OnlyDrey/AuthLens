@@ -113,7 +113,7 @@ const accessibleName = (page: Page) => page.evaluate(() => {
 test.describe('User Directory keyboard order', () => {
   // Reading order = DOM order: page toolbar, then the filter sidebar (wide) or no sidebar stops (narrow drawer is closed), then the results.
   // The search and exact-username filters lead the sidebar; DOM, visual (top to bottom) and Tab order were verified to agree (TS-1).
-  const wide = ['Hide filters', 'Sort users', 'Ascending order, switch to descending', 'Clear filters', 'Close filters', 'Saved filters', 'Search users', 'Exact usernames', 'SAP User Group', 'Functional Group', 'Manager', 'Filter users by role', 'Roles the user must lack', 'Filter users by transaction', 'Exclude users by transaction', 'Currently valid roles', 'Show expired assignments']
+  const wide = ['Hide filters', 'Sort users', 'Ascending order, switch to descending', 'Clear filters', 'Close filters', 'Saved filters', 'Search users', 'Exact usernames', 'SAP user group', 'Functional Group', 'Manager', 'Filter users by role', 'Roles the user must lack', 'Filter users by transaction', 'Exclude users by transaction', 'Currently valid roles', 'Show expired assignments']
   // Below 1024 px the search is in the filter drawer; after a search the page reads toolbar, then the active-filter chip (verified, TS-1).
   const narrow = ['Filters', 'Sort users', 'Ascending order, switch to descending', 'Remove user search filter']
   for (const width of [375, 800, 1280, 1600]) test(`Tab and Shift+Tab follow the reading order at ${width}`, { tag: ['@visual', '@a11y'] }, async ({ page }) => {
@@ -144,7 +144,7 @@ test.describe('User Directory keyboard order', () => {
     await expired.focus()
     await page.keyboard.press('Space')
     await expect(expired).not.toBeChecked()
-    const group = page.getByRole('combobox', { name: 'SAP User Group', exact: true })
+    const group = page.getByRole('combobox', { name: 'SAP user group', exact: true })
     await group.focus()
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('Escape')

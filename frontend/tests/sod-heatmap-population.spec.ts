@@ -2,13 +2,13 @@ import { test, expect, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { cleanup, names, openSod, seedGovernance } from './sod-fixture'
 
-// BUG-015: the SAP User Group heatmap follows the SoD Overview population (the same server resolver as the key figures), in Risks and
+// BUG-015: the SAP user group heatmap follows the SoD Overview population (the same server resolver as the key figures), in Risks and
 // Activities mode, in its CSV export and in the Risk Matrix drill-down. Fixture: SYN_A (FIN) has R1 and R2, SYN_B (P2P) has R1, SYN_C (P2P) none.
 let directory: string
 test.beforeEach(async ({ request }) => { directory = await seedGovernance(request, 'static') })
 test.afterEach(async ({ request }) => { await cleanup(request, directory) })
 
-const heatmap = (page: Page) => page.getByRole('region', { name: 'SAP User Group heatmap', exact: true })
+const heatmap = (page: Page) => page.getByRole('region', { name: 'SAP user group heatmap', exact: true })
 const distinct = (page: Page) => heatmap(page).getByRole('table').getByRole('row', { name: /^Distinct users/ })
 const groupRows = (page: Page) => heatmap(page).locator('tbody th').allInnerTexts()
 const kpi = (page: Page) => page.getByRole('region', { name: 'Conflicts', exact: true }).getByRole('button', { name: /Users with potential conflicts/ })
@@ -62,7 +62,7 @@ test('the filtered heatmap exports its population and drills into the Risk Matri
   await heatmap(page).getByRole('row', { name: /^P2P\b/ }).getByRole('button', { name: /with R1/ }).click()
   await expect(page).toHaveURL(/#\/sod\/risk-matrix/)
   const sidebar = page.getByRole('complementary', { name: 'Filters', exact: true })
-  await expect(sidebar.getByRole('button', { name: 'Remove SAP User Group P2P', exact: true })).toBeVisible()
+  await expect(sidebar.getByRole('button', { name: 'Remove SAP user group P2P', exact: true })).toBeVisible()
   await expect(sidebar.getByRole('button', { name: 'Remove Risk ID R1', exact: true })).toBeVisible()
   await expect(sidebar.getByRole('status').filter({ hasText: '1 exact usernames selected' })).toBeVisible()   // the overview population is kept
   await expect(page.locator('tbody th.matrix-row-head code')).toHaveText([names.b])

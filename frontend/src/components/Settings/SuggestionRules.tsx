@@ -38,11 +38,11 @@ function RuleDialog({ rule, groups, onClose }: { rule: Rule | null; groups: Func
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!valid || save.isPending} onClick={() => save.mutate()}>{rule ? 'Save rule' : 'Create rule'}</Button></>}>
       <form className="grid gap-3" onSubmit={event => { event.preventDefault(); if (valid) save.mutate() }}>
         <p className="ui-description">Advisory only; groups are never assigned automatically. Both conditions must match when both are given; at least one is required. Matching ignores case.</p>
-        <FormField label="Directory Department contains"><input className={controlClass} value={department} maxLength={200} onChange={event => setDepartment(event.target.value)} autoFocus /></FormField>
+        <FormField label="Department contains"><input className={controlClass} value={department} maxLength={200} onChange={event => setDepartment(event.target.value)} autoFocus /></FormField>
         {rule?.department_mode === 'equals' && (
           <FormField label="Department matching" description="This rule was created with exact matching. Converting it to contains can match more users; check View matches first.">
             <Select value={mode} onChange={event => setMode(event.target.value as 'contains' | 'equals')}><option value="equals">Equals the whole value (existing rule)</option><option value="contains">Contains the text</option></Select></FormField>)}
-        <FormField label="Job Title contains"><input className={controlClass} value={title} maxLength={200} onChange={event => setTitle(event.target.value)} /></FormField>
+        <FormField label="Job title contains"><input className={controlClass} value={title} maxLength={200} onChange={event => setTitle(event.target.value)} /></FormField>
         <FormField label="Suggested Functional Group"><Select value={groupId} onChange={event => setGroupId(event.target.value)}><option value="">Select a group…</option>{active.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</Select></FormField>
         {adding ? (
           <div className="grid gap-2" role="group" aria-label="Create a Functional Group">
@@ -97,7 +97,7 @@ function MatchesDialog({ rule, onClose }: { rule: Rule; onClose: () => void }) {
             {items.length ? (
               <DataTable caption="Users matching the rule" density="compact">
                 <thead><tr><th className="col-select"><Checkbox aria-label="Select all selectable users on this page" checked={allOnPage} disabled={!selectable.length} onChange={() => setPicked(previous => { const next = new Set(previous); for (const item of selectable) { if (allOnPage) next.delete(item.username); else next.add(item.username) } return next })}><span className="sr-only">Select</span></Checkbox></th>
-                  <th>SAP user</th><th>Full name</th><th>Directory Department</th><th>Job title</th><th>Current groups</th><th>Suggested group</th></tr></thead>
+                  <th data-column-key="SAP user">SAP username</th><th data-column-key="Full name">Employee</th><th data-column-key="Directory Department">Department</th><th>Job title</th><th>Current groups</th><th>Suggested group</th></tr></thead>
                 <tbody>{items.map(item => (
                   <tr key={item.username}>
                     <td className="col-select"><Checkbox aria-label={`Select ${item.username}`} checked={picked.has(item.username)} disabled={item.already_member} onChange={() => setPicked(previous => { const next = new Set(previous); if (next.has(item.username)) next.delete(item.username); else next.add(item.username); return next })}><span className="sr-only">Select</span></Checkbox></td>
@@ -131,7 +131,7 @@ export function SuggestionRules({ groups }: { groups: FunctionalGroup[] }) {
       {remove.isError && <p role="alert">{message(remove.error)}</p>}
       {rules.isError ? <p role="alert">{message(rules.error)}</p> : !rules.data ? <LoadingState /> : rules.data.items.length ? (
         <DataTable caption="Functional Group suggestion rules" density="compact">
-          <thead><tr><th>Directory Department contains</th><th>Job Title contains</th><th>Suggested Functional Group</th><th>Matching users</th><th className="col-actions">Actions</th></tr></thead>
+          <thead><tr><th data-column-key="Directory Department contains">Department contains</th><th data-column-key="Job Title contains">Job title contains</th><th>Suggested Functional Group</th><th>Matching users</th><th className="col-actions">Actions</th></tr></thead>
           <tbody>{rules.data.items.map(rule => (
             <tr key={rule.id}>
               <td>{rule.department || 'Any'}{rule.department && rule.department_mode === 'equals' && <> <StatusBadge>Exact match (existing rule)</StatusBadge></>}</td>

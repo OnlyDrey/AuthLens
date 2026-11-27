@@ -506,7 +506,7 @@ test('unlicensed group policy can be edited, cleared and reloaded without suppre
   await page.getByRole('button', { name: 'Open settings', exact: true }).click()
   await page.getByRole('tab', { name: 'Features', exact: true }).click()
   await page
-    .getByLabel('Unlicensed SAP User Groups', { exact: false })
+    .getByLabel('Unlicensed SAP user groups', { exact: false })
     .fill('EXEMPT, TECH REVIEW')
   const apply = async () => {
     const [saved] = await Promise.all([
@@ -529,9 +529,9 @@ test('unlicensed group policy can be edited, cleared and reloaded without suppre
   await page.getByRole('button', { name: 'Open settings', exact: true }).click()
   await page.getByRole('tab', { name: 'Features', exact: true }).click()
   await expect(
-    page.getByLabel('Unlicensed SAP User Groups', { exact: false }),
+    page.getByLabel('Unlicensed SAP user groups', { exact: false }),
   ).toHaveValue('EXEMPT, TECH REVIEW')
-  await page.getByLabel('Unlicensed SAP User Groups', { exact: false }).fill('')
+  await page.getByLabel('Unlicensed SAP user groups', { exact: false }).fill('')
   await apply()
   expect((await current(request)).unlicensed_user_groups).toEqual([])
 })
@@ -736,7 +736,7 @@ for (const theme of ['light', 'dark']) test(`Review progress takes a third and r
   await expect(page.getByText('Investigation evidence only. No SAP accounts are modified.', { exact: false })).toBeVisible()
   await page.keyboard.press('Escape')
   // the table stays the priority: it starts within the first screen
-  expect((await page.getByRole('region', { name: 'Account review results', exact: true }).boundingBox())!.y).toBeLessThan(560)
+  expect((await page.getByRole('region', { name: 'Account review results', exact: true }).locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " table-frame ")][1]').boundingBox())!.y).toBeLessThan(560) // the table frame (TBL-02: toolbar above the region) starts where the region did
   if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/account-review-${theme}-1280.png` })
   await page.setViewportSize({ width: 375, height: 800 })
   const [narrowLeft, narrowRight] = [(await progress.boundingBox())!, (await attention.boundingBox())!]

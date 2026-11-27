@@ -135,7 +135,7 @@ test('comparison difference and evidence indicators start at the same vertical p
       if (await control.count()) {
         const [badge, group] = [(await control.boundingBox())!, (await row.locator('td').nth(index).locator('.comparison-evidence-item > p').first().boundingBox())!]
         expect(Math.abs(badge.y - difference.y)).toBeLessThan(1.5) // the status badge starts level with the difference badge
-        expect(group.y).toBeGreaterThanOrEqual(badge.y + badge.height - 1) // the SAP User Group sits directly beneath it
+        expect(group.y).toBeGreaterThanOrEqual(badge.y + badge.height - 1) // the SAP user group sits directly beneath it
         expect(group.y - (badge.y + badge.height)).toBeLessThan(14)
       }
     }

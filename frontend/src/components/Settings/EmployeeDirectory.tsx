@@ -375,7 +375,7 @@ export function FeatureSettings({
         </Button>
       </section>
       <label className="flex flex-col gap-1 text-sm">
-        Unlicensed SAP User Groups
+        Unlicensed SAP user groups
         <input
           className="settings-review-groups"
           value={groupText}

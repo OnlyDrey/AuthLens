@@ -179,7 +179,7 @@ test("release table matrix distinct counts, group comparison and user drilldown 
   await page.goBack();
   await page.getByRole("button", { name: "Back to Release Access", exact: true }).click();
   await page.getByRole("button", { name: "Matrix", exact: true }).click();
-  await page.getByLabel("Compare SAP User Groups", { exact: true }).check();
+  await page.getByLabel("Compare SAP user groups", { exact: true }).check();
   await expect(
     page.getByRole("button", {
       name: "Investigate GROUP_A PR SH N6: 2 users",

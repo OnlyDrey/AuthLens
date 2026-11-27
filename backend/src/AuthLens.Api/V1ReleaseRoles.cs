@@ -186,7 +186,7 @@ public static class V1ReleaseRoles
             if (error is not null) return error;
             var status = q["status"].FirstOrDefault() ?? "active";
             if (rank < 0 || !Statuses.Contains(status)) return Detail(422, "Unsupported option field or status.");
-            if (!V1Access.Paging(q, 50, out _, out var limit)) return Detail(422, "limit must be between 1 and 100.");
+            if (!V1Access.Paging(q, 50, out _, out var limit)) return Detail(422, "limit must be between 1 and 250.");
             if (q["user_groups"].Count > 100 || q["release_areas"].Count > 50 || q["release_groups"].Count > 200 || q["strategies"].Count > 100
                 || TooLong(q, "search", 512) || TooLong(q, "selected", 512) || TooLong(q, "group", 100) || TooLong(q, "document_type", 20) || TooLong(q, "release_group", 100) || TooLong(q, "strategy", 100))
                 return Detail(422, "Too many or too long filter values.");
@@ -313,7 +313,7 @@ public static class V1ReleaseRoles
             if (error is not null) return error;
             if (!V1Access.Paging(q, 50, out var offset, out var limit) || !int.TryParse(q["matrix_offset"].FirstOrDefault() ?? "0", out var matrixOffset) || matrixOffset < 0
                 || TooLong(q, "anchor", 512))
-                return Detail(422, "Offsets must be ≥ 0 and limit between 1 and 100.");
+                return Detail(422, "Offsets must be ≥ 0 and limit between 1 and 250.");
             var byUserGroup = V1Access.Flag(q, "group_by_user_group");
             var snapshot = await snapshots.GetAsync(ct);
             var today = V1Access.Today();
@@ -416,7 +416,7 @@ public static class V1ReleaseRoles
             var documentType = q["document_type"].FirstOrDefault() ?? "";
             var status = q["status"].FirstOrDefault() ?? "active";
             if (documentType is not ("" or "PR" or "PO") || !Statuses.Contains(status)) return Detail(422, "Unsupported filter value.");
-            if (!V1Access.Paging(q, 50, out var offset, out var limit)) return Detail(422, "offset must be ≥ 0 and limit between 1 and 100.");
+            if (!V1Access.Paging(q, 50, out var offset, out var limit)) return Detail(422, "offset must be ≥ 0 and limit between 1 and 250.");
             if (q["user_groups"].Count > 100 || q["strategies"].Count > 100 || q["release_areas"].Count > 50 || q["release_groups"].Count > 200 || TooLong(q, "role", 512) || TooLong(q, "group", 512) || TooLong(q, "username", 512)
                 || TooLong(q, "role_search", 512) || TooLong(q, "release_group", 100) || TooLong(q, "strategy", 100))
                 return Detail(422, "Too many or too long filter values.");

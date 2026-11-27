@@ -158,7 +158,7 @@ export function FunctionalGroupPanel({ username }: { username: string }) {
           {(data?.suggestion?.groups ?? []).some(group => !group.already_member) && (
             <p className="fg-meta">Suggested (advisory): {data!.suggestion!.groups.filter(group => !group.already_member).map(group => group.group_name).join(', ')}</p>)}
           <p className="fg-meta">Business classification maintained in AuthLens. It does not change SAP access.</p>
-          <EvidenceDisclosure title="About Functional Groups"><p className="ui-description">Functional Groups are maintained in AuthLens. A user can belong to several groups. Directory Department, Job Title and SAP User Group are imported and displayed separately.</p></EvidenceDisclosure>
+          <EvidenceDisclosure title="About Functional Groups"><p className="ui-description">Functional Groups are maintained in AuthLens. A user can belong to several groups. Directory Department, Job Title and SAP user group are imported and displayed separately.</p></EvidenceDisclosure>
           <Permission permission="admin">{editing && data && <ManageGroupsDialog username={username} data={data} onClose={() => setEditing(false)} />}</Permission>
         </>
       )}

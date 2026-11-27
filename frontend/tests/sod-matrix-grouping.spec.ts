@@ -11,14 +11,14 @@ const groupBy = (page: Page) => page.getByRole('combobox', { name: 'Group by', e
 const pageName = { risk: 'Risk Matrix', activity: 'Activity Matrix' } as const
 
 for (const kind of ['risk', 'activity'] as const) {
-  test(`${kind} matrix: the SAP username sits on one line and its SAP User Group has its own column right after it`, async ({ page }) => {
+  test(`${kind} matrix: the SAP username sits on one line and its SAP user group has its own column right after it`, async ({ page }) => {
     await openSod(page, pageName[kind])
     const matrix = grid(page, kind)
     const head = matrix.locator('tbody th.matrix-row-head', { hasText: names.a })
     await expect(head.getByRole('button', { name: `Copy SAP username ${names.a}` })).toBeVisible()
     await expect(head.locator('small')).toHaveCount(0) // no group text beneath the username
     const headers = await matrix.locator('thead th.matrix-corner').allInnerTexts()
-    expect(headers).toEqual(['SAP user', 'SAP User Group'])
+    expect(headers).toEqual(['SAP username', 'SAP user group'])
     const row = matrix.locator('tbody tr').filter({ hasText: names.a })
     await expect(row.locator('td.matrix-identity-group')).toHaveText('FIN')
     const [code, group] = [(await head.locator('code').boundingBox())!, (await row.locator('td.matrix-identity-group .user-group-text').boundingBox())!]
@@ -29,7 +29,7 @@ for (const kind of ['risk', 'activity'] as const) {
   test(`${kind} matrix: grouping is optional, collapsible, counts distinct users and findings, and changes no data`, async ({ page }) => {
     await openSod(page, pageName[kind])
     await expect(groupBy(page)).toHaveValue('none')
-    await expect(groupBy(page).locator('option')).toHaveText(['No grouping', 'SAP User Group'])
+    await expect(groupBy(page).locator('option')).toHaveText(['No grouping', 'SAP user group'])
     const matrix = grid(page, kind)
     await expect(matrix.locator('tr.matrix-group-row')).toHaveCount(0)
     await expect(matrix.locator('tbody th.matrix-row-head code')).toHaveCount(2) // the baseline is read only once both users with findings are rendered
@@ -37,15 +37,15 @@ for (const kind of ['risk', 'activity'] as const) {
     const columns = await matrix.locator('thead th.matrix-col').count()
     await groupBy(page).selectOption('group')
     await expect(matrix.locator('tr.matrix-group-row')).toHaveCount(2)
-    const groupRow = (name: string) => matrix.locator('tr.matrix-group-row').filter({ has: page.getByRole('button', { name: new RegExp(`^(Collapse|Expand) SAP User Group ${name}$`) }) }), fin = groupRow('FIN'), p2p = groupRow('P2P')
+    const groupRow = (name: string) => matrix.locator('tr.matrix-group-row').filter({ has: page.getByRole('button', { name: new RegExp(`^(Collapse|Expand) SAP user group ${name}$`) }) }), fin = groupRow('FIN'), p2p = groupRow('P2P')
     await expect(fin).toContainText(kind === 'risk' ? '1 user · 2 risk findings' : '1 user · 3 activity findings')
     await expect(p2p).toContainText(kind === 'risk' ? '1 user · 1 risk finding' : '1 user · 2 activity findings')
     expect((await matrix.locator('tbody th.matrix-row-head code').allInnerTexts()).sort()).toEqual([...ungrouped].sort()) // no user duplicated or omitted
     expect(await matrix.locator('thead th.matrix-col').count()).toBe(columns) // columns are unchanged
-    await fin.getByRole('button', { name: 'Collapse SAP User Group FIN' }).click()
+    await fin.getByRole('button', { name: 'Collapse SAP user group FIN' }).click()
     await expect(matrix.locator('tbody th.matrix-row-head', { hasText: names.a })).toHaveCount(0)
     await expect(matrix.locator('tbody th.matrix-row-head', { hasText: names.b })).toBeVisible()
-    await expect(fin.getByRole('button', { name: 'Expand SAP User Group FIN' })).toHaveAttribute('aria-expanded', 'false')
+    await expect(fin.getByRole('button', { name: 'Expand SAP user group FIN' })).toHaveAttribute('aria-expanded', 'false')
     await page.getByRole('button', { name: 'Expand all', exact: true }).click()
     await expect(matrix.locator('tbody th.matrix-row-head', { hasText: names.a })).toBeVisible()
     await page.getByRole('button', { name: 'Collapse all', exact: true }).click()
@@ -71,21 +71,21 @@ for (const kind of ['risk', 'activity'] as const) {
   })
 }
 
-test('the SAP User Group filter takes several values, stays open while selecting and works with grouping', async ({ page }) => {
+test('the SAP user group filter takes several values, stays open while selecting and works with grouping', async ({ page }) => {
   await openSod(page, 'Risk Matrix')
   await groupBy(page).selectOption('group')
-  const box = page.getByRole('combobox', { name: 'SAP User Group', exact: true })
+  const box = page.getByRole('combobox', { name: 'SAP user group', exact: true })
   await box.click()
-  const list = page.getByRole('listbox', { name: 'SAP User Group options' })
+  const list = page.getByRole('listbox', { name: 'SAP user group options' })
   await page.getByRole('option', { name: 'FIN', exact: true }).click()
   await expect(list).toBeVisible()
   await page.getByRole('option', { name: 'P2P', exact: true }).click()
   await expect(list).toBeVisible()
-  const selected = page.getByRole('group', { name: 'Selected SAP User Group' })
+  const selected = page.getByRole('group', { name: 'Selected SAP user group' })
   await expect(selected).toContainText('FIN'); await expect(selected).toContainText('P2P')
   const matrix = grid(page, 'risk')
   await expect(matrix.locator('tr.matrix-group-row')).toHaveCount(2)
-  await page.getByRole('button', { name: 'Remove SAP User Group FIN', exact: true }).click()
+  await page.getByRole('button', { name: 'Remove SAP user group FIN', exact: true }).click()
   await expect(matrix.locator('tr.matrix-group-row')).toHaveCount(1)
   await expect(matrix.locator('tbody th.matrix-row-head', { hasText: names.b })).toBeVisible()
   await expect(matrix.locator('tbody th.matrix-row-head', { hasText: names.a })).toHaveCount(0)
@@ -93,7 +93,7 @@ test('the SAP User Group filter takes several values, stays open while selecting
   await page.getByRole('option', { name: 'FIN', exact: true }).click()
   await expect(matrix.locator('tr.matrix-group-row')).toHaveCount(2)
   await page.getByRole('button', { name: 'Clear selection', exact: true }).click()
-  await expect(page.getByRole('group', { name: 'Selected SAP User Group' })).toHaveCount(0)
+  await expect(page.getByRole('group', { name: 'Selected SAP user group' })).toHaveCount(0)
   await expect(matrix.locator('tr.matrix-group-row')).toHaveCount(2)
 })
 
@@ -108,7 +108,7 @@ test('exports follow the active filters and are identical with and without group
   await groupBy(page).selectOption('group')
   expect(await exportOnce()).toBe(plain)
   expect(plain).toContain(names.a); expect(plain).toContain(names.b)
-  const box = page.getByRole('combobox', { name: 'SAP User Group', exact: true })
+  const box = page.getByRole('combobox', { name: 'SAP user group', exact: true })
   await box.click(); await page.getByRole('option', { name: 'P2P', exact: true }).click(); await page.keyboard.press('Escape')
   const filtered = await exportOnce()
   expect(filtered).toContain(names.b); expect(filtered).not.toContain(names.a)

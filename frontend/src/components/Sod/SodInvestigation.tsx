@@ -212,7 +212,7 @@ function ReviewSection({ title, kind, done, total, ok, picked, keys, onPickAll, 
   )
 }
 
-/** Collapsed: checkbox, copyable role, review status, icon decisions and an expand control. Expanded: transactions and activities, SAP User Group, validity, history and further actions. */
+/** Collapsed: checkbox, copyable role, review status, icon decisions and an expand control. Expanded: transactions and activities, SAP user group, validity, history and further actions. */
 function AssignmentReviewRow({ focused, user,context,row, description, ok, checked, onCheck, pendingAction, onDecide, onOpenRole, onTrack, history, transactions }: { focused?: boolean; user:string;context:string;row: OverviewAssignment; description?: string; ok: boolean; checked: boolean; onCheck: () => void; pendingAction?: string; onDecide: (decision: 'Keep' | 'Remove' | 'Investigate') => void; onOpenRole: () => void; onTrack?: () => void; history: ReactNode; transactions: string[] }) {
   const busy=!!pendingAction
   const [open, setOpen] = useState(false), kept = row.decision === 'Keep', removed = row.decision === 'Removal required', investigating = row.decision === 'Investigate'
@@ -232,7 +232,7 @@ function AssignmentReviewRow({ focused, user,context,row, description, ok, check
       </div>
       {open && <div id={detailId} className="sod-assignment-details" role="group" aria-label={`Evidence for ${row.role}`}>
         <dl className="validity-dates">
-          <div><dt>SAP User Group</dt><dd>{row.user_group || 'Unknown'}</dd></div>
+          <div><dt>SAP user group</dt><dd>{row.user_group || 'Unknown'}</dd></div>
           <div><dt>Validity</dt><dd>{row.interval_status && <AssignmentStatus value={row.interval_status} />} {formatDate(row.valid_from)} to {formatDate(row.valid_to)}</dd></div>
           <div><dt>Activities</dt><dd><span className="id-pill-list" aria-label={`Activities supplied by ${row.role}`}>{row.activities.map((name) => <SodPill key={name} kind="activity" value={name} />)}</span></dd></div>
           <div><dt>Risks</dt><dd><span className="id-pill-list">{row.risks.map((name) => <SodPill key={name} kind="risk" value={name} />)}</span></dd></div>

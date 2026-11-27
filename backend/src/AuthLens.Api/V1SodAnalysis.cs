@@ -195,7 +195,7 @@ public static class V1SodAnalysis
     {
         var offset = int.TryParse(q["offset"].FirstOrDefault() ?? "0", out var o) ? o : -1;
         var limit = int.TryParse(q["limit"].FirstOrDefault() ?? "25", out var l) ? l : -1;
-        return offset < 0 || limit is < 1 or > 100 ? null : (offset, limit);
+        return offset < 0 || limit is < 1 or > V1Access.TablePageMax ? null : (offset, limit);
     }
 
     public static void Map(RouteGroupBuilder api)

@@ -118,7 +118,7 @@ async function openSaved(page: Page, view: string) {
 
 test('Finance-style matrices are saved filters, isolated per matrix, renameable and deletable', async ({ page, request }) => {
   await openSod(page, 'Risk Matrix')
-  await pickMulti(page, 'SAP User Group', 'P2P')
+  await pickMulti(page, 'SAP user group', 'P2P')
   await expect(page.getByRole('rowheader', { name: new RegExp('' + names.a) })).toHaveCount(0)
   await expect(page.getByRole('rowheader', { name: new RegExp('' + names.b) })).toBeVisible()
   await openSaved(page, 'sod_risk_matrix')
@@ -146,7 +146,7 @@ test('Finance-style matrices are saved filters, isolated per matrix, renameable 
   await page.getByRole('option').filter({ hasText: 'P2P matrix' }).first().click()
   await savedDialog(page, 'sod_risk_matrix').getByRole('button', { name: 'Load', exact: true }).click()
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('button', { name: 'Remove SAP User Group P2P', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Remove SAP user group P2P', exact: true })).toBeVisible()
   await expect(page.getByRole('rowheader', { name: new RegExp('' + names.a) })).toHaveCount(0)
   await openSaved(page, 'sod_risk_matrix')
   await savedDialog(page, 'sod_risk_matrix').getByLabel('Saved filter name', { exact: true }).fill('P2P renamed')
@@ -238,7 +238,7 @@ test('remediation separates proposals from verification and keeps tracked action
   await page.getByRole('link', { name: 'Reviews', exact: true }).click()
   await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Remediation',exact:true}).click()
   const table = page.getByRole('table', { name: 'Access remediation rows' })
-  await expect(table.locator('thead th')).toHaveText(['SAP user','SAP User Group','Role assignment','Validity','Review','Remediation','Actions'])
+  await expect(table.locator('thead th')).toHaveText(['SAP username','SAP user group','Role assignment','Validity','Review status','Remediation','Actions'])
   await expect(table.getByRole('link',{name:`Open SAP user ${names.a}`,exact:true})).toHaveCount(1) // the SAP user column uses the shared identity action: one user, one link
   await page.getByRole('button', { name: 'Expand all', exact: true }).click()
   await expect(table).toContainText('Remove assignment') // activity rows with verification sit under the user and role parent

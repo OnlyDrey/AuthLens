@@ -80,7 +80,7 @@ public static class V1Access
             var q = http.Request.Query;
             if (Parse(http) is { Error: { } error }) return error;
             var (query, showExpired, status) = Parse(http).Value;
-            if (!Paging(q, 50, out var offset, out var limit)) return Detail(422, "offset must be ≥ 0 and limit between 1 and 100.");
+            if (!Paging(q, 50, out var offset, out var limit)) return Detail(422, "offset must be ≥ 0 and limit between 1 and 250.");
             var snapshot = await snapshots.GetAsync(ct);
             var today = Today();
             var org = await OrganizationAsync(http, snapshot, ct);
@@ -202,7 +202,7 @@ public static class V1Access
             var mode = q["transaction_mode"].FirstOrDefault() ?? "and";
             if (!Statuses.Contains(status) || scope is not ("" or "business" or "release" or "other" or "all") || mode is not ("and" or "or")) return Detail(422, "Unsupported filter value.");
             if (!Paging(q, 50, out var offset, out var limit) || !NonNegative(q, "account_offset", out var accountOffset) || !NonNegative(q, "name_offset", out var nameOffset)
-                || !NonNegative(q, "email_offset", out var emailOffset)) return Detail(422, "Offsets must be ≥ 0 and limit between 1 and 100.");
+                || !NonNegative(q, "email_offset", out var emailOffset)) return Detail(422, "Offsets must be ≥ 0 and limit between 1 and 250.");
             var snapshot = await snapshots.GetAsync(ct);
             if (!snapshot.Users.Users.TryGetValue(RoleNames.NormalizeUsername(username), out var user)) return Detail(404, "User not found in the current local export.");
             var today = Today();
@@ -259,7 +259,7 @@ public static class V1Access
             var sort = q["sort"].FirstOrDefault() ?? "identifier";
             if (left.Length is 0 or > 512 || right.Length is 0 or > 512 || !Validities.Contains(validity) || kind is not ("roles" or "transactions")
                 || difference is not ("" or "shared" or "a" or "b") || sort is not ("identifier" or "difference" or "a" or "b")) return Detail(422, "Invalid comparison parameters.");
-            if (!Paging(q, 25, out var offset, out var limit)) return Detail(422, "offset must be ≥ 0 and limit between 1 and 100.");
+            if (!Paging(q, 25, out var offset, out var limit)) return Detail(422, "offset must be ≥ 0 and limit between 1 and 250.");
             var snapshot = await snapshots.GetAsync(ct);
             var today = Today();
             var result = UserComparison.Compare(snapshot.Catalogue, snapshot.Users, left, right, validity, today);
@@ -316,7 +316,7 @@ public static class V1Access
             var kind = q["kind"].FirstOrDefault() ?? "roles";
             if (left.Length == 0 || right.Length == 0 || identifier.Length is 0 or > 512 || side is not ("a" or "b") || !Validities.Contains(validity) || kind is not ("roles" or "transactions"))
                 return Detail(422, "Invalid evidence parameters.");
-            if (!Paging(q, 25, out var offset, out var limit)) return Detail(422, "offset must be ≥ 0 and limit between 1 and 100.");
+            if (!Paging(q, 25, out var offset, out var limit)) return Detail(422, "offset must be ≥ 0 and limit between 1 and 250.");
             var snapshot = await snapshots.GetAsync(ct);
             var result = UserComparison.Compare(snapshot.Catalogue, snapshot.Users, left, right, validity, Today());
             List<object> items;
@@ -525,11 +525,14 @@ public static class V1Access
         return q[name].FirstOrDefault() is not { } text || (int.TryParse(text, out value) && value >= 0);
     }
 
+    /// <summary>TBL-03: the largest page of a result table (AuthLens extension; SAP Lens v1 capped pages at 100). Default page sizes are unchanged.</summary>
+    internal const int TablePageMax = 250;
+
     internal static bool Paging(IQueryCollection q, int defaultLimit, out int offset, out int limit)
     {
         limit = defaultLimit;
         if (!NonNegative(q, "offset", out offset)) return false;
-        if (q["limit"].FirstOrDefault() is { } text && (!int.TryParse(text, out limit) || limit is < 1 or > 100)) return false;
+        if (q["limit"].FirstOrDefault() is { } text && (!int.TryParse(text, out limit) || limit is < 1 or > TablePageMax)) return false;
         return true;
     }
 }

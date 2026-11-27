@@ -24,8 +24,8 @@ const scrollMemory = new Map<string, { left: number; top: number }>()
 
 export interface MatrixGroupDef { id: string; label: string; summary: string; collapsed: boolean; onToggle: () => void }
 
-export function MatrixGrid({ caption, rowLabel, columns: sourceColumns, rows, cell, onSelect, onRow, selected, scrollKey, codeRows, groups, groupColumn }: {
-  /** Adds a dedicated "SAP User Group" column right after the row identity (rows carry `groups`). Leave it off when the groups are already the row headers. */
+export function MatrixGrid({ caption, rowLabel, exportRowLabel, columns: sourceColumns, rows, cell, onSelect, onRow, selected, scrollKey, codeRows, groups, groupColumn }: {
+  /** Adds a dedicated "SAP user group" column right after the row identity (rows carry `groups`). Leave it off when the groups are already the row headers. */
   groupColumn?: boolean
   /** Collapsible group headers in display order; rows name their group. A collapsed group has a header and no rows. */
   groups?: MatrixGroupDef[]
@@ -34,6 +34,8 @@ export function MatrixGrid({ caption, rowLabel, columns: sourceColumns, rows, ce
   codeRows?: boolean
   caption: string
   rowLabel: string
+  /** CSV header of the row column when it differs from the displayed label (export contract kept across terminology changes, TBL-04). */
+  exportRowLabel?: string
   columns: MatrixColumnDef[]
   /** `sub` is a secondary note (for example other groups of the user); it is kept as a tooltip and screen reader text, never as a second line under the identity. */
   rows: { id: string; label: string; sub?: string; group?: string; groups?: string[] }[]
@@ -56,7 +58,7 @@ export function MatrixGrid({ caption, rowLabel, columns: sourceColumns, rows, ce
     try {
       const exported=columnOrder.filter(id=>all||!preference.hidden.includes(id)).map(id=>sourceColumns.find(column=>column.id===id)!)
       const shownRows=rows.filter(row=>!groups?.find(group=>group.id===row.group)?.collapsed)
-      const csv=buildTableCSV([rowLabel,...(groupColumn?['SAP User Group']:[]),...exported.map(column=>column.label)],shownRows.map(row=>[row.label,...(groupColumn?[(row.groups||[]).join('; ')]:[]),...exported.map(column=>cell(row.id,column.id)?.text||'')]))
+      const csv=buildTableCSV([exportRowLabel ?? rowLabel,...(groupColumn?['SAP User Group']:[]),...exported.map(column=>column.label)],shownRows.map(row=>[row.label,...(groupColumn?[(row.groups||[]).join('; ')]:[]),...exported.map(column=>cell(row.id,column.id)?.text||'')]))
       const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),link=document.createElement('a');link.href=url;link.download='AuthLens-matrix.csv';link.click();URL.revokeObjectURL(url)
     }catch(error){setExportError(error instanceof Error?error.message:'Export failed.')}
   }
@@ -182,7 +184,7 @@ export function MatrixGrid({ caption, rowLabel, columns: sourceColumns, rows, ce
         <thead>
           <tr>
             <th scope="col" className="matrix-corner">{rowLabel}</th>
-            {groupColumn && <th scope="col" className="matrix-corner matrix-corner-group">SAP User Group</th>}
+            {groupColumn && <th scope="col" className="matrix-corner matrix-corner-group">SAP user group</th>}
             {first > 0 && <th aria-hidden="true" colSpan={first} className="matrix-spacer" />}
             {visible.map((column) => (
               <th key={column.id} scope="col" className="matrix-col" title={column.title || column.label}>
@@ -199,7 +201,7 @@ export function MatrixGrid({ caption, rowLabel, columns: sourceColumns, rows, ce
             return [
               groups && <tr key={`group:${group.id}`} className="matrix-group-row" data-collapsed={group.collapsed || undefined}>
                 <th scope="rowgroup" className="matrix-row-head matrix-group-head">
-                  <button type="button" className="matrix-group-toggle" aria-expanded={!group.collapsed} aria-label={`${group.collapsed ? 'Expand' : 'Collapse'} SAP User Group ${group.label}`} onClick={group.onToggle}>
+                  <button type="button" className="matrix-group-toggle" aria-expanded={!group.collapsed} aria-label={`${group.collapsed ? 'Expand' : 'Collapse'} SAP user group ${group.label}`} onClick={group.onToggle}>
                     {group.collapsed ? <ChevronRight size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}<span>{group.label}</span>
                   </button>
                   <small>{group.summary}</small>

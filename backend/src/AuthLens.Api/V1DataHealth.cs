@@ -66,7 +66,7 @@ public static class V1DataHealth
             var finding = q["finding"].FirstOrDefault() ?? "";
             var offset = int.TryParse(q["offset"].FirstOrDefault() ?? "0", out var o) ? o : -1;
             var limit = int.TryParse(q["limit"].FirstOrDefault() ?? "25", out var l) ? l : -1;
-            if (finding.Length > 64 || offset < 0 || limit is < 1 or > 100) return Results.Json(new { detail = "Invalid finding or paging parameters." }, statusCode: 422);
+            if (finding.Length > 64 || offset < 0 || limit is < 1 or > V1Access.TablePageMax) return Results.Json(new { detail = "Invalid finding or paging parameters." }, statusCode: 422);
             var state = await snapshots.GetAsync(ct);
             var settings = await store.GetAsync(ct);
             var today = DateOnly.FromDateTime(DateTime.Now);

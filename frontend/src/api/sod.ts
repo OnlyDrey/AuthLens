@@ -20,12 +20,12 @@ export interface ActivityColumn { activity: string; risks: string[]; users: numb
 export interface RiskCell { decision_summary?:DecisionSummary; review_coverage?: ReviewCoverage; finding_id: string; criticality: string; acceptance: Lifecycle; activities: Record<string, number> }
 export interface ActivityCell { decision_summary?:DecisionSummary; review_coverage?: ReviewCoverage; key: string; decision: Lifecycle; roles: number; risks: string[]; duplicate: boolean }
 export interface GroupCell { users: number }
-export interface MatrixRow<Cell> { user: string; groups: string[]; users?: number; cells: Record<string, Cell | GroupCell>; /** Grouped view only: the one SAP User Group this user is listed under. */ group?: string }
+export interface MatrixRow<Cell> { user: string; groups: string[]; users?: number; cells: Record<string, Cell | GroupCell>; /** Grouped view only: the one SAP user group this user is listed under. */ group?: string }
 export interface GroupSummary { name: string; users: number; findings: number; start: number }
 export interface MatrixResult<Column, Cell> extends ContextInfo {
   kind: 'risk' | 'activity'
   group_by: 'user' | 'group' | 'user_group'
-  /** Grouped view only: distinct users and finding cells per SAP User Group over the whole filtered scope, in display order. */
+  /** Grouped view only: distinct users and finding cells per SAP user group over the whole filtered scope, in display order. */
   group_summaries?: GroupSummary[] | null
   columns: Column[]
   columns_truncated: boolean

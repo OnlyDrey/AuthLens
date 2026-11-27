@@ -136,7 +136,7 @@ async function downloadAssignments(page:Page){
 test('task 31 directory exports all assignments for filtered users with explicit matches',async({page,request})=>{
  await prepareAssignmentExport(request);await page.goto('/#session=browser-test-session');await goTo(page,'Users')
  await page.getByLabel('Search users',{exact:true}).fill(userA)
- const group=page.getByRole('combobox',{name:'SAP User Group',exact:true});await group.click();await group.fill('SYN_GROUP');await page.getByRole('option',{name:'SYN_GROUP',exact:true}).click();await group.press('Escape')
+ const group=page.getByRole('combobox',{name:'SAP user group',exact:true});await group.click();await group.fill('SYN_GROUP');await page.getByRole('option',{name:'SYN_GROUP',exact:true}).click();await group.press('Escape')
  const role=page.getByRole('combobox',{name:'Filter users by role',exact:true});await role.click();await role.fill('ZC:SYN:B');await page.getByRole('option').filter({hasText:'ZC:SYN:B'}).first().click();await role.press('Escape')
  await page.getByRole('textbox',{name:'Filter users by transaction',exact:true}).fill('MIGO')
  await expect(page.getByRole('button',{name:'Export CSV',exact:true})).toBeEnabled()

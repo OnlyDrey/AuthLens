@@ -361,7 +361,7 @@ public static partial class V1SodGovernance
         var sort = query["queue_sort"].FirstOrDefault() ?? "";
         if (progress is not ("" or "outstanding" or "complete" or "removal") || sort is not ("" or "username" or "group" or "progress" or "activity" or "assignment" or "risk" or "acceptance" or "removal"))
             return Bad("Choose a supported progress filter and sort.");
-        if (Paging(query, 50, 200) is not { } page) return Bad("Invalid paging.");
+        if (Paging(query, 50, V1Access.TablePageMax) is not { } page) return Bad("Invalid paging.");
         var (scope, items, _) = await QueueAsync(http, q!, "", "", ct);
         var rows = new Dictionary<string, JsonObject>(Ordinal);
         var groups = new Dictionary<string, SortedSet<string>>(Ordinal);
@@ -477,7 +477,7 @@ public static partial class V1SodGovernance
         if (error is not null) return error;
         var (recommended, tracking, invalid) = RemediationFilters(http.Request.Query);
         if (invalid is not null) return invalid;
-        if (Paging(http.Request.Query, 50, 200) is not { } page) return Bad("Invalid paging.");
+        if (Paging(http.Request.Query, 50, V1Access.TablePageMax) is not { } page) return Bad("Invalid paging.");
         var (scope, rows, summary, actions, verify, reference) = await RemediationDataAsync(http, q!, ct);
         if (recommended.Length > 0) rows = [.. rows.Where(r => (string)r["recommended"]! == recommended)];
         rows = Tracked(rows, tracking);
@@ -679,7 +679,7 @@ public static partial class V1SodGovernance
             if (!Tables.Contains(table)) return Bad("Choose a supported explorer table.");
             var (q, error) = await QueryAsync(http, ct);
             if (error is not null) return error;
-            if (Paging(http.Request.Query, 50, 200) is not { } page) return Bad("Invalid paging.");
+            if (Paging(http.Request.Query, 50, V1Access.TablePageMax) is not { } page) return Bad("Invalid paging.");
             var (scope, rows) = await ExplorerAsync(http, table, q!, ct);
             var result = await InfoAsync(http, scope.Bundle, ct);
             result["table"] = table; result["items"] = new JsonArray([.. rows.Skip(page.Offset).Take(page.Limit)]); result["total"] = rows.Count;
@@ -701,7 +701,7 @@ public static partial class V1SodGovernance
             if (error is not null) return error;
             var (kind, status, invalid) = QueueFilters(http.Request.Query);
             if (invalid is not null) return invalid;
-            if (Paging(http.Request.Query, 50, 200) is not { } page) return Bad("Invalid paging.");
+            if (Paging(http.Request.Query, 50, V1Access.TablePageMax) is not { } page) return Bad("Invalid paging.");
             var (scope, items, counts) = await QueueAsync(http, q!, kind, status, ct);
             var result = await InfoAsync(http, scope.Bundle, ct);
             result["items"] = new JsonArray([.. items.Skip(page.Offset).Take(page.Limit)]); result["total"] = items.Count; result["counts"] = counts;

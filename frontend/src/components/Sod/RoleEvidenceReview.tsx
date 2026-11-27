@@ -39,7 +39,7 @@ export function RoleEvidenceReview({ context, user, risk, roles }: { context: st
       {review.quickError && <p role="alert" className="text-[var(--error)]">{review.quickError}</p>}
       <div className="evidence-scroll" tabIndex={0} role="region" aria-label="Roles supplying this evidence">
         <DataTable caption="Roles supplying this evidence" density="compact">
-          <thead><tr><th>Role</th><th>Status</th><th className="col-actions">Review actions</th></tr></thead>
+          <thead><tr><th data-column-key="Role">Role name</th><th>Status</th><th className="col-actions">Review actions</th></tr></thead>
           <tbody>{rows.map(({ role, assignment, several }) => {
             const pending = assignment ? review.quickBusy.get(assignment.id) : undefined
             return (

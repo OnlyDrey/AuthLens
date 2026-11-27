@@ -48,14 +48,14 @@ test('Work Queue and Remediation filter tiles are the same shared KPI control wi
 
 test('both pages keep the shared SoD filters', async ({ page }) => {
   await openSod(page, 'Risk Matrix')
-  await pickMulti(page.getByRole('complementary', { name: 'Filters', exact: true }), 'SAP User Group', 'P2P', page)
+  await pickMulti(page.getByRole('complementary', { name: 'Filters', exact: true }), 'SAP user group', 'P2P', page)
   for (const open of [workQueue, remediation]) {
     await open(page)
-    await expect(page.getByRole('complementary', { name: 'Filters', exact: true }).getByRole('group', { name: 'Selected SAP User Group' })).toContainText('P2P')
+    await expect(page.getByRole('complementary', { name: 'Filters', exact: true }).getByRole('group', { name: 'Selected SAP user group' })).toContainText('P2P')
   }
   await workQueue(page)
   await page.getByRole('region', { name: 'Review progress' }).locator('.ui-kpi').nth(1).click() // a tile changes the list, the shared filter stays
-  await expect(page.getByRole('complementary', { name: 'Filters', exact: true }).getByRole('group', { name: 'Selected SAP User Group' })).toContainText('P2P')
+  await expect(page.getByRole('complementary', { name: 'Filters', exact: true }).getByRole('group', { name: 'Selected SAP user group' })).toContainText('P2P')
 })
 
 for (const width of [375, 800, 1280]) test(`the Active period badge sits 8px after the period name and wraps cleanly (${width}px)`, { tag: '@visual' }, async ({ page, request }) => {

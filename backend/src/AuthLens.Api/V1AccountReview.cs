@@ -242,7 +242,7 @@ public static class V1AccountReview
         var positionType = q["position_type"].FirstOrDefault() ?? "";
         var offset = int.TryParse(q["offset"].FirstOrDefault() ?? "0", out var o) ? o : -1;
         var limit = int.TryParse(q["limit"].FirstOrDefault() ?? "25", out var l) ? l : -1;
-        if (search.Length > 256 || offset < 0 || limit is < 1 or > 100 || !Sorts.Contains(sort) || licenses.Any(x => x is not ("classified" or "exclude")) || states.Any(s => !States.Contains(s))
+        if (search.Length > 256 || offset < 0 || limit is < 1 or > V1Access.TablePageMax || !Sorts.Contains(sort) || licenses.Any(x => x is not ("classified" or "exclude")) || states.Any(s => !States.Contains(s))
             || wanted.Count > 32 || functionalGroups.Count > 50 || managers.Count > 50 || positionStatus is not ("" or "pending" or "reviewed" or "all")
             || positionType is not ("" or "department" or "title" or "both")) return AccountReviewList.Failed(Detail(422, "Invalid account review query."));
         if (wanted.Any(w => !FilterNames.Contains(w))) return AccountReviewList.Failed(Detail(422, "Unknown review finding."));
@@ -380,7 +380,7 @@ public static class V1AccountReview
         {
             var offset = int.TryParse(http.Request.Query["offset"].FirstOrDefault() ?? "0", out var o) ? o : -1;
             var limit = int.TryParse(http.Request.Query["limit"].FirstOrDefault() ?? "25", out var l) ? l : -1;
-            if (offset < 0 || limit is < 1 or > 100) return Detail(422, "Invalid paging parameters.");
+            if (offset < 0 || limit is < 1 or > V1Access.TablePageMax) return Detail(422, "Invalid paging parameters.");
             await using var db = await factory.CreateDbContextAsync(ct);
             var key = Sources.AccountKey(username);
             var decisions = await db.ReviewDecisions.AsNoTracking().Where(d => d.SubjectType == "account" && d.SubjectKey == key).OrderByDescending(d => d.Id).ToListAsync(ct);

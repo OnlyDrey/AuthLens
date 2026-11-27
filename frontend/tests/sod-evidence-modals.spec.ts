@@ -13,7 +13,7 @@ test('Access Explorer user evidence opens in a wide modal with a compact summary
   await expect(dialog).toBeVisible()
   expect((await dialog.boundingBox())!.width).toBeGreaterThanOrEqual(720)
   const summary = dialog.locator('.evidence-summary')
-  for (const term of ['SAP user', 'Risk', 'Activities', 'Roles']) await expect(summary.getByText(term, { exact: true })).toBeVisible()
+  for (const term of ['SAP username', 'Risk', 'Activities', 'Roles']) await expect(summary.getByText(term, { exact: true })).toBeVisible()
   const scroll = dialog.getByRole('region', { name: 'Roles supplying this evidence', exact: true })
   expect(await scroll.evaluate(el => getComputedStyle(el).overflowY)).toBe('auto')
   await expect(scroll.getByRole('table')).toContainText('ROLE_A1')
@@ -35,7 +35,7 @@ test('the Roles lookup shows the users behind a role in a wide modal with interv
   expect((await dialog.boundingBox())!.width).toBeGreaterThanOrEqual(720)
   const table = dialog.getByRole('table', { name: 'Users with ROLE_AB' })
   await expect(table).toContainText(names.b)
-  await expect(dialog.getByRole('columnheader', { name: 'SAP User Group' })).toBeVisible()
+  await expect(dialog.getByRole('columnheader', { name: 'SAP user group' })).toBeVisible()
   await expect(dialog.getByRole('button', { name: `Open SAP user ${names.b}` })).toBeVisible()
   await dialog.getByRole('button', { name: `Investigate ${names.b}` }).click()
   await expect(dialog).toHaveCount(0)
@@ -54,7 +54,7 @@ test('the Potential SoD evidence modal separates transactions, single roles, ass
   for (const side of ['ACTVT1', 'ACTVT2']) {
     const section = dialog.getByRole('region', { name: `${side} evidence` })
     await expect(section).toBeVisible()
-    await expect(section.getByRole('columnheader')).toHaveText(['Transaction', 'Single role', 'Assigned role', 'Catalogue role or pattern', 'Assignment validity', 'Technical provenance'])
+    await expect(section.getByRole('columnheader')).toHaveText(['Transaction', 'Single role', 'Role name', 'Catalogue role or pattern', 'Assignment validity', 'Technical provenance'])
     await expect(section.getByRole('region', { name: `${side} supporting evidence table` })).toBeVisible()
   }
   await expect(dialog.getByText('Technical provenance').first()).toBeVisible()

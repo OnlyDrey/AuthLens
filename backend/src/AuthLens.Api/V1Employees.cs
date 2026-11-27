@@ -94,7 +94,7 @@ public static class V1Employees
         var filter = (string?)body["filter"] ?? "";
         var sort = (string?)body["sort"] ?? "name";
         var digest = (string?)body["digest"];
-        if (offset < 0 || limit is < 1 or > 100 || search.Length > 256 || !Filters.Contains(filter) || sort is not ("name" or "email" or "department" or "manager")
+        if (offset < 0 || limit is < 1 or > V1Access.TablePageMax || search.Length > 256 || !Filters.Contains(filter) || sort is not ("name" or "email" or "department" or "manager")
             || digest is not null && !System.Text.RegularExpressions.Regex.IsMatch(digest, "^[a-f0-9]{64}$")) return null;
         return new PreviewRequest(offset, limit, search, filter, sort, (bool?)body["descending"] ?? false, digest);
     }
@@ -162,7 +162,7 @@ public static class V1Employees
             var search = q["search"].FirstOrDefault() ?? "";
             var offset = int.TryParse(q["offset"].FirstOrDefault() ?? "0", out var o) ? o : -1;
             var limit = int.TryParse(q["limit"].FirstOrDefault() ?? "25", out var l) ? l : -1;
-            if (search.Length > 256 || offset < 0 || limit is < 1 or > 100) return Detail(422, "Invalid search or paging parameters.");
+            if (search.Length > 256 || offset < 0 || limit is < 1 or > V1Access.TablePageMax) return Detail(422, "Invalid search or paging parameters.");
             var snapshot = await snapshots.GetAsync(ct);
             var directory = Available(snapshot, await store.GetAsync(ct));
             if (directory is null) return Json(new { items = Array.Empty<object>(), total = 0, offset, limit });

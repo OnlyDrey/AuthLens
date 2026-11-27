@@ -5,7 +5,7 @@ let directory: string
 test.beforeEach(async ({ request }) => { directory = await seedGovernance(request, 'static') })
 test.afterEach(async ({ request }) => { await cleanup(request, directory) })
 
-const heatmap = (page: Page) => page.getByRole('region', { name: 'SAP User Group heatmap', exact: true })
+const heatmap = (page: Page) => page.getByRole('region', { name: 'SAP user group heatmap', exact: true })
 const sidebar = (page: Page) => page.getByRole('complementary', { name: 'Filters', exact: true })
 // The heatmap belongs to the SoD workspace and its subtabs only. Reviews, Review Periods and Reports and Evidence moved to the top-level
 // Reviews workspace, which intentionally has no SoD heatmap (checked below).
@@ -17,7 +17,7 @@ test('one shared heatmap sits directly under the Review Context on every SoD pag
   for (const name of PAGES) {
     await page.getByRole('link', { name, exact: true }).click()
     await expect(heatmap(page)).toHaveCount(1)
-    await expect(heatmap(page).getByRole('button', { name: /Conflicts by SAP User Group/ })).toHaveAttribute('aria-expanded', 'true')
+    await expect(heatmap(page).getByRole('button', { name: /Conflicts by SAP user group/ })).toHaveAttribute('aria-expanded', 'true')
     await expect(heatmap(page).getByRole('table')).toBeVisible()
     const context = (await page.locator('[aria-label="Review context"]').first().boundingBox())!, box = (await heatmap(page).boundingBox())!
     expect(box.y).toBeGreaterThanOrEqual(context.y + context.height - 1) // directly below the shared context, before page content
@@ -37,7 +37,7 @@ test('one shared heatmap sits directly under the Review Context on every SoD pag
 
 test('collapsing the heatmap persists across SoD pages and reloads, and expanding restores it', async ({ page }) => {
   await openSod(page)
-  const toggle = () => heatmap(page).getByRole('button', { name: /Conflicts by SAP User Group/ })
+  const toggle = () => heatmap(page).getByRole('button', { name: /Conflicts by SAP user group/ })
   await toggle().click()
   await expect(toggle()).toHaveAttribute('aria-expanded', 'false')
   await expect(heatmap(page).getByRole('table')).toHaveCount(0)
@@ -53,7 +53,7 @@ test('collapsing the heatmap persists across SoD pages and reloads, and expandin
 
 test('the heatmap is expanded in a new session, remembers a collapse within the session and starts expanded again in the next one', async ({ page, browser }) => {
   await openSod(page)
-  const toggle = (target = page) => heatmap(target).getByRole('button', { name: /Conflicts by SAP User Group/ })
+  const toggle = (target = page) => heatmap(target).getByRole('button', { name: /Conflicts by SAP user group/ })
   await expect(toggle()).toHaveAttribute('aria-expanded', 'true')
   await expect(toggle().locator('svg').first()).toBeVisible()
   await toggle().click()
@@ -77,18 +77,18 @@ test('group, risk and cell selections filter the page, keep other filters, show 
   // an unrelated page filter that the heatmap must not discard
   await page.getByRole('button', { name: /Pending risks/ }).click()
   await expect(page.getByRole('button', { name: /Pending risks/ })).toHaveAttribute('aria-pressed', 'true')
-  await heatmap(page).getByRole('button', { name: 'FIN: filter to this SAP User Group' }).click()
-  await expect(filters).toContainText('SAP User Group: FIN')
-  await expect(sidebar(page).getByRole('button', { name: 'Remove SAP User Group FIN', exact: true })).toBeVisible() // the page itself applies it
+  await heatmap(page).getByRole('button', { name: 'FIN: filter to this SAP user group' }).click()
+  await expect(filters).toContainText('SAP user group: FIN')
+  await expect(sidebar(page).getByRole('button', { name: 'Remove SAP user group FIN', exact: true })).toBeVisible() // the page itself applies it
   await heatmap(page).getByRole('button', { name: 'R1: filter to this risk' }).click()
   await expect(filters).toContainText('Risk: R1')
   await expect(sidebar(page).getByRole('button', { name: 'Remove Risk ID R1', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: /Pending risks/ })).toHaveAttribute('aria-pressed', 'true') // unrelated filter kept
-  await expect(heatmap(page).getByRole('button', { name: 'FIN: remove SAP User Group filter' })).toHaveAttribute('aria-pressed', 'true')
-  await filters.getByRole('button', { name: 'Remove filter SAP User Group FIN' }).click()
-  await expect(filters).not.toContainText('SAP User Group: FIN')
+  await expect(heatmap(page).getByRole('button', { name: 'FIN: remove SAP user group filter' })).toHaveAttribute('aria-pressed', 'true')
+  await filters.getByRole('button', { name: 'Remove filter SAP user group FIN' }).click()
+  await expect(filters).not.toContainText('SAP user group: FIN')
   await heatmap(page).getByRole('row', { name: /^P2P\b/ }).getByRole('button', { name: /with R1/ }).click() // a cell sets group and risk together
-  await expect(filters).toContainText('SAP User Group: P2P'); await expect(filters).toContainText('Risk: R1')
+  await expect(filters).toContainText('SAP user group: P2P'); await expect(filters).toContainText('Risk: R1')
   await filters.getByRole('button', { name: 'Clear heatmap filters' }).click()
   await expect(filters).toHaveCount(0)
   await expect(page.getByRole('button', { name: /Pending risks/ })).toHaveAttribute('aria-pressed', 'true') // clearing removes only the heatmap's own filters
@@ -99,7 +99,7 @@ test('on pages that cannot filter by group and risk a selection opens the matchi
   await openSod(page)   // the Overview is the SoD page without its own group and risk filters
   await heatmap(page).getByRole('row', { name: /^FIN\b/ }).getByRole('button', { name: /with R2/ }).click()
   await expect(page).toHaveURL(/#\/sod\/risk-matrix/)
-  await expect(sidebar(page).getByRole('button', { name: 'Remove SAP User Group FIN', exact: true })).toBeVisible()
+  await expect(sidebar(page).getByRole('button', { name: 'Remove SAP user group FIN', exact: true })).toBeVisible()
   await expect(sidebar(page).getByRole('button', { name: 'Remove Risk ID R2', exact: true })).toBeVisible()
   await expect(heatmap(page).getByRole('group', { name: 'Active heatmap filters' })).toContainText('Risk: R2')
   await page.getByRole('link', { name: 'Overview', exact: true }).click()

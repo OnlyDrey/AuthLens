@@ -58,7 +58,7 @@ export function ComponentLibraryPatterns() {
           <h3>Table zebra, hover and selection</h3>
           <TableRegion className="access-table" role="region" aria-label="Demo table states" tabIndex={0} data-density="compact">
             <ConfigurableTable>
-              <thead><tr><th>SAP user</th><th>Group</th></tr></thead>
+              <thead><tr><th data-column-key="SAP user">SAP username</th><th data-column-key="Group">SAP user group</th></tr></thead>
               <tbody>{['SYN_A', 'SYN_B', 'SYN_C'].map((user) => <tr key={user} data-selected={row === user || undefined} onClick={() => setRow(user)}><td>{user}</td><td>FIN</td></tr>)}</tbody>
             </ConfigurableTable>
           </TableRegion>
@@ -80,22 +80,22 @@ export function ComponentLibraryPatterns() {
         </section>
         <section aria-label="Multiselect toolbar" className="grid gap-2">
           <h3>Multiselect toolbar</h3>
-          <MultiSelectFilter label="Demo SAP User Group" values={selected} options={['FIN', 'P2P', 'HR', 'MM']} onChange={setSelected} placeholder="All groups · type to search" />
+          <MultiSelectFilter label="Demo SAP user group" values={selected} options={['FIN', 'P2P', 'HR', 'MM']} onChange={setSelected} placeholder="All groups · type to search" />
         </section>
         <section aria-label="Heatmap controls" className="grid gap-2">
           <h3>Heatmap controls</h3>
           <div className="flex flex-wrap items-center gap-2" role="toolbar" aria-label="Demo heatmap controls">
-            <Button aria-expanded={heatOpen} onClick={() => setHeatOpen(!heatOpen)}><DisclosureChevron open={heatOpen} />Conflicts by SAP User Group</Button>
+            <Button aria-expanded={heatOpen} onClick={() => setHeatOpen(!heatOpen)}><DisclosureChevron open={heatOpen} />Conflicts by SAP user group</Button>
             <ButtonGroup label="Demo heatmap columns" value={kind} onChange={setKind} options={[{ value: 'risk', label: 'Risks' }, { value: 'activity', label: 'Activities' }]} />
-            <SortControl label="Demo sort groups" value={sort} options={[{ value: 'name', label: 'SAP User Group' }, { value: 'users', label: 'Distinct users' }]} descending={descending} onChange={setSort} onDescending={setDescending} />
+            <SortControl label="Demo sort groups" value={sort} options={[{ value: 'name', label: 'SAP user group' }, { value: 'users', label: 'Distinct users' }]} descending={descending} onChange={setSort} onDescending={setDescending} />
           </div>
         </section>
         <section aria-label="Modal layout" className="grid gap-2">
           <h3>Wide modal</h3>
           <div className="flex flex-wrap gap-2"><Button onClick={() => setModal(true)}>Open wide modal</Button><Button><FileDown size={16} aria-hidden="true" />Export CSV</Button></div>
           {modal && <Dialog title="Demo evidence modal" onClose={() => setModal(false)} footer={<Button onClick={() => setModal(false)}>Close</Button>}>
-            <dl className="evidence-summary"><div><dt>SAP user</dt><dd>SYN_A</dd></div><div><dt>Risk</dt><dd>R1</dd></div><div><dt>Roles</dt><dd>3</dd></div></dl>
-            <div className="evidence-scroll" tabIndex={0} role="region" aria-label="Demo scrollable evidence"><ConfigurableTable><thead><tr><th>Role</th></tr></thead><tbody><tr><td><RoleIdentifier value="ROLE_A1" label="role" /></td></tr><tr><td><RoleIdentifier value="ROLE_B" label="role" /></td></tr></tbody></ConfigurableTable></div>
+            <dl className="evidence-summary"><div><dt>SAP username</dt><dd>SYN_A</dd></div><div><dt>Risk</dt><dd>R1</dd></div><div><dt>Roles</dt><dd>3</dd></div></dl>
+            <div className="evidence-scroll" tabIndex={0} role="region" aria-label="Demo scrollable evidence"><ConfigurableTable><thead><tr><th data-column-key="Role">Role name</th></tr></thead><tbody><tr><td><RoleIdentifier value="ROLE_A1" label="role" /></td></tr><tr><td><RoleIdentifier value="ROLE_B" label="role" /></td></tr></tbody></ConfigurableTable></div>
           </Dialog>}
         </section>
       </div>

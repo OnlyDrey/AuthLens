@@ -82,7 +82,7 @@ function FindingEvidence({finding,generation,query,onClose,onRole}:{finding:Find
  const subjects=Array.isArray(finding.subject)?finding.subject:[finding.subject],activities=(['ACTVT1','ACTVT2'] as const).map(side=>finding.evidence[side][0]?.activity).filter(Boolean) as string[]
  return <Dialog title={`Potential SoD evidence · ${finding.risk_id}`} onClose={onClose}><div className="evidence-dialog">
   <dl className="evidence-summary" aria-label="Finding summary">
-   <div><dt>{finding.kind==='user'?'SAP user':'Catalogue role'}</dt><dd className="grid gap-1">{subjects.map(name=><RoleIdentifier key={name} value={name} label={finding.kind==='user'?'SAP username':'catalogue role'}/>)}</dd></div>
+   <div><dt>{finding.kind==='user'?'SAP username':'Catalogue role'}</dt><dd className="grid gap-1">{subjects.map(name=><RoleIdentifier key={name} value={name} label={finding.kind==='user'?'SAP username':'catalogue role'}/>)}</dd></div>
    <div><dt>Risk</dt><dd><SodPill kind="risk" value={finding.risk_id}/><span className="block text-xs text-muted">{finding.risk.display_name||finding.risk.source_text} · source criticality {finding.criticality}</span></dd></div>
    <div><dt>Activities (both required)</dt><dd className="inline-flex flex-wrap gap-1">{activities.map(activity=><SodPill key={activity} kind="activity" value={activity}/>)}</dd></div>
   </dl>
@@ -102,12 +102,12 @@ function EvidenceSide({finding,generation,query,side,onRole}:{finding:Finding;ge
   <header className="evidence-side-head"><h3>{side==='ACTVT1'?'Activity 1':'Activity 2'} <SodPill kind="activity" value={activity||''}/></h3>{result.data&&<span className="ui-description" role="status">{result.data.total} supporting {result.data.total===1?'path':'paths'}</span>}</header>
   {result.isError?<p role="alert">{result.error instanceof Error?result.error.message:'Evidence unavailable.'}</p>:!result.data?<LoadingState/>:<>
    <div className="evidence-scroll" tabIndex={0} role="region" aria-label={`${side} supporting evidence table`}>
-    <DataTable caption={`${side} supporting evidence`} density="compact"><thead><tr><th>Transaction</th><th>Single role</th><th>Assigned role</th><th>Catalogue role or pattern</th><th>Assignment validity</th><th>Technical provenance</th></tr></thead><tbody>{result.data.items.map((entry,index)=><tr key={index}>
+    <DataTable caption={`${side} supporting evidence`} density="compact"><thead><tr><th>Transaction</th><th>Single role</th><th data-column-key="Assigned role">Role name</th><th>Catalogue role or pattern</th><th>Assignment validity</th><th>Technical provenance</th></tr></thead><tbody>{result.data.items.map((entry,index)=><tr key={index}>
      <td><RoleIdentifier value={entry.tcode} label="transaction"/>{entry.matrix_transaction!==entry.tcode&&<p className="text-xs text-muted">Matrix: {entry.matrix_transaction}</p>}</td>
      <td><RoleIdentifier value={entry.single_role} label="single role"/><p className="text-xs text-muted">{entry.assignment_kind}</p></td>
      <td className="col-role">{entry.actual_assigned_role?<RoleIdentifier value={entry.actual_assigned_role} label="assigned role"/>:<span className="text-muted">Catalogue mapping, no assignment</span>}</td>
      <td className="col-role"><CatalogueRole entry={entry} onRole={onRole}/></td>
-     <td>{entry.interval_status?<><AssignmentStatus value={entry.interval_status}/><dl className="validity-dates"><div><dt>Valid from</dt><dd>{formatDate(entry.role_valid_from)}</dd></div><div><dt>Valid to</dt><dd>{formatDate(entry.role_valid_to)}</dd></div></dl><p className="text-xs text-muted whitespace-nowrap">SAP User Group: {entry.user_group||'Unavailable'}</p></>:<span className="text-muted">No assignment interval</span>}</td>
+     <td>{entry.interval_status?<><AssignmentStatus value={entry.interval_status}/><dl className="validity-dates"><div><dt>Valid from</dt><dd>{formatDate(entry.role_valid_from)}</dd></div><div><dt>Valid to</dt><dd>{formatDate(entry.role_valid_to)}</dd></div></dl><p className="text-xs text-muted whitespace-nowrap">SAP user group: {entry.user_group||'Unavailable'}</p></>:<span className="text-muted">No assignment interval</span>}</td>
      <td><details className="evidence-provenance"><summary>Technical provenance</summary>{entry.source_provenance.map((source,index)=><div key={index} className="mb-2">{Object.entries(source).filter(([,value])=>value).map(([key,value])=><p key={key} className="break-all text-xs"><span className="text-muted">{key}: </span>{value}</p>)}</div>)}</details></td></tr>)}</tbody></DataTable></div>
    <Pagination label={`${side} evidence pages`} offset={offset} total={result.data.total} limit={result.data.limit} onChange={setOffset}/></>}</section>
 }

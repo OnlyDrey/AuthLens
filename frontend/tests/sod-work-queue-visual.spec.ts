@@ -8,7 +8,7 @@ for (const { theme, width } of layoutMatrix([375,800,1280,1600]))test(`Work Queu
  await request.post('/api/configuration/theme',{headers,data:{theme}})
  await page.setViewportSize({width,height:1000});await openSod(page,'Reviews')
  const queue=page.getByRole('table',{name:'SoD review work queue',exact:true})
- await expect(queue.locator('thead th')).toHaveText(['SAP user','SAP User Group','Progress','Activities','Role assignments','Risk access review','Formal acceptance','Open'])
+ await expect(queue.locator('thead th')).toHaveText(['SAP username','SAP user group','Progress','Activities','Role assignments','Risk access review','Formal acceptance','Open'])
  await expect(queue).not.toContainText('removal recommended')
  await expect(page.getByRole('button',{name:/^Removal recommended/})).toBeVisible()
  if(width>=1280){const action=queue.getByRole('button',{name:/^Open review for/}).first();const bounds=await action.boundingBox();expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(width)}

@@ -6,6 +6,7 @@ import { Select } from '@/components/Shared/Select'
 import { formatDate } from '@/lib/dateFormat';
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
+import { PAGE_SIZES } from '@/lib/pageSize'
 export const inputClass = controlClass;
 export function Filter({
   label,
@@ -16,10 +17,22 @@ export function Filter({
 }) {
   return <FormField label={label}>{children}</FormField>;
 }
-export const PAGE_SIZES = [10, 20, 50, 100] as const
+export { PAGE_SIZES } from '@/lib/pageSize'
+/** TBL-03 table toolbar control: rows per page of one result table (next to Columns). Changing it starts at the first page; the range and the
+ *  Previous/Next control stay in the table's Pagination. */
+export function PageSizeControl({ label, limit, onPageSize }: { label: string; limit: number; onPageSize: (size: number) => void }) {
+  return (
+    <label className="ui-pagination-size table-page-size">
+      <span>Rows per page</span>
+      <Select aria-label={`${label}: rows per page`} value={String(limit)} onChange={(event) => onPageSize(Number(event.target.value))}>
+        {PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+      </Select>
+    </label>
+  )
+}
 /**
  * Shared pager. Without `pageSizes` it is the plain Previous/Next control. With `pageSizes` it also offers a rows-per-page
- * selector (10, 20, 50 or 100); callers reset or clamp the offset when the size or the filters change.
+ * selector (10, 25, 50, 100 or 250); callers reset or clamp the offset when the size or the filters change.
  */
 export function Pagination({
   offset,

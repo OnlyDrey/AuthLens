@@ -73,7 +73,7 @@ test('decisions move coverage, workload, decisions and remediation consistently;
   await expect(page.getByRole('button', { name: 'Awaiting action', exact: true })).toHaveAttribute('aria-pressed', 'true')
 })
 
-test('organizational progress groups by SAP User Group with distinct totals, sorts, opens the Work Queue per group, and is limited for frozen periods', async ({ page, request }) => {
+test('organizational progress groups by SAP user group with distinct totals, sorts, opens the Work Queue per group, and is limited for frozen periods', async ({ page, request }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   const id = await createPeriod(request, uniqueName('Synthetic overview period'))
   await open(page)
@@ -92,7 +92,7 @@ test('organizational progress groups by SAP User Group with distinct totals, sor
   await table.getByRole('button', { name: 'Open the Work Queue for FIN', exact: true }).click()
   await expect(page).toHaveURL(/#\/reviews\/queue/)
   await expect(queueTile(page, 'All users')).toContainText('1')                              // FIN: SYN_A only
-  // A frozen period: SAP User Groups from its evidence; other dimensions are not substituted from current data.
+  // A frozen period: SAP user groups from its evidence; other dimensions are not substituted from current data.
   await openReviews(page)
   await page.getByRole('combobox', { name: 'Review context', exact: true }).selectOption(id)
   await section.getByRole('combobox', { name: 'Group by', exact: true }).selectOption('functional_group')

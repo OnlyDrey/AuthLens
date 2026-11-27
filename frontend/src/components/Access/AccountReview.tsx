@@ -1,3 +1,4 @@
+import { usePageSize } from '@/lib/pageSize'
 import { TableRegion } from '@/components/Shared/TableRegion'
 import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 import {FunctionalGroupPills} from '@/components/Shared/FunctionalGroupPills'
@@ -31,7 +32,7 @@ import { MultiSelectFilter } from '@/components/Shared/MultiSelectFilter'
 import { ClassificationPill, FunctionalGroupReview } from './FunctionalGroupPanel'
 import type { ClassificationStatus } from '@/api/functionalGroups'
 import { formatTimestamp } from '@/lib/dateFormat'
-import { Filter, Pagination, QueryState, inputClass } from './Shared'
+import { Filter, PageSizeControl, Pagination, QueryState, inputClass } from './Shared'
 import { downloadFile } from '@/api/sod'
 interface Decision {
   state: string
@@ -94,7 +95,7 @@ interface Results {
   functional_group_options: { value: string; label: string }[]
   manager_options: { value: string; label: string; count: number }[]
 }
-const SORTS = [{ value: 'username', label: 'Username' }, { value: 'name', label: 'Name' }, { value: 'sap_validity', label: 'SAP validity' }, { value: 'lock_status', label: 'SAP lock status' }, { value: 'ad_status', label: 'AD status' }, { value: 'review_state', label: 'Review state' }, { value: 'priority', label: 'Priority' }]
+const SORTS = [{ value: 'username', label: 'SAP username' }, { value: 'name', label: 'Employee' }, { value: 'sap_validity', label: 'SAP validity' }, { value: 'lock_status', label: 'SAP lock status' }, { value: 'ad_status', label: 'AD status' }, { value: 'review_state', label: 'Review state' }, { value: 'priority', label: 'Priority' }]
 const matchLabel = (status: string) => ({matched:'Matched',duplicate_email:'Duplicate Email',missing_email:'Missing Email',ambiguous:'Ambiguous Match',unmatched:'Unmatched',disabled:'Disabled',unavailable:'Unavailable'} as Record<string,string>)[status] || status.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())
 const changeText = (change: PositionChange) => [
   change.fields.includes('department') && `Department ${change.previous_department} → ${change.current_department}`,
@@ -191,11 +192,13 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
     }
   }, [params.toString()])
   const qc = useQueryClient()
+  const [pageSize, storePageSize] = usePageSize(positions ? 'position-changes' : 'account-review') // TBL-03
+  const setPageSize = (size: number) => { storePageSize(size); setOffset(0) }
   const result = useQuery({
-    queryKey: ['account-review', params.toString(), offset],
+    queryKey: ['account-review', params.toString(), offset, pageSize],
     queryFn: () =>
       apiRequest<Results>(
-        `/api/account-review?${params}&offset=${offset}&limit=25`,
+        `/api/account-review?${params}&offset=${offset}&limit=${pageSize}`,
       ),
   })
   const data = result.data
@@ -307,8 +310,8 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
           <section aria-label="SAP identity" className="review-dialog-section"><h3>SAP identity</h3>
             <MetadataList items={[
               {label:'SAP username',value:<SAPUserLink reviewSupported={false} username={editing.username} copyLabel="username"/>},
-              {label:'Name',value:editing.name||'Name unavailable'},
-              {label:'SAP User Group',value:editing.groups.join(', ')||'Group unavailable'},
+              {label:'Employee',value:editing.name||'Name unavailable'},
+              {label:'SAP user group',value:editing.groups.join(', ')||'Group unavailable'},
               {label:'Directory match',value:matchLabel(editing.match_status)},
             ]}/>
             <div className="ui-toolbar"><Button onClick={()=>{if(rationale!==(editing.decision?.rationale||'')||decision!==editing.review_state){if(!window.confirm('Discard unsaved review changes and investigate this user?'))return}setEditing(null);onUser(editing.username)}}><ArrowUpRight size={16} aria-hidden="true"/>Investigate SAP user</Button></div>
@@ -461,7 +464,7 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
           {result.isError ? <p role="alert">Position changes could not be loaded.</p> : !data ? <p role="status">Loading position changes…</p> : !data.items.length
             ? <p role="status" className="ui-description">{positionStatus === 'pending' && !positionType && !active ? 'No position change is waiting for review.' : 'No position changes match the selected filters.'}</p>
             : <>
-              <TableRegion className="access-table" role="region" aria-label="Position change review queue" tabIndex={0}>
+              <TableRegion className="access-table" role="region" aria-label="Position change review queue" tabIndex={0} toolbar={<PageSizeControl label="Position change pages" limit={pageSize} onPageSize={setPageSize} />}>
                 <ConfigurableTable aria-label="Position changes">
                   <thead><tr><th>SAP username</th><th>Employee</th><th>Change type</th><th data-wrap="text">Previous position</th><th data-wrap="text">Current position</th><th>Priority</th><th>Review status</th><th><span className="sr-only">Review action</span></th></tr></thead>
                   <tbody>
@@ -483,7 +486,7 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
                   </tbody>
                 </ConfigurableTable>
               </TableRegion>
-              <Pagination offset={offset} total={data.total} limit={25} onChange={setOffset} label="Position change pages" />
+              <Pagination offset={offset} total={data.total} limit={pageSize} alwaysShow onChange={setOffset} label="Position change pages" />
             </>}
         </FilterLayout>
         {editor}
@@ -575,15 +578,16 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
             className="access-table review-table"
             tabIndex={0}
             role="region"
+            toolbar={<PageSizeControl label="Account review pages" limit={pageSize} onPageSize={setPageSize} />}
             aria-label="Account review results"
           >
             <ConfigurableTable aria-label="Account Review results">
               <thead>
                 <tr>
-                  {[
+                  {([
                     'SAP username',
-                    'Name',
-                    'SAP User Group',
+                    ['Employee', 'Name'],
+                    ['SAP user group', 'SAP User Group'],
                     'Functional Group',
                     'Manager',
                     'SAP validity',
@@ -592,9 +596,10 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
                     'Directory match',
                     'Review classification & evidence',
                     'Decision',
-                  ].map((h) => (
-                    <th key={h}>{h}</th>
-                  ))}
+                  ] as (string | [string, string])[]).map((h) => {
+                    const [label, key] = typeof h === 'string' ? [h, h] : h // TBL-04 label; the earlier header stays the column key
+                    return <th key={key} data-column-key={key === label ? undefined : key}>{label}</th>
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -676,7 +681,8 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
           <Pagination
             offset={offset}
             total={data.total}
-            limit={25}
+            limit={pageSize}
+            alwaysShow
             onChange={setOffset}
             label="Account review pages"
           />

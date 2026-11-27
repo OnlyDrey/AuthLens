@@ -103,7 +103,7 @@ public static partial class V1DataSources
         {
             if (source is not ("roles" or "users" or "sod" or "employees")) return Detail(422, "Unknown source.");
             var (o, l) = (offset ?? 0, limit ?? 20);
-            if (o < 0 || l is < 1 or > 100) return Detail(422, "offset must be ≥ 0 and limit between 1 and 100.");
+            if (o < 0 || l is < 1 or > V1Access.TablePageMax) return Detail(422, "offset must be ≥ 0 and limit between 1 and 250.");
             await using var db = await factory.CreateDbContextAsync(ct);
             var ids = await SnapshotService.ActiveAsync(db, ct);
             var id = source switch { "roles" => ids.Roles, "users" => ids.Users, "employees" => ids.Employees, _ => ids.Sod };

@@ -26,12 +26,12 @@ test('Reports opens its first available page and generates configurable reports 
   await expect(views.getByRole('link')).toHaveText(['Review Reports', 'Access Reports']) // SoD reports and Evidence follow the SoD switch
   // Account Review: columns with the required username, a preview of the matching rows and a download.
   const review = page.getByRole('region', { name: 'Account Review report', exact: true })
-  await expect(review.getByRole('checkbox', { name: 'Username (required)', exact: true })).toBeDisabled()
-  await review.getByRole('checkbox', { name: 'Full name', exact: true }).uncheck()
+  await expect(review.getByRole('checkbox', { name: 'SAP username (required)', exact: true })).toBeDisabled()
+  await review.getByRole('checkbox', { name: 'Employee', exact: true }).uncheck()
   await review.getByRole('button', { name: 'Preview', exact: true }).click()
   await expect(review.getByRole('status')).toContainText('2 rows match')
-  await expect(review.getByRole('table', { name: 'Account Review preview' }).getByRole('columnheader').first()).toHaveText('Username')
-  await expect(review.getByRole('table', { name: 'Account Review preview' }).getByRole('columnheader', { name: 'Full name', exact: true })).toHaveCount(0)
+  await expect(review.getByRole('table', { name: 'Account Review preview' }).getByRole('columnheader').first()).toHaveText('SAP username')
+  await expect(review.getByRole('table', { name: 'Account Review preview' }).getByRole('columnheader', { name: 'Employee', exact: true })).toHaveCount(0)
   const download = page.waitForEvent('download')
   await review.getByRole('button', { name: 'Generate CSV', exact: true }).click()
   expect((await download).suggestedFilename()).toMatch(/^authlens-account-review-review-\d{4}-\d{2}-\d{2}\.csv$/)

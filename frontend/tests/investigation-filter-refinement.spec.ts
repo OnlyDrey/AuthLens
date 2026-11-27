@@ -276,8 +276,8 @@ test('business and release assignment tabs have dedicated split-date columns wit
     name: 'Release role user assignments',
   })
   await expect(assignments.getByRole('columnheader')).toHaveText([
-    'Username',
-    'User group',
+    'SAP username',
+    'SAP user group',
     'Valid from',
     'Valid to',
     'Assignment status',

@@ -85,7 +85,9 @@ public sealed class AccessTests : IAsyncLifetime
         Assert.Equal("USER0002", (string)navigation["previous"]!);
         Assert.Equal("USER0004", (string)navigation["next"]!);
         Assert.Equal((HttpStatusCode)422, (await Get("/api/access/users?sort=password")).Status);
-        Assert.Equal((HttpStatusCode)422, (await Get("/api/access/users?limit=101")).Status);
+        // TBL-03: result tables page up to 250 rows (AuthLens extension of the v1 cap of 100); larger pages are refused
+        Assert.Equal(HttpStatusCode.OK, (await Get("/api/access/users?limit=250")).Status);
+        Assert.Equal((HttpStatusCode)422, (await Get("/api/access/users?limit=251")).Status);
     }
 
     [Fact]

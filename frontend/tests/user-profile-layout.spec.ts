@@ -32,7 +32,7 @@ for (const theme of DEFAULT_THEME_ONLY) test(`desktop profile layout ${theme}`, 
   await expect(profile.getByRole('button', { name: /Directory matching details/ })).toHaveCount(1)
   await expect(profile.getByRole('region', { name: 'SAP Identity', exact: true }).getByRole('button', { name: /Directory matching details/ })).toHaveCount(0)
   // fields preserved
-  for (const f of ['Username', 'SAP User Group', 'User type']) await expect(profile.getByRole('region', { name: 'SAP Identity', exact: true }).getByText(f, { exact: true })).toBeVisible()
+  for (const f of ['SAP username', 'SAP user group', 'User type']) await expect(profile.getByRole('region', { name: 'SAP Identity', exact: true }).getByText(f, { exact: true })).toBeVisible()
   for (const f of ['Valid from', 'Valid until', 'SAP account', 'Lock status', 'AD account']) await expect(profile.getByRole('region', { name: 'Account Status', exact: true }).getByText(f, { exact: true })).toBeVisible()
   const button = group && profile.getByRole('button', { name: 'Assign group' })
   await expect(button!.locator('svg.lucide-users-round')).toHaveCount(1)

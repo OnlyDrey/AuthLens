@@ -147,7 +147,7 @@ test('Activity Review and Role Assignment Review rows are single-line with icon 
   await panel.getByRole('tab', {name:/^Roles/}).click()
   const assignments = panel.getByRole('region', { name: 'Role Assignment Review', exact: true })
   await expect(assignments.getByRole('listitem').first().locator('.sod-assignment-description')).toContainText('Synt')
-  await expect(assignments.getByText('SAP User Group')).toHaveCount(0)
+  await expect(assignments.getByText('SAP user group')).toHaveCount(0)
 })
 
 test('an expanded Role Assignment Review row keeps its status and decision icons inside the panel at 375px', async ({ page }) => {

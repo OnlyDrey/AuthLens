@@ -1,3 +1,5 @@
+import { TableRegion } from '@/components/Shared/TableRegion'
+import { usePageSize } from '@/lib/pageSize'
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {SourceHealthSummary,useSourceEvidence} from './SourceStatus'
 import { Button } from '@/components/Shared/Button'
@@ -5,7 +7,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, ChevronRight } from 'lucide-react'
 import { apiRequest } from '@/api/client'
-import { Pagination, QueryState } from '@/components/Access/Shared'
+import { PageSizeControl, Pagination, QueryState } from '@/components/Access/Shared'
 import { useViewHistory, userHref } from '@/hooks/useViewHistory'
 interface Health {
   import_totals: Record<
@@ -57,11 +59,12 @@ export function DataHealth({
   const [finding, setFinding] = useState(''),
     [offset, setOffset] = useState(0),
     { change } = useViewHistory()
+  const [pageSize, storePageSize] = usePageSize('data-health') // TBL-03
   const result = useQuery({
-    queryKey: ['data-health', finding, offset],
+    queryKey: ['data-health', finding, offset, pageSize],
     queryFn: () =>
       apiRequest<Health>(
-        `/api/data-health?${new URLSearchParams({ finding, offset: String(offset) })}`,
+        `/api/data-health?${new URLSearchParams({ finding, offset: String(offset), limit: String(pageSize) })}`,
       ),
   })
   const sourceEvidence=useSourceEvidence('roles')
@@ -149,7 +152,7 @@ export function DataHealth({
               <p className="text-sm">
                 {data.findings.find((f) => f.id === finding)?.explanation}
               </p>
-              <div className="overflow-x-auto">
+              <TableRegion className="access-table" role="region" aria-label="Data Health records table" tabIndex={0} toolbar={<PageSizeControl label="Data Health records" limit={pageSize} onPageSize={(size) => { storePageSize(size); setOffset(0) }} />}>
                 <ConfigurableTable className="w-full text-sm">
                   <thead>
                     <tr>
@@ -200,12 +203,13 @@ export function DataHealth({
                     ))}
                   </tbody>
                 </ConfigurableTable>
-              </div>
+              </TableRegion>
               <Pagination
                 label="Data Health records"
                 offset={offset}
                 total={data.total}
-                limit={25}
+                limit={pageSize}
+                alwaysShow
                 onChange={setOffset}
               />
             </section>

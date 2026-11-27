@@ -107,9 +107,12 @@ export function DataTable({
   regionLabel,
   sticky = false,
   density = 'standard',
+  toolbar,
 }: {
   caption: string
   children: ReactNode
+  /** Table toolbar content (for example the rows-per-page control), shown with the Columns control above the sticky scrollbar. */
+  toolbar?: ReactNode
   tableClassName?: string
   regionLabel?: string
   sticky?: boolean
@@ -122,6 +125,7 @@ export function DataTable({
       role="region"
       data-sticky={sticky || undefined}
       data-density={density}
+      toolbar={toolbar}
       aria-label={regionLabel || `Scrollable ${caption}`}
     >
       <ConfigurableTable className={tableClassName}>

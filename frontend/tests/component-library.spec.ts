@@ -65,9 +65,9 @@ test.describe('shared component behavior', { tag: TAGS.component }, () => {
   test('IdPill and UserGroupCell: identifiers, several groups and an announced missing group', async ({ page }) => {
     const preview = await library(page)
     await expect(preview.getByText('R001', { exact: true })).toBeVisible(); await expect(preview.getByText('A010', { exact: true })).toBeVisible()
-    const table = preview.getByRole('table', { name: 'SAP User Group cells', exact: true })
+    const table = preview.getByRole('table', { name: 'SAP user group cells', exact: true })
     await expect(table.getByRole('row', { name: /Several groups/ })).toContainText('FINANCE, SUPPORT')
-    await expect(table.getByRole('row', { name: /No group/ }).getByText('No SAP User Group', { exact: true })).toBeAttached()
+    await expect(table.getByRole('row', { name: /No group/ }).getByText('No SAP user group', { exact: true })).toBeAttached()
   })
 
   test('TimeInput24: only valid 24-hour times are accepted and invalid text is marked, then restored on blur', async ({ page }) => {

@@ -888,7 +888,7 @@ public static class SodPeriods
             var q = http.Request.Query;
             var offset = int.TryParse(q["offset"].FirstOrDefault() ?? "0", out var o) ? o : -1;
             var limit = int.TryParse(q["limit"].FirstOrDefault() ?? "25", out var l) ? l : -1;
-            if (offset < 0 || limit is < 1 or > 100) return SodScope.Problem(422, "offset must be >= 0 and limit between 1 and 100.");
+            if (offset < 0 || limit is < 1 or > V1Access.TablePageMax) return SodScope.Problem(422, "offset must be >= 0 and limit between 1 and 250.");
             var data = await DetailsAsync(http.RequestServices, id, ct);
             var saved = data["snapshot"]!.AsObject();
             saved.Remove("decisions");

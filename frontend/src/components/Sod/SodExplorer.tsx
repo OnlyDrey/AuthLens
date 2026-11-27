@@ -1,3 +1,4 @@
+import { usePageSize } from '@/lib/pageSize'
 import {PrimaryDecisionBadge} from './SodDecisionStatus'
 import {SAPUserLink} from '@/components/Shared/SAPUserLink'
 import { Kpi } from '@/components/Shared/Kpi'
@@ -13,7 +14,7 @@ import { ExportCSVButton } from '@/components/Shared/ExportCSVButton'
 import { ContentTabs } from '@/components/Shared/Navigation'
 import { Select } from '@/components/Shared/Select'
 import { AssignmentStatus } from '@/components/Shared/InvestigationNavigation'
-import { PAGE_SIZES, Pagination } from '@/components/Access/Shared'
+import { PageSizeControl, Pagination } from '@/components/Access/Shared'
 import { BulkToolbar, PageCheckbox, RowCheckbox, useBulkSelection } from '@/components/Shared/BulkSelection'
 import { announceExport } from '@/lib/exportNotice'
 import { formatDate } from '@/lib/dateFormat'
@@ -84,7 +85,7 @@ function ExplorerEvidence({ evidence, context, filters, onClose, onInvestigate, 
       </> : undefined}>
       {evidence.kind === 'roles' && <>
         <dl className="evidence-summary">
-          <div><dt>SAP user</dt><dd><RoleIdentifier value={evidence.user} label="SAP username" /></dd></div>
+          <div><dt>SAP username</dt><dd><RoleIdentifier value={evidence.user} label="SAP username" /></dd></div>
           <div><dt>Risk</dt><dd>{pillsOf('risk', evidence.risk)}</dd></div>
           <div><dt>Activities</dt><dd>{pillsOf('activity', evidence.activities)}</dd></div>
           <div><dt>Roles</dt><dd>{evidence.roles.length}</dd></div>
@@ -94,7 +95,7 @@ function ExplorerEvidence({ evidence, context, filters, onClose, onInvestigate, 
       </>}
       {evidence.kind === 'transactions' && <>
         <dl className="evidence-summary">
-          <div><dt>SAP user</dt><dd><RoleIdentifier value={evidence.user} label="SAP username" /></dd></div>
+          <div><dt>SAP username</dt><dd><RoleIdentifier value={evidence.user} label="SAP username" /></dd></div>
           <div><dt>Activity</dt><dd>{pillsOf('activity', evidence.activity)}</dd></div>
           <div><dt>Risks</dt><dd>{pillsOf('risk', evidence.risks)}</dd></div>
           <div><dt>Role assignments</dt><dd>{evidence.roles}</dd></div>
@@ -120,13 +121,13 @@ function AssignedUsers({ role, context, filters, onInvestigate, onUser }: { role
   return (
     <>
       <dl className="evidence-summary">
-        <div><dt>Assigned role</dt><dd><RoleIdentifier value={role} label="assigned role" /></dd></div>
+        <div><dt>Role name</dt><dd><RoleIdentifier value={role} label="role name" /></dd></div>
         <div><dt>Distinct users</dt><dd role="status">{users.size}</dd></div>
-        <div><dt>SAP User Groups</dt><dd>{groups.size}</dd></div>
+        <div><dt>SAP user groups</dt><dd>{groups.size}</dd></div>
       </dl>
       <div className="evidence-scroll" tabIndex={0} role="region" aria-label={`Users with ${role}`}>
         <DataTable caption={`Users with ${role}`} density="compact">
-          <thead><tr><th>SAP user</th><th>SAP User Group</th><th>Assignment</th><th className="col-actions"><span className="sr-only">Actions</span></th></tr></thead>
+          <thead><tr><th data-column-key="SAP user">SAP username</th><th data-column-key="SAP User Group">SAP user group</th><th>Assignment</th><th className="col-actions"><span className="sr-only">Actions</span></th></tr></thead>
           <tbody>{[...users].sort(([a], [b]) => a.localeCompare(b)).map(([user, rows]) => (
             <tr key={user}>
               <td><SAPUserLink reviewSupported={false} routeLink={false} username={user} onOpen={()=>onUser(user)}/></td>
@@ -155,7 +156,7 @@ function ExplorerTable({ table, onTable }: { table: TableName; onTable: (value: 
     [busy, setBusy] = useState(false),
     [evidence, setEvidence] = useState<Evidence | null>(null),
     { view,change } = useViewHistory(),
-    [pageSize, setPageSizeState] = useState(50),
+    [pageSize, setPageSizeState] = usePageSize('sod-explorer'), // TBL-03
     [gathering, setGathering] = useState(false),
     [gatherNote, setGatherNote] = useState('')
   const filters:Filters={...storedFilters,assignment_scope:table==='lookup'?'all':'conflicts'}
@@ -245,17 +246,17 @@ function ExplorerTable({ table, onTable }: { table: TableName; onTable: (value: 
           {gatherNote && <p role="status" className="ui-description">{gatherNote}</p>}
         </>}
         <p className="ui-description">Trace User → Risk → Activity → Transaction → Role → Assignment. Select a row to investigate; from the lookup, show the users behind a role.</p>
-        {data.items.length ? <DataTable caption={LABELS[table]}>
-          {table === 'user_risk' && <><thead><tr><th>SAP user</th><th>SAP User Group</th><th>Risk</th><th>Activities</th><th>Evidence</th><th>Risk decision</th><th>Open</th></tr></thead>
+        {data.items.length ? <DataTable caption={LABELS[table]} toolbar={<PageSizeControl label="Explorer pages" limit={pageSize} onPageSize={setPageSize} />}>
+          {table === 'user_risk' && <><thead><tr><th data-column-key="SAP user">SAP username</th><th data-column-key="SAP User Group">SAP user group</th><th>Risk</th><th>Activities</th><th>Evidence</th><th>Risk decision</th><th>Open</th></tr></thead>
             <tbody>{data.items.map((row) => { const id = `${row.user}:${row.risk_id}`; return <tr key={id}><td><SAPUserLink username={row.user!} /></td><td><UserGroupCell groups={row.groups} /></td><td>{pills('risk', row.risk_id)}{row.category && <p><SodArea value={row.category} /></p>}</td><td>{pills('activity', row.activities)}</td>
               <td>{Array.isArray(row.roles) ? <EvidenceButton label={`${row.user} ${row.risk_id}`} summary={`${row.roles.length} ${row.roles.length === 1 ? 'role' : 'roles'}`} onOpen={() => setEvidence({ kind: 'roles', user: row.user!, risk: row.risk_id!, activities: [row.activities ?? []].flat(), roles: row.roles as string[], category: row.category })} /> : <RoleCodeList roles={row.roles} />}</td>
               <td><PrimaryDecisionBadge summary={row.decision_summary}/><p className="text-xs text-muted">Formal acceptance: {row.acceptance||'Pending'}</p></td>
               <td><Button size="compact" onClick={() => setSelected({ user: row.user!, risk: row.risk_id })} aria-label={`Investigate ${row.user} ${row.risk_id}`}><ScanSearch size={14} aria-hidden="true" />Investigate</Button></td></tr> })}</tbody></>}
-          {table === 'user_activity' && <><thead><tr><th>SAP user</th><th>SAP User Group</th><th>Activity</th><th>Risks</th><th>Evidence</th><th>Review</th><th>Open</th></tr></thead>
+          {table === 'user_activity' && <><thead><tr><th data-column-key="SAP user">SAP username</th><th data-column-key="SAP User Group">SAP user group</th><th>Activity</th><th>Risks</th><th>Evidence</th><th data-column-key="Review">Review status</th><th>Open</th></tr></thead>
             <tbody>{data.items.map((row) => { const id = `${row.user}:${row.activity}`; return <tr key={id}><td><SAPUserLink username={row.user!} /></td><td><UserGroupCell groups={row.groups} /></td><td>{pills('activity', row.activity)}</td><td>{pills('risk', row.risks)}</td>
               <td><EvidenceButton label={`${row.user} ${row.activity}`} summary={`${String(row.roles)} role assignment${row.roles === 1 ? '' : 's'}`} onOpen={() => setEvidence({ kind: 'transactions', user: row.user!, activity: row.activity!, risks: row.risks ?? [], tcodes: row.tcodes ?? [], roles: Number(row.roles) || 0 })} />{row.duplicate && <StatusBadge tone="info">Overlap</StatusBadge>}</td><td><PrimaryDecisionBadge summary={row.decision_summary}/></td>
               <td><Button size="compact" onClick={() => setSelected({ user: row.user!, activity: row.activity })} aria-label={`Investigate ${row.user} ${row.activity}`}><ScanSearch size={14} aria-hidden="true" />Investigate</Button></td></tr> })}</tbody></>}
-          {table === 'access_list' && <><thead><tr><th className="col-select"><PageCheckbox label="Select all assignments on this page" selected={pageSelected} total={pageRows.length} disabled={staleRows} onChange={(select) => select ? selection.add(pageRows.map(rowPick)) : selection.remove(pageRows.map((row) => row.id!))} /></th><th>SAP user</th><th>SAP User Group</th><th>Role assignment</th><th>Risks</th><th>Activities</th><th>Review</th><th className="col-actions">Open</th></tr></thead>
+          {table === 'access_list' && <><thead><tr><th className="col-select"><PageCheckbox label="Select all assignments on this page" selected={pageSelected} total={pageRows.length} disabled={staleRows} onChange={(select) => select ? selection.add(pageRows.map(rowPick)) : selection.remove(pageRows.map((row) => row.id!))} /></th><th data-column-key="SAP user">SAP username</th><th data-column-key="SAP User Group">SAP user group</th><th>Role assignment</th><th>Risks</th><th>Activities</th><th data-column-key="Review">Review status</th><th className="col-actions">Open</th></tr></thead>
             <tbody>{data.items.map((row) => <tr key={`${row.user}:${row.id}`} data-selected={selection.has(row.id!) || undefined}>
               <td className="col-select"><RowCheckbox label={`Select assignment ${row.role} for ${row.user}`} checked={selection.has(row.id!)} disabled={staleRows} onChange={() => selection.toggle(rowPick(row))} /></td>
               <td><SAPUserLink username={row.user!} /></td>
@@ -263,13 +264,13 @@ function ExplorerTable({ table, onTable }: { table: TableName; onTable: (value: 
               <td className="col-role"><RoleIdentifier value={row.role!} label="assigned role" />{row.interval_status && row.interval_status !== 'active' && <p><AssignmentStatus value={row.interval_status} /></p>}</td>
               <td>{pills('risk', row.risks)}</td><td>{pills('activity', row.activities)}</td><td><PrimaryDecisionBadge summary={row.decision_summary}/></td>
               <td className="col-actions"><Button size="compact" onClick={() => setSelected({ user: row.user!, activity: Array.isArray(row.activities) ? row.activities[0] : undefined })} aria-label={`Investigate ${row.user} ${row.role}`}><ScanSearch size={14} aria-hidden="true" />Investigate</Button></td></tr>)}</tbody></>}
-          {table === 'lookup' && <><thead><tr><th>Assigned role</th><th>Users</th><th>Risks</th><th>Activities</th><th className="col-actions">Trace</th></tr></thead>
+          {table === 'lookup' && <><thead><tr><th data-column-key="Assigned role">Role name</th><th>Users</th><th>Risks</th><th>Activities</th><th className="col-actions">Trace</th></tr></thead>
             <tbody>{data.items.map((row) => <tr key={row.role}><td className="col-role"><RoleIdentifier value={row.role!} label="assigned role" /></td>
               <td><EvidenceButton label={row.role!} summary={`${row.users} user${row.users === 1 ? '' : 's'}`} onOpen={() => setEvidence({ kind: 'users', role: row.role! })} /></td>
               <td>{pills('risk', row.risks)}</td><td>{pills('activity', row.activities)}</td>
               <td className="col-actions"><Button size="compact" onClick={() => showUsers(row.role!)} aria-label={`Show users with ${row.role}`}><UsersRound size={14} aria-hidden="true" />Show users</Button></td></tr>)}</tbody></>}
         </DataTable> : <EmptyState>No rows match this scope. Results describe imported evidence only; incomplete source coverage cannot establish absence of access.</EmptyState>}
-        <Pagination label="Explorer pages" offset={data.offset} total={data.total} limit={data.limit} onChange={setOffset} pageSizes={PAGE_SIZES} onPageSize={setPageSize} />
+        <Pagination label="Explorer pages" offset={data.offset} total={data.total} limit={data.limit} alwaysShow onChange={setOffset} />
         {evidence && <ExplorerEvidence evidence={evidence} context={context} filters={filters} onClose={() => setEvidence(null)} onInvestigate={investigate} onUser={openUser} />}
       </>}
       </SodFilters>

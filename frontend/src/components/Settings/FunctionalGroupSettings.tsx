@@ -82,7 +82,7 @@ export function FunctionalGroupSettings() {
     <section className="grid min-w-0 gap-4" aria-label="Functional Groups">
       <ContentTabs label="Functional Groups sections" value={tab} onChange={setTab} items={[{ value: 'groups', label: 'Groups', icon: <Users size={16} aria-hidden="true" /> }, { value: 'rules', label: 'Suggestion Rules', icon: <ListChecks size={16} aria-hidden="true" /> }]}>
       {tab === 'groups' && <div className="grid min-w-0 gap-4">
-      <p className="ui-description">Business functions maintained by reviewers. A user can belong to several groups. Independent of Directory Department and SAP User Group; they never change SAP access. Users is the number of distinct users with a membership in the group, whatever its review status and whether or not the user is in the current SAP import; archived groups keep their members.</p>
+      <p className="ui-description">Business functions maintained by reviewers. A user can belong to several groups. Independent of Directory Department and SAP user group; they never change SAP access. Users is the number of distinct users with a membership in the group, whatever its review status and whether or not the user is in the current SAP import; archived groups keep their members.</p>
       <Toolbar>
         <SearchInput aria-label="Search Functional Groups" placeholder="Search Functional Groups" value={search} onChange={event => setSearch(event.target.value)} onClear={() => setSearch('')} />
         <Select aria-label="Group status" value={status} onChange={event => setStatus(event.target.value as 'all' | 'active' | 'archived')}><option value="all">All groups</option><option value="active">Active</option><option value="archived">Archived</option></Select>

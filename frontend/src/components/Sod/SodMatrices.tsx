@@ -23,7 +23,7 @@ const everyUser = 5000 // "All" asks for one page of up to this many users (the 
 const shared: { size: MatrixSize } = { size: PAGE }
 /** Page and row grouping survive leaving the matrix (a role page, Back) within the session. */
 const memory: Record<string, { offset: number; groupBy: 'none' | 'group' }> = {}
-/** Collapsed SAP User Groups survive paging and leaving the matrix within the session. */
+/** Collapsed SAP user groups survive paging and leaving the matrix within the session. */
 const collapsedMemory: Record<string, Set<string>> = {}
 
 export const RiskMatrix = () => <MatrixPage kind="risk" />
@@ -101,14 +101,14 @@ function MatrixPage({ kind }: { kind: 'risk' | 'activity' }) {
     <section className="grid min-w-0 gap-4" aria-label={risk ? 'SoD risk matrix' : 'SoD activity matrix'}>
       <SodFilters view={risk ? 'sod_risk_matrix' : 'sod_activity_matrix'} filters={filters} setFilters={setFilters}
         fields={['group', 'risk', 'activity', 'username', 'role', 'role_suffix', 'tcode', 'category', 'validity', 'activity_decision', 'assignment_decision', 'acceptance']}
-        sorts={[{ value: 'subject', label: 'Name' }, { value: 'group', label: 'SAP User Group' }, { value: 'findings', label: risk ? 'Most risks' : 'Most activities' }]}
+        sorts={[{ value: 'subject', label: 'Name' }, { value: 'group', label: 'SAP user group' }, { value: 'findings', label: risk ? 'Most risks' : 'Most activities' }]}
         actions={<>
           <Select aria-label="Users per page" value={String(pageSize)} onChange={(event) => setPageSize(event.target.value === 'all' ? 'all' : (Number(event.target.value) as MatrixSize))} title="How many users the matrix lists per page">
             {MATRIX_SIZES.map((size) => <option key={size} value={size}>{size === 'all' ? 'All users' : `${size} users per page`}</option>)}
           </Select>
           <Select aria-label="Group by" value={groupBy} onChange={(event) => { setOffset(0); setGroupBy(event.target.value as 'none' | 'group') }}>
             <option value="none">No grouping</option>
-            <option value="group">SAP User Group</option>
+            <option value="group">SAP user group</option>
           </Select>
           <ExportCSVButton loading={busy} disabled={!data?.total_rows} onClick={() => void exportCsv()} title={`Exports the filtered ${risk ? 'user-risk' : 'user-activity'} table.`} />
         </>}>
@@ -140,7 +140,7 @@ function MatrixPage({ kind }: { kind: 'risk' | 'activity' }) {
             {pageSize === 'all' && data.total_rows > everyUser && <span className="ui-description" role="status">The first {everyUser.toLocaleString()} users are listed; narrow the filters to see the others. Exports always include every filtered user.</span>}
           </Toolbar>
           <p className="ui-description">{risk ? 'Cells show the normal Risk review decision, with formal acceptance kept separately, and how many risk activities are reviewed (reviewed/total). Criticality and type are in the column tooltip and the investigation.' : 'Scope: activities that contribute to at least one potential conflict (both sides of an enabled, supported risk). Activities a role supplies beyond those are considered in Role Assignment Review. Cells show the effective activity decision and ×roles supplying it; ⧉ marks overlapping coverage.'}</p>
-          <p className="ui-description">Totals count distinct users and distinct {risk ? 'user-risk' : 'user-activity'} pairs. {data.columns_truncated ? 'Showing the first 500 columns; narrow the filters. ' : ''}Select a cell to investigate and review. {groupBy === 'group' ? 'Users are listed once under their SAP User Group (the first selected group, else their first); grouping changes presentation only. ' : ''}Detected conflicts are potential and derived from imported evidence.</p>
+          <p className="ui-description">Totals count distinct users and distinct {risk ? 'user-risk' : 'user-activity'} pairs. {data.columns_truncated ? 'Showing the first 500 columns; narrow the filters. ' : ''}Select a cell to investigate and review. {groupBy === 'group' ? 'Users are listed once under their SAP user group (the first selected group, else their first); grouping changes presentation only. ' : ''}Detected conflicts are potential and derived from imported evidence.</p>
           {data.rows.length
             ? <>
               {grouped && <Toolbar aria-label="Group controls">
@@ -148,7 +148,7 @@ function MatrixPage({ kind }: { kind: 'risk' | 'activity' }) {
                 <Button size="compact" onClick={() => setCollapsed(new Set())}>Expand all</Button>
                 <Button size="compact" onClick={() => setCollapsed(new Set((data.group_summaries || []).map((item) => item.name)))}>Collapse all</Button>
               </Toolbar>}
-              <MatrixGrid scrollKey={`sod-${kind}-${groupBy}`} caption={risk ? 'User by risk matrix' : 'User by activity matrix'} rowLabel="SAP user" codeRows columns={columns} groupColumn={!grouped}
+              <MatrixGrid scrollKey={`sod-${kind}-${groupBy}`} caption={risk ? 'User by risk matrix' : 'User by activity matrix'} rowLabel="SAP username" exportRowLabel="SAP user" codeRows columns={columns} groupColumn={!grouped}
                 rows={data.rows.filter((row) => !grouped || !collapsed.has(row.group || '')).map((row) => ({ id: row.user, label: row.user, group: row.group, groups: row.groups,
                   sub: grouped && row.groups.length > 1 ? `Also in ${row.groups.filter((name) => name !== row.group).join(', ')}` : '' }))}
                 groups={grouped ? summaries.map((item) => ({ id: item.name, label: item.name, collapsed: collapsed.has(item.name), onToggle: () => toggle(item.name),

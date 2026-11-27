@@ -1,3 +1,4 @@
+import { usePageSize } from '@/lib/pageSize'
 import {useReviewerName} from '@/hooks/useReviewerIdentity'
 import {SAPUserLink} from '@/components/Shared/SAPUserLink'
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
@@ -14,7 +15,7 @@ import { FormField, Input } from '@/components/Shared/Controls'
 import { Select } from '@/components/Shared/Select'
 import { ExportMenu, ROLE_ASSIGNMENTS_ICON } from '@/components/Shared/ExportMenu'
 import { NorwegianDateInput, parseNorwegianDate } from '@/components/Shared/NorwegianDateInput'
-import { PAGE_SIZES, Pagination } from '@/components/Access/Shared'
+import { PageSizeControl, Pagination } from '@/components/Access/Shared'
 import { ChevronDown, ChevronRight, ChevronsDown, ChevronsUp, ClipboardCheck, Search } from 'lucide-react'
 import { SodPill } from '@/lib/sodAppearance'
 import { RoleEntry } from '@/components/Shared/RoleEntry'
@@ -98,7 +99,7 @@ function ParentRows({ parent, children, open }: { parent: ReactNode; children: R
 
 function RemediationRole({ role, catalogueRoles }: { role: string; catalogueRoles?: string[] }) {
   const code = moduleOfRoles(useRoleModules(), catalogueRoles)
-  return <RoleEntry density="compact" moduleCode={code} title="Assigned role" identifier={role} identifierLabel="assigned role" />
+  return <RoleEntry density="compact" moduleCode={code} title="Role name" identifier={role} identifierLabel="role name" />
 }
 
 export function RemediationView() {
@@ -111,7 +112,7 @@ export function RemediationView() {
     [editing, setEditing] = useState<Row | null>(null),
     [, setSubject] = useSodSubject(),
     [busy, setBusy] = useState(false),
-    [pageSize, setPageSizeState] = useState(50),
+    [pageSize, setPageSizeState] = usePageSize('sod-remediation'), // TBL-03
     [openKeys, setOpenKeys] = useState<Set<string>>(new Set())
   const toggleKey = (key: string) => setOpenKeys((previous) => { const next = new Set(previous); if (next.has(key)) next.delete(key); else next.add(key); return next })
   const tracking = typeof filters.tracking === 'string' ? filters.tracking : '', verifiedOnly = tracking === 'verified'
@@ -163,8 +164,8 @@ export function RemediationView() {
             <Button size="compact" onClick={() => setOpenKeys(new Set(parents.map((parent) => parent.key)))}><ChevronsDown size={14} aria-hidden="true"/>Expand all</Button>
             <Button size="compact" onClick={() => setOpenKeys(new Set())}><ChevronsUp size={14} aria-hidden="true"/>Collapse all</Button>
           </Toolbar>
-          <DataTable caption="Access remediation rows" density="compact" sticky>
-            <thead><tr><th>SAP user</th><th>SAP User Group</th><th>Role assignment</th><th>Validity</th><th>Review</th><th>Remediation</th><th className="col-actions">Actions</th></tr></thead>
+          <DataTable caption="Access remediation rows" density="compact" sticky toolbar={!verifiedOnly ? <PageSizeControl label="Remediation pages" limit={pageSize} onPageSize={(value) => { setPageSizeState(value); setOffset(0) }} /> : undefined}>
+            <thead><tr><th data-column-key="SAP user">SAP username</th><th data-column-key="SAP User Group">SAP user group</th><th>Role assignment</th><th>Validity</th><th data-column-key="Review">Review status</th><th>Remediation</th><th className="col-actions">Actions</th></tr></thead>
             <tbody>{parents.map((parent) => {
               const open = openKeys.has(parent.key), first = parent.rows[0], tracked = parent.rows.find((row) => row.action) ?? first
               const decided = parent.rows.filter((row) => ['Approved','Keep','Conditional','Removal required','Rejected'].includes(row.activity_decision)).length
@@ -189,7 +190,7 @@ export function RemediationView() {
                 </tr>)} />
             })}</tbody>
           </DataTable></> : <EmptyState>{tracking === 'untracked' ? 'No removal recommendation is waiting for an action.' : 'No decided items match. Pending reviews are excluded until a decision is recorded.'}</EmptyState>}
-        {!verifiedOnly && <Pagination label="Remediation pages" offset={data.offset} total={data.total} limit={data.limit} onChange={setOffset} pageSizes={PAGE_SIZES} onPageSize={(value) => { setPageSizeState(value); setOffset(0) }} />}
+        {!verifiedOnly && <Pagination label="Remediation pages" offset={data.offset} total={data.total} limit={data.limit} alwaysShow onChange={setOffset} />}
         {data.actions.length > 0 && <>
           <h3 className="text-base font-semibold">Tracked actions</h3>
           <DataTable caption="Tracked remediation actions">

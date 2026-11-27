@@ -26,8 +26,8 @@ const fields = [
 ];
 const labels: Record<string, string> = {
   USERNAME: "Username (required)",
-  ROLE_NAME: "Assigned role",
-  USER_GROUP: "SAP User Group",
+  ROLE_NAME: "Role name",
+  USER_GROUP: "SAP user group",
   FIRST_NAME: "First name",
   LAST_NAME: "Last name",
   EMAIL: "Email",

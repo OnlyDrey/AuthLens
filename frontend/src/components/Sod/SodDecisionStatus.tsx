@@ -28,7 +28,7 @@ export function SodDecisionStatus({kind,label,status,summary,event,coverage,user
    <div className="flex min-w-0 flex-wrap items-center gap-2">{kind==='assignment'?<RoleIdentifier value={label}/>:<SodPill kind={riskEntity?'risk':'activity'} value={label} details={false}/>}{formal?<StatusBadge tone={shown.tone}>{shown.label}</StatusBadge>:<PrimaryDecisionBadge summary={shown}/>}</div>
    {display&&<p className="text-sm font-semibold break-words">{display}</p>}
    <dl className="grid min-w-0 gap-2 text-xs">
-    <Meta label="SAP user" value={user}/><Meta label="Review period" value={context==='current'?'Current dataset':context}/>
+    <Meta label="SAP username" value={user}/><Meta label="Review period" value={context==='current'?'Current dataset':context}/>
     <Meta label={formal?'Formal acceptance':'Access decision'} value={shown.label}/>
     <Meta label="Review completion" value={coverage?.reviewed?'Reviewed':'Not reviewed'}/>
     <Meta label="Review method" value={shown.basis}/>

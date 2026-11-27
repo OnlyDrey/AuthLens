@@ -34,13 +34,13 @@ export function UserProfile({ user }: { user: UserDetail }) {
         </h2>
         <dl className="profile-fields">
           <div>
-            <dt>Username</dt>
+            <dt>SAP username</dt>
             <dd>
               <SAPUserLink username={user.username} copyLabel="username"/>
             </dd>
           </div>
           <div>
-            <dt>SAP User Group</dt>
+            <dt>SAP user group</dt>
             <dd>
               {user.groups
                 .map((group) => group || 'Unknown group')

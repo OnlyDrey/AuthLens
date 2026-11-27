@@ -17,7 +17,7 @@ import { PAGE_FIELDS, readFilters, useSodContext, writeFilters, type FilterField
 type Kind = 'risk' | 'activity'
 type Heat = MatrixResult<RiskColumn | ActivityColumn, GroupCell>
 const MAX_COLUMNS = 25
-const SORTS = [{ value: 'name', label: 'SAP User Group' }, { value: 'users', label: 'Distinct users' }, { value: 'items', label: 'Most risks or activities' }]
+const SORTS = [{ value: 'name', label: 'SAP user group' }, { value: 'users', label: 'Distinct users' }, { value: 'items', label: 'Most risks or activities' }]
 export const HEATMAP_PREFERENCE = 'sap-lens-sod-heatmap'
 /** Pages that apply a group and risk/activity filter themselves, and the saved-filter slot each one reads. */
 const FILTERABLE: Partial<Record<SodView, string>> = { 'risk-matrix': 'riskMatrix', 'activity-matrix': 'activityMatrix', explorer: 'explorer', reviews: 'queue' }
@@ -33,7 +33,7 @@ const withoutOwn = (filters: Filters): Filters => Object.fromEntries(Object.entr
 const hasValue = (filters: Filters) => Object.values(filters).some((value) => (Array.isArray(value) ? value.length > 0 : typeof value === 'string' ? value !== '' : value === true))
 
 /**
- * Distinct users per SAP User Group and risk (or activity) for the active review context. One instance sits under the shared Review Context on every SoD page.
+ * Distinct users per SAP user group and risk (or activity) for the active review context. One instance sits under the shared Review Context on every SoD page.
  * On pages that filter by group and risk or activity it reads and writes those same filters (other filters are kept, the filters are visible and removable);
  * on the others a selection opens the Risk or Activity Matrix with the filter applied.
  */
@@ -81,25 +81,25 @@ export function SodGroupHeatmap() {
   }
   const active = groups.length > 0 || items.length > 0
   return (
-    <section className="dashboard-section sod-heatmap-section min-w-0 rounded-card bg-surface p-4" aria-label="SAP User Group heatmap" data-expanded={expanded}>
+    <section className="dashboard-section sod-heatmap-section min-w-0 rounded-card bg-surface p-4" aria-label="SAP user group heatmap" data-expanded={expanded}>
       <div className="sod-heatmap-bar">
         <h2 className="sod-heatmap-title">
           <button type="button" className="sod-heatmap-toggle" aria-expanded={expanded} aria-controls={panel} onClick={() => setPreference(expanded ? 'closed' : 'open')}>
             <DisclosureChevron open={expanded} />
-            <Grid3x3 size={18} aria-hidden="true" />Conflicts by SAP User Group
+            <Grid3x3 size={18} aria-hidden="true" />Conflicts by SAP user group
           </button>
         </h2>
         {expanded && (
           <div className="sod-heatmap-controls" role="toolbar" aria-label="Heatmap controls">
             <ButtonGroup label="Heatmap columns" value={kind} onChange={(value) => setKind(value as Kind)} options={[{ value: 'risk', label: 'Risks' }, { value: 'activity', label: 'Activities' }]} />
             <SortControl label="Sort groups" value={sort} options={SORTS} descending={descending} onChange={setSort} onDescending={setDescending} />
-            <ExportCSVButton label="Export heatmap CSV" loading={busy} disabled={!data?.rows.length} onClick={() => void exportCsv()} title={`Exports distinct users per SAP User Group and ${risk ? 'risk' : 'activity'}.`} />
+            <ExportCSVButton label="Export heatmap CSV" loading={busy} disabled={!data?.rows.length} onClick={() => void exportCsv()} title={`Exports distinct users per SAP user group and ${risk ? 'risk' : 'activity'}.`} />
           </div>
         )}
       </div>
       {active && (
         <div className="active-filter-row sod-heatmap-filters" role="group" aria-label="Active heatmap filters">
-          {groups.map((group) => <HeatChip key={`g-${group}`} label={`SAP User Group ${group}`} onRemove={() => apply(groups.filter((item) => item !== group), items)}>SAP User Group: {group}</HeatChip>)}
+          {groups.map((group) => <HeatChip key={`g-${group}`} label={`SAP user group ${group}`} onRemove={() => apply(groups.filter((item) => item !== group), items)}>SAP user group: {group}</HeatChip>)}
           {items.map((item) => <HeatChip key={`i-${item}`} label={`${risk ? 'Risk' : 'Activity'} ${item}`} onRemove={() => apply(groups, items.filter((value) => value !== item))}>{risk ? 'Risk' : 'Activity'}: {item}</HeatChip>)}
           <Button size="compact" variant="ghost" onClick={() => apply([], [])}>Clear heatmap filters</Button>
         </div>
@@ -109,10 +109,10 @@ export function SodGroupHeatmap() {
           : !data ? <LoadingState />
           : !rows.length ? <EmptyState>No potential conflicts in the selected evidence. Results describe imported evidence only.</EmptyState>
           : <>
-            <div className="overflow-x-auto sod-heatmap-scroll" tabIndex={0} role="region" aria-label="SAP User Group heatmap table">
+            <div className="overflow-x-auto sod-heatmap-scroll" tabIndex={0} role="region" aria-label="SAP user group heatmap table">
               <ConfigurableTable className="sod-heatmap">
-                <caption className="sr-only">Distinct users per SAP User Group and {risk ? 'risk' : 'activity'}. A user in several groups counts in each group. Select a group, a {risk ? 'risk' : 'activity'} or a cell to filter.</caption>
-                <thead><tr><th scope="col">SAP User Group</th><th scope="col">Users</th>{columns.map((column) => {
+                <caption className="sr-only">Distinct users per SAP user group and {risk ? 'risk' : 'activity'}. A user in several groups counts in each group. Select a group, a {risk ? 'risk' : 'activity'} or a cell to filter.</caption>
+                <thead><tr><th scope="col" data-column-key="SAP User Group">SAP user group</th><th scope="col">Users</th>{columns.map((column) => {
                   const id = idOf(column), selected = items.includes(id)
                   return <th scope="col" key={id} data-selected={selected || undefined}>
                     <button type="button" className="sod-heat-head" aria-pressed={selected} aria-label={`${id}: ${selected ? 'remove ' : 'filter to this '}${risk ? 'risk' : 'activity'}${selected ? ' filter' : ''}`} onClick={() => apply(groups, toggle(items, id))}><SodPill kind={kind} value={id} details={false} /></button>
@@ -123,7 +123,7 @@ export function SodGroupHeatmap() {
                     const rowSelected = groups.includes(row.user)
                     return (
                       <tr key={row.user} data-selected={rowSelected || undefined}>
-                        <th scope="row"><button type="button" className="sod-heat-group" aria-pressed={rowSelected} title={row.user} aria-label={`${row.user}: ${rowSelected ? 'remove SAP User Group filter' : 'filter to this SAP User Group'}`} onClick={() => apply(toggle(groups, row.user), items)}>{row.user}</button></th>
+                        <th scope="row"><button type="button" className="sod-heat-group" aria-pressed={rowSelected} title={row.user} aria-label={`${row.user}: ${rowSelected ? 'remove SAP user group filter' : 'filter to this SAP user group'}`} onClick={() => apply(toggle(groups, row.user), items)}>{row.user}</button></th>
                         <td>{(row.users ?? 0).toLocaleString()}</td>
                         {columns.map((column) => {
                           const id = idOf(column), cell = row.cells[id] as GroupCell | undefined, exact = rowSelected && items.includes(id)
@@ -143,7 +143,7 @@ export function SodGroupHeatmap() {
               ? `Filtered: counts only the users selected by this page's filters${onOverview ? ' (the same population as the overview key figures)' : ''}; every conflict of those users is evaluated over their complete access.`
               : 'Global: all users in the selected evidence.'}</p>
             <p className="ui-description">
-              A user in several SAP User Groups counts in each group, so group counts can add up to more than the distinct total.
+              A user in several SAP user groups counts in each group, so group counts can add up to more than the distinct total.
               {data.columns.length > MAX_COLUMNS ? ` Showing the ${MAX_COLUMNS} most affected of ${data.columns.length} ${risk ? 'risks' : 'activities'}.` : ''}
               {slot ? ' Selections filter this page.' : ` Selections open the ${risk ? 'Risk' : 'Activity'} Matrix with the filter applied.`}
             </p>

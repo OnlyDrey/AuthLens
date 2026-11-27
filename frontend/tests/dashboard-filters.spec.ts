@@ -69,14 +69,14 @@ for (const scheme of ['light', 'dark'] as const) test(`desktop: the left sidebar
   expect(beside.columns).toBeLessThan(full.columns + 1)
   expect(beside.narrowest).toBeGreaterThanOrEqual(260)
   expect(await noPageOverflow(page)).toBe(true)
-  await choose(panel, page, 'User group', /^G2 \(2\)$/)
-  await choose(panel, page, 'Assigned role', /^ZC:MM:A/)
+  await choose(panel, page, 'SAP user group', /^G2 \(2\)$/)
+  await choose(panel, page, 'Role name', /^ZC:MM:A/)
   await expect(usersValue(page)).toHaveText('3')                                             // nothing changes before Apply
   await panel.getByRole('button', { name: 'Apply filters', exact: true }).first().click()
   await expect(usersValue(page)).toHaveText('1')                                             // G2 AND ZC:MM:A: DEMO_TWO only
   await expect(toggle(page)).toContainText('2')
   await expect(page.getByRole('status', { name: 'Dashboard scope' })).toContainText('Filtered overview')
-  await expect(page.getByRole('group', { name: 'Applied dashboard filters' })).toContainText('User group: G2')
+  await expect(page.getByRole('group', { name: 'Applied dashboard filters' })).toContainText('SAP user group: G2')
   await expect(page.locator('[data-metric="roles"]')).toContainText('Global')                // catalogue metric stays global and says so
   const before = requests.length
   await toggle(page).click(); await expect(sidebar(page)).toBeHidden()
@@ -84,9 +84,9 @@ for (const scheme of ['light', 'dark'] as const) test(`desktop: the left sidebar
   await toggle(page).click(); await expect(sidebar(page)).toBeVisible()
   await expect(usersValue(page)).toHaveText('1')                                             // toggling keeps the applied filters
   expect(requests.length).toBe(before)                                                       // and requests no dashboard data
-  await page.getByRole('button', { name: 'Remove Assigned role: ZC:MM:A (2)', exact: true }).click()
+  await page.getByRole('button', { name: 'Remove Role name: ZC:MM:A (2)', exact: true }).click()
   await expect(usersValue(page)).toHaveText('2')                                             // OR remains: the whole G2 group
-  await choose(panel, page, 'Assigned role', /^ZC:MM:A/)
+  await choose(panel, page, 'Role name', /^ZC:MM:A/)
   await panel.getByRole('button', { name: 'Apply filters', exact: true }).first().click()
   await expect(usersValue(page)).toHaveText('1')
   await page.getByRole('button', { name: /^SAP users/ }).click()
@@ -95,12 +95,12 @@ for (const scheme of ['light', 'dark'] as const) test(`desktop: the left sidebar
   await goTo(page, 'Dashboard')                                                              // BUG-08: main navigation opens the page fresh
   await expect(usersValue(page)).toHaveText('3')
   await expect(sidebar(page)).toBeVisible()                                                  // the dashboard remembers its own open/closed choice
-  await choose(sidebar(page), page, 'User group', /^G2 \(2\)$/)
+  await choose(sidebar(page), page, 'SAP user group', /^G2 \(2\)$/)
   await sidebar(page).getByRole('button', { name: 'Apply filters', exact: true }).first().click()
   await expect(usersValue(page)).toHaveText('2')
   await page.getByRole('button', { name: 'Reset filters', exact: true }).click()             // toolbar Reset
   await expect(usersValue(page)).toHaveText('3')
-  await choose(sidebar(page), page, 'User group', /^G2 \(2\)$/)
+  await choose(sidebar(page), page, 'SAP user group', /^G2 \(2\)$/)
   await sidebar(page).getByRole('button', { name: 'Apply filters', exact: true }).first().click()
   await expect(usersValue(page)).toHaveText('2')
   await sidebar(page).getByRole('button', { name: 'Reset dashboard filters', exact: true }).click()   // sidebar Clear
@@ -113,7 +113,7 @@ test('saved dashboard filters round-trip through the integrated sidebar', async 
   await open(page)
   await toggle(page).click()
   const panel = sidebar(page), name = `Dashboard G1 ${Date.now()}`
-  await choose(panel, page, 'User group', /^G1 /)
+  await choose(panel, page, 'SAP user group', /^G1 /)
   await panel.getByRole('button', { name: 'Apply filters', exact: true }).first().click()
   await expect(usersValue(page)).toHaveText('1')                                             // G1: DEMO_ONE
   await panel.getByRole('button', { name: /^Saved filters/ }).click()
@@ -130,7 +130,7 @@ test('saved dashboard filters round-trip through the integrated sidebar', async 
   await menu.getByRole('button', { name: 'Load', exact: true }).click()
   await page.keyboard.press('Escape')
   await expect(usersValue(page)).toHaveText('1')                                             // G1: DEMO_ONE
-  await expect(page.getByRole('group', { name: 'Applied dashboard filters' })).toContainText('User group: G1')
+  await expect(page.getByRole('group', { name: 'Applied dashboard filters' })).toContainText('SAP user group: G1')
   expect(await noPageOverflow(page)).toBe(true)
 })
 
@@ -142,7 +142,7 @@ for (const scheme of ['light', 'dark'] as const) test(`mobile: filters use the s
   await toggle(page).click()
   const drawer = page.getByRole('dialog', { name: 'Filters', exact: true })
   await expect(drawer).toBeVisible()
-  await choose(drawer, page, 'User group', /^G1 /)
+  await choose(drawer, page, 'SAP user group', /^G1 /)
   await choose(drawer, page, 'Assigned transaction', /^VA03/)
   await drawer.getByRole('button', { name: 'Apply filters', exact: true }).first().click()
   await expect(usersValue(page)).toHaveText('0')
@@ -162,7 +162,7 @@ test('access matching mode requires one assignment to match every access filter'
   await open(page)
   await toggle(page).click()
   const panel = sidebar(page)
-  await choose(panel, page, 'Assigned role', /^ZC:MM:A/)
+  await choose(panel, page, 'Role name', /^ZC:MM:A/)
   await choose(panel, page, 'Assigned transaction', /^ME21N/)
   await panel.getByRole('button', { name: 'Apply filters', exact: true }).first().click()
   await expect(usersValue(page)).toHaveText('1')                                             // DEMO_ONE: MM:A and ME21N through different roles

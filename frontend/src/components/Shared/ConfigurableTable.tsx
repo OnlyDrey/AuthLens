@@ -2,6 +2,7 @@ import {ColumnOptions,ColumnActions} from './ColumnOptions'
 import { Children, Fragment, cloneElement, isValidElement, useLayoutEffect, useRef, useState, type HTMLAttributes, type ReactElement, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTableFrame } from './TableRegion'
+import { FIELD } from '@/lib/fieldLabels'
 import { Columns3, RotateCcw } from 'lucide-react'
 import { Button } from './Button'
 import { Dialog } from './Dialog'
@@ -21,7 +22,9 @@ export function ConfigurableTable({ children, ...props }: HTMLAttributes<HTMLTab
   const headings = elements(elements(head?.props.children)[0]?.props.children)
   const columns = headings.map((cell, index) => ({ index, label: cell.props.className?.includes('col-select') ? 'Selection' : text(cell.props.children) || cell.props['aria-label'] || `Column ${index + 1}`, locked: /ud-sticky|col-select/.test(cell.props.className || '') }))
   const simple = !props.className?.includes('matrix-grid') && headings.length > 1 && !headings.some(cell => (cell.props.colSpan || 1) > 1) && elements(head?.props.children).length === 1
-  const key = `authlens.table-columns.${columns.map(column => column.label).join('|')}`
+  // The persisted preference key uses each column's stable key: a header renamed for terminology (TBL-04) declares its earlier text as
+  // data-column-key, so saved column order and visibility survive the rename.
+  const key = `authlens.table-columns.${columns.map((column, index) => ((headings[index].props as Record<string, unknown>)['data-column-key'] as string | undefined) ?? column.label).join('|')}`
   const [preferences, setPreferences] = useState<Record<string, { order: number[]; hidden: number[]; nowrap: boolean }>>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('authlens.table-columns') || '{}')
@@ -35,6 +38,10 @@ export function ConfigurableTable({ children, ...props }: HTMLAttributes<HTMLTab
   const current = simple ? preferences[key] : undefined
   const order = [...new Set([...(current?.order || []), ...columns.map(column => column.index)])].filter(index => columns[index])
   const hidden = (current?.hidden || []).filter(index => columns[index] && !columns[index].locked), nowrap = current?.nowrap !== false
+  // TBL-05: a table whose first visible column is the SAP username keeps that column frozen while it scrolls horizontally. Only the canonical
+  // label qualifies (an application username or a first column with another meaning is not frozen); matrices keep their own pinned headers.
+  const firstVisible = order.find(index => !hidden.includes(index))
+  const stickyIndex = !props.className?.includes('matrix') && firstVisible !== undefined && columns[firstVisible]?.label === FIELD.sapUsername ? firstVisible : -1
   const [exportError,setExportError]=useState('')
   const [open, setOpen] = useState(false), table = useRef<HTMLTableElement>(null)
   const caption = text(elements(children).find(child => child.type === 'caption')?.props.children) || props['aria-label'] || 'table'
@@ -54,7 +61,7 @@ export function ConfigurableTable({ children, ...props }: HTMLAttributes<HTMLTab
           const cells = elements(node.props.children)
           if (cells.length !== columns.length || cells.some(cell => (cell.props.colSpan || 1) > 1)) return child
           return cloneElement(node, {}, order.map(index => cloneElement(cells[index] as ReactElement<Record<string, unknown>>, {
-            key: index, hidden: simple && hidden.includes(index), 'data-column-index': index,
+            key: index, hidden: simple && hidden.includes(index), 'data-column-index': index, 'data-sticky-column': index === stickyIndex ? 'start' : undefined,
             // A column may declare its wrapping contract on its header (`data-wrap="text"`: long text such as positions wraps inside a bounded width)
             'data-wrap': (headings[index].props as Record<string, unknown>)['data-wrap'] ?? (/functional group/i.test(columns[index].label) ? 'groups' : undefined),
           })))
@@ -69,7 +76,8 @@ export function ConfigurableTable({ children, ...props }: HTMLAttributes<HTMLTab
     try {
       const selected = order.filter(index => (all || !hidden.includes(index)) && !/col-select/.test(headings[index].props.className || ''))
       const rows = [...(table.current?.tBodies || [])].flatMap(body => [...body.rows]).filter(row => row.cells.length === columns.length)
-      const content = buildTableCSV(selected.map(index => columns[index].label), rows.map(row => selected.map(index => {
+      // TBL-04: CSV headers keep the export contract: the stable column key (the earlier header) rather than a renamed display label
+      const content = buildTableCSV(selected.map(index => ((headings[index].props as Record<string, unknown>)['data-column-key'] as string | undefined) ?? columns[index].label), rows.map(row => selected.map(index => {
         const cell = row.querySelector<HTMLElement>(`[data-column-index="${index}"]`)
         return cell?.querySelector('[data-export-value]')?.getAttribute('data-export-value') ?? cell?.innerText ?? cell?.textContent ?? ''
       })))

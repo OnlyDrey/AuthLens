@@ -60,7 +60,7 @@ export function useSodSubject(): [SodSubject | null, (value: SodSubject | null) 
 }
 
 /**
- * Shared SoD filter context. Dimensions with the same meaning on every SoD page that offers them (SAP User Group, SAP username, risk,
+ * Shared SoD filter context. Dimensions with the same meaning on every SoD page that offers them (SAP user group, SAP username, risk,
  * activity, transaction code, business area and assigned role) live once under `sodFilters.shared`; everything else (decision filters,
  * suffix, validity, search, sort, tiles) stays in the page's own slot. A page reads only the shared dimensions it supports and writes
  * only those, so an unsupported selection stays stored (and is restored on a page that supports it) without affecting results elsewhere.
@@ -181,7 +181,7 @@ const DECISION_OPTIONS: Record<string, string[]> = {
 export type FilterField = 'group' | 'risk' | 'activity' | 'username' | 'role' | 'role_suffix' | 'tcode' | 'category' | 'criticality' | 'validity' | 'activity_decision' | 'assignment_decision' | 'acceptance'
   | 'risk_type' | 'composite_role' | 'single_role' | 'account_status' | 'review_status' | 'multiple_risks' | 'functional_group' | 'manager'
 const FIELD_LABELS: Record<string, [string, number]> = {
-  group: ['SAP User Group', 256], risk: ['Risk ID', 512], activity: ['Activity', 512], username: ['SAP username', 512], role: ['Assigned role', 512], role_suffix: ['Role suffix', 128],
+  group: ['SAP user group', 256], risk: ['Risk ID', 512], activity: ['Activity', 512], username: ['SAP username', 512], role: ['Role name', 512], role_suffix: ['Role suffix', 128],
   tcode: ['Transaction code', 256], category: ['Business area', 120], criticality: ['Source criticality', 64], risk_type: ['Risk type', 64],
   composite_role: ['Catalogue role', 512], single_role: ['Single role', 512],
 }
@@ -333,7 +333,7 @@ export function SodFilters({ view, filters, setFilters, fields, sorts, actions, 
       {extra}
       <FilterSection title="Shared SoD filters">
         {context!=='current'&&shown.has('functional_group')&&<p role="note" className="ui-description">Functional Group and Manager filters use current organizational membership, not membership at the historical review date. They narrow this view only; the captured population and evidence remain unchanged.</p>}
-        <p className="ui-description">SAP User Group, SAP username, risk, activity, transaction code, business area and assigned role stay selected on the other SoD pages that offer them. Clear page filters empties this page's filters and its shared selections only; the review context is never changed.</p>
+        <p className="ui-description">SAP user group, SAP username, risk, activity, transaction code, business area and assigned role stay selected on the other SoD pages that offer them. Clear page filters empties this page's filters and its shared selections only; the review context is never changed.</p>
         <Button size="compact" variant="outline" disabled={!anyStored} onClick={clearEverywhere}><FilterX size={14} aria-hidden="true" />Clear all SoD filters</Button>
       </FilterSection>
     </div>

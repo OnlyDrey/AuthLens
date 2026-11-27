@@ -62,7 +62,7 @@ function Queue() {
         </section>
         <p className="ui-description">One row per SAP user. Completion covers unique role, activity and risk access-review items in the selected scope, across pages. Current role/activity decisions can provide derived coverage; formal acceptance remains explicit. Open Review shows the same scope and provenance.</p>
         {data.items.length ? <DataTable caption="SoD review work queue" tableClassName="sod-work-queue">
-          <thead><tr>{heading('username','SAP user')}{heading('group','SAP User Group')}{heading('progress','Progress')}{heading('activity','Activities')}{heading('assignment','Role assignments')}{heading('risk','Risk access review')}{heading('acceptance','Formal acceptance')}<th>Open</th></tr></thead>
+          <thead><tr>{heading('username','SAP username')}{heading('group','SAP user group')}{heading('progress','Progress')}{heading('activity','Activities')}{heading('assignment','Role assignments')}{heading('risk','Risk access review')}{heading('acceptance','Formal acceptance')}<th>Open</th></tr></thead>
           <tbody>{data.items.map((row) => (
             <tr key={row.user}>
               <td><SAPUserLink username={row.user} /></td>

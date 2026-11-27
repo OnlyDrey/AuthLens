@@ -88,8 +88,8 @@ for(const width of [375,800,1280,1600])test(`responsive surface screenshots at $
     await expect(page.getByRole('searchbox',{name:'Search roles by name or description',exact:true})).toBeVisible()
     await page.screenshot({animations:'disabled',path:path.join(output,`filters-${width}-${theme}.png`)})
     if(width<1024)await page.keyboard.press('Escape')
-    await page.goto('/#/users');const table=page.getByRole('region',{name:'User directory table',exact:true})
-    await table.getByRole('button',{name:/^Columns for/}).click()
+    await page.goto('/#/users');await expect(page.getByRole('region',{name:'User directory table',exact:true})).toBeVisible()
+    await page.getByRole('button',{name:'Columns for User directory',exact:true}).click() // TBL-02: in the table frame's toolbar above the scroll region
     const columns=page.getByRole('dialog',{name:/^Columns for/});await expect(columns).toBeVisible()
     await page.screenshot({animations:'disabled',path:path.join(output,`columns-${width}-${theme}.png`)});await columns.getByRole('button',{name:'Done',exact:true}).click()
     await page.getByRole('button',{name:'Open settings',exact:true}).click();await selectSettingsSection(page,'Health & Diagnostics')
@@ -104,7 +104,7 @@ test('table columns persist, reorder reading order and export visible or all dis
   await page.setViewportSize({width:390,height:844});await page.goto('/#session=browser-test-session');await page.goto('/#/users')
   const table=page.getByRole('region',{name:'User directory table',exact:true})
   await expect(table.getByRole('columnheader',{name:'Email',exact:true})).toBeVisible()
-  await table.getByRole('button',{name:/^Columns for/}).click()
+  await page.getByRole('button',{name:'Columns for User directory',exact:true}).click() // TBL-02: in the table frame's toolbar above the scroll region
   const dialog=page.getByRole('dialog',{name:/^Columns for/})
   await dialog.getByLabel('Email',{exact:true}).uncheck();await dialog.getByRole('button',{name:'Move Department up',exact:true}).click()
   const visible=page.waitForEvent('download');await dialog.getByRole('button',{name:'Export visible columns',exact:true}).click()
@@ -122,7 +122,7 @@ test('table columns persist, reorder reading order and export visible or all dis
 // The heatmap is an SoD analysis visualization; it moved off the review pages (Reviews workspace) and is checked on SoD Overview.
 test('SoD heatmap keeps its corner heading opaque and visible after horizontal scrolling',async({page})=>{
   await page.setViewportSize({width:390,height:844});await page.goto('/#session=browser-test-session');await page.goto('/#/sod')
-  const region=page.getByRole('region',{name:'SAP User Group heatmap',exact:true})
+  const region=page.getByRole('region',{name:'SAP user group heatmap',exact:true})
   const scroll=region.locator('.sod-heatmap-scroll');await expect(scroll).toBeVisible()
   const corner=scroll.locator('thead th').first();const label=await corner.innerText()
   await scroll.evaluate(element=>{element.scrollLeft=element.scrollWidth})

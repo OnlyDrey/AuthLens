@@ -12,15 +12,15 @@ import { FilterChip } from '@/components/Shared/FilterChip'
 
 /** Dashboard population dimensions sent to the shared server resolver (SubjectSelection): OR within a dimension, AND between dimensions. */
 export const DIMENSIONS = [
-  { key: 'user_groups', label: 'User group', area: 'sap' },
+  { key: 'user_groups', label: 'SAP user group', area: 'sap' },
   { key: 'user_types', label: 'User type', area: 'sap' },
   { key: 'account_states', label: 'Account validity', area: 'sap' },
   { key: 'lock_states', label: 'Account status', area: 'sap' },
   { key: 'departments', label: 'Department', area: 'organization' },
   { key: 'sites', label: 'Site', area: 'organization' },
-  { key: 'titles', label: 'Title', area: 'organization' },
+  { key: 'titles', label: 'Job title', area: 'organization' },
   { key: 'ad_states', label: 'Directory account status', area: 'organization' },
-  { key: 'roles', label: 'Assigned role', area: 'access' },
+  { key: 'roles', label: 'Role name', area: 'access' },
   { key: 'tcodes', label: 'Assigned transaction', area: 'access' },
   { key: 'role_types', label: 'Role type', area: 'access' },
   { key: 'org_suffixes', label: 'Organizational suffix', area: 'access' },
