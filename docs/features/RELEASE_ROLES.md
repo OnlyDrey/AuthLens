@@ -63,7 +63,10 @@ for repeat investigations. Parsed names do not establish release authority or ef
 
 The matrix uses compact content-sized columns, prominent group/strategy headers,
 tabular counts and sticky headers inside a contained keyboard-focusable scroll
-region. Restrained background intensity is relative to counts on the displayed
+region. Every matrix (one, or one per SAP User Group when comparing) spans the whole content width beside the filter sidebar, and all of
+it when the sidebar is closed (MW-1); the columns keep their compact content-sized widths inside it, and the table scrolls horizontally
+inside its own region only when its columns (minimum 160 px for the Release Group column, 72 px for each strategy and the Users column) exceed it. Hidden
+columns (Columns) and opening or closing the sidebar recalculate the width; the page itself never scrolls horizontally (`release-matrix-width.spec.ts`). Restrained background intensity is relative to counts on the displayed
 matrix, not an authorization or risk score. Complete matrices use contained scrolling without pagination. If a response is
 incomplete, a dash represents missing supplied evidence rather than zero users. Group comparison remains in a stable secondary toolbar.
 

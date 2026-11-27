@@ -331,7 +331,9 @@ main h1,.settings-content h1 { font-size:var(--font-title); font-weight:600; }
 .comparison-strip {display:grid;grid-auto-flow:column;grid-auto-columns:minmax(min(17rem,82vw),1fr);align-items:start;gap:var(--space-4);min-width:0;max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;padding:var(--space-1);scroll-padding-inline:var(--space-1)}
 .comparison-strip:focus-visible {outline:var(--focus-width) solid var(--focus);outline-offset:calc(-1 * var(--focus-width))}
 .comparison-strip-item {min-width:0}
-.release-matrices {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:var(--space-4);min-width:0}
+/* MW-1: one matrix per scope (NAV-6), its container across the whole content width; the earlier two-column grid held the separate PR and
+   PO matrices. The table keeps its compact content-sized columns inside the container and scrolls there only when they exceed it. */
+.release-matrices {display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:var(--space-4);min-width:0}
 .release-matrices>div {min-width:0;max-width:100%}
 .release-matrices>p {grid-column:1/-1}
 @media(min-width:1200px){
@@ -350,7 +352,6 @@ main h1,.settings-content h1 { font-size:var(--font-title); font-weight:600; }
 .review-metrics .compact-health {display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center}
 .review-metrics .compact-health>button {grid-column:1/-1;justify-self:start}
 @media(max-width:1099px){.review-metric-groups{grid-template-columns:minmax(0,1fr)}}
-@media(max-width:800px){.release-matrices{grid-template-columns:minmax(0,1fr)}}
 /* Bound intrinsic nowrap widths so long evidence cannot displace other columns. */
 .comparison-table {table-layout:fixed;min-width:1100px}
 .comparison-table th:nth-child(1) {width:26%}
