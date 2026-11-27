@@ -91,6 +91,31 @@ public sealed class AccountReviewTests : IAsyncLifetime
         public async Task<JsonNode> Get(string path) => JsonNode.Parse(await client.GetStringAsync(path))!;
     }
 
+    [Fact]
+    public async Task Data_health_and_the_dashboard_directory_figures_are_administrator_only()
+    {
+        // NAV-5: /api/data-health is an administrator read; the Dashboard leaves the Directory & Data Health figures out for other roles.
+        await Import("roles", Csv.Roles(3));
+        await Import("users", Users());
+        string[] health = ["email_matches", "directory_missing", "directory_ambiguous", "unresolved", "position_changes"];
+        static string[] Ids(JsonNode page) => page["metrics"]!.AsArray().Select(m => (string)m!["id"]!).ToArray();
+        foreach (var name in new[] { "viewer1", "reviewer1" })
+        {
+            var session = await SignIn(name);
+            Assert.Equal(HttpStatusCode.Forbidden, (await session.Client.GetAsync("/api/data-health")).StatusCode);
+            var dashboard = await session.Get("/api/dashboard");
+            Assert.Empty(Ids(dashboard).Intersect(health));
+            Assert.Null(dashboard["coverage_total"]);
+            Assert.Contains("account_review", Ids(dashboard)); // other figures stay
+            Assert.Equal(HttpStatusCode.OK, (await session.Client.GetAsync("/api/account-review")).StatusCode); // features that authorize the data keep it
+        }
+        var admin = await SignIn("admin");
+        Assert.Equal(HttpStatusCode.OK, (await admin.Client.GetAsync("/api/data-health")).StatusCode);
+        var full = await admin.Get("/api/dashboard");
+        Assert.Equal(health.Order(), Ids(full).Intersect(health).Order());
+        Assert.NotNull(full["coverage_total"]);
+    }
+
     private async Task<Session> SignIn(string username)
     {
         var cookies = new CookieContainer();
@@ -142,6 +167,9 @@ public sealed class AccountReviewTests : IAsyncLifetime
         Assert.Equal(["USER0002"], Names(await reviewer.Get("/api/account-review?review_states=No+action+required&review_states=Investigating")));
         Assert.DoesNotContain("USER0002", Names(await reviewer.Get("/api/account-review?review_states=Investigating&include_completed=true")));
         Assert.Contains("USER0001", Names(await reviewer.Get("/api/account-review?review_states=Needs%20review")));
+        // NAV-4: the server-side review CSV carries the decision fields of the list (reviewer, time, rationale) with the formula guard.
+        var csv = await reviewer.Client.GetStringAsync("/api/account-review/export?include_completed=true&columns=username&columns=review_state&columns=reviewer&columns=rationale");
+        Assert.Contains("\"USER0002\",\"No action required\",\"reviewer1\",\"Confirmed with owner\"", csv);
         var history = await reviewer.Get("/api/account-review/history/USER0002");
         Assert.Equal(("Investigating", 1), ((string)history["items"]![0]!["state"]!, (int)history["total"]!));
 

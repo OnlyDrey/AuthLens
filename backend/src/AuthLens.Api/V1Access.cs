@@ -13,7 +13,7 @@ public static class V1Access
 {
     private static readonly string[] Statuses = ["", "active", "expired", "future", "unknown"];
     private static readonly string[] Sorts = ["username", "group", "first_name", "last_name", "email", "account_status", "relevant_roles"];
-    private static readonly string[] Validities = ["active", "expired", "future", "unknown", "all"];
+    internal static readonly string[] Validities = ["active", "expired", "future", "unknown", "all"];
 
     internal static DateOnly Today() => DateOnly.FromDateTime(DateTime.Now);
     private static IResult Detail(int status, string detail) => Results.Json(new { detail }, statusCode: status);
@@ -144,9 +144,23 @@ public static class V1Access
             var roleScope = ExportRoleScope(snapshot.Users, query);
             var rows = result.SelectMany(u => ExportAssignments(snapshot.Users.Users[u.UserKey], showExpired, status, today, roleScope)
                 .Select(a => (Assignment: a, Identity: u, Matched: evidence.TryGetValue(u.UserKey, out var hit) && hit.Any(e => e.Id == a.Id)))).ToList();
+            static string Local(string? value) => SapDates.Parse(value) is { } d ? $"{d.Day:00}.{d.Month:00}.{d.Year:0000}" : "";
+            // NAV-4: report options use the shared configurable writer (same rows and evidence flag); without them the v1 output is unchanged.
+            var (report, invalid) = ConfigurableCsv.Parse(http.Request.Query, V1Reports.AssignmentColumns, ';');
+            if (invalid is not null) return invalid;
+            if (report!.Requested)
+            {
+                http.Response.Headers["X-SAP-Lens-Data-Revision"] = Revision(snapshot);
+                return ConfigurableCsv.Render(http, $"authlens-user-directory-review-{today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}.csv", V1Reports.AssignmentColumns, report, [.. rows.Select(row =>
+                {
+                    var interval = SapDates.IntervalStatus(row.Assignment.ValidFrom, row.Assignment.ValidTo, today);
+                    return new string?[] { row.Assignment.Username, row.Identity.FirstName, row.Identity.LastName, row.Identity.Email, row.Assignment.UserGroup, row.Assignment.RoleName,
+                        Local(row.Assignment.ValidFrom), Local(row.Assignment.ValidTo), char.ToUpperInvariant(interval[0]) + interval[1..], row.Assignment.Release?.DocumentType,
+                        row.Assignment.Release?.ReleaseGroup, row.Assignment.Release?.ReleaseStrategy, row.Matched ? "Yes" : "No" };
+                })]);
+            }
             var csv = new System.Text.StringBuilder("\ufeff");
             V1Csv.Line(csv, AssignmentColumns, cells: false);
-            static string Local(string? value) => SapDates.Parse(value) is { } d ? $"{d.Day:00}.{d.Month:00}.{d.Year:0000}" : "";
             foreach (var (a, identity, matched) in rows)
             {
                 var status2 = SapDates.IntervalStatus(a.ValidFrom, a.ValidTo, today);

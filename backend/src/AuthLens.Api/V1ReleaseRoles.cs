@@ -244,6 +244,15 @@ public static class V1ReleaseRoles
             if (snapshot.Ids.Users is null) return Detail(409, "No validated User Access dataset is loaded.");
             var today = V1Access.Today();
             var roles = DistinctRoles(snapshot, filters!, today);
+            // NAV-4: report options (columns, delimiter, preview) use the shared configurable writer; without them the v1 output is unchanged.
+            var (report, invalid) = ConfigurableCsv.Parse(http.Request.Query, V1Reports.ReleaseRoleColumns, ';');
+            if (invalid is not null) return invalid;
+            if (report!.Requested)
+            {
+                CsvHeaders(http, snapshot, "release-role-list", today, "X-SAP-Lens-Role-Count", roles.Count);
+                return ConfigurableCsv.Render(http, $"authlens-release-role-list-{today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}.csv", V1Reports.ReleaseRoleColumns, report,
+                    [.. roles.Select(role => new string?[] { (string?)role["role_name"], (string?)role["description"], (string?)role["release_area"], (string?)role["release_group"], (string?)role["release_strategy"], (string?)role["document_type"] })]);
+            }
             var csv = new StringBuilder("﻿");
             V1Csv.Line(csv, RoleListColumns, cells: false);
             foreach (var role in roles)
@@ -270,9 +279,22 @@ public static class V1ReleaseRoles
             });
             if (filters!.Descending) entries.Reverse();
             var identities = entries.Select(a => a.UserKey).Distinct().ToDictionary(k => k, k => UserLookup.Summary(snapshot.Users.Users[k], [], today));
+            static string Local(string? value) => SapDates.Parse(value) is { } d ? $"{d.Day:00}.{d.Month:00}.{d.Year:0000}" : "";
+            var (report, invalid) = ConfigurableCsv.Parse(http.Request.Query, V1Reports.AssignmentColumns, ';');
+            if (invalid is not null) return invalid;
+            if (report!.Requested)
+            {
+                CsvHeaders(http, snapshot, "release-roles", today, "X-SAP-Lens-Assignment-Count", entries.Count);
+                return ConfigurableCsv.Render(http, $"authlens-release-roles-review-{today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}.csv", V1Reports.AssignmentColumns, report, [.. entries.Select(a =>
+                {
+                    var identity = identities[a.UserKey];
+                    var interval = SapDates.IntervalStatus(a.ValidFrom, a.ValidTo, today);
+                    return new string?[] { a.Username, identity.FirstName, identity.LastName, identity.Email, a.UserGroup, a.RoleName, Local(a.ValidFrom), Local(a.ValidTo),
+                        char.ToUpperInvariant(interval[0]) + interval[1..], a.Release?.DocumentType, a.Release?.ReleaseGroup, a.Release?.ReleaseStrategy, "Yes" };
+                })]);
+            }
             var csv = new StringBuilder("﻿");
             V1Csv.Line(csv, AssignmentColumns, cells: false);
-            static string Local(string? value) => SapDates.Parse(value) is { } d ? $"{d.Day:00}.{d.Month:00}.{d.Year:0000}" : "";
             foreach (var a in entries)
             {
                 var identity = identities[a.UserKey];
@@ -298,6 +320,12 @@ public static class V1ReleaseRoles
             var buckets = new Dictionary<string, List<Assignment>>(StringComparer.Ordinal);
             var cells = new Dictionary<(string G, string D, string R, string S), HashSet<string>>();
             var cellRoles = new Dictionary<(string, string, string, string), Dictionary<string, string>>();
+            // NAV-6: authoritative distinct-user totals of the matrix population, from the same filtered, parsed assignments as the cells, keyed by
+            // (SAP User Group scope, release type or "" for PR and PO together, Release Group or "" for all, Release Strategy or "" for all). Users are counted
+            // by UserKey, so a user with PR and PO assignments (or several strategies) is one member of each combined set: a strategy column shared by PR
+            // and PO shows its combined cell from here, and no total is ever a sum of cells.
+            var totals = new Dictionary<(string G, string D, string R, string S), HashSet<string>>();
+            void Count((string, string, string, string) key, string user) { if (!totals.TryGetValue(key, out var set)) totals[key] = set = new(StringComparer.Ordinal); set.Add(user); }
             foreach (var a in Filtered(snapshot.Users, filters!, today))
             {
                 var key = RoleNames.Normalize(a.RoleName);
@@ -309,6 +337,8 @@ public static class V1ReleaseRoles
                     if (!cells.TryGetValue(cell, out var people)) { cells[cell] = people = []; cellRoles[cell] = new(StringComparer.Ordinal); }
                     people.Add(a.UserKey);
                     cellRoles[cell][key] = a.RoleName;
+                    foreach (var type in new[] { r.DocumentType!, "" }) foreach (var group in new[] { r.ReleaseGroup!, "" }) foreach (var strategy in new[] { r.ReleaseStrategy!, "" })
+                        Count((cell.Item1, type, group, strategy), a.UserKey);
                 }
             }
             var rows = buckets.Values.Select(assignments =>
@@ -364,6 +394,14 @@ public static class V1ReleaseRoles
                 ["matrix"] = V1Access.Flag(q, "matrix_complete") ? matrix : matrix.Skip(matrixOffset).Take(200).ToList(), ["matrix_total"] = matrix.Count, ["matrix_offset"] = matrixOffset,
             };
             foreach (var (k, v) in await Source(http, snapshot, today, ct)) result[k] = v;
+            // Returned on request only (`matrix_totals=true`), so the v1-compatible response is unchanged for other callers (Python parity).
+            if (V1Access.Flag(q, "matrix_totals")) result["matrix_totals"] = totals.OrderBy(t => t.Key.G, StringComparer.Ordinal).ThenBy(t => t.Key.R, StringComparer.Ordinal)
+                .ThenBy(t => t.Key.S, StringComparer.Ordinal).ThenBy(t => t.Key.D, StringComparer.Ordinal)
+                .Select(t => new Dictionary<string, object?>
+                {
+                    ["user_group"] = t.Key.G, ["document_type"] = t.Key.D.Length == 0 ? null : t.Key.D, ["release_group"] = t.Key.R.Length == 0 ? null : t.Key.R,
+                    ["release_strategy"] = t.Key.S.Length == 0 ? null : t.Key.S, ["distinct_users"] = t.Value.Count,
+                }).ToList();
             result["export_assignments"] = buckets.Values.Sum(b => b.Count);
             result["groups"] = Groups(snapshot);
             result["groups_total"] = snapshot.Users.GroupCount;
@@ -379,9 +417,14 @@ public static class V1ReleaseRoles
             var status = q["status"].FirstOrDefault() ?? "active";
             if (documentType is not ("" or "PR" or "PO") || !Statuses.Contains(status)) return Detail(422, "Unsupported filter value.");
             if (!V1Access.Paging(q, 50, out var offset, out var limit)) return Detail(422, "offset must be ≥ 0 and limit between 1 and 100.");
-            if (q["user_groups"].Count > 100 || q["strategies"].Count > 100 || TooLong(q, "role", 512) || TooLong(q, "group", 512) || TooLong(q, "username", 512)
+            if (q["user_groups"].Count > 100 || q["strategies"].Count > 100 || q["release_areas"].Count > 50 || q["release_groups"].Count > 200 || TooLong(q, "role", 512) || TooLong(q, "group", 512) || TooLong(q, "username", 512)
                 || TooLong(q, "role_search", 512) || TooLong(q, "release_group", 100) || TooLong(q, "strategy", 100))
                 return Detail(422, "Too many or too long filter values.");
+            // NAV-6: a matrix total opens the same population as its count: parsed release roles only, with the matrix's Release Area, Release Group and
+            // Release Strategy filters (a cell fixes its own group and strategy, a total does not).
+            var parsedOnly = V1Access.Flag(q, "parsed");
+            var areas = Bounded(q["release_areas"]);
+            var groups = Bounded(q["release_groups"]);
             var role = q["role"].FirstOrDefault() ?? "";
             var username = q["username"].FirstOrDefault() ?? "";
             var roleSearch = q["role_search"].FirstOrDefault() ?? "";
@@ -409,6 +452,9 @@ public static class V1ReleaseRoles
                 if (releaseGroup.Length > 0 && r.ReleaseGroup != releaseGroup) return false;
                 if (strategy.Length > 0 && r.ReleaseStrategy != strategy) return false;
                 if (anyStrategies && (r.ReleaseStrategy is null || !strategies.Contains(r.ReleaseStrategy))) return false;
+                if (parsedOnly && !r.Parsed) return false;
+                if (groups.Count > 0 && (r.ReleaseGroup is null || !groups.Contains(r.ReleaseGroup))) return false;
+                if (areas.Count > 0 && (ReleaseArea(r.ReleaseGroup) is not { } area || !areas.Contains(area))) return false;
                 return Relevant(a, status, today);
             }).ToList();
             entries.Sort((x, y) =>

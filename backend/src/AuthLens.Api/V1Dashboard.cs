@@ -7,6 +7,9 @@ namespace AuthLens.Api;
 /// A metric whose source is not loaded is null with an explicit reason, never estimated.</summary>
 public static class V1Dashboard
 {
+    /// <summary>NAV-5: metrics of the Directory & Data Health card, returned to administrators only.</summary>
+    internal static readonly HashSet<string> DataHealthMetrics = ["email_matches", "directory_missing", "directory_ambiguous", "unresolved", "position_changes"];
+
     public static readonly string[] Bands = ["0–5", "6–10", "11–20", "21–30", "31+"];
 
     public static string Band(int count) => count <= 5 ? Bands[0] : count <= 10 ? Bands[1] : count <= 20 ? Bands[2] : count <= 30 ? Bands[3] : Bands[4];
@@ -136,6 +139,10 @@ public static class V1Dashboard
             }
             static object Source(string id, string name, bool enabled, bool configured, bool available, (string? Import, string? Checked) f) =>
                 new { id, name, enabled, configured, available, last_import = f.Import, last_checked = f.Checked };
+            // NAV-5: the Directory & Data Health figures (directory match quality and position-change signal) are administrator-only. They are left out
+            // for other roles; the same information stays available to them only through the features that authorize it (Account Review, Position Changes).
+            var administrator = AuthLens.Application.Accounts.AccountStore.Permissions["admin"].Contains(Actors.Current(http).Role);
+            if (!administrator) metrics.RemoveAll(m => DataHealthMetrics.Contains((string)m["id"]!));
             return Results.Ok(new
             {
                 metrics,
@@ -148,7 +155,7 @@ public static class V1Dashboard
                 assignment_distribution = assignmentDistribution,
                 last_successful_refresh = IsoTimestamp.Repair((string?)lifecycle?["last_successful_refresh"]),
                 source_warning = (string?)null,
-                coverage_total = coverageTotal,
+                coverage_total = administrator ? coverageTotal : (int?)null,
                 sources = new[]
                 {
                     Source("roles", "Role Catalogue", true, !string.IsNullOrEmpty((string?)settings["data_csv_path"]), catalogue, Freshness("roles", "data_csv_path")),
