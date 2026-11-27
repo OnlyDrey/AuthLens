@@ -23,8 +23,8 @@ test.describe('access views', () => {
 
   test('SAP User Group is a multi-select: OR within the filter, removable chips and one Clear action in the sidebar', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
-    await page.goto('/#session=browser-test-session'); await goTo(page, 'User Access')
-    const list = page.getByRole('region', { name: 'User Access', exact: true })
+    await page.goto('/#session=browser-test-session'); await goTo(page, 'Users')
+    const list = page.getByRole('region', { name: 'Users', exact: true })
     const shown = async () => (await list.getByRole('link', { name: /^U[A-D]\d$/ }).allInnerTexts()).sort()
     await expect.poll(shown).toEqual(['UA1', 'UB2', 'UC3', 'UD4'])
     await pickMulti(list, 'SAP User Group', 'G1', page)
@@ -40,8 +40,8 @@ test.describe('access views', () => {
 
   test('multiple roles combine with OR and keep unrelated selections when one is removed', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
-    await page.goto('/#session=browser-test-session'); await goTo(page, 'User Access')
-    const list = page.getByRole('region', { name: 'User Access', exact: true })
+    await page.goto('/#session=browser-test-session'); await goTo(page, 'Users')
+    const list = page.getByRole('region', { name: 'Users', exact: true })
     const shown = async () => (await list.getByRole('link', { name: /^U[A-D]\d$/ }).allInnerTexts()).sort()
     for (const role of ['ZC:MM:BUY:ENP', 'ZC:FI:VIEW:ENP']) {
       const box = list.getByRole('combobox', { name: 'Filter users by role', exact: true })
@@ -56,7 +56,7 @@ test.describe('access views', () => {
 
   test('the Users count of a release role opens a panel with its users, names, groups, validity and an export', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
-    await page.goto('/#session=browser-test-session'); await goTo(page, 'Release Roles')
+    await page.goto('/#session=browser-test-session'); await goTo(page, 'Release Access')
     await page.getByRole('button', { name: 'Table', exact: true }).click()
     await page.getByRole('button', { name: /^Show 2 users with ZO:MM:M:PR_REL_ST_E2_N1:ALL$/ }).click()
     const panel = page.getByRole('dialog', { name: 'Users with this release role' })
@@ -72,7 +72,7 @@ test.describe('access views', () => {
 
   test('Release Strategy is a multi-select that combines with the other release filters', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
-    await page.goto('/#session=browser-test-session'); await goTo(page, 'Release Roles')
+    await page.goto('/#session=browser-test-session'); await goTo(page, 'Release Access')
     await page.getByRole('button', { name: 'Table', exact: true }).click()
     const rows = async () => (await page.getByRole('region', { name: 'Release role results' }).getByRole('button', { name: 'Release role details' }).allInnerTexts()).map((text) => text.replace(/\s+/g, '')).sort()
     await expect.poll(rows).toHaveLength(2)
@@ -85,8 +85,7 @@ test.describe('access views', () => {
 
   test('Account Review and Compare users use the shared filter sidebar with Saved Filters and one Clear action', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
-    await page.goto('/#session=browser-test-session'); await goTo(page, 'User Access')
-    await page.getByRole('link', { name: 'Account Review', exact: true }).click()
+    await page.goto('/#session=browser-test-session'); await goTo(page, 'Account Review')
     const sidebar = page.getByRole('complementary', { name: 'Filters' })
     await expect(page.locator('.review-filters')).toHaveCount(0)
     for (const name of ['Review finding', 'License group classification', 'Review decision']) await expect(sidebar.getByRole('combobox', { name, exact: true })).toBeVisible()
@@ -97,7 +96,7 @@ test.describe('access views', () => {
     await expect(page.getByRole('button', { name: 'Remove review finding Pending reviews', exact: true })).toBeVisible()
     await sidebar.getByRole('button', { name: 'Clear filters', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Remove review finding Pending reviews', exact: true })).toHaveCount(0)
-    await page.getByRole('link', { name: 'Compare users', exact: true }).click()
+    await goTo(page, 'Compare Users') // NAV-2/3: Compare Users is a Users page; Account Review is in Reviews
     await expect(page.getByRole('region', { name: 'Comparison filters' })).toHaveCount(0)
     for (const name of ['Assignment validity', 'Comparison section']) await expect(sidebar.getByRole('combobox', { name, exact: true })).toBeVisible()
     await expect(sidebar.getByRole('combobox', { name: 'Comparison SAP area', exact: true })).toBeVisible()
@@ -189,14 +188,20 @@ test.describe('SoD views', () => {
     await page.keyboard.press('Escape')
     await page.getByRole('link', { name: 'Access Explorer', exact: true }).click()
     await page.getByRole('tab', { name: 'Assignments', exact: true }).click()
-    await page.getByRole('checkbox', { name: 'Select all assignments on this page' }).check()
-    await page.getByRole('toolbar', { name: 'Bulk assignment review' }).getByRole('button', { name: 'Keep', exact: true }).click()
+    // NAV-8: the Explorer selection is reviewed in Bulk Review
+    const bulkKeep = async () => {
+      await page.getByRole('checkbox', { name: 'Select all assignments on this page' }).check()
+      await page.getByRole('toolbar', { name: 'Bulk assignment review' }).getByRole('button', { name: 'Review in Bulk Review', exact: true }).click()
+      await page.getByRole('group', { name: 'Proposed decision', exact: true }).getByRole('button', { name: 'Keep', exact: true }).click()
+      await page.getByRole('toolbar', { name: 'Bulk review actions', exact: true }).getByRole('button', { name: /^Review \d+ assignments?$/ }).click()
+    }
+    await bulkKeep()
     const reviewer = page.getByRole('dialog', { name: 'Keep assignments' }).getByRole('textbox', { name: 'Reviewer' })
     await expect(reviewer).toHaveValue('Session Reviewer'); await expectReviewerProfile(reviewer)
     await setReviewerName(request, 'Another Reviewer') // it changes through the profile only, keeping the same identity
-    await page.reload()
-    await page.getByRole('checkbox', { name: 'Select all assignments on this page' }).check()
-    await page.getByRole('toolbar', { name: 'Bulk assignment review' }).getByRole('button', { name: 'Keep', exact: true }).click()
+    await page.goBack(); await page.reload()
+    await page.getByRole('tab', { name: 'Assignments', exact: true }).click()
+    await bulkKeep()
     await expect(reviewer).toHaveValue('Another Reviewer'); await expectReviewerProfile(reviewer)
   })
 
@@ -230,12 +235,12 @@ test.describe('SoD views', () => {
     const menu = page.getByRole('group', { name: 'Synthetic menu period actions' })
     for (const name of ['Review in Risk Matrix', 'View Activity Matrix', 'View work queue', 'Delete…']) await expect(menu.getByRole('button', { name }).locator('svg')).toBeVisible()
     await page.keyboard.press('Escape')
-    // Reports and Evidence and the Work Queue live in the Reviews workspace (Review views navigation).
+    // NAV-4: the reports are Review Reports in the Reports module; the Work Queue stays in Reviews.
+    await goTo(page, 'Review Reports')
     const reviewViews = page.getByRole('navigation', { name: 'Review views', exact: true })
-    await reviewViews.getByRole('link', { name: 'Reports and Evidence', exact: true }).click()
     await expect(page.locator('details.sod-report-details').first()).toHaveAttribute('open', '')
     await expect(page.getByRole('textbox', { name: 'Prepared by' })).toBeVisible()
-    await reviewViews.getByRole('link', { name: 'Work Queue', exact: true }).click()
+    await goTo(page, 'Work Queue'); await expect(reviewViews.getByRole('link', { name: 'Work Queue', exact: true })).toHaveAttribute('aria-current', 'page')
     const queue = page.getByRole('table', { name: 'SoD review work queue' })
     await expect(queue.locator('tbody tr').first().locator('.role-identifier')).toHaveCount(1)
     await expect(page.getByRole('region', { name: 'Review progress' }).getByRole('button', { name: /^All users/ })).toHaveAttribute('aria-pressed', 'true')

@@ -278,6 +278,11 @@ main h1,.settings-content h1 { font-size:var(--font-title); font-weight:600; }
 .matrix-scroll .release-matrix th:first-child {min-width:160px;text-align:left}
 .matrix-scroll .release-matrix thead th {position:sticky;top:0;background:var(--surface2);z-index:2}
 .matrix-scroll .release-matrix tbody th {position:sticky;left:0;background:var(--surface2);z-index:1}
+/* NAV-6 Release Access matrix: one column per strategy key; totals and n/a are visually distinct; the tfoot label stays pinned like row headers. */
+.matrix-scroll .release-matrix tfoot th {position:sticky;left:0;background:var(--surface2);z-index:1}
+.release-matrix .release-total {background:var(--surface2)}
+.release-matrix tfoot th,.release-matrix tfoot td {border-top:2px solid var(--border)}
+.release-na {color:var(--muted);font-size:var(--font-label);font-weight:500}
 .matrix-scroll .release-matrix td[data-intensity="1"] {background:color-mix(in srgb,var(--accent) 5%,var(--surface))}
 .matrix-scroll .release-matrix td[data-intensity="2"] {background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
 .matrix-scroll .release-matrix td[data-intensity="3"] {background:color-mix(in srgb,var(--accent) 16%,var(--surface))}

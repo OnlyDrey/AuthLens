@@ -11,7 +11,7 @@ test.afterEach(async () => { await sources.cleanup() })
 async function open(page: Page) {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await openFilters(page)
 }
 const feedback = (page: Page) => page.getByRole('status', { name: 'Exact username filter result' })

@@ -84,5 +84,5 @@ function Queue() {
 
 function BulkReviewPage(){
  const [context]=useSodContext(),[filters,setFilters]=useSodFilters('bulk',['group','username','role','role_suffix','risk','activity','tcode','category']),[,setTab]=useHistoryValue('sodReviews'),{view,change}=useViewHistory()
- return <SodQueueBulk embedded selectMatching={!!view.bulkSelectMatching} onSelectionConsumed={()=>change({bulkSelectMatching:false},true)} context={context} filters={filters} onFiltersChange={setFilters} onClose={()=>setTab('queue')}/>
+ return <SodQueueBulk embedded selectMatching={!!view.bulkSelectMatching} initialPicks={view.bulkPicks} onSelectionConsumed={()=>change({bulkSelectMatching:false,bulkPicks:undefined},true)} context={context} filters={filters} onFiltersChange={setFilters} onClose={()=>setTab('queue')}/>
 }

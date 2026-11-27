@@ -16,7 +16,7 @@ test.describe('with SoD governance data', () => {
 
   test('BUG-01: the row control opens and closes the review panel without resetting search or selection', async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 1000 })
-    await start(page, 'User Access')
+    await start(page, 'Users')
     const search = page.getByRole('textbox', { name: 'Search users', exact: true })
     await search.fill('SYN')
     const toggle = page.getByRole('button', { name: `Open ${names.a} in SoD Review`, exact: true })
@@ -39,7 +39,7 @@ test.describe('with SoD governance data', () => {
   test('BUG-07: the user profile shows role review progress with the panel counting rule and updates after a decision', async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 1000 })
     await page.goto(`/#session=browser-test-session`)
-    await goTo(page, 'User Access')
+    await goTo(page, 'Users')
     await page.getByRole('link', { name: names.a, exact: true }).first().click()
     const progress = page.getByRole('region', { name: 'Role review progress' })
     await expect(progress).toBeVisible()
@@ -62,7 +62,7 @@ test('BUG-02: Release role details offers a review action per reviewable user th
     // Only U1 is reviewable in this context; U2 must show no review action.
     await page.route('**/api/sod/review-subjects?*', route => route.fulfill({ json: { users: ['U1'] } }))
     await page.setViewportSize({ width: 1600, height: 1000 })
-    await start(page, 'Release Roles')
+    await start(page, 'Release Access')
     await page.getByRole('button', { name: 'Table', exact: true }).click()
     await page.getByRole('region', { name: 'Release role results' }).getByRole('button', { name: 'Release role details' }).first().click()
     const details = page.getByRole('region', { name: 'Release role user assignments' })
@@ -92,7 +92,7 @@ test('BUG-03 and BUG-06: Functional Groups open their member list by id, and gro
     { username: 'SYN_TEK1', full_name: 'Synthetic One', department: 'Teknologi', title: 'Engineer', identity: 'matched', status: 'Confirmed', confirmed_at: null, confirmed_by: '', revision: 1 },
     { username: 'SYN_TEK2', full_name: 'Synthetic Two', department: 'Teknologi', title: 'Engineer', identity: 'matched', status: 'Needs review', confirmed_at: null, confirmed_by: '', revision: 1 }] } }) })
   await page.setViewportSize({ width: 1600, height: 1000 })
-  await start(page, 'User Access')
+  await start(page, 'Users')
   const chips = page.locator('.fg-chips').first()
   await expect(chips).toBeVisible()
   // BUG-06: no reserved fixed width: the chip group is no wider than its labels and action plus gaps.
@@ -120,10 +120,10 @@ test('BUG-08: main navigation resets temporary search; panels, back navigation a
   await start(page, 'Role Lookup')
   const search = page.getByRole('searchbox', { name: 'Search roles by name or description' })
   await search.fill('synthetic temporary search')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await page.goBack()
   await expect(search).toHaveValue('synthetic temporary search')          // Back restores the history entry it returns to
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await goTo(page, 'Role Lookup')
   await expect(page.getByRole('searchbox', { name: 'Search roles by name or description' })).toHaveValue('')   // a new visit starts fresh
   } finally { await seeded.cleanup() }

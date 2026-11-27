@@ -36,7 +36,7 @@ async function openRole(page: Page, role = pattern) {
 }
 async function openUser(page: Page) {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access') // the navigation drawer below 1024 px
+  await goTo(page, 'Users') // the navigation drawer below 1024 px
   await page.getByRole('link', { name: 'DEMO_REVIEW', exact: true }).click()
   return page.getByRole('region', { name: 'User details', exact: true })
 }

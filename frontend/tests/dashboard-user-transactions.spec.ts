@@ -38,7 +38,7 @@ async function go(page: Page, name: string) {
 test('editable user T-codes use AND across assignments, OR, unique chips and scoped clear', async ({
   page,
 }) => {
-  await go(page, 'User Access')
+  await go(page, 'Users')
   const input = page.getByRole('textbox', {
     name: 'Filter users by transaction',
     exact: true,
@@ -160,13 +160,13 @@ test('Dashboard counts and KPI routes are meaningful, with browser Back and disa
     .getByRole('button', { name: 'SAP users', exact: true })
     .click()
   await expect(
-    page.getByRole('region', { name: 'User Access', exact: true }),
+    page.getByRole('region', { name: 'Users', exact: true }),
   ).toBeVisible()
   await page.goBack()
   await expect(dashboard).toBeVisible()
   await page.goForward()
   await expect(
-    page.getByRole('region', { name: 'User Access', exact: true }),
+    page.getByRole('region', { name: 'Users', exact: true }),
   ).toBeVisible()
   await goTo(page, 'Role Lookup')
   await expect(
@@ -297,7 +297,7 @@ test('shared success and error notifications align with content and dismiss by k
 })
 
 test('KPI navigation resets only its destination filters', async ({ page }) => {
-  await go(page, 'User Access')
+  await go(page, 'Users')
   const search = page.getByRole('textbox', {
     name: 'Search users',
     exact: true,

@@ -15,10 +15,11 @@ export function DetailNavigation({ parent, current, onBack, previousUser, index 
 }) {
   const focus = useRef<HTMLSpanElement>(null)
   useEffect(() => { focus.current?.focus({ preventScroll: true }) }, [current])
-  const noun = parent === 'User Access' ? 'user' : parent === 'Release Roles' ? 'release role' : 'record'
+  // NAV-2: User Access is Users and Release Roles is Release Access; Account Review and Position Changes (NAV-3) also open user records.
+  const noun = parent === 'Users' || parent === 'Account Review' || parent === 'Position Changes' ? 'user' : parent === 'Release Access' ? 'release role' : 'record'
   return <div className="detail-navigation">
     {showBreadcrumb&&<nav aria-label="Breadcrumb" className="detail-breadcrumb">
-      <Button size="compact" className="detail-back-button" onClick={onBack}><ArrowLeft size={16} aria-hidden="true"/>Back to {parent === 'User Access' ? 'users' : parent}</Button>
+      <Button size="compact" className="detail-back-button" onClick={onBack}><ArrowLeft size={16} aria-hidden="true"/>Back to {parent === 'Users' ? 'users' : parent}</Button>
       <ChevronRight size={14} aria-hidden="true" className="shrink-0"/>
       <span ref={focus} tabIndex={-1} aria-current="page" className="truncate font-semibold" title={current}>{current}</span>
     </nav>}

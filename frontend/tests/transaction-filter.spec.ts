@@ -53,7 +53,7 @@ async function openRoles(page: Page) {
 }
 async function openUsers(page: Page) {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await expect(page.getByRole('link', { name: 'U1', exact: true })).toBeVisible()
   await openFilters(page)
 }

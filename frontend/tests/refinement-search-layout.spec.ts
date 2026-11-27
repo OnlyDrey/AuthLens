@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test'
 import {mkdtempSync,writeFileSync,appendFileSync,rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import { headers, postConfiguration, selectSettingsSection } from './support'
+import { headers, postConfiguration, selectSettingsSection, goTo } from './support'
 let root:string
 test.beforeEach(async({request})=>{
  await request.post('/api/configuration/reset',{headers});root=mkdtempSync(path.join(tmpdir(),'authlens-search-ui-'))
@@ -21,7 +21,7 @@ for(const theme of ['light','dark'])for(const width of [375,800,1280,1600])test(
  await page.screenshot({path:info.outputPath(`dashboard-${theme}-${width}.png`)})
  await page.getByRole('button',{name:'Investigate users with 0–5 currently valid roles',exact:true}).click()
  await expect(page.getByRole('button',{name:'Remove assignment count filter',exact:true})).toBeVisible()
- await expect(page.getByRole('navigation',{name:'User Access view',exact:true}).getByRole('link',{name:'User directory',exact:true})).toHaveCSS('border-bottom-width','2px')
+ await expect(page.getByRole('navigation',{name:'Users view',exact:true}).getByRole('link',{name:'User Directory',exact:true})).toHaveCSS('border-bottom-width','2px')
  await page.getByRole('link', { name: 'SYN_BUY',exact:true}).click();await expect(page.getByRole('columnheader',{name:'Role description',exact:true})).toHaveCount(0);await expect(page.getByRole('region',{name:'User role assignments',exact:true})).toContainText('Purchasing')
  const back=page.getByRole('button',{name:'Back to users',exact:true});await expect(back).toHaveCSS('border-top-width','1px')
  await expect(page.locator('.profile-identity-header .profile-identity-match').getByRole('button',{name:/Directory matching details/})).toBeVisible()
@@ -49,7 +49,7 @@ test('wildcard role and transaction searches compose with user search and clear 
  await expect(page.getByRole('region',{name:'Role catalogue investigation',exact:true})).toHaveAttribute('aria-busy','false')
  await expect(page.getByRole('article',{name:'Purchasing',exact:true})).toBeVisible()
  await expect(page.getByRole('article',{name:'Finance',exact:true})).toHaveCount(0)
- await nav.getByRole('link',{name:'User Access',exact:true}).click()
+ await nav.getByRole('link',{name:'Users',exact:true}).click()
  await page.getByLabel('Search users',{exact:true}).fill('SYN_B*')
  await expect(page.getByRole('link', { name: 'SYN_BUY',exact:true})).toBeVisible()
  await expect(page.getByRole('link', { name: 'SYN_FI',exact:true})).toHaveCount(0)
@@ -62,7 +62,7 @@ test('Release Roles wildcard availability agrees with the matching result',async
  appendFileSync(settings.user_csv_path,'SYN_BUY,ZO:MM:M:PR_REL_ST_G1_N1:ALL,synthetic@example.test,20000101,99991231\n')
  expect((await request.post('/api/data-sources/users/select',{headers,data:{path:settings.user_csv_path,revision:settings.revision,mode:'dynamic'}})).ok()).toBeTruthy()
  await page.goto('/#session=browser-test-session')
- await page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'Release Roles',exact:true}).click();await page.getByRole('button',{name:'Table',exact:true}).click()
+ await goTo(page, 'Release Access');await page.getByRole('button',{name:'Table',exact:true}).click()
  const checked=page.waitForResponse(response=>{const url=new URL(response.url());return url.pathname==='/api/access/release-options'&&url.searchParams.get('field')==='username'&&url.searchParams.get('selected')==='SYN_B*'})
  await page.getByRole('combobox',{name:'Release username',exact:true}).fill('SYN_B*')
  expect((await(await checked).json()).selected_available).toBe(true)

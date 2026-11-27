@@ -186,7 +186,8 @@ async function readLimited(response: Response, limit: number): Promise<Uint8Arra
 }
 
 /** Fetch a server-generated file and save it through the browser or the guarded native dialog. Returns the saved name, or '' when cancelled. */
-export async function downloadFile(path: string, options: { method?: 'GET' | 'POST'; body?: unknown; params?: URLSearchParams; namePattern: RegExp }): Promise<string> {
+/** Returns the saved file name, or '' when `isCurrent` reports that the view or its filters changed before the file arrived (nothing is saved). */
+export async function downloadFile(path: string, options: { method?: 'GET' | 'POST'; body?: unknown; params?: URLSearchParams; namePattern: RegExp; isCurrent?: () => boolean }): Promise<string> {
   const response = await fetch(options.params ? `${path}?${options.params}` : path, {
     method: options.method || 'GET',
     headers: { 'Content-Type': 'application/json', ...applicationHeaders() },
@@ -201,6 +202,7 @@ export async function downloadFile(path: string, options: { method?: 'GET' | 'PO
   const name = attachmentFilename(response.headers.get('Content-Disposition'))
   if (!name || !options.namePattern.test(name)) throw Error('Invalid export filename.')
   const blocks = await readLimited(response, 32 * 1024 * 1024)
+  if (options.isCurrent && !options.isCurrent()) return ''
   const type = response.headers.get('content-type') || 'application/octet-stream'
   const url = URL.createObjectURL(new Blob(blocks as BlobPart[], { type }))
   const link = document.createElement('a')

@@ -51,8 +51,8 @@ test('a department change is a priority review on the dedicated Position Changes
   const tile = page.getByRole('region', { name: 'Directory & Data Health', exact: true }).getByRole('button', { name: 'Position changes', exact: true })
   await expect(tile).toContainText('1')
   await tile.click()
-  await expect(page).toHaveURL(/#\/user-access\/position-changes$/)
-  await expect(page.getByRole('heading', { name: 'Position Changes', level: 1 })).toBeVisible()
+  await expect(page).toHaveURL(/#\/reviews\/position-changes$/)
+  await expect(page.getByRole('heading', { name: 'Position Changes', level: 2 })).toBeVisible()
   const kpis = page.getByRole('region', { name: 'Position change key figures', exact: true })
   for (const [label, value] of [['Position changes', '1'], ['Department changes', '1'], ['Job title changes', '1'], ['Pending review', '1']]) await expect(kpis.getByRole('button', { name: new RegExp(`^${label}`) })).toContainText(value)
   await expect(page.getByText('changed both', { exact: false })).toContainText('1 changed both')   // department and job title overlap
@@ -65,7 +65,7 @@ test('a department change is a priority review on the dedicated Position Changes
   await expect(current.locator('.position-line[data-changed]')).toHaveCount(2)
   await expect(row).toContainText('High'); await expect(row).toContainText('Pending review')
   await expect(queue.getByRole('row').filter({ hasText: 'DEMO_STAYER' })).toHaveCount(0)
-  await expect(row.getByRole('link', { name: 'Open SAP user DEMO_MOVER' })).toHaveAttribute('href', '#/user-access/user/DEMO_MOVER')
+  await expect(row.getByRole('link', { name: 'Open SAP user DEMO_MOVER' })).toHaveAttribute('href', '#/users/user/DEMO_MOVER')
   // The long explanation is contextual help, not page text.
   await expect(page.getByText('not evidence that access is inappropriate')).toHaveCount(0)
   await page.getByRole('button', { name: 'About position changes' }).click()
@@ -95,24 +95,24 @@ test('a department change is a priority review on the dedicated Position Changes
   await sidebar.getByRole('combobox', { name: 'Review status', exact: true }).selectOption('reviewed')
   await expect(queue.getByRole('row').filter({ hasText: 'DEMO_MOVER' })).toContainText('Reviewed')
   // Account Review keeps the metric (it now opens this page) and no longer shows the table.
-  await page.goto('/#/user-access/account-review')
+  await page.goto('/#/reviews/account-review')
   await expect(page.getByRole('region', { name: 'Position changes priority queue' })).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Position change review queue' })).toHaveCount(0)
   const metric = page.getByRole('region', { name: 'Review attention', exact: true }).getByRole('button', { name: /^Position changes/ })
   await expect(metric).toContainText('0')
   await metric.click()
-  await expect(page).toHaveURL(/#\/user-access\/position-changes$/)
+  await expect(page).toHaveURL(/#\/reviews\/position-changes$/)
   await expect(page.getByText('No position change is waiting for review.')).toBeVisible()
   await goTo(page, 'Dashboard')
   await expect(page.getByRole('region', { name: 'Directory & Data Health', exact: true }).getByRole('button', { name: 'Position changes', exact: true })).toContainText('0')
 })
 
-test('the Position Changes page is a User Access navigation item and opens directly by URL and after a reload', async ({ page }) => {
+test('the Position Changes page is a Reviews navigation item and opens directly by URL and after a reload', async ({ page }) => {
   await page.goto('/#session=browser-test-session')
-  await page.goto('/#/user-access/position-changes')
-  await expect(page.getByRole('heading', { name: 'Position Changes', level: 1 })).toBeVisible()
+  await page.goto('/#/reviews/position-changes')
+  await expect(page.getByRole('heading', { name: 'Position Changes', level: 2 })).toBeVisible()
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Position Changes', level: 1 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Position Changes', level: 2 })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Position Changes', exact: true }).first()).toHaveAttribute('aria-current', 'page')
   // Directory history survives the configuration reset, so an earlier test may leave a change: the page shows its table or the empty state.
   await expect(page.getByRole('region', { name: 'Position change review queue' }).or(page.getByText('No position change is waiting for review.'))).toBeVisible()

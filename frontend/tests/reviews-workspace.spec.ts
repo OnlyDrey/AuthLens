@@ -12,7 +12,7 @@ test('Reviews is a top-level workspace whose overview leads directly to the revi
  await openReviews(page)
  await expect(page).toHaveURL(/#\/reviews$/)
  const views=page.getByRole('navigation',{name:'Review views',exact:true})
- await expect(views.getByRole('link')).toHaveText(['Overview','Work Queue','Bulk Review','Remediation','Review Periods','Reports and Evidence'])
+ await expect(views.getByRole('link')).toHaveText(['Overview','Work Queue','Position Changes','Account Review','Bulk Review','Remediation','Review Periods'])
  // WP37: an analytical dashboard replaces the navigation cards; the destinations stay in the Review views navigation.
  for(const name of ['Access Review Progress','Review Coverage','Review Workload','Review Decisions','Remediation','Review Periods'])await expect(page.getByRole('region',{name,exact:true})).toBeVisible()
  await expect(page.getByRole('region',{name:'Review workflows',exact:true})).toHaveCount(0)
@@ -31,10 +31,16 @@ test('Reviews is a top-level workspace whose overview leads directly to the revi
 
 test('legacy SoD review routes redirect to the matching Reviews page',async({page})=>{
  await page.goto('/#session=browser-test-session')
- for(const [legacy,target,label] of [['#/sod/reviews','#/reviews/queue','Work Queue'],['#/sod/reviews/bulk','#/reviews/bulk','Bulk Review'],['#/sod/reviews/remediation','#/reviews/remediation','Remediation'],['#/sod/periods','#/reviews/periods','Review Periods'],['#/sod/reports','#/reviews/reports','Reports and Evidence']] as const){
+ for(const [legacy,target,label] of [['#/sod/reviews','#/reviews/queue','Work Queue'],['#/sod/reviews/bulk','#/reviews/bulk','Bulk Review'],['#/sod/reviews/remediation','#/reviews/remediation','Remediation'],['#/sod/periods','#/reviews/periods','Review Periods']] as const){
   await page.goto('/'+legacy);await page.reload()
   await expect(page).toHaveURL(new RegExp(target.replace(/[/#]/g,'\\$&')+'$'))
   await expect(page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:label,exact:true})).toHaveAttribute('aria-current','page')
+ }
+ // NAV-1: SoD reports and the former Reviews "Reports and Evidence" page open Review Reports in the Reports module
+ for(const legacy of ['#/sod/reports','#/reviews/reports']){
+  await page.goto('/'+legacy);await page.reload()
+  await expect(page).toHaveURL(/#\/reports\/review$/)
+  await expect(page.getByRole('navigation',{name:'Report views',exact:true}).getByRole('link',{name:'Review Reports',exact:true})).toHaveAttribute('aria-current','page')
  }
 })
 
@@ -58,7 +64,8 @@ test('Reviews stays available with SoD turned off and leads to Account Review',a
   await page.goto('/#session=browser-test-session')
   await expect(mainNavigation(page).getByRole('link',{name:'SoD',exact:true})).toHaveCount(0)
   await mainNavigation(page).getByRole('link',{name:'Reviews',exact:true}).click()
-  await expect(page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link')).toHaveText(['Overview'])
+  // NAV-3: Position Changes and Account Review do not depend on SoD; the SoD access-review pages are not offered
+  await expect(page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link')).toHaveText(['Overview','Position Changes','Account Review'])
   await expect(page.getByRole('combobox',{name:'Review context',exact:true})).toHaveCount(0)
   await expect(page.getByLabel('SoD access reviews are turned off',{exact:true})).toBeVisible()
   const accounts=page.getByLabel('Account reviews',{exact:true})
@@ -70,7 +77,7 @@ test('Reviews stays available with SoD turned off and leads to Account Review',a
   await expect(page.getByRole('region',{name:'SoD review work queue',exact:true})).toHaveCount(0)
   await page.goto('/#/reviews');await page.reload()
   await page.getByLabel('Account reviews',{exact:true}).getByRole('link',{name:'Open Account Review',exact:true}).click()
-  await expect(page).toHaveURL(/#\/user-access\/account-review$/)
+  await expect(page).toHaveURL(/#\/reviews\/account-review$/)
  }finally{await enableSod(request)}
 })
 

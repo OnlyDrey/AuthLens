@@ -63,7 +63,7 @@ test('SAP role identifiers never wrap and the copied value is the complete ident
 
 test('multi-select shows Select all, Clear and Close with icons, and Clear is visible but disabled without a selection', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto('/#session=browser-test-session'); await goTo(page, 'User Access')
+  await page.goto('/#session=browser-test-session'); await goTo(page, 'Users')
   await page.getByRole('combobox', { name: 'SAP User Group', exact: true }).click()
   const popup = page.locator('.multi-popup'), actions = popup.locator('.multi-popup-actions').getByRole('button')
   await expect(actions).toHaveCount(3)
@@ -267,7 +267,7 @@ test('Data Sources section shows only relevant sources with honest, source-speci
 
 test('User Access role rows keep a compact module badge beside the description and an unbroken role codeblock', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
-  await page.goto('/#session=browser-test-session'); await goTo(page, 'User Access')
+  await page.goto('/#session=browser-test-session'); await goTo(page, 'Users')
   await page.getByRole('link', { name: 'U2', exact: true }).click()
   const head = page.locator('.assigned-role-head').first()
   await expect(head).toBeVisible()

@@ -72,7 +72,7 @@ test('complete release matrix includes cells beyond the legacy 200-cell page and
  writeFileSync(userPath,'USERNAME,ROLE_NAME,USER_GROUP,ROLE_VALID_FROM,ROLE_VALID_TO\n'+Array.from({length:230},(_,i)=>`SYN_${i},ZO:MM:M:PR_REL_ST_G${i}_S1:ALL,SYN,20000101,99991231`).join('\n'))
  await request.post('/api/refresh',{headers});const paged=await(await request.get('/api/access/releases',{headers})).json();expect(paged.matrix.length).toBe(200)
  const full=await(await request.get('/api/access/releases?matrix_complete=true',{headers})).json();expect(full.matrix.length).toBe(230)
- await page.goto('/#session=browser-test-session');await goTo(page,'Release Roles');await page.getByRole('button',{name:'Matrix',exact:true}).click();await expect(page.getByRole('table',{name:'PR release matrix',exact:true}).getByRole('row')).toHaveCount(231);await expect(page.getByRole('navigation',{name:'Matrix pagination',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'Investigate PR G229 S1: 1 users',exact:true}).click();await expect(page.getByRole('button',{name:'Open user SYN_229',exact:true})).toBeVisible()
+ await page.goto('/#session=browser-test-session');await goTo(page,'Release Access');await page.getByRole('button',{name:'Matrix',exact:true}).click();await expect(page.getByRole('table',{name:'release matrix',exact:true}).locator('tbody tr')).toHaveCount(230);await expect(page.getByRole('navigation',{name:'Matrix pagination',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'Investigate PR G229 S1: 1 users',exact:true}).click();await expect(page.getByRole('button',{name:'Open user SYN_229',exact:true})).toBeVisible()
 })
 test('library categories remain isolated and anchored controls are measured before visible frames',async({page,request})=>{
  await page.goto('/#session=browser-test-session');const before=await config(request);await settings(page,'Component Library');await expect(page.getByRole('button',{name:'Primary',exact:true})).toBeVisible();await expect(page.getByRole('tab',{name:'All components',exact:true})).toHaveAttribute('aria-selected','true');await page.getByRole('tab',{name:'Buttons & Actions',exact:true}).click();await expect(page.getByLabel('Demo date',{exact:true})).toHaveCount(0)
@@ -90,14 +90,14 @@ for(const theme of ['light','dark'])for(const width of [375,800,1280,1600])test(
 })
 
 test('profile match placement and manual review wording preserve separate account evidence',async({page})=>{
- await page.goto('/#session=browser-test-session');await goTo(page,'User Access');await page.getByRole('link', { name: 'SYN_REVIEW',exact:true}).click()
+ await page.goto('/#session=browser-test-session');await goTo(page,'Users');await page.getByRole('link', { name: 'SYN_REVIEW',exact:true}).click()
  const identity=page.getByRole('region',{name:'User profile',exact:true});await expect(identity.getByRole('button',{name:/Directory matching details/})).toBeVisible()
- await page.getByRole('button',{name:'Back to users',exact:true}).click();await page.getByRole('link',{name:'Account Review',exact:true}).click()
+ await page.getByRole('button',{name:'Back to users',exact:true}).click();await goTo(page,'Account Review')
  const row=page.getByRole('row').filter({has:page.getByRole('link', { name: 'SYN_REVIEW',exact:true})});await expect(row).toContainText('No automated findings');await expect(row).not.toContainText('Pending manual review');await expect(row.getByRole('button',{name:'Needs review',exact:true})).toBeVisible();await expect(row.locator('.review-account-dates')).toHaveCount(0);await expect(row.locator('td').nth(4)).toContainText('Valid')
 })
 
 test('release fields align and Data Health reuses canonical source state',async({page})=>{
- await page.goto('/#session=browser-test-session');await goTo(page,'Release Roles')
+ await page.goto('/#session=browser-test-session');await goTo(page,'Release Access')
  for(const grid of await page.locator('.release-filters .filter-grid').all()){
   const controls=await grid.locator('input:not([type=checkbox]),select').all();expect(controls.length).toBeGreaterThan(0)
   const boxes=await Promise.all(controls.map(control=>control.boundingBox()));const visible=boxes.filter(box=>box!==null)

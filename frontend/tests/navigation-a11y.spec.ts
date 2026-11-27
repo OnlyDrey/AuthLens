@@ -40,8 +40,9 @@ const organization = (page: Page) => settings(page).getByRole('textbox', { name:
 test.describe('main navigation from Settings', () => {
   test('destinations are links and navigate immediately when nothing changed', { tag: ['@smoke', '@a11y'] }, async ({ page }) => {
     await openSettings(page)
-    await expect(main(page).getByRole('link')).toHaveCount(4)
-    for (const [name, hash] of [['Role Lookup', '#/role-lookup'], ['User Access', '#/user-access'], ['Release Roles', '#/release-roles'], ['Dashboard', '#/dashboard']] as const) {
+    // NAV-1: the approved top-level modules (SoD is off in this fixture; Reports offers the account and access reports) with their canonical routes
+    await expect(main(page).getByRole('link')).toHaveText(['Dashboard', 'Role Lookup', 'Users', 'Reviews', 'Reports'])
+    for (const [name, hash] of [['Role Lookup', '#/role-lookup'], ['Users', '#/users'], ['Reviews', '#/reviews'], ['Dashboard', '#/dashboard']] as const) {
       await expect(main(page).getByRole('link', { name, exact: true })).toHaveAttribute('href', hash)
       await page.getByRole('button', { name: 'Open settings', exact: true }).click()
       await expect(settings(page)).toBeVisible()
@@ -75,15 +76,15 @@ test.describe('main navigation from Settings', () => {
     let dialogs = 0
     page.on('dialog', (dialog) => { dialogs++; void dialog.dismiss() })
     const opened = context.waitForEvent('page')
-    await main(page).getByRole('link', { name: 'User Access', exact: true }).click({ modifiers: ['Control'] })
+    await main(page).getByRole('link', { name: 'Users', exact: true }).click({ modifiers: ['Control'] })
     const tab = await opened
     // a new tab starts at about:blank and waitForLoadState() can resolve for it; wait for the address the click opened instead of reading it once
-    await expect(tab).toHaveURL(/#\/user-access/)
+    await expect(tab).toHaveURL(/#\/users$/)
     await tab.close()
     const middle = context.waitForEvent('page')
-    await main(page).getByRole('link', { name: 'Release Roles', exact: true }).click({ button: 'middle' })
+    await main(page).getByRole('link', { name: 'Reviews', exact: true }).click({ button: 'middle' })
     const second = await middle
-    await expect(second).toHaveURL(/#\/release-roles/)
+    await expect(second).toHaveURL(/#\/reviews$/)
     await second.close()
     expect(dialogs).toBe(0)
     await expect(settings(page)).toBeVisible()
@@ -118,7 +119,7 @@ test.describe('User Directory keyboard order', () => {
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/#session=browser-test-session')
     if(width<1024)await page.getByRole('button',{name:'Open navigation',exact:true}).click()
-    await main(page).getByRole('link', { name: 'User Access', exact: true }).click()
+    await main(page).getByRole('link', { name: 'Users', exact: true }).click()
     await page.getByLabel('Search users', { exact: true }).fill('DEMO')
     await expect(page.getByLabel('Search users', { exact: true })).toHaveValue('DEMO')
     await page.getByRole('toolbar', { name: 'Page actions' }).getByRole('button').first().focus()
@@ -133,7 +134,7 @@ test.describe('User Directory keyboard order', () => {
 
   test('the expired checkbox label is clickable and keyboard operable; dropdowns do not move focus into other controls', { tag: '@a11y' }, async ({ page }) => {
     await page.goto('/#session=browser-test-session')
-    await main(page).getByRole('link', { name: 'User Access', exact: true }).click()
+    await main(page).getByRole('link', { name: 'Users', exact: true }).click()
     const expired = page.getByRole('checkbox', { name: 'Show expired assignments', exact: true })
     await page.getByText('Show expired assignments', { exact: true }).click()
     await expect(expired).toBeChecked()
@@ -152,7 +153,7 @@ test.describe('User Directory keyboard order', () => {
 
 test('identifier codeblocks add no keyboard stop: Tab goes from the username link through its open action to its copy button', { tag: '@a11y' }, async ({ page }) => {
   await page.goto('/#session=browser-test-session')
-  await main(page).getByRole('link', { name: 'User Access', exact: true }).click()
+  await main(page).getByRole('link', { name: 'Users', exact: true }).click()
   const link = page.getByRole('link', { name: 'DEMO_ONE', exact: true })
   await link.focus()
   await page.keyboard.press('Tab')
@@ -167,9 +168,9 @@ test('identifier codeblocks add no keyboard stop: Tab goes from the username lin
 test.describe('SAP username deep links', () => {
   test('usernames are links with the user route; a plain click opens the user, modified clicks open a tab', { tag: '@a11y' }, async ({ page, context }) => {
     await page.goto('/#session=browser-test-session')
-    await main(page).getByRole('link', { name: 'User Access', exact: true }).click()
+    await main(page).getByRole('link', { name: 'Users', exact: true }).click()
     const link = page.getByRole('link', { name: 'DEMO_TWO', exact: true })
-    await expect(link).toHaveAttribute('href', '#/user-access/user/DEMO_TWO')
+    await expect(link).toHaveAttribute('href', '#/users/user/DEMO_TWO')
     const opened = context.waitForEvent('page')
     await link.click({ modifiers: ['Control'] })
     const tab = await opened
@@ -177,7 +178,7 @@ test.describe('SAP username deep links', () => {
     await expect(tab.getByRole('region', { name: 'User details', exact: true })).toContainText('DEMO_TWO', { timeout: 15000 })
     await tab.close()
     await link.click()
-    await expect(page).toHaveURL(/#\/user-access\/user\/DEMO_TWO$/)
+    await expect(page).toHaveURL(/#\/users\/user\/DEMO_TWO$/)
     await expect(page.getByRole('region', { name: 'User details', exact: true })).toContainText('DEMO_TWO')
     await page.goBack()
     await expect(page.getByRole('link', { name: 'DEMO_ONE', exact: true })).toBeVisible()
@@ -185,10 +186,10 @@ test.describe('SAP username deep links', () => {
 
   test('direct URL loading opens the user; an unknown user is handled gracefully', { tag: '@a11y' }, async ({ page }) => {
     await page.goto('/#session=browser-test-session')
-    await page.goto('/#/user-access/user/DEMO_ONE')
+    await page.goto('/#/users/user/DEMO_ONE')
     await page.reload()
     await expect(page.getByRole('region', { name: 'User details', exact: true })).toContainText('DEMO_ONE')
-    await page.goto('/#/user-access/user/NO_SUCH_USER')
+    await page.goto('/#/users/user/NO_SUCH_USER')
     await page.reload()
     await expect(page.getByRole('region', { name: 'User details', exact: true })).toBeVisible()
     await expect(page.getByRole('alert').or(page.getByText(/not found|no longer|missing/i)).first()).toBeVisible()

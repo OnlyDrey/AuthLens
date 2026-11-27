@@ -35,10 +35,10 @@ test.afterEach(async ({ request }) => {
 async function go(page: Page, view = 'Role Lookup') {
   await page.goto('/#session=browser-test-session')
   await goTo(page,view)
-  if(view==='Release Roles')await page.getByRole('button',{name:'Table',exact:true}).click()
+  if(view==='Release Access')await page.getByRole('button',{name:'Table',exact:true}).click()
 }
 async function user(page: Page) {
-  await go(page, 'User Access')
+  await go(page, 'Users')
   await page.getByRole('link', { name: 'DEMO_ONE', exact: true }).click()
   return page.getByRole('region', { name: 'User details', exact: true })
 }
@@ -302,8 +302,8 @@ test('business and release assignment tabs have dedicated split-date columns wit
 test('release date filters compose with matrix, counts and navigation, and return to the filtered origin', async ({
   page,
 }) => {
-  await go(page, 'Release Roles')
-  const list = page.getByRole('region', { name: 'Release Roles', exact: true })
+  await go(page, 'Release Access')
+  const list = page.getByRole('region', { name: 'Release Access', exact: true })
   await list
     .getByRole('combobox', { name: 'Release assignment status', exact: true })
     .selectOption('all')
@@ -323,7 +323,7 @@ test('release date filters compose with matrix, counts and navigation, and retur
   })
   await expect(detail).toContainText('1 distinct users · 1 assignment records')
   await page
-    .getByRole('button', { name: 'Back to Release Roles', exact: true })
+    .getByRole('button', { name: 'Back to Release Access', exact: true })
     .click()
   await expect(
     list.getByRole('button', { name: 'Matrix', exact: true }),
@@ -381,7 +381,7 @@ for (const { theme, width } of layoutMatrix([800, 1280]))
         path: info.outputPath('catalogue.png'),
         fullPage: true,
       })
-      await goTo(page,'User Access')
+      await goTo(page,'Users')
       await page.getByRole('link', { name: 'DEMO_ONE', exact: true }).click()
       await page
         .getByRole('tab', { name: 'Release Roles — ZO:*', exact: true })
@@ -468,14 +468,14 @@ test('catalogue detail navigation crosses page boundaries and returns to its ori
 })
 
 test('unparsed release roles and unknown assignment dates remain visible without invented metadata', async ({ page }) => {
-  await go(page, 'Release Roles')
-  const list = page.getByRole('region', { name: 'Release Roles', exact: true })
+  await go(page, 'Release Access')
+  const list = page.getByRole('region', { name: 'Release Access', exact: true })
   await list.getByRole('combobox', { name: 'Release assignment status', exact: true }).selectOption('all')
   await list.getByRole('button', { name: 'Release role details', exact: true }).filter({ hasText: 'ZO:UNKNOWN' }).click()
   const detail = page.getByRole('region', { name: 'Release role details', exact: true })
   await expect(detail.getByRole('definition').filter({ hasText: 'Unparsed' })).toBeVisible()
   await expect(detail.getByRole('region', { name: 'Release role user assignments' })).not.toContainText('Unmapped')
-  await page.getByRole('button', { name: 'Back to Release Roles', exact: true }).click()
+  await page.getByRole('button', { name: 'Back to Release Access', exact: true }).click()
   await list.getByRole('button', { name: 'Release role details', exact: true }).filter({ hasText: 'PO_REL_ST_G2_N2' }).click()
   const assignments = detail.getByRole('region', { name: 'Release role user assignments', exact: true })
   await expect(assignments).toContainText('Unknown validity')

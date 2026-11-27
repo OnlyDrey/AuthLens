@@ -5,11 +5,12 @@ import path from 'node:path'
 import { headers, goTo, setDescending, sortDirection, postConfiguration } from './support'
 import { layoutMatrix } from './matrix'
 let root: string
-const mode = async (page: Page, name: string) =>
-  page
-    .getByRole('navigation', { name: 'User Access view', exact: true })
-    .getByRole('link', { name, exact: true })
-    .click()
+const mode = async (page: Page, name: string) => {
+  // NAV-2/NAV-3: Users tabs on Users pages; Account Review and Position Changes are Reviews pages
+  const users = page.getByRole('navigation', { name: 'Users view', exact: true })
+  if (!['Account Review', 'Position Changes'].includes(name) && await users.isVisible()) await users.getByRole('link', { name, exact: true }).click()
+  else await goTo(page, name)
+}
 const saved = (page: Page, view: string) =>
   page.getByRole('dialog', { name: `${view} saved filters`, exact: true })
 async function openSaved(page: Page, view: string) {
@@ -20,8 +21,8 @@ async function openSaved(page: Page, view: string) {
       .click()
 }
 async function comparison(page: Page) {
-  await goTo(page, 'User Access')
-  await mode(page, 'Compare users')
+  await goTo(page, 'Users')
+  await mode(page, 'Compare Users')
 }
 async function choose(page: Page, label: string, query: string) {
   const box = page.getByRole('combobox', { name: label, exact: true })
@@ -85,7 +86,7 @@ test('comparison entry from details retains User A and original comparison on Ba
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await page.getByRole('link', { name: 'DEMO_A', exact: true }).click()
   await page.getByRole('button', { name: 'Compare users', exact: true }).click()
   await expect(
@@ -107,7 +108,7 @@ test('comparison entry from details retains User A and original comparison on Ba
   ).toBeVisible()
   await page.goBack()
   await expect(
-    page.getByRole('heading', { name: 'Compare users', exact: true }),
+    page.getByRole('heading', { name: 'Compare Users', exact: true }),
   ).toBeVisible()
   await expect(
     page.getByRole('combobox', { name: 'User B', exact: true }),
@@ -116,7 +117,7 @@ test('comparison entry from details retains User A and original comparison on Ba
 test('comparison difference and evidence indicators start at the same vertical position in every row', async ({ page, request }) => {
   if (process.env.THEME) { const settings = (await (await request.get('/api/configuration', { headers })).json()).settings; settings.theme = process.env.THEME; await postConfiguration(request, settings) }
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await page.getByRole('link', { name: 'DEMO_A', exact: true }).click()
   await page.getByRole('button', { name: 'Compare users', exact: true }).click()
   await choose(page, 'User B', 'DEMO_B')
@@ -304,7 +305,7 @@ test('saved filters save load rename update delete and survive page reload', { t
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   const viewForBar = 'users'
   const bar = saved(page, 'users')
   await page.getByLabel('Search users', { exact: true }).fill('Alpha')
@@ -349,7 +350,7 @@ test('saved filters save load rename update delete and survive page reload', { t
   await expect(
     saved(page, 'roles').getByRole('option', { name: 'Renamed', exact: true }),
   ).toHaveCount(0)
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await openSaved(page, viewForBar)
   page.once('dialog', (d) => d.accept())
   await bar.getByRole('button', { name: 'Delete', exact: true }).click()
@@ -371,7 +372,7 @@ test('unsupported saved values warn without overwriting original definition', as
   })
   expect(item.ok()).toBeTruthy()
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   const viewForBar = 'users'
   const bar = saved(page, 'users')
   await openSaved(page, viewForBar)
@@ -424,7 +425,7 @@ test('Account Review retains stale filter and includes evidence versions in expo
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await mode(page, 'Account Review')
   await expect(
     page.getByText('Outdated reviews', { exact: true }),
@@ -485,14 +486,14 @@ test('transaction investigation and browser Back retain comparison users and fil
   await page.getByLabel('Comparison summary',{exact:true}).getByRole('button',{name:/^(Only User A|Mapped transactions only A)/}).click()
   await page.getByRole('button', { name: 'ME23N', exact: true }).click()
   await expect(
-    page.getByRole('heading', { name: 'User Access', exact: true }),
+    page.getByRole('heading', { name: 'Users', exact: true }),
   ).toBeVisible()
   await expect(
     page.getByRole('group', { name: 'Filter users by transaction', exact: true }),
   ).toContainText('ME23N')
   await page.goBack()
   await expect(
-    page.getByRole('heading', { name: 'Compare users', exact: true }),
+    page.getByRole('heading', { name: 'Compare Users', exact: true }),
   ).toBeVisible()
   await expect(
     page.getByRole('combobox', { name: 'User A', exact: true }),
@@ -522,7 +523,8 @@ test('leaving comparison cancels a pending CSV export before it downloads', asyn
     requested = new Promise<void>((resolve) => {
       started = resolve
     })
-  await page.route('**/api/user-comparison/evidence?*', async (route) => {
+  // NAV-4: the export is one server request; it is held until the user has left the comparison
+  await page.route('**/api/user-comparison/export?*', async (route) => {
     const response = await route.fetch()
     started()
     await gate
@@ -532,9 +534,9 @@ test('leaving comparison cancels a pending CSV export before it downloads', asyn
     .getByRole('button', { name: 'Export comparison CSV', exact: true })
     .click()
   await requested
-  await mode(page, 'User directory')
+  await mode(page, 'User Directory')
   const response = page.waitForResponse((r) =>
-    r.url().includes('/api/user-comparison/evidence?'),
+    r.url().includes('/api/user-comparison/export?'),
   )
   release()
   await response
@@ -632,7 +634,7 @@ test('future saved schema remains unavailable without crashing or replacing stor
     })
   })
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   const viewForBar = 'users'
   const bar = saved(page, 'users')
   await openSaved(page, viewForBar)
@@ -697,7 +699,7 @@ for (const { theme, width } of layoutMatrix([375, 800, 1280]))
 
 test('directory role description selection and removable chips preserve unrelated controls', async ({page}) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page,'User Access')
+  await goTo(page,'Users')
   await page.getByLabel('Search users',{exact:true}).fill('DEMO_')
   await page.getByLabel('Sort users',{exact:true}).selectOption('email')
   const role = page.getByRole('combobox',{name:'Filter users by role',exact:true})

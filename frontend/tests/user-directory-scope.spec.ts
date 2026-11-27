@@ -19,7 +19,7 @@ test.beforeEach(async({request})=>{
   expect((await postConfiguration(request,settings)).ok()).toBeTruthy()
 })
 test.afterEach(async({request})=>{await request.post('/api/configuration/reset',{headers});rmSync(directory,{recursive:true,force:true})})
-async function open(page:Page){await page.goto('/#session=browser-test-session');await page.goto('/#/user-access');await expect(page.getByRole('heading',{name:/^User directory/})).toBeVisible()}
+async function open(page:Page){await page.goto('/#session=browser-test-session');await page.goto('/#/users');await expect(page.getByRole('heading',{name:/^User directory/})).toBeVisible()}
 async function download(page:Page){const waiting=page.waitForEvent('download');await page.getByRole('button',{name:'Export CSV',exact:true}).click();return parseDelimited(readFileSync((await(await waiting).path())!,'utf8').replace(/^\ufeff/,''),';')}
 
 test('directory CSV scopes selected roles and users independently without exporting unrelated access',async({page})=>{

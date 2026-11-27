@@ -25,7 +25,7 @@ test.beforeEach(async ({ request }) => {
 test.afterEach(async ({ request }) => { await request.post('/api/configuration/reset', { headers }); rmSync(directory, { recursive: true, force: true }) })
 async function user(page: Page) {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await page.getByRole('link', { name: 'DEMO_ALPHA', exact: true }).click()
   return page.getByRole('region', { name: 'User details', exact: true })
 }
@@ -104,7 +104,7 @@ test('evidence summary clear preserves directory search, group, sorting and expi
   await page.getByRole('button', { name: 'View details for Purchasing', exact: true }).click()
   await page.getByRole('button', { name: 'Expand single role ZS:BUY', exact: true }).click()
   await page.getByRole('button', { name: 'Investigate users with MIGO', exact: true }).click()
-  const directory = page.getByRole('region', { name: 'User Access', exact: true }), summary = directory.getByRole('group', { name: 'Filter users by transaction', exact: true })
+  const directory = page.getByRole('region', { name: 'Users', exact: true }), summary = directory.getByRole('group', { name: 'Filter users by transaction', exact: true })
   await expect(summary).toContainText('MIGO')
   await expect(summary.getByRole('button',{name:'Remove transaction MIGO',exact:true})).toBeVisible()
   await directory.getByLabel('Search users', { exact: true }).fill('DEMO_')

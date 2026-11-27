@@ -10,7 +10,7 @@ let label = 'Review finding'
 async function open(page: Page) {
   label = 'Review finding'
   await page.goto('/#session=browser-test-session')
-  await page.goto('/#/user-access/account-review')
+  await page.goto('/#/reviews/account-review')
   await openFilters(page)
   const input = page.getByRole('combobox', { name: label, exact: true })
   await input.scrollIntoViewIfNeeded()

@@ -16,7 +16,7 @@ const badgeTexts = (page: Page) => page.evaluate(() => [...document.querySelecto
 test('zero counts never use warning or danger styling on the main pages', async ({ page }) => {
   await page.goto('/#session=browser-test-session')
   expect(await zeroToneViolations(page)).toEqual([])
-  await goTo(page, 'User Access'); await page.getByRole('navigation', { name: 'User Access view', exact: true }).getByRole('link', { name: 'Account Review', exact: true }).click()
+  await goTo(page, 'Account Review')
   expect(await zeroToneViolations(page)).toEqual([])
   await openSod(page)
   expect(await zeroToneViolations(page)).toEqual([])

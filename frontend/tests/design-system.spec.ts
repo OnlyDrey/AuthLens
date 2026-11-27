@@ -78,57 +78,67 @@ test('secondary navigation uses actual routes, preserves query strings and suppo
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   const secondary = page.getByRole('navigation', {
-    name: 'User Access view',
+    name: 'Users view',
     exact: true,
   })
   await secondary
-    .getByRole('link', { name: 'Account Review', exact: true })
+    .getByRole('link', { name: 'Compare Users', exact: true })
     .click()
-  await expect(page).toHaveURL(/#\/user-access\/account-review$/)
+  await expect(page).toHaveURL(/#\/users\/compare$/)
   await expect(
-    secondary.getByRole('link', { name: 'Account Review', exact: true }),
+    secondary.getByRole('link', { name: 'Compare Users', exact: true }),
   ).toHaveAttribute('aria-current', 'page')
   await page.reload()
   await expect(
-    page.getByRole('heading', { name: 'Account Review', exact: true }),
+    page.getByRole('heading', { name: 'Compare Users', exact: true }),
   ).toBeVisible()
   await secondary
-    .getByRole('link', { name: 'Compare users', exact: true })
+    .getByRole('link', { name: 'Release Access', exact: true })
     .click()
-  await expect(page).toHaveURL(/#\/user-access\/compare$/)
+  await expect(page).toHaveURL(/#\/users\/release-access$/)
+  await expect(
+    secondary.getByRole('link', { name: 'Release Access', exact: true }),
+  ).toHaveAttribute('aria-current', 'page')
   await page.goBack()
   await expect(
-    page.getByRole('heading', { name: 'Account Review', exact: true }),
+    page.getByRole('heading', { name: 'Compare Users', exact: true }),
   ).toBeVisible()
-  await page.goto('/#/user-access/compare?view=compact')
+  // NAV-3: Account Review is a Reviews page with its own module tab
+  await goTo(page, 'Account Review')
+  await expect(page).toHaveURL(/#\/reviews\/account-review$/)
   await expect(
-    page.getByRole('heading', { name: 'Compare users', exact: true }),
+    page.getByRole('navigation', { name: 'Review views', exact: true }).getByRole('link', { name: 'Account Review', exact: true }),
+  ).toHaveAttribute('aria-current', 'page')
+  await page.goBack()
+  await expect(
+    page.getByRole('heading', { name: 'Compare Users', exact: true }),
+  ).toBeVisible()
+  await page.goto('/#/users/compare?view=compact')
+  await expect(
+    page.getByRole('heading', { name: 'Compare Users', exact: true }),
   ).toBeVisible()
   await secondary
-    .getByRole('link', { name: 'User directory', exact: true })
+    .getByRole('link', { name: 'User Directory', exact: true })
     .click()
-  await expect(page).toHaveURL(/#\/user-access\?view=compact$/)
+  await expect(page).toHaveURL(/#\/users\?view=compact$/)
 })
 test('Account Review keeps investigation controls across secondary navigation and Back', async ({
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Account Review')
   const secondary = page.getByRole('navigation', {
-    name: 'User Access view',
+    name: 'Review views',
     exact: true,
   })
-  await secondary
-    .getByRole('link', { name: 'Account Review', exact: true })
-    .click()
   await page.getByLabel('Search account reviews', { exact: true }).fill('Alpha')
   await page
     .getByLabel('Sort account reviews', { exact: true })
     .selectOption('name')
   await secondary
-    .getByRole('link', { name: 'User directory', exact: true })
+    .getByRole('link', { name: 'Position Changes', exact: true })
     .click()
   await page.goBack()
   await expect(
@@ -159,7 +169,7 @@ test('role content tabs have keyboard semantics and associated assignment panel'
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await page.getByRole('link', { name: 'DEMO_A', exact: true }).click()
   const tabs = page.getByRole('tablist', {
     name: 'User role sections',
@@ -293,7 +303,7 @@ test('saved filters portal handles keyboard, outside dismissal and neutral clear
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   const bar = page.locator(
       'div.saved-filter-toolbar[aria-label="users saved filters"]',
     ),
@@ -317,7 +327,7 @@ test('saved filters portal handles keyboard, outside dismissal and neutral clear
   await page.keyboard.press('Escape')
   await expect(trigger).toBeFocused()
   await trigger.click()
-  await page.getByRole('heading', { name: 'User Access', exact: true }).click()
+  await page.getByRole('heading', { name: 'Users', exact: true }).click()
   await expect(panel).toHaveCount(0)
   await trigger.click()
   const clear = panel.getByRole('button', {
@@ -377,10 +387,10 @@ for (const theme of ['light', 'dark'])
       await page
         .getByRole('button', { name: 'Back to AuthLens', exact: true })
         .click()
-      await goTo(page, 'User Access')
+      await goTo(page, 'Users')
       await page
-        .getByRole('navigation', { name: 'User Access view' })
-        .getByRole('link', { name: 'Compare users', exact: true })
+        .getByRole('navigation', { name: 'Users view' })
+        .getByRole('link', { name: 'Compare Users', exact: true })
         .click()
       await page
         .getByRole('combobox', { name: 'User A', exact: true })

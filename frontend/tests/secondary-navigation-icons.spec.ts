@@ -51,6 +51,6 @@ test('every secondary tab and view navigation shows icons', async ({ page }) => 
   await openSod(page, 'Reviews')
   for (const link of await page.getByRole('navigation', { name: 'Review views', exact: true }).getByRole('link').all()) await expect(link.locator('svg')).toHaveCount(1)
   await page.goto('/#session=browser-test-session')
-  await page.getByRole('link', { name: 'User Access', exact: true }).first().click()
-  for (const link of await page.getByRole('navigation', { name: 'User Access view', exact: true }).getByRole('link').all()) await expect(link.locator('svg')).toHaveCount(1)
+  await page.getByRole('link', { name: 'Users', exact: true }).first().click()
+  for (const link of await page.getByRole('navigation', { name: 'Users view', exact: true }).getByRole('link').all()) await expect(link.locator('svg')).toHaveCount(1)
 })

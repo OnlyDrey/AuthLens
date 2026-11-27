@@ -18,7 +18,7 @@ const rows = (page: import('@playwright/test').Page, user: string) => page.getBy
 
 test('a completed review leaves the default queue, Show reviewed brings it back and the finding stays', async ({ page, request }) => {
   await decide(request, 'DEMO_DONE', 'No action required')
-  await page.goto(sessionUrl); await page.goto('/#/user-access/account-review')
+  await page.goto(sessionUrl); await page.goto('/#/reviews/account-review')
   await expect(rows(page, 'DEMO_OPEN2').last()).toBeVisible()
   await expect(rows(page, 'DEMO_DONE')).toHaveCount(0)
   await expect(page.getByRole('status').filter({ hasText: '1 completed review hidden' })).toBeVisible()
@@ -35,7 +35,7 @@ test('a completed review leaves the default queue, Show reviewed brings it back 
 test('filtering by a completed decision shows it, while Investigating stays in the default queue', async ({ page, request }) => {
   await decide(request, 'DEMO_DONE', 'No action required')
   await decide(request, 'DEMO_OPEN2', 'Investigating')
-  await page.goto(sessionUrl); await page.goto('/#/user-access/account-review')
+  await page.goto(sessionUrl); await page.goto('/#/reviews/account-review')
   await expect(rows(page, 'DEMO_OPEN2').last()).toBeVisible()
   await expect(rows(page, 'DEMO_DONE')).toHaveCount(0)
   const decision = page.getByRole('combobox', { name: 'Review decision', exact: true })
@@ -49,7 +49,7 @@ test('the review CSV export follows the same completed-review semantics as the l
   const shown = await (await request.get('/api/account-review?limit=100&include_completed=true', { headers })).json()
   expect(shown.total - hidden.total).toBe(hidden.completed_hidden)
   expect(hidden.items.map((r: { username: string }) => r.username)).not.toContain('DEMO_DONE')
-  await page.goto(sessionUrl); await page.goto('/#/user-access/account-review')
+  await page.goto(sessionUrl); await page.goto('/#/reviews/account-review')
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export review CSV' }).click()
   const text = (await import('node:fs')).readFileSync(await (await download).path()!, 'utf8')

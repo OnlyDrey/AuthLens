@@ -8,7 +8,7 @@ test.describe('touch input', () => {
   test('a tap on a shared select leaves the platform picker as the only surface; mouse and keyboard keep the custom list', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.goto('/#session=browser-test-session')
-    await goTo(page, 'Release Roles')
+    await goTo(page, 'Release Access')
     const select = page.locator('select:visible').first()
     await expect(select).toBeVisible()
     // The sequence a touch tap produces: a touch pointerdown, then the compatibility mousedown (iOS Safari opens its picker in between).

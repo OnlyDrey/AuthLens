@@ -27,7 +27,7 @@ test.afterEach(async ({ request }) => {
 
 async function open(page: Page) {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await expect(page.getByText('DEMO_ONE', { exact: true }).first()).toBeVisible()
 }
 

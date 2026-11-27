@@ -19,11 +19,7 @@ let root: string, source: string
 const current = async (request: any) =>
   (await (await request.get('/api/configuration', { headers })).json()).settings
 async function review(page: Page) {
-  await goTo(page, 'User Access')
-  await page
-    .getByRole('navigation', { name: 'User Access view', exact: true })
-    .getByRole('link', { name: 'Account Review', exact: true })
-    .click()
+  await goTo(page, 'Account Review') // NAV-3: a Reviews page
   await expect(
     page.getByRole('heading', { name: 'Account Review', exact: true }),
   ).toBeVisible()
@@ -97,7 +93,7 @@ test('profile header, status pills, mismatch warning and manager card keep SAP i
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await page.getByRole('link', { name: 'DEMO_OPEN', exact: true }).click()
   const profile = page.getByRole('region', {
       name: 'User profile',
@@ -269,7 +265,7 @@ test('floating Norwegian calendar stays outside layout, handles maximum dates, E
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'Release Roles')
+  await goTo(page, 'Release Access')
   const filters = page.getByRole('complementary', { name: 'Filters', exact: true })
   await expect(
     page.getByLabel('Sort release roles', { exact: true }),
@@ -452,7 +448,7 @@ for (const theme of ['light', 'dark'])
         page.getByRole('region', { name: 'User profile', exact: true }),
       ).toContainText('Analyst')
       await shot('unified-profile')
-      await goTo(page, 'Release Roles')
+      await goTo(page, 'Release Access')
       await shot('release-compact')
       await openFilters(page)
       await page
@@ -544,7 +540,7 @@ test('calendar reopening restores the selected day and Back dismisses its portal
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'Release Roles')
+  await goTo(page, 'Release Access')
   await openFilters(page)
   await page
     .getByRole('button', { name: 'Assignment date filters', exact: true })
@@ -588,7 +584,7 @@ test('calendar reopening restores the selected day and Back dismisses its portal
   await expect(calendar).toHaveCount(0)
   await page.goForward()
   await expect(
-    page.getByRole('heading', { name: 'Release Roles', exact: true }),
+    page.getByRole('heading', { name: 'Release Access', exact: true }),
   ).toBeVisible()
   await expect(calendar).toHaveCount(0)
 })
@@ -603,7 +599,7 @@ for (const theme of DEFAULT_THEME_ONLY) test(`directory conflict evidence identi
   expect(preview.ok()).toBeTruthy()
   expect((await request.post('/api/employees/import',{headers,data:{revision,path:source,digest:(await preview.json()).digest}})).ok()).toBeTruthy()
   await page.setViewportSize({width:800,height:1000})
-  await page.goto('/#session=browser-test-session');await goTo(page,'User Access')
+  await page.goto('/#session=browser-test-session');await goTo(page,'Users')
   await page.getByRole('link', { name: 'DEMO_OPEN',exact:true}).click()
   await page.getByRole('button',{name:'Directory matching details · Ambiguous',exact:true}).click()
   const details=page.getByRole('dialog',{name:'Directory matching details',exact:true})
@@ -708,7 +704,7 @@ test('Account Review shows review progress beside a compact review attention lis
   await expect(page.getByRole('button', { name: 'Remove review finding Pending reviews', exact: true })).toHaveCount(0)
   // Position changes opens the dedicated page (the metric no longer filters this table).
   await actions.getByRole('button', { name: /^Position changes/ }).click()
-  await expect(page).toHaveURL(/#\/user-access\/position-changes$/)
+  await expect(page).toHaveURL(/#\/reviews\/position-changes$/)
 })
 
 for (const theme of ['light', 'dark']) test(`Review progress takes a third and review attention two thirds of one row in ${theme}, and stack on narrow screens`, { tag: '@visual' }, async ({ page, request }) => {
@@ -762,5 +758,5 @@ test('review attention KPIs filter the list, combine and are keyboard operable',
   await expect(page.getByRole('button', { name: 'Remove review finding AD disabled / SAP valid and unlocked', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Remove review finding Accounts requiring review', exact: true })).toBeVisible() // filters combine
   await position.focus(); await page.keyboard.press('Enter')                                              // keyboard: opens Position Changes
-  await expect(page).toHaveURL(/#\/user-access\/position-changes$/)
+  await expect(page).toHaveURL(/#\/reviews\/position-changes$/)
 })

@@ -11,7 +11,7 @@ for (const [width, height] of [[375, 800], [800, 900], [1280, 900], [1600, 900]]
   test(`user directory table scrolls inside itself at ${width}px`, { tag: '@visual' }, async ({ page }) => {
     await page.setViewportSize({ width, height })
     await page.goto('/#session=browser-test-session')
-    await goTo(page, 'User Access')
+    await goTo(page, 'Users')
     const table = page.getByRole('region', { name: 'User directory table' })
     await expect(table).toBeVisible()
     const heads = await table.getByRole('columnheader').allTextContents()
@@ -31,7 +31,7 @@ for (const [width, height] of [[375, 800], [800, 900], [1280, 900], [1600, 900]]
 test('selection checkbox state and count', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/#session=browser-test-session')
-    await goTo(page, 'User Access')
+    await goTo(page, 'Users')
   const all = page.getByRole('checkbox', { name: 'Select all users on this page' })
   await all.check()
   await expect(page.getByRole('heading', { name: /selected/ })).toBeVisible()

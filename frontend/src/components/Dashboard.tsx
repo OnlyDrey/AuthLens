@@ -34,6 +34,7 @@ import { MATCH_HEALTH_LEGEND, matchHealthTone } from '@/lib/health'
 import { ASSIGNMENT_BANDS } from '@/lib/assignmentBands'
 import { sourceState } from '@/lib/sourceState'
 import { fetchConfiguration } from '@/api/configuration'
+import { useAuthentication } from '@/components/Auth/Authentication'
 /** Cards below SAP Overview, in reading order. Reordering this list reorders the rendered elements. */
 export const DASHBOARD_CARDS = ['access-risk', 'review-progress', 'directory-health', 'sod', 'role-distribution', 'assignment-distribution'] as const
 type DashboardCard = (typeof DASHBOARD_CARDS)[number]
@@ -97,6 +98,7 @@ interface Source {
   last_checked?:string|null
 }
 export function Dashboard() {
+  const { canAdmin } = useAuthentication()
   const { view, change } = useViewHistory(),
     { loading } = useApplicationData()
   const [filters,setFilters]=useState<DashboardFilterValue>(emptyDashboardFilters)
@@ -131,9 +133,9 @@ export function Dashboard() {
   const open = (metric: Metric, area='') =>
     metric.destination === 'review'
       ? change({
-          page: 'users',
-          // Position changes have their own page (pending changes by default); the other review metrics filter Account Review.
-          accessMode: metric.id === 'position_changes' ? 'positions' : 'review',
+          page: 'reviews',
+          // Position changes have their own page (pending changes by default); the other review metrics filter Account Review (both in Reviews, NAV-3).
+          reviewsView: metric.id === 'position_changes' ? 'position-changes' : 'account-review',
           accountReviewFilters:{search:'',licenses:[],states:[],sort:'username',descending:false,groups:subjectFilters.functional_groups,managers:subjectFilters.managers,usernames:subjectFilters.usernames},
           kpiNavigation:{...view.kpiNavigation,users:(view.kpiNavigation?.users||0)+1},
           user: '',
@@ -232,6 +234,8 @@ export function Dashboard() {
   }
   /** Directory & Data Health: match quality (matched share of SAP identities) first, then the status rows. Position changes are a separate signal. */
   const renderDirectory = (d: DashboardData) => {
+    // NAV-5: the whole card is administrator-only (the backend also leaves its figures out for other roles); no reduced version is shown.
+    if (!canAdmin) return null
     const matched = metricOf(d, 'email_matches'), total = d.coverage_total || 0
     const percent = matched?.value != null && total ? (matched.value / total) * 100 : null
     return card('Directory & Data Health', <HeartPulse size={18}/>, (

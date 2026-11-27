@@ -96,7 +96,7 @@ test('package: default suffix, per-role override, validation, copy, CSV, persist
 
 test('Users lacking roles: Missing ANY and Missing ALL with a clearly shown operator', async ({ page }) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   const usernames = () => page.getByRole('table').first().getByRole('link', { name: /^U\d$/ }).allInnerTexts().then(list => list.sort())
   await expect.poll(usernames).toEqual(['U1', 'U2', 'U3', 'U4'])
   const lack = page.getByRole('combobox', { name: 'Roles the user must lack', exact: true })

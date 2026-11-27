@@ -13,7 +13,7 @@ const restoredRecently = (page: Page) => page.addInitScript(() => { try { sessio
 
 async function openUser(page: Page) {
   await page.goto('/#session=browser-test-session')
-  await page.goto(`/#/user-access/user/${names.a}`)
+  await page.goto(`/#/users/user/${names.a}`)
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toBeVisible()
 }
 /** Simulates a restarted backend: every API call is refused as a stale session. Returns the number of calls that reached the network. */
@@ -34,7 +34,7 @@ test('a restarted backend shows exactly one notification, one compact empty stat
   await openUser(page)
   const backend = await restartBackend(page)
   await page.getByRole('button', { name: 'Refresh role data from CSV' }).click().catch(() => undefined)
-  await page.goto(`/#/user-access/user/${names.b}`)
+  await page.goto(`/#/users/user/${names.b}`)
   await expect(notice(page)).toHaveCount(1)
   await expect(notice(page)).toContainText('Session disconnected')
   await expect(notice(page)).toContainText('no longer valid')
@@ -46,7 +46,7 @@ test('a restarted backend shows exactly one notification, one compact empty stat
   await expect(page.getByRole('breadcrumb').or(page.getByRole('navigation', { name: 'Breadcrumb' }))).toBeVisible() // header and navigation stay
   // Protected requests are refused locally: further navigation produces no new network calls.
   const before = backend.calls
-  await page.goto(`/#/user-access/user/${names.a}`)
+  await page.goto(`/#/users/user/${names.a}`)
   await page.waitForTimeout(600)
   expect(backend.calls).toBe(before)
   await expect(notice(page)).toHaveCount(1)
@@ -56,14 +56,14 @@ test('Reconnect re-establishes the session through the guarded document and relo
   await restoredRecently(page)
   await openUser(page)
   await page.route('**/api/**', (route) => route.fulfill({ status: 403, json: STALE }))
-  await page.goto(`/#/user-access/user/${names.b}`)
+  await page.goto(`/#/users/user/${names.b}`)
   await expect(notice(page)).toHaveCount(1)
   await page.unroute('**/api/**')                                                                       // the backend answers again
   const navigated = page.waitForEvent('load')
   await page.getByRole('button', { name: 'Reconnect session' }).click()
   await navigated
   await expect(notice(page)).toHaveCount(0)
-  await expect(page).toHaveURL(new RegExp(`#/user-access/user/${names.b}`))                           // navigation context is preserved
+  await expect(page).toHaveURL(new RegExp(`#/users/user/${names.b}`))                           // navigation context is preserved
 })
 
 test('unsaved input is protected before a reconnect and nothing is replayed', async ({ page }) => {
@@ -71,7 +71,7 @@ test('unsaved input is protected before a reconnect and nothing is replayed', as
   await openUser(page)
   const writes: string[] = []
   await page.route('**/api/**', (route) => { if (route.request().method() === 'POST') writes.push(route.request().url()); return route.fulfill({ status: 403, json: STALE }) })
-  await page.goto(`/#/user-access/user/${names.b}`)
+  await page.goto(`/#/users/user/${names.b}`)
   await expect(notice(page)).toHaveCount(1)
   await page.evaluate(() => { const dialog = document.createElement('div'); dialog.setAttribute('role', 'dialog'); const input = document.createElement('input'); dialog.append(input); document.body.append(dialog); input.value = 'draft rationale' })
   await page.getByRole('button', { name: 'Reconnect session' }).click()
@@ -86,7 +86,7 @@ test('a restarted backend is restored automatically when nothing typed would be 
   await openUser(page)
   // The person moves on to user B before the backend restarts. (Navigating at the moment of the restart is not deterministic: any request
   // of the previous view, such as the configuration poll, can meet the restarted backend first and start the restore on that view.)
-  await page.goto(`/#/user-access/user/${names.b}`)
+  await page.goto(`/#/users/user/${names.b}`)
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(names.b)
   let restarted = false
   page.on('request', (request) => { if (request.isNavigationRequest()) restarted = true })        // the guarded document is requested: from then on the "new backend" answers
@@ -94,7 +94,7 @@ test('a restarted backend is restored automatically when nothing typed would be 
   await expect.poll(() => restarted, { message: 'the stale session is detected and restored without a click' }).toBe(true)
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(names.b)
   await expect(notice(page)).toHaveCount(0)
-  await expect(page).toHaveURL(new RegExp(`#/user-access/user/${names.b}`))                       // the view is kept
+  await expect(page).toHaveURL(new RegExp(`#/users/user/${names.b}`))                       // the view is kept
 })
 
 test('a temporary connection loss is explained once and recovers with Retry', async ({ page }) => {
@@ -106,7 +106,7 @@ test('a temporary connection loss is explained once and recovers with Retry', as
     if ((event.target as Element | null)?.closest('button')?.textContent?.includes('Retry connection')) (window as Window & { retried?: boolean }).retried = true
   }, true))
   await page.route('**/api/**', async (route) => (await page.evaluate(() => Boolean((window as Window & { retried?: boolean }).retried)).catch(() => false) ? route.fallback() : route.abort('connectionrefused')))
-  await page.goto(`/#/user-access/user/${names.b}`)
+  await page.goto(`/#/users/user/${names.b}`)
   await expect(notice(page)).toHaveCount(1)
   await expect(notice(page)).toContainText('Connection lost')
   await expect(page.getByRole('button', { name: 'Reconnect session' })).toHaveCount(0)               // only actions that work in this state
@@ -115,7 +115,7 @@ test('a temporary connection loss is explained once and recovers with Retry', as
   await recovered // Retry is asynchronous: the notice clears when the successful read is processed, not when the click returns.
   await expect(notice(page)).toHaveCount(0)
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(names.b)          // the view the person was on is kept
-  await expect(page).toHaveURL(new RegExp(`#/user-access/user/${names.b}`))
+  await expect(page).toHaveURL(new RegExp(`#/users/user/${names.b}`))
   await page.unrouteAll({ behavior: 'wait' })
 })
 
@@ -126,7 +126,7 @@ test('the notification is compact, keyboard operable, readable in dark mode and 
   for (const [width, theme] of [[1280, 'light'], [375, 'dark']] as const) {
     await page.setViewportSize({ width, height: 800 })
     await page.evaluate((value) => { document.documentElement.dataset.theme = value; document.documentElement.classList.toggle('dark', value === 'dark') }, theme)
-    await page.goto(`/#/user-access/user/${names.b}?w=${width}`)
+    await page.goto(`/#/users/user/${names.b}?w=${width}`)
     await expect(notice(page)).toHaveCount(1)
     const box = await notice(page).boundingBox()
     expect(box!.height).toBeLessThan(width === 375 ? 220 : 120)                                          // compact

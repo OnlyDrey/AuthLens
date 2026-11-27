@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchConfiguration } from '@/api/configuration'
 import { apiRequest } from '@/api/client'
 import { scopeParams, sod, type ContextInfo, type Filters } from '@/api/sod'
-import { useHistoryValue, useViewHistory, reviewsHref, userAccessHref, type ReviewsView } from '@/hooks/useViewHistory'
+import { useHistoryValue, useViewHistory, reviewsHref, type ReviewsView } from '@/hooks/useViewHistory'
 import { availableReviewsViews, REVIEWS_VIEWS } from '@/lib/navigationItems'
 import { SecondaryNavigation } from '@/components/Shared/Navigation'
 import { Card, DataTable, EmptyState, ErrorState, LoadingState, PageHeader, SectionHeader, StatusBadge, Toolbar } from '@/components/Shared/Presentation'
@@ -19,12 +19,15 @@ import { stateTone } from '@/lib/kpiTone'
 import { ContextBar, CoverageNotice, PAGE_FIELDS, readFilters, SodFilters, useSodContext, useSodFilters, writeFilters } from '@/components/Sod/SodShared'
 import { SodReviews } from '@/components/Sod/SodReviews'
 import { SodPeriods } from '@/components/Sod/SodPeriods'
-import { SodReports } from '@/components/Sod/SodReports'
+import { AccountReview } from '@/components/Access/AccountReview'
+import { MappingAvailability } from '@/components/Access/MappingAvailability'
+import { UserDetails } from '@/components/Access/UserAccess'
 
 /**
- * Application-level review workspace. SoD access reviews (Work Queue, Bulk Review, Remediation, Review Periods, Reports and Evidence) reuse the
- * existing review engine, decisions, periods and frozen evidence unchanged and follow the SoD feature switch. Account Review is a separate
- * account and license review in User Access; the Overview links to it and shows its counters but never merges its decisions.
+ * Application-level review workspace. SoD access reviews (Work Queue, Bulk Review, Remediation, Review Periods) reuse the existing review engine,
+ * decisions, periods and frozen evidence unchanged and follow the SoD feature switch. Position Changes and Account Review (NAV-3) are the existing
+ * account and license review on their shared implementation; they never depend on the SoD switch and their decisions are never merged with SoD
+ * access-review decisions. Reports moved to the Reports module (NAV-4).
  * The review context and filters are the same shared state the SoD pages use, so moving between SoD and Reviews never broadens or changes scope.
  */
 export function ReviewsWorkspace() {
@@ -35,13 +38,15 @@ export function ReviewsWorkspace() {
     sodEnabled = configuration.data?.settings.features?.sod !== false,
     views = availableReviewsViews(sodEnabled),
     view: ReviewsView = selected || 'overview',
-    sodPage = REVIEWS_VIEWS.find(item => item.value === view)?.sod === true
+    sodPage = REVIEWS_VIEWS.find(item => item.value === view)?.sod === true,
+    accountPage = view === 'account-review' || view === 'position-changes'
   return (
     <section className="sod-workspace grid min-w-0 gap-3" aria-label="Access reviews">
       <PageHeader title="Reviews" icon={<ClipboardList size={22} aria-hidden="true" />} />
       <SecondaryNavigation label="Review views" items={views.map(({ value, label, icon }) => ({ value, label, icon, href: reviewsHref(value), active: view === value, onSelect: () => change({ reviewsView: value }) }))} />
-      {sodEnabled && <ContextBar />}
-      {sodPage && !sodEnabled ? <SodReviewsOff /> : view === 'overview' ? <ReviewsOverview sodEnabled={sodEnabled} /> : view === 'queue' || view === 'bulk' || view === 'remediation' ? <SodReviews tab={view} /> : view === 'periods' ? <SodPeriods /> : <SodReports />}
+      {sodEnabled && !accountPage && <ContextBar />}
+      {accountPage ? <AccountReviewPage key={view} positions={view === 'position-changes'} />
+        : sodPage && !sodEnabled ? <SodReviewsOff /> : view === 'overview' ? <ReviewsOverview sodEnabled={sodEnabled} /> : view === 'queue' || view === 'bulk' || view === 'remediation' ? <SodReviews tab={view} /> : <SodPeriods />}
     </section>
   )
 }
@@ -61,10 +66,25 @@ function SodReviewsOff() {
   )
 }
 
-/** Link to the existing Account Review in User Access (its route, filters and decisions are unchanged). */
+/** Account Review or Position Changes (one shared implementation, NAV-3). Opening an account shows its details here; Back returns to the list. */
+function AccountReviewPage({ positions }: { positions: boolean }) {
+  const [selected] = useHistoryValue('user'), { change } = useViewHistory()
+  const none = { index: -1, total: 0, loading: false, error: null, missing: false, onPrevious: undefined, onNext: undefined }
+  // min-w-0: inside the workspace grid the page (and an opened account's details) must not grow wider than the viewport
+  return <div className="min-w-0"><MappingAvailability>
+    <div hidden={!!selected}><AccountReview onUser={username => change({ user: username, userTrail: [] })} mode={positions ? 'positions' : undefined} /></div>
+    {selected && <UserDetails username={selected} parent={positions ? 'Position Changes' : 'Account Review'} navigation={none}
+      onBack={() => change({ user: '', userTrail: [] })}
+      onCompare={() => change({ page: 'users', accessMode: 'compare', user: '', userContext: {}, userComparison: { a: selected, b: '', validity: 'active', kind: 'roles', difference: '', search: '', areas: [] } })}
+      onRole={role => change({ detailRole: role })}
+      onRelease={role => change({ page: 'releases', release: { role, status: 'all' }, releaseContext: role, user: '', detailRole: null })} />}
+  </MappingAvailability></div>
+}
+
+/** Link to Account Review in Reviews (its filters and decisions are unchanged). */
 function AccountReviewLink({ primary = false }: { primary?: boolean }) {
   const { change } = useViewHistory()
-  return <a className={`ui-button ${primary ? 'ui-button-primary' : 'ui-button-secondary'} ui-button-default`} href={userAccessHref('review')} onClick={event => { if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); change({ page: 'users', accessMode: 'review', user: '', settings: false, detailRole: null }) }}><UserCheck size={16} aria-hidden="true" />Open Account Review</a>
+  return <a className={`ui-button ${primary ? 'ui-button-primary' : 'ui-button-secondary'} ui-button-default`} href={reviewsHref('account-review')} onClick={event => { if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); change({ page: 'reviews', reviewsView: 'account-review', user: '' }) }}><UserCheck size={16} aria-hidden="true" />Open Account Review</a>
 }
 
 type ReviewKind = 'assignment' | 'activity' | 'acceptance'

@@ -124,8 +124,8 @@ test.describe('role codeblocks with synthetic names', () => {
 
   for (const width of [375, 1280]) test(`Compare users keeps a bounded subject column with single-line identifiers at ${width}px (COR-1)`, { tag: '@visual' }, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
-    await page.goto('/#session=browser-test-session'); await goTo(page, 'User Access')
-    await page.getByRole('navigation', { name: 'User Access view', exact: true }).getByRole('link', { name: 'Compare users', exact: true }).click()
+    await page.goto('/#session=browser-test-session'); await goTo(page, 'Users')
+    await page.getByRole('navigation', { name: 'Users view', exact: true }).getByRole('link', { name: 'Compare Users', exact: true }).click()
     for (const [label, value] of [['User A', 'U1'], ['User B', 'U2']]) {
       const input = page.getByRole('combobox', { name: label, exact: true }); await input.click(); await input.fill(value)
       await page.getByRole('option').filter({ hasText: value }).first().click()
@@ -141,7 +141,7 @@ test.describe('role codeblocks with synthetic names', () => {
   for (const width of [375, 1280]) {
     test(`User Access usernames and roles stay single-line without internal scrollbars while the filter sidebar toggles at ${width}px`, { tag: '@visual' }, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 })
-      await page.goto('/#session=browser-test-session'); await goTo(page, 'User Access')
+      await page.goto('/#session=browser-test-session'); await goTo(page, 'Users')
       await expect(page.getByRole('link', { name: 'U2', exact: true })).toBeVisible()
       await expectLines(page)
       if (width >= 1024) {

@@ -29,8 +29,8 @@ for(const theme of ['light','dark'])for(const width of [375,800,1280,1600])test(
  for(const band of ['0–5','6–10','11–20','21–30','31+'])await expect(page.getByRole('button',{name:`Investigate users with ${band} currently valid roles`,exact:true})).toBeVisible()
  const last=await page.locator('.dashboard-cards > :last-child').getAttribute('aria-label');expect(last).toBe('Data Sources & Configuration')
  await page.screenshot({path:info.outputPath(`dashboard-${theme}-${width}.png`),fullPage:true})
- await page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'User Access',exact:true}).click()
- const link=page.getByRole('navigation',{name:'User Access view',exact:true}).getByRole('link',{name:'User directory',exact:true}),box=(await link.boundingBox())!
+ await page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'Users',exact:true}).click()
+ const link=page.getByRole('navigation',{name:'Users view',exact:true}).getByRole('link',{name:'User Directory',exact:true}),box=(await link.boundingBox())!
  await link.hover();await expect(link).toHaveCSS('text-decoration-line','none');await expect(link).toHaveCSS('border-top-width','0px');expect((await link.boundingBox())!.height).toBe(box.height)
  await page.getByRole('button',{name:'Open settings',exact:true}).click();await page.getByRole('tab',{name:'Organization & SAP System',exact:true}).click()
  await page.getByLabel('Organization name',{exact:true}).fill('Synthetic preview organization')

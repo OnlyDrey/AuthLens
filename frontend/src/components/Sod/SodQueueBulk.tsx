@@ -20,7 +20,7 @@ import {LifecycleBadge,SodFilters} from './SodShared'
 import {BulkReviewDialog} from './SodBulkReview'
 
 /** Selection is explicit and retained across filters; preview uses canonical assignment selection, never visible-page rows. */
-export function SodQueueBulk({context,filters:initial,onClose,embedded=false,onFiltersChange,selectMatching=false,onSelectionConsumed}:{context:string;filters:Filters;onClose:()=>void;embedded?:boolean;selectMatching?:boolean;onSelectionConsumed?:()=>void;onFiltersChange?:(value:Filters)=>void}){
+export function SodQueueBulk({context,filters:initial,onClose,embedded=false,onFiltersChange,selectMatching=false,initialPicks,onSelectionConsumed}:{context:string;filters:Filters;onClose:()=>void;embedded?:boolean;selectMatching?:boolean;/** NAV-8: an exact selection from Access Explorer */initialPicks?:AssignmentPick[];onSelectionConsumed?:()=>void;onFiltersChange?:(value:Filters)=>void}){
  const {change}=useViewHistory()
  const [offset,setOffset]=useState(0)
  const [filters,setFilters]=useState<Filters>({...initial,assignment_scope:'all',role_match:initial.role_match||'exact',review_status:'all'}),[selected,setSelected]=useState(new Map<string,AssignmentPick>()),[includeReviewed,setIncludeReviewed]=useState(false),[action,setAction]=useState<BulkAction|null>(null),[confirm,setConfirm]=useState(false),[notice,setNotice]=useState('')
@@ -40,6 +40,17 @@ export function SodQueueBulk({context,filters:initial,onClose,embedded=false,onF
   else setSelected(new Map(data.items.filter(row=>isEligibleAssignment(row,action,includeReviewed,data.reviewable)).map(row=>[row.key,row])))
   onSelectionConsumed?.()
  },[selectMatching,data,result.isFetching,onSelectionConsumed,action,includeReviewed])
+ // NAV-8: an Access Explorer selection arrives as exactly those assignments. Nothing is added; assignments outside the preview stay selected and are
+ // reported as excluded by the usual out-of-filter safeguard. Previously reviewed ones need the replacement option, which is turned on and stated.
+ useEffect(()=>{
+  if(!initialPicks?.length||!data||result.isFetching)return
+  const rows=new Map(data.items.map(row=>[row.key,row]))
+  setSelected(new Map(initialPicks.map(pick=>[pick.key,rows.get(pick.key)??pick])))
+  const reviewed=initialPicks.filter(pick=>hasPriorReview(rows.get(pick.key)??pick)).length
+  if(reviewed)setIncludeReviewed(true)
+  setNotice(`${initialPicks.length.toLocaleString()} ${initialPicks.length===1?'assignment':'assignments'} selected in Access Explorer${reviewed?`, including ${reviewed.toLocaleString()} previously reviewed`:''}. Choose a decision; nothing is added to this selection.`)
+  onSelectionConsumed?.()
+ },[initialPicks,data,result.isFetching,onSelectionConsumed])
  const toggle=(row:AssignmentPick)=>setSelected(previous=>{const next=new Map(previous);if(next.has(row.key))next.delete(row.key);else next.set(row.key,row);return next})
  const all=[...selected.values()],selection=bulkSelectionScope(data?.items||[],selected,action,includeReviewed,data?.reviewable??false)
  const eligible=selection.executable,outside=selection.outside.length

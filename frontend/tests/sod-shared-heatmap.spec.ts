@@ -24,11 +24,15 @@ test('one shared heatmap sits directly under the Review Context on every SoD pag
     expect(box.y - (context.y + context.height)).toBeLessThan(60)
   }
   // Workspace boundary: the SoD navigation still reaches the Reviews workspace, which shows no SoD heatmap.
-  for (const name of ['Work Queue', 'Review Periods', 'Reports and Evidence']) {
-    await openSod(page, name === 'Work Queue' ? 'Reviews' : name === 'Reports and Evidence' ? 'Reports' : name)
+  for (const name of ['Work Queue', 'Review Periods']) {
+    await openSod(page, name === 'Work Queue' ? 'Reviews' : name)
     await expect(page.getByRole('navigation', { name: 'Review views', exact: true }).getByRole('link', { name, exact: true })).toHaveAttribute('aria-current', 'page')
     await expect(heatmap(page)).toHaveCount(0)
   }
+  // NAV-4: the reports are in the Reports module, which shows no heatmap either (its heatmap report exports the data only).
+  await openSod(page, 'Reports')
+  await expect(page.getByRole('navigation', { name: 'Report views', exact: true }).getByRole('link', { name: 'Review Reports', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(heatmap(page)).toHaveCount(0)
 })
 
 test('collapsing the heatmap persists across SoD pages and reloads, and expanding restores it', async ({ page }) => {

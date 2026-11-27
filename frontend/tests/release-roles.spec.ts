@@ -28,7 +28,7 @@ test.afterEach(async ({ request }) => {
 })
 
 const open = async (page: Page, view: 'Table' | 'Matrix' = 'Table') => {
-  await page.goto('/#session=browser-test-session'); await goTo(page, 'Release Roles')
+  await page.goto('/#session=browser-test-session'); await goTo(page, 'Release Access')
   await page.getByRole('button', { name: view, exact: true }).click()
 }
 const pick = async (page: Page, label: string, option: string) => {
@@ -83,13 +83,14 @@ test('Release Area is derived from the Release Group and multi-selects combine O
 test('Matrix and Table stay consistent for Release Area filters', async ({ page }) => {
   await open(page, 'Matrix')
   await pick(page, 'Release Area', 'E')
-  await expect(page.getByRole('table', { name: 'PR release matrix' }).getByRole('rowheader')).toHaveText(['E2'])
-  await expect(page.getByRole('table', { name: 'PO release matrix' }).getByRole('rowheader')).toHaveText(['E3'])
-  await expect(page.getByRole('table', { name: 'PR release matrix' }).getByRole('button', { name: /Investigate PR E2 N1: 2 users/ })).toBeVisible()
+  // NAV-6: one matrix with one column per strategy key; E2 holds PR roles and E3 PO roles
+  const matrix = page.getByRole('table', { name: 'release matrix', exact: true })
+  await expect(matrix.getByRole('rowheader')).toHaveText(['E2', 'E3', 'All Release Groups'])
+  await expect(matrix.getByRole('button', { name: /Investigate PR E2 N1: 2 users/ })).toBeVisible()
   await page.getByRole('button', { name: 'Table', exact: true }).click()
   await expect.poll(() => tableRoles(page)).toEqual([E3, E2].sort())
   await page.getByRole('button', { name: 'Matrix', exact: true }).click()
-  await expect(page.getByRole('table', { name: 'PR release matrix' }).getByRole('rowheader')).toHaveText(['E2'])
+  await expect(matrix.getByRole('rowheader')).toHaveText(['E2', 'E3', 'All Release Groups'])
 })
 
 test('Saved Filters live in the sidebar and restore Release Area and Release Group selections', async ({ page }) => {
@@ -124,7 +125,7 @@ test('release roles join the shared access package with exact names next to cata
   await goTo(page, 'Role Lookup')
   await page.getByRole('article', { name: /Buyer plant$/ }).getByRole('button', { name: 'Add to access package' }).click()
   await expect(page.getByRole('button', { name: 'Access package (2)' })).toBeVisible()
-  await goTo(page, 'Release Roles')
+  await goTo(page, 'Release Access')
   await page.getByRole('button', { name: 'Table', exact: true }).click()
   await expect(page.getByRole('button', { name: `Remove ${E2} from access package`, exact: true })).toBeVisible() // state is shared and synchronized
   await page.getByRole('button', { name: 'Access package (2)' }).click()

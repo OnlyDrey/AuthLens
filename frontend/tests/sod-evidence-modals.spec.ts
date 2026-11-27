@@ -120,7 +120,7 @@ test('shared username review actions switch users without stale evidence and pre
   await expect(panel).toHaveCount(0)
   await expect(b).toHaveAttribute('aria-pressed','false')
   // The same capability works outside the SoD page, without changing the parent page.
-  await page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'User Access',exact:true}).click()
+  await page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'Users',exact:true}).click()
   const table=page.locator('.user-directory-table table')
   await expect(table).toBeVisible()
   const row=table.getByRole('row').filter({has:page.getByRole('link',{name:names.a,exact:true})})
@@ -132,7 +132,7 @@ test('shared username review actions switch users without stale evidence and pre
   await action.focus()
   await page.keyboard.press('Enter')
   await expect(panel.getByRole('heading',{name:names.a,exact:true})).toBeVisible()
-  await expect(page).toHaveURL(/user-access/)
+  await expect(page).toHaveURL(/#\/users/)
   await expect(page.locator('.ui-side-panel')).toHaveCount(1)
 })
 
@@ -162,13 +162,13 @@ test('SAP username, open icon, copy and review icon have four isolated interacti
  const matrix=page.getByRole('region',{name:/Scrollable User by risk matrix/})
  const username=()=>matrix.getByRole('link',{name:`Open ${names.a}`,exact:true})
  await username().locator('code').click()
- await expect(page).toHaveURL(new RegExp(`user-access/user/${names.a}$`))
+ await expect(page).toHaveURL(new RegExp(`users/user/${names.a}$`))
  await expect(page.locator('.ui-side-panel,.ui-popover')).toHaveCount(0)
  await page.goBack()
  const icon=matrix.getByRole('link',{name:`Open user details for ${names.a}`,exact:true})
- await expect(icon).toHaveAttribute('href',`#/user-access/user/${names.a}`)
+ await expect(icon).toHaveAttribute('href',`#/users/user/${names.a}`)
  await icon.focus();await page.keyboard.press('Enter')
- await expect(page).toHaveURL(new RegExp(`user-access/user/${names.a}$`))
+ await expect(page).toHaveURL(new RegExp(`users/user/${names.a}$`))
  await expect(page.locator('.ui-side-panel,.ui-popover')).toHaveCount(0)
  await page.goBack()
  await page.evaluate(()=>{
@@ -187,7 +187,7 @@ test('SAP username, open icon, copy and review icon have four isolated interacti
  await expect(page.locator('.ui-side-panel').getByRole('heading',{name:names.b,exact:true})).toBeVisible()
  expect(await page.evaluate(()=>(window as Window & {bubbledUsername?:boolean}).bubbledUsername)).toBeUndefined()
  await username().locator('code').click()
- await expect(page).toHaveURL(new RegExp(`user-access/user/${names.a}$`))
+ await expect(page).toHaveURL(new RegExp(`users/user/${names.a}$`))
  await expect(page.locator('.ui-side-panel,.ui-popover')).toHaveCount(0)
 })
 
@@ -195,7 +195,7 @@ test('SAP username, open icon, copy and review icon have four isolated interacti
 test('Reviews has ordered Work Queue, Bulk Review and Remediation pages with a shared bulk builder',async({page})=>{
  await openSod(page,'Reviews')
  const views=page.getByRole('navigation',{name:'Review views',exact:true})
- await expect(views.getByRole('link')).toHaveText(['Overview','Work Queue','Bulk Review','Remediation','Review Periods','Reports and Evidence'])
+ await expect(views.getByRole('link')).toHaveText(['Overview','Work Queue','Position Changes','Account Review','Bulk Review','Remediation','Review Periods'])
  await views.getByRole('link',{name:'Bulk Review',exact:true}).click()
  await expect(page.getByRole('heading',{name:'Bulk role assignment review',exact:true})).toBeVisible()
  await expect(page.getByRole('table',{name:'Bulk assignment preview',exact:true})).toBeVisible()

@@ -28,7 +28,7 @@ test('bulk assignment: toolbar order, replacement confirmation, results, profile
   expect(first.ok(), await first.text()).toBeTruthy()
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await expect(page.getByRole('button', { name: 'Assign group' })).toHaveCount(0)
   await row(page, 'BULK_A').getByRole('checkbox').check(); await row(page, 'BULK_B').getByRole('checkbox').check()
   await expect(page.getByRole('heading', { name: /2 selected/ })).toBeVisible()
@@ -72,7 +72,7 @@ test('bulk assignment: toolbar order, replacement confirmation, results, profile
 test('cancel changes nothing and the dialog fits a narrow screen', async ({ page, request }) => {
   const name = `Cancel Target ${unique}`
   await group(request, name)
-  await page.goto('/#session=browser-test-session'); await goTo(page, 'User Access')
+  await page.goto('/#session=browser-test-session'); await goTo(page, 'Users')
   await row(page, 'BULK_C').getByRole('checkbox').check()
   await page.getByRole('button', { name: 'Assign group', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Assign Functional Groups' })
