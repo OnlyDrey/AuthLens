@@ -1,6 +1,6 @@
 # Installer adapters for the existing release verifier, deployment journal and application backup engine.
 # No service or file operations occur on import. Setup payloads and failed runs are never reused or overwritten.
-$script:InstallerTools = @('Install-AuthLens.ps1','verify-release.ps1','deploy/AuthLens.Deploy.psm1','deploy/Deploy-AuthLens.ps1','deploy/AuthLens.Paths.ps1','deploy/AuthLens.Acl.ps1','deploy/AuthLens.Installer.ps1')
+$script:InstallerTools = @('Install-AuthLens.ps1','verify-release.ps1','deploy/AuthLens.Deploy.psm1','deploy/Deploy-AuthLens.ps1','deploy/AuthLens.Paths.ps1','deploy/AuthLens.Acl.ps1','deploy/AuthLens.Installer.ps1','recovery/New-AuthLensRecoveryBundle.ps1','recovery/Test-AuthLensRestoreRehearsal.ps1','acceptance/AuthLens.Acceptance.psm1')
 function Save-ALInstallerRecoveryTools([string]$Run) {
     $tools = Join-AL $Run 'recovery-tools'
     $entries = foreach ($relative in $script:InstallerTools) {
@@ -38,7 +38,7 @@ function Get-ALInstallerPackage([string]$Package,[switch]$PublishedServer) {
     $manifest
 }
 
-function Invoke-ALInstallerServer($Config, [string]$Package, [switch]$Recover,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto') {
+function Invoke-ALInstallerServer($Config, [string]$Package, [switch]$Recover,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto',[string]$RecoveryCertificateFile='',[string]$RecoveryCertificatePasswordFile='') {
     # All SCM calls remain in the existing state machine. Explicit configuration is required, even on first install.
     if ($Recover) {
         Assert-ALInstallerServerConfiguration $Config
@@ -50,10 +50,12 @@ function Invoke-ALInstallerServer($Config, [string]$Package, [switch]$Recover,[V
             }
             $null=New-ALRun $Config 'installer-recover'
             Save-ALInstallerRecoveryTools $script:RunFolder
-            $result=Invoke-ALRecover $Config -RecoveryAction $RecoveryAction
+            $result=Invoke-ALRecover $Config -RecoveryAction $RecoveryAction -CertificateFile $RecoveryCertificateFile -CertificatePasswordFile $RecoveryCertificatePasswordFile
             if($result -and $result.recovered -and $result.PSObject.Properties['phase'] -and $result.phase -eq 'complete' -and $result.PSObject.Properties['instance_id'] -and $result.instance_id){
                 $manifest=Get-Content -LiteralPath (Join-AL $result.release 'build-manifest.json') -Raw -Encoding UTF8|ConvertFrom-Json
                 Write-ALInstallerServerIdentity $Config $manifest $result.release $result.instance_id
+                # G-005: the Setup registration left pending by the interrupted Setup is reconciled only with proven ownership.
+                $result|Add-Member -NotePropertyName setup_registration -NotePropertyValue (Update-ALInstallerRegistrationAfterRecovery $Config $result.release $manifest) -Force
             }
             return $result
         } finally { Exit-ALLock }
@@ -103,6 +105,47 @@ function Write-ALInstallerServerIdentity($Config,$Manifest,[string]$Release,[str
     if(-not $InstanceId){$InstanceId=[guid]::NewGuid().ToString('N')}
     $identity=[ordered]@{schema=1;product='AuthLens';instance_id=$InstanceId;root=$Config.Root;data_directory=$Config.DataDirectory;service_name=$Config.ServiceName;service_account=$Config.ServiceAccount;config_file=$Config.ConfigFile;config_sha256=(Get-FileHash -LiteralPath $Config.ConfigFile).Hash.ToLowerInvariant();manifest_sha256=(Get-FileHash -LiteralPath (Join-AL $Release 'build-manifest.json')).Hash.ToLowerInvariant();manifest=$Manifest;release=$Release;phase='installed';updated_utc=[DateTime]::UtcNow.ToString('o')}
     Write-ALInstallerJournal (Join-AL (Join-AL $Config.Root 'config') 'installed-product.json') $identity
+}
+
+# G-005: after a verified command-line recovery of a fresh installation, write the same discovery values Setup writes after verified success
+# (Root, ProgramDirectory, ConfigFile, FileVersion, SetupState=verified and the uninstall display name), only when ownership is proven: the
+# Server key is in the pending state Setup itself wrote, the Inno Setup uninstall entry of this product exists, and the payload Setup staged in its
+# program directory is the recovered release (manifest hash, product, version and commit). Nothing is invented: a missing or different
+# registration is reported, never created or replaced. SetupState is written last, so a failure leaves the pending state for review.
+$script:ServerUninstallKey='Registry::HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\{B961C010-9B53-4514-9D2A-73A4641E4AAF}_is1'
+function Update-ALInstallerRegistrationAfterRecovery($Config,[string]$Release,$Manifest,[string]$ServerKey='Registry::HKEY_LOCAL_MACHINE\Software\AuthLens\Server',[string]$UninstallKey=$script:ServerUninstallKey) {
+    $outcome={param($State,$Reason) Write-ALLog "Setup registration: $State ($Reason)"; [pscustomobject]@{state=$State;reason=$Reason}}
+    try{
+        if(-not(Test-Path -LiteralPath $ServerKey)){return (& $outcome 'not_present' 'No Setup registration exists (installed without Setup); nothing to reconcile.')}
+        $record=Get-ItemProperty -LiteralPath $ServerKey
+        $state=if($record.PSObject.Properties['SetupState']){[string]$record.SetupState}else{''}
+        if($state -ceq 'verified'){
+            $registered=if($record.PSObject.Properties['ConfigFile']){[string]$record.ConfigFile}else{''}
+            if($registered -and $registered -ine $Config.ConfigFile){return (& $outcome 'conflict' 'The verified Setup registration names another configuration; it was not changed.')}
+            return (& $outcome 'already_verified' 'The Setup registration is already verified.')
+        }
+        if($state -cne 'pending-verification'){return (& $outcome 'not_reconciled' "Unexpected SetupState '$state'; the registration was not changed.")}
+        if(-not(Test-Path -LiteralPath $UninstallKey)){return (& $outcome 'not_reconciled' 'The Setup uninstall registration of AuthLens Server is missing; ownership cannot be proven, so nothing was written.')}
+        $uninstall=Get-ItemProperty -LiteralPath $UninstallKey
+        $app=if($uninstall.PSObject.Properties['Inno Setup: App Path']){[string]$uninstall.'Inno Setup: App Path'}else{''}
+        if(-not $app -or -not [IO.Path]::IsPathRooted($app)){return (& $outcome 'not_reconciled' 'The Setup uninstall registration has no program directory; nothing was written.')}
+        $app=[IO.Path]::GetFullPath($app).TrimEnd('\')
+        $package=Split-Path $Release -Leaf
+        $staged=Join-AL (Join-AL (Join-AL (Join-AL (Join-AL $app 'setup') $package) 'payload') $package) 'build-manifest.json'
+        $recovered=Join-AL $Release 'build-manifest.json'
+        if(-not(Test-Path -LiteralPath $staged -PathType Leaf)){return (& $outcome 'not_reconciled' 'The program directory Setup registered does not contain the recovered release payload; nothing was written.')}
+        $stagedManifest=Get-Content -LiteralPath $staged -Raw -Encoding UTF8|ConvertFrom-Json
+        if((Get-FileHash -LiteralPath $staged -Algorithm SHA256).Hash -ine (Get-FileHash -LiteralPath $recovered -Algorithm SHA256).Hash -or $stagedManifest.product -cne 'AuthLens' -or
+            $stagedManifest.source_sha -cne $Manifest.source_sha -or $stagedManifest.version -cne $Manifest.version){return (& $outcome 'not_reconciled' 'The payload Setup staged is not the recovered release; nothing was written.')}
+        $numeric=(@($Manifest.file_version)|ForEach-Object{[string]$_}) -join '.'
+        if($numeric -notmatch '^\d+\.\d+\.\d+\.\d+$'){return (& $outcome 'not_reconciled' 'The release manifest has no four-part file version; nothing was written.')}
+        foreach($pair in @(@('Root',$Config.Root),@('ProgramDirectory',$app),@('ConfigFile',$Config.ConfigFile),@('FileVersion',$numeric))){Set-ItemProperty -LiteralPath $ServerKey -Name $pair[0] -Value $pair[1] -Type String}
+        Set-ItemProperty -LiteralPath $UninstallKey -Name 'DisplayName' -Value 'AuthLens Server' -Type String
+        Set-ItemProperty -LiteralPath $ServerKey -Name 'SetupState' -Value 'verified' -Type String
+        & $outcome 'reconciled' "Setup registration verified for $package (program directory $app)."
+    }catch{
+        & $outcome 'failed' ("The Setup registration could not be reconciled and remains pending for review: " + $_.Exception.Message)
+    }
 }
 
 function Assert-ALInstallerServerConfiguration($Config) {
@@ -248,8 +291,9 @@ function Get-ALFailedPreflightInventory($Resolved,[string]$Package,[string]$Stag
     $tools=Join-AL $Stage 'tools'
     $toolItems=@(Get-ALAclItems $tools)
     $toolFiles=@($toolItems|Where-Object {-not $_.PSIsContainer}|ForEach-Object{$_.FullName.Substring($tools.Length+1).Replace('\','/')}|Sort-Object)
+    $toolDirectories=@($script:InstallerTools|Where-Object{$_.Contains('/')}|ForEach-Object{Join-AL $tools $_.Split('/')[0]}|Select-Object -Unique)
     if(($toolFiles -join '|') -cne ((@($script:InstallerTools)+@('installer-tools.json')|Sort-Object) -join '|') -or
-        @($toolItems|Where-Object{$_.PSIsContainer -and $_.FullName -ine $tools -and $_.FullName -ine (Join-AL $tools 'deploy')}).Count){Stop-AL 'Failed Setup helper inventory contains unrelated entries.'}
+        @($toolItems|Where-Object{$_.PSIsContainer -and $_.FullName -ine $tools -and $_.FullName -notin $toolDirectories}).Count){Stop-AL 'Failed Setup helper inventory contains unrelated entries.'}
     $paths=@($Resolved.Config.ConfigFile,(Join-AL $Package 'build-manifest.json'),(Join-AL $Stage 'setup-metadata.ini'),(Join-AL $Stage 'operation-result.json'),(Join-AL $Stage 'transaction-diagnostic.txt'),(Join-AL $Stage 'tools/installer-tools.json'))
     foreach($relative in $script:InstallerTools){$paths+=Join-AL $Stage ('tools/'+$relative)}
     foreach($path in $paths){
@@ -341,10 +385,13 @@ function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto'
         }
     }
     if($kind -eq 'fresh installation' -and $config.ServiceAccount -ine ('NT SERVICE\'+$config.ServiceName)){Stop-AL 'Fresh Setup supports the virtual service account only. Password-bearing and gMSA provisioning require a separate validated service-logon procedure.'}
+    $tlsInfo=$null
     if($Package){
         $network=Invoke-ALMaintenance (Join-AL $Package 'server/AuthLens.Api.exe') (@('--server-preflight')+@(Get-ALServiceArguments $config))
         if(-not $network.validated -or -not $network.read_only){Stop-AL 'The packaged Server did not prove read-only network/TLS configuration validation.'}
         if($network.version -cne $manifest.version -or $network.source_sha -cne $manifest.source_sha){Stop-AL 'Verified manifest and Server preflight runtime identity disagree; no installation was provisioned.'}
+        # WP20: the certificate the review page shows, validated by the packaged host against the final network settings (endpoint identities).
+        if($network.PSObject.Properties['certificate']){$tlsInfo=$network.certificate}
         $previous=Get-ALLink (Get-ALCurrentLink $config)
         if($previous){
             $old=Get-Content -LiteralPath (Join-AL $previous 'build-manifest.json') -Raw | ConvertFrom-Json
@@ -355,23 +402,97 @@ function Get-ALServerSetupPlan($Resolved,[string]$Package='',[ValidateSet('Auto'
             if(-not $oldSchema.compatible){Stop-AL 'The previous release cannot open the current schema; repair/upgrade rollback is not safe.'}
         }
         $payloadFiles=@(Get-ALTreeFiles $Package)
-        $staging=Join-AL (Join-AL (Join-AL (Join-AL (Join-AL $config.Root 'app') 'setup') (Split-Path $Package -Leaf)) 'payload') (Split-Path $Package -Leaf)
+        $stageName=Get-ALReleaseName $Package $manifest
+        $staging=Join-AL (Join-AL (Join-AL (Join-AL (Join-AL $config.Root 'app') 'setup') $stageName) 'payload') $stageName
         $packagePath=[IO.Path]::GetFullPath($Package).TrimEnd('\','/')
         foreach($file in $payloadFiles){if((Join-AL $staging $file.FullName.Substring($packagePath.Length+1)).Length -ge 248){Stop-AL 'Staged payload exceeds the supported Windows PowerShell path length. Choose a shorter dedicated root; no file was moved.'}}
-        $bytes=Get-ALInstallerFileBytes $payloadFiles
-        $dataBytes=if(Test-Path -LiteralPath $config.DataDirectory){Get-ALInstallerFileBytes @(Get-ALTreeFiles $config.DataDirectory)}else{[long]0}
-        $needed=@{}
-        foreach($entry in @(@($config.Root,([long]$bytes*2+64MB)),@($config.BackupRoot,([long]$dataBytes*2+64MB)),@([IO.Path]::GetTempPath(),([long]$dataBytes*2+64MB)))){
-            $drive=[IO.Path]::GetPathRoot($entry[0]).ToUpperInvariant()
-            if(-not $needed.ContainsKey($drive)){$needed[$drive]=[long]0}
-            $needed[$drive]+=[long]$entry[1]
+        $storage=Get-ALInstallerStoragePlan $config $Package $payloadFiles $manifest $Operation
+        if(-not $storage.sufficient){
+            # The literal refusal stays the public message; the computed breakdown (numbers, volume roots and category names only) travels with it.
+            try{Stop-AL 'Insufficient free storage for immutable staging/publication and a verified backup; nothing was provisioned.'}
+            catch{$_.Exception.Data['AuthLensStorage']=$storage;throw}
         }
-        foreach($drive in $needed.Keys){if((Get-ALInstallerFreeBytes $drive) -lt $needed[$drive]){Stop-AL 'Insufficient free storage for immutable staging/publication and a verified backup; nothing was provisioned.'}}
     }
-    [pscustomobject]@{schema=1;operation_id=[guid]::NewGuid().ToString('N');operation=$(if($Operation-eq 'Repair'){'repair'}else{$kind});read_only=$true;package_network_database_verified=[bool]$Package;root=$config.Root;program_directory=$Resolved.ProgramDirectory;config_file=$config.ConfigFile;config_sha256=$Resolved.ConfigSha256;data_directory=$config.DataDirectory;backup_directory=$config.BackupRoot;listen_address=$config.ListenAddress;port=$config.Port;service_name=$config.ServiceName;service_account=$config.ServiceAccount;certificate=$config.CertificatePath;allowed_hosts=@($config.AllowedHosts);proxy_hosts=@($config.ProxyHosts);trusted_proxies=@($config.TrustedProxies);firewall='unchanged; no automatic rule creation';access_mode=$access.access_mode;network_access=$access.network_access;version=$(if($manifest){$manifest.version}else{''});source_sha=$(if($manifest){$manifest.source_sha}else{''});limitations=@('Service-identity key access, encrypted backup verification and final Windows TLS/readiness are mandatory transaction checks.','Custom-account provisioning, automatic firewall changes, destructive uninstall and legacy restore remain separate explicit operations.')}
+    [pscustomobject]@{schema=1;operation_id=[guid]::NewGuid().ToString('N');operation=$(if($Operation-eq 'Repair'){'repair'}else{$kind});read_only=$true;package_network_database_verified=[bool]$Package;root=$config.Root;program_directory=$Resolved.ProgramDirectory;config_file=$config.ConfigFile;config_sha256=$Resolved.ConfigSha256;data_directory=$config.DataDirectory;backup_directory=$config.BackupRoot;listen_address=$config.ListenAddress;port=$config.Port;service_name=$config.ServiceName;service_account=$config.ServiceAccount;certificate=$config.CertificatePath;allowed_hosts=@($config.AllowedHosts);proxy_hosts=@($config.ProxyHosts);trusted_proxies=@($config.TrustedProxies);firewall='unchanged; no automatic rule creation';access_mode=$access.access_mode;certificate_subject=$(if($tlsInfo){$tlsInfo.subject}else{''});certificate_issuer=$(if($tlsInfo){$tlsInfo.issuer}else{''});certificate_expires=$(if($tlsInfo){$tlsInfo.not_after_utc}else{''});certificate_thumbprint=$(if($tlsInfo){$tlsInfo.thumbprint_sha256}else{''});certificate_self_signed=$(if($tlsInfo){[string][bool]$tlsInfo.self_signed}else{''});certificate_identities=$(if($tlsInfo){@($tlsInfo.required_identities|ForEach-Object{$_.identity})}else{@()});network_access=$access.network_access;version=$(if($manifest){$manifest.version}else{''});source_sha=$(if($manifest){$manifest.source_sha}else{''});storage=$(if($Package){$storage}else{$null});storage_summary=$(if($Package){$storage.summary}else{''});limitations=@('Service-identity key access, encrypted backup verification and final Windows TLS/readiness are mandatory transaction checks.','Custom-account provisioning, automatic firewall changes, destructive uninstall and legacy restore remain separate explicit operations.')}
 }
 
 function Get-ALInstallerFreeBytes([string]$Drive){([IO.DriveInfo]::new($Drive)).AvailableFreeSpace}
+
+function Format-ALBytes([long]$Bytes){
+    if([Math]::Abs($Bytes) -ge 1GB){return [string]::Format([Globalization.CultureInfo]::InvariantCulture,'{0:0.00} GB',$Bytes/1GB)}
+    [string]::Format([Globalization.CultureInfo]::InvariantCulture,'{0:0.0} MB',$Bytes/1MB)
+}
+
+# WP34 (INST-117/118): Server Setup free-storage preflight per volume with a breakdown per category. Reservations follow the actual write sequence:
+#   setup_staging         Inno copies the verified payload to <Root>\app\setup\<package>\payload\<package>. Zero when -Package IS that staged copy
+#                         (the transaction-time recheck after Inno copied it, AuthLens-Transaction.iss); counting it again was double counting.
+#   release_publication   Publish-ALRelease copies every file except desktop\ and symbols\ to <ReleasesRoot>\.staging and renames it into place.
+#                         Zero when the same release (same name and commit) is already published and is reused (never for Repair).
+#   backup_work           ApplicationBackups.WriteArchive: online copies plus payload.zip in <DataDirectory>\backups\work-* (data volume).
+#   backup_archive        the sealed archive in BackupRoot (written as .partial, renamed, kept).
+#   verification_extract  --backup-verify: unsealed payload.zip plus the staged extraction in the operator's temporary directory.
+# The backup source is the data directory without <DataDirectory>\backups (in-app archives and transient work folders WriteArchive never reads).
+# An archive is reserved at source + 1% + 1 MB (incompressible data and the envelope). The backup write and its verification run one after the
+# other, so a volume reserves its persistent items plus the larger of the two phases, never their sum. Every affected volume keeps a fixed
+# 256 MB safety margin (previously 64 MB per reservation, 192 MB on a single-volume installation). Read-only: nothing is created or deleted.
+$script:StorageMarginBytes=[long]256MB
+function Get-ALInstallerStoragePlan($Config,[string]$Package,[object[]]$PayloadFiles,$Manifest,[string]$Operation='Auto') {
+    $packagePath=[IO.Path]::GetFullPath($Package).TrimEnd('\','/')
+    $name=Get-ALReleaseName $packagePath $Manifest
+    $staging=[IO.Path]::GetFullPath((Join-AL (Join-AL (Join-AL (Join-AL (Join-AL $Config.Root 'app') 'setup') $name) 'payload') $name)).TrimEnd('\','/')
+    $payload=Get-ALInstallerFileBytes $PayloadFiles
+    $server=Get-ALInstallerFileBytes @($PayloadFiles|Where-Object{$relative=$_.FullName.Substring($packagePath.Length+1).Replace('\','/');$relative -notlike 'desktop/*' -and $relative -notlike 'symbols/*'})
+    $present=[Collections.Generic.List[string]]::new()
+    $stagingBytes=$payload
+    if($staging -ieq $packagePath){$stagingBytes=[long]0;$present.Add('staged Setup payload')}
+    $publicationBytes=$server
+    $published=Join-AL $Config.ReleasesRoot $name
+    if($Operation -ne 'Repair' -and $Manifest -and (Test-Path -LiteralPath (Join-AL $published 'build-manifest.json') -PathType Leaf)){
+        try{$existing=Get-Content -LiteralPath (Join-AL $published 'build-manifest.json') -Raw -Encoding UTF8|ConvertFrom-Json;if($existing.source_sha -ceq $Manifest.source_sha){$publicationBytes=[long]0;$present.Add('published release (reused)')}}catch{$publicationBytes=$server}
+    }
+    $dataFiles=if(Test-Path -LiteralPath $Config.DataDirectory){@(Get-ALTreeFiles $Config.DataDirectory)}else{@()}
+    $inAppBackups=Join-AL $Config.DataDirectory 'backups'
+    $source=Get-ALInstallerFileBytes @($dataFiles|Where-Object{-not (Test-ALPathWithin $_.FullName $inAppBackups)})
+    $excluded=(Get-ALInstallerFileBytes $dataFiles)-$source
+    $archive=if($source -gt 0){[long]($source+[Math]::Ceiling($source/100)+1MB)}else{[long]0}
+    $drive={param($Path) [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Path)).ToUpperInvariant()}
+    $items=@(
+        [pscustomobject]@{category='setup_staging';location='program';volume=(& $drive (Join-AL $Config.Root 'app'));phase='persistent';bytes=[long]$stagingBytes},
+        [pscustomobject]@{category='release_publication';location='releases';volume=(& $drive $Config.ReleasesRoot);phase='persistent';bytes=[long]$publicationBytes},
+        [pscustomobject]@{category='backup_work';location='data';volume=(& $drive $Config.DataDirectory);phase='backup_write';bytes=[long]($source+$archive)},
+        [pscustomobject]@{category='backup_archive';location='backups';volume=(& $drive $Config.BackupRoot);phase='backup_write_and_verification';bytes=[long]$archive},
+        [pscustomobject]@{category='verification_extract';location='temporary';volume=(& $drive ([IO.Path]::GetTempPath()));phase='verification';bytes=[long]($archive+$source)})
+    $volumes=foreach($volume in @($items|ForEach-Object volume|Select-Object -Unique)){
+        $here=@($items|Where-Object volume -eq $volume)
+        $sum={param($Phases) [long](@($here|Where-Object{$_.phase -in $Phases}|ForEach-Object bytes)|Measure-Object -Sum).Sum}
+        $persistent=& $sum @('persistent','backup_write_and_verification')
+        $peak=[Math]::Max((& $sum @('backup_write')),(& $sum @('verification')))
+        $required=[long]($persistent+$peak+$script:StorageMarginBytes)
+        $available=[long](Get-ALInstallerFreeBytes $volume)
+        $deficit=[long][Math]::Max([long]0,[long]($required-$available))
+        [pscustomobject]@{volume=$volume;available_bytes=$available;required_bytes=$required;deficit_bytes=$deficit;margin_bytes=$script:StorageMarginBytes;sufficient=($deficit -eq 0)
+            items=@($here|ForEach-Object{[pscustomobject]@{category=$_.category;location=$_.location;phase=$_.phase;bytes=$_.bytes}})}
+    }
+    $volumes=@($volumes)
+    $reclaimable=$null
+    try{$inventory=Get-ALArtifactInventory $Config;$reclaimable=[pscustomobject]@{bytes=$inventory.eligible_bytes;count=$inventory.eligible_count;cleanup_allowed=$inventory.cleanup_allowed}}catch{$reclaimable=$null}
+    $parts=foreach($v in $volumes){
+        $detail=(@($v.items|Where-Object{$_.bytes -gt 0}|ForEach-Object{$_.category.Replace('_',' ')+' '+(Format-ALBytes $_.bytes)}) -join ', ')
+        if(-not $detail){$detail='no new files'}
+        'Volume {0} available {1}, required {2}, deficit {3} ({4}; sequential backup phases counted once; margin {5})' -f $v.volume,(Format-ALBytes $v.available_bytes),(Format-ALBytes $v.required_bytes),(Format-ALBytes $v.deficit_bytes),$detail,(Format-ALBytes $v.margin_bytes)
+    }
+    $summary=(@($parts) -join '; ')+'.'
+    if($present.Count){$summary+=' Already present and not counted again: '+($present -join ', ')+'.'}
+    if($excluded -gt 0){$summary+=' In-app backups in the data directory ('+(Format-ALBytes $excluded)+') are not part of the pre-deployment backup.'}
+    $sufficient=-not @($volumes|Where-Object{-not $_.sufficient}).Count
+    if(-not $sufficient){
+        $summary+=' Free the deficit on the named volume before retrying; nothing is deleted automatically.'
+        if($reclaimable -and $reclaimable.bytes -gt 0){$summary+=' Superseded installation artifacts eligible for reviewed cleanup: '+(Format-ALBytes $reclaimable.bytes)+' (preview: Deploy-AuthLens.ps1 -Action ArtifactInventory; cleanup only with PruneArtifacts -Yes).'}
+        else{$summary+=' Review installation artifacts with Deploy-AuthLens.ps1 -Action ArtifactInventory (read-only).'}
+    }
+    [pscustomobject]@{schema=1;sufficient=$sufficient;volumes=$volumes;payload_bytes=$payload;server_publication_bytes=$server;backup_source_bytes=$source;in_app_backup_bytes_excluded=$excluded
+        archive_reservation_bytes=$archive;already_present=@($present);reclaimable=$reclaimable;summary=$summary}
+}
 
 function Get-ALServerInstallationState($Resolved,[string]$Package='',[string]$Metadata='',[string]$FailureReceipt='') {
     $config=$Resolved.Config
@@ -499,7 +620,7 @@ function Get-ALInstallerLegacyPresence([switch]$ServicesOnly){
 function Write-ALServerSetupPlan([string]$Path,$Plan) {
     # GUI uses a private INI bridge; automation consumes the same JSON plan on stdout.
     $lines=@('[AuthLens]')
-    foreach($name in @('operation_id','operation','root','program_directory','config_file','config_sha256','data_directory','backup_directory','listen_address','port','service_name','service_account','certificate','allowed_hosts','proxy_hosts','trusted_proxies','access_mode','network_access','interfaces','wildcard_supported')){
+    foreach($name in @('operation_id','operation','root','program_directory','config_file','config_sha256','data_directory','backup_directory','listen_address','port','service_name','service_account','certificate','allowed_hosts','proxy_hosts','trusted_proxies','access_mode','network_access','interfaces','wildcard_supported','certificate_subject','certificate_issuer','certificate_expires','certificate_thumbprint','certificate_self_signed','certificate_identities','storage_summary')){
         $value=if($Plan.PSObject.Properties[$name]){@($Plan.$name) -join ', '}else{''}
         if($value.IndexOfAny([char[]]"`r`n`0") -ge 0){Stop-AL 'Setup plan contains invalid line delimiters.'}
         $lines+=($name+'='+$value)
@@ -1161,7 +1282,9 @@ function Restore-ALInstallerDesktop([string]$Root, [string]$Data, [string]$Journ
 
 function Invoke-ALInstallerDesktop([string]$Root, [string]$Data, [string]$Package, [switch]$Recover) {
     foreach ($path in $Root,$Data) { Assert-ALInstallerPath $path }
-    $recoveryTool=Join-AL $Root ('.setup-state/'+('f'*32)+'/recovery-tools/deploy/AuthLens.Installer.ps1')
+    # The longest packaged helper path decides the budget (QA-028 added recovery/ and acceptance/ helpers).
+    $longest=@($script:InstallerTools|Sort-Object Length -Descending)[0]
+    $recoveryTool=Join-AL $Root ('.setup-state/'+('f'*32)+'/recovery-tools/'+$longest)
     if($recoveryTool.Length -ge 260){Stop-AL 'Desktop program path exceeds the validated Windows PowerShell recovery path limit. Choose a shorter dedicated program directory; no files were changed.'}
     if (Test-ALPathOverlap $Root $Data) { Stop-AL 'Desktop data must be outside its program directory.' }
     if (Test-Path -LiteralPath $Root) { $null = @(Get-ALTreeFiles $Root) }

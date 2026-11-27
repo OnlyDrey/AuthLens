@@ -302,4 +302,155 @@ public sealed class SodPeriodsTests : IAsyncLifetime
         var (status, _) = await Transition(id, "In review");
         Assert.Equal(HttpStatusCode.Forbidden, status);
     }
+
+    /// <summary>Decides only the first queue item of one kind (a mixed review state for the overview).</summary>
+    private async Task DecideFirst(string context, string kind, string decision)
+    {
+        var item = (await Get($"/api/sod/queue?context={context}&kind={kind}&limit=1"))["items"]!.AsArray()[0]!.AsObject();
+        var info = await Get($"/api/sod/context?context={context}");
+        var (status, response) = await Post($"/api/sod/decisions/{kind}", new JsonObject
+        {
+            ["context"] = context, ["expected_revision"] = (int)info["revision"]!, ["expected_generation"] = (string)info["generation"]!, ["decision"] = decision, ["justification"] = "Synthetic review",
+            ["items"] = new JsonArray(new JsonObject { ["key"] = item["key"]!.DeepClone(), ["user"] = item["user"]!.DeepClone(), ["ref"] = item["ref"]!.DeepClone(), ["evidence_version"] = item["evidence_version"]!.DeepClone() }),
+        });
+        Assert.True(status == HttpStatusCode.OK, response?.ToJsonString());
+    }
+
+    /// <summary>WP37: the Reviews Overview reconciles with the Work Queue (user progress, per-type totals), the Remediation page and the period
+    /// index, counts manual and derived coverage once, separates pending, outdated and investigate work, follows the population filters, keeps
+    /// distinct totals when users share groups, and never substitutes current organizational data into a frozen period.</summary>
+    [Fact]
+    public async Task Reviews_overview_reconciles_with_the_work_queue_remediation_and_periods()
+    {
+        async Task Reconcile(string context, string filter = "")
+        {
+            var overview = await Get($"/api/sod/reviews/overview?context={context}{filter}");
+            var counts = (await Get($"/api/sod/queue/users?context={context}&limit=1{filter}"))["counts"]!;
+            var progress = overview["progress"]!;
+            Assert.Equal((int)counts["all"]!, (int)progress["users"]!);
+            Assert.Equal((int)counts["complete"]!, (int)progress["complete"]!);
+            Assert.Equal((int)counts["outstanding"]!, (int)progress["requiring_review"]!);
+            Assert.Equal((int)counts["removal"]!, (int)progress["with_removal"]!);
+            Assert.Equal((int)progress["users"]!, (int)progress["complete"]! + (int)progress["requiring_review"]!);
+            foreach (var kind in new[] { "assignment", "activity", "acceptance" })
+            {
+                var c = overview["review_coverage"]![kind]!;
+                var all = (int)(await Get($"/api/sod/queue?context={context}&kind={kind}&limit=1{filter}"))["total"]!;
+                var past = (int)(await Get($"/api/sod/queue?context={context}&kind={kind}&status=Historical&limit=1{filter}"))["total"]! + (int)(await Get($"/api/sod/queue?context={context}&kind={kind}&status=Resolved&limit=1{filter}"))["total"]!;
+                Assert.Equal(all - past, (int)c["total"]!);                                                              // the Work Queue items of this type
+                Assert.Equal((int)c["covered"]!, (int)c["manual"]! + (int)c["derived"]!);                                   // each covered item once
+                Assert.Equal((int)c["outstanding"]!, (int)c["pending"]! + (int)c["outdated"]! + (int)c["investigate"]!);   // no double count
+                Assert.Equal((int)c["total"]!, (int)c["covered"]! + (int)c["outstanding"]!);
+            }
+            var groups = overview["groups"]!;
+            Assert.Equal((int)progress["users"]!, (int)groups["distinct_users"]!);
+            Assert.True(groups["rows"]!.AsArray().Sum(r => (int)r!["users"]!) >= (int)groups["distinct_users"]!);   // shared groups may add up to more
+        }
+        await Reconcile("current");
+        var start = await Get("/api/sod/reviews/overview?context=current");
+        Assert.Equal(0, (int)start["review_coverage"]!["activity"]!["covered"]!);
+        Assert.Equal(0, (int)start["remediation"]!["removal_recommended"]!);
+
+        await DecideFirst("current", "assignment", "Remove");   // recorded as lifecycle "Removal required"
+        await DecideAll("current", "activity", "Approved");
+        var after = await Get("/api/sod/reviews/overview?context=current");
+        await Reconcile("current");
+        Assert.Equal(1, (int)after["decisions"]!["assignment"]!["Removal required"]!);
+        Assert.Equal(1, (int)after["remediation"]!["removal_recommended"]!);                // one exact assignment, a recommendation only
+        Assert.Equal(1, (int)after["remediation"]!["awaiting_action"]!);
+        Assert.Equal(0, (int)after["remediation"]!["verified_removals"]!);
+        var activity = after["review_coverage"]!["activity"]!;
+        Assert.Equal((int)activity["total"]!, (int)activity["covered"]!);
+        Assert.Equal((int)activity["total"]!, (int)activity["manual"]!);
+        var risks = after["review_coverage"]!["acceptance"]!;
+        Assert.Equal(0, (int)risks["manual"]!);
+        Assert.Equal((int)risks["total"]!, (int)risks["derived"]!);                           // covered through the approved activities, not formally accepted
+        Assert.Null(after["decisions"]!["acceptance"]!["Accepted"]);
+        Assert.True((int)after["progress"]!["with_removal"]! == 1);
+
+        // Population filters (the Work Queue's), current organizational grouping, unavailable directory grouping and validation.
+        var user = (string)(await Get("/api/sod/queue/users?context=current&limit=1"))["items"]![0]!["user"]!;
+        await Reconcile("current", "&usernames=" + Uri.EscapeDataString(user));
+        Assert.Equal(1, (int)(await Get("/api/sod/reviews/overview?context=current&usernames=" + Uri.EscapeDataString(user)))["progress"]!["users"]!);
+        var functional = (await Get("/api/sod/reviews/overview?context=current&group_by=functional_group"))["groups"]!;
+        Assert.True((bool)functional["available"]!);
+        Assert.Equal("Unassigned", (string)functional["rows"]![0]!["label"]!);                // users without a Functional Group are listed, not dropped
+        Assert.False((bool)(await Get("/api/sod/reviews/overview?context=current&group_by=department"))["groups"]!["available"]!);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await _client.GetAsync("/api/sod/reviews/overview?context=current&group_by=office")).StatusCode);
+
+        // A frozen period: its own population and decisions; SAP User Groups from the evidence only; period lifecycle counted globally.
+        var period = await Create("Synthetic overview period");
+        var id = (string)period["id"]!;
+        await Reconcile(id);
+        var frozen = await Get($"/api/sod/reviews/overview?context={id}&group_by=functional_group");
+        Assert.False((bool)frozen["groups"]!["available"]!);
+        Assert.Contains("never substituted", (string)frozen["groups"]!["reason"]!);
+        Assert.True((bool)(await Get($"/api/sod/reviews/overview?context={id}"))["groups"]!["available"]!);
+        Assert.Equal("global", (string)frozen["periods"]!["scope"]!);
+        Assert.Equal(1, (int)frozen["periods"]!["total"]!);
+        Assert.Equal(1, (int)frozen["periods"]!["open"]!);
+    }
+
+    private async Task DecideItem(string context, string kind, JsonObject item, string decision, string justification)
+    {
+        var info = await Get($"/api/sod/context?context={context}");
+        var (status, response) = await Post($"/api/sod/decisions/{kind}", new JsonObject
+        {
+            ["context"] = context, ["expected_revision"] = (int)info["revision"]!, ["expected_generation"] = (string)info["generation"]!, ["decision"] = decision, ["justification"] = justification,
+            ["items"] = new JsonArray(new JsonObject { ["key"] = item["key"]!.DeepClone(), ["user"] = item["user"]!.DeepClone(), ["ref"] = item["ref"]!.DeepClone(), ["evidence_version"] = item["evidence_version"]!.DeepClone() }),
+        });
+        Assert.True(status == HttpStatusCode.OK, response?.ToJsonString());
+    }
+
+    /// <summary>Configurable review export: the role-removal unit contains only exact user-role assignments decided Remove (mixed users keep their
+    /// other roles out), activity removals never become role removals, columns and delimiters are exact, preview equals the export, filters and
+    /// frozen contexts are respected, and invalid requests are refused.</summary>
+    [Fact]
+    public async Task Review_export_contains_only_actionable_role_removals_and_follows_columns_filters_and_context()
+    {
+        var assignments = (await Get("/api/sod/queue?context=current&kind=assignment&limit=200"))["items"]!.AsArray().Select(i => i!.AsObject()).ToList();
+        var mixed = assignments.GroupBy(i => (string)i["user"]!).First(g => g.Select(i => (string)i["ref"]!).Distinct().Count() >= 3);
+        var user = mixed.Key;
+        var (keep, remove) = (mixed.ElementAt(0), mixed.First(i => (string)i["ref"]! != (string)mixed.ElementAt(0)["ref"]!));
+        await DecideItem("current", "assignment", keep, "Keep", "Still needed");
+        await DecideItem("current", "assignment", remove, "Remove", "Remove; see \"ticket 42\"");
+        var other = (await Get("/api/sod/queue?context=current&kind=activity&limit=200"))["items"]!.AsArray().Select(i => i!.AsObject()).First(i => (string)i["user"]! != user);
+        await DecideItem("current", "activity", other, "Remove", "Activity removal");   // remediation: Investigate, never a role removal
+
+        async Task<string> Csv(string query)
+        {
+            var response = await _client.GetAsync("/api/sod/queue/export/configured?context=current&" + query);
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            Assert.True(response.IsSuccessStatusCode, $"{(int)response.StatusCode} {Encoding.UTF8.GetString(bytes)}");
+            Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes[..3]);                                   // UTF-8 with BOM
+            return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+        }
+        var csv = await Csv("unit=role_removal&columns=username&columns=role");
+        Assert.Equal($"SAP username;Role name\r\n{user};{(string)remove["ref"]!}\r\n", csv);   // only USER / ROLE_B: not the kept or pending roles
+        var preview = await Get("/api/sod/queue/export/configured?context=current&unit=role_removal&columns=username&columns=role&preview=true");
+        Assert.Equal(1, (int)preview["total_rows"]!);
+        Assert.Equal(1, (int)preview["users"]!);
+        Assert.Equal(0, (int)preview["excluded_ambiguous"]!);
+        Assert.Equal(new[] { user, (string)remove["ref"]! }, preview["rows"]![0]!.AsArray().Select(v => (string)v!));
+        // Column order, comma delimiter and escaping of delimiters and quotes.
+        csv = await Csv("unit=role_removal&delimiter=comma&columns=role&columns=username&columns=review_status&columns=review_comment&columns=reviewed_by");
+        var lines = csv.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("Role name,SAP username,Review status,Review comment,Reviewed by", lines[0]);
+        Assert.StartsWith($"{(string)remove["ref"]!},{user},Removal required,\"Remove; see \"\"ticket 42\"\"\",", lines[1]);   // quoted: delimiter and quotes
+        Assert.Equal(2, lines.Length);
+        // Review items: pending role reviews of the user, the decided ones excluded; the preview count equals the export rows.
+        var pending = await Get($"/api/sod/queue/export/configured?context=current&unit=review_items&kinds=assignment&decisions=Pending&columns=username&columns=item&preview=true&usernames={Uri.EscapeDataString(user)}");
+        Assert.Equal(mixed.Count() - 2, (int)pending["total_rows"]!);
+        var items = await Csv($"unit=review_items&kinds=assignment&decisions=Pending&columns=username&columns=item&usernames={Uri.EscapeDataString(user)}");
+        Assert.Equal((int)pending["total_rows"]! + 1, items.Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.DoesNotContain((string)remove["ref"]!, items);
+        // The applied population filters are respected server side.
+        Assert.Equal(0, (int)(await Get($"/api/sod/queue/export/configured?context=current&unit=role_removal&columns=username&preview=true&usernames={Uri.EscapeDataString((string)other["user"]!)}"))["total_rows"]!);
+        // Frozen evidence never borrows current data; invalid requests are refused.
+        var period = await Create("Synthetic export period");
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await _client.GetAsync($"/api/sod/queue/export/configured?context={(string)period["id"]!}&unit=role_removal&columns=username&columns=employee")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/sod/queue/export/configured?context={(string)period["id"]!}&unit=role_removal&columns=username&columns=role&preview=true")).StatusCode);
+        foreach (var bad in new[] { "unit=role_removal", "unit=role_removal&columns=item", "unit=role_removal&columns=username&decisions=Keep", "unit=review_items&columns=username&decisions=Done", "unit=role_removal&columns=username&delimiter=tab", "unit=everything&columns=username" })
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, (await _client.GetAsync("/api/sod/queue/export/configured?context=current&" + bad)).StatusCode);
+    }
 }

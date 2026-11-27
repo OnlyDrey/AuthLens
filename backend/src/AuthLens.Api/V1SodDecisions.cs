@@ -302,7 +302,7 @@ public static partial class V1SodDecisions
 
     private static readonly string[] ActionFields = ["context", "expected_revision", "actor", "action_id", "user", "activity", "risk_id", "assignment_id", "role", "recommended", "reason",
         "owner", "due_date", "status", "completion_evidence"];
-    private static readonly string[] BulkFields = ["context", "expected_revision", "expected_generation", "items", "action", "reviewer", "justification", "replace_existing", "atomic", "track_action"];
+    private static readonly string[] BulkFields = ["context", "expected_revision", "expected_generation", "items", "action", "reviewer", "justification", "replace_existing", "atomic", "track_action", "atomic_actions"];
     public const int BulkMax = 1000;
     /// <summary>Current, completed assignment decisions: replacing one needs explicit confirmation; Pending, Investigate and Outdated reviews do not.</summary>
     private static readonly string[] Protected = ["Keep", "Removal required"];
@@ -389,6 +389,9 @@ public static partial class V1SodDecisions
         var replace = Bool(body, "replace_existing", errors);
         var atomic = Bool(body, "atomic", errors);
         var track = Bool(body, "track_action", errors);
+        // AuthLens extension (NAV-8): with an atomic review, investigation actions are created in the decisions' own transaction. The v1 combination
+        // atomic + track_action (separate action mutations) is still refused, as in v1.
+        var atomicActions = Bool(body, "atomic_actions", errors);
         if (body["items"] is not JsonArray list) errors.Add(V1Validation.Error(body.ContainsKey("items") ? "list_type" : "missing", "items", body.ContainsKey("items") ? "Input should be a valid list" : "Field required"));
         else if (list.Count is < 1 or > BulkMax)
             errors.Add(V1Validation.Error(list.Count < 1 ? "too_short" : "too_long", "items", list.Count < 1 ? "List should have at least 1 item after validation, not 0" : $"List should have at most {BulkMax} items after validation, not {list.Count}"));
@@ -417,6 +420,7 @@ public static partial class V1SodDecisions
         var items = body["items"]!.AsArray().Select(i => i!.AsObject()).ToList();
         if (items.Select(i => (string)i["key"]!).Distinct(StringComparer.Ordinal).Count() != items.Count) return Detail(422, "Each assignment may be listed once.");
         if (atomic == true && track == true) return Detail(422, "Atomic assignment review does not support separate action mutations.");
+        if (atomicActions == true && (atomic != true || (string)body["action"]! != "Investigate")) return Detail(422, "atomic_actions applies to an atomic Investigate review only.");
         var action = (string)body["action"]!;
         var operationId = Guid.NewGuid().ToString("N");
         var model = bundle.Review;
@@ -449,20 +453,24 @@ public static partial class V1SodDecisions
             var (now, _) = await V1SodAnalysis.CaptureAsync(services, LiveQuery(), token);
             if (now?.Generation != expectedGeneration) throw new SodDecisionException(409, "SoD source evidence changed. Reload before saving.");
         }
+        JsonObject InvestigationAction(SodDecisionItem item) => new()
+        {
+            ["user"] = item.User, ["assignment_id"] = item.Key, ["role"] = item.Ref, ["recommended"] = "Investigate assignment", ["reason"] = justification, ["owner"] = "",
+            ["due_date"] = null, ["status"] = "Open", ["completion_evidence"] = "", ["activity"] = "", ["risk_id"] = "",
+        };
         async Task Apply(List<SodDecisionItem> chunk)
         {
+            // Atomic review with tracking: the investigation actions are created in the decisions' own transaction (an open action is reused), so the
+            // operation stays all or nothing. The non-atomic path keeps creating them after each chunk, as before.
+            var inTransaction = atomicActions == true ? chunk.Where(item => !tracked.Contains(item.Key)).ToList() : [];
             revision = (await store.RecordAsync(new SodRecordRequest("assignment", context, chunk, action, name!, justification, revision, SourceVersions: bundle.Versions,
-                BulkOperationId: operationId, ActorIdentity: identity), Guard, ct)).Revision;
-            if (action == "Investigate" && track == true)
+                BulkOperationId: operationId, ActorIdentity: identity, NewActions: inTransaction.Count > 0 ? [.. inTransaction.Select(InvestigationAction)] : null), Guard, ct)).Revision;
+            foreach (var item in inTransaction) { newActions.Add(item.Key); tracked.Add(item.Key); }
+            if (atomic != true && action == "Investigate" && track == true)
                 foreach (var item in chunk)
                 {
                     if (tracked.Contains(item.Key)) continue;
-                    var values = new JsonObject
-                    {
-                        ["user"] = item.User, ["assignment_id"] = item.Key, ["role"] = item.Ref, ["recommended"] = "Investigate assignment", ["reason"] = justification, ["owner"] = "",
-                        ["due_date"] = null, ["status"] = "Open", ["completion_evidence"] = "", ["activity"] = "", ["risk_id"] = "",
-                    };
-                    revision = (await store.SaveActionAsync(context, values, name!, identity, revision, "", null, ct)).Revision;
+                    revision = (await store.SaveActionAsync(context, InvestigationAction(item), name!, identity, revision, "", null, ct)).Revision;
                     newActions.Add(item.Key);
                     tracked.Add(item.Key);
                 }

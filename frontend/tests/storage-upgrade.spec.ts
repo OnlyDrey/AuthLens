@@ -1,5 +1,5 @@
 import {test, expect} from '@playwright/test'
-import {openSettings} from './support'
+import {localeNumber,openSettings} from './support'
 
 const id = 'c'.repeat(32)
 const backup = {id, created: '2026-11-18T09:00:00Z', sha256: 'c'.repeat(64), size_bytes: 1024}
@@ -21,7 +21,7 @@ test('functional acceptance is explicit and retains the migration backup until s
   await openSettings(page, 'Backup & Restore')
   const section = page.getByRole('region', {name: 'Storage upgrade'})
   await expect(section.getByText(`Backup identifier: ${id}`)).toBeVisible()
-  await expect(section).toContainText('users 48,000 rows')
+  await expect(section).toContainText(`users ${await localeNumber(page, 48000)} rows`) // grouping follows the locale
   await expect(section).toContainText('automatic retention never deletes it')
   const approve = section.getByRole('button', {name: 'Confirm that the upgrade works'})
   await expect(approve).toBeDisabled(); expect(confirmations).toBe(0)

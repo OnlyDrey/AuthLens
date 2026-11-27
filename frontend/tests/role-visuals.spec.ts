@@ -193,28 +193,14 @@ test('module status separates saved state from unsaved preview and persists only
 })
 for (const theme of ['light', 'dark'] as const) {
   test(`module icon colors remain readable for extreme, invalid and default colors in ${theme}`, { tag: '@visual' }, async ({
-    page
+    page, request
   }, testInfo) => {
+    // The Settings theme select no longer exists (4cc6940); the theme is part of the configuration, as in the other visual specs.
+    const settings = (await (await request.get('/api/configuration', { headers })).json()).settings
+    settings.theme = theme; expect((await postConfiguration(request, settings)).ok()).toBeTruthy()
     await page.goto('/#session=browser-test-session')
-    await page
-      .getByRole('tab', { name: 'Appearance & Branding', exact: true })
-      .click()
-    await page
-      .getByRole('combobox', { name: 'Theme', exact: true })
-      .selectOption(theme)
-    if (
-      await page
-        .getByRole('button', { name: 'Apply settings', exact: true })
-        .isEnabled()
-    ) {
-      await page
-        .getByRole('button', { name: 'Apply settings', exact: true })
-        .click()
-      await expect(
-        page.getByRole('region', { name: 'AuthLens settings', exact: true })
-      ).toBeHidden()
-      await page.getByRole('button', { name: 'Open settings' }).click()
-    }
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+    await page.getByRole('button', { name: 'Open settings', exact: true }).click()
     await page.getByRole('tab', { name: 'SAP Modules', exact: true }).click()
     const row = page.getByRole('button', {
       name: 'Edit FI — Financial Accounting',

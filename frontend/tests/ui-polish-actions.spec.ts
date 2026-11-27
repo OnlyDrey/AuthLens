@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { seedGovernance } from './sod-fixture'
-import { headers, openSettings, seedSources, type SeededSources, postConfiguration } from './support'
+import { headers, openSettings, seedSources, type SeededSources, postConfiguration, goTo } from './support'
 
 const roles = `FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,CHILD_AGR_TEXT,TCODE,TTEXT
 MM,ZC:MM:BUY:ENP,Buyer plant,ZS:SH,MM - Shared purchasing,MIGO,Goods movement
@@ -115,8 +115,10 @@ test('no rounded underlines or double borders on Settings sections and main scre
     await page.goto('about:blank'); await page.goto('/#session=browser-test-session')
     const main = page.getByRole('navigation', { name: 'Main navigation', exact: true })
     const scan = async (label: string) => { for (const defect of await page.evaluate(borderDefects)) defects.push(`${theme} ${label}: ${defect}`) }
-    for (const link of ['Dashboard', 'Role Lookup', 'User Access', 'Release Roles', 'SoD']) { await main.getByRole('link', { name: link, exact: true }).click(); await scan(link) }
-    for (const tab of ['Risk Matrix', 'Access Explorer', 'Reviews', 'Review Periods', 'Reports']) { await page.getByRole('link', { name: tab, exact: true }).first().click(); await scan(`SoD ${tab}`) }
+    for (const link of ['Dashboard', 'Role Lookup', 'Users', 'SoD']) { await main.getByRole('link', { name: link, exact: true }).click(); await scan(link) }
+    for (const tab of ['Risk Matrix', 'Access Explorer']) { await page.getByRole('link', { name: tab, exact: true }).first().click(); await scan(`SoD ${tab}`) }
+    // NAV-2/3/4: module subpages through the navigation (review pages moved to Reviews, reports to Reports)
+    for (const subpage of ['Release Access', 'Work Queue', 'Position Changes', 'Account Review', 'Review Periods', 'Review Reports']) { await goTo(page, subpage); await scan(subpage) }
     await page.getByRole('button', { name: 'Open settings', exact: true }).click()
     for (const tab of await page.getByRole('tab').evaluateAll(els => els.map(element => element.getAttribute('aria-label')!))) { await page.getByRole('tab', { name: tab, exact: true }).click(); await scan(`Settings ${tab}`) }
   }
@@ -147,7 +149,7 @@ test('keyboard focus is fully revealed inside scrolling navigation strips at 375
   await seedGovernance(request, 'static')
   await page.setViewportSize({ width: 375, height: 900 })
   await page.goto('/#session=browser-test-session')
-  await page.getByRole('navigation', { name: 'Main navigation', exact: true }).getByRole('link', { name: 'SoD', exact: true }).click()
+  await goTo(page, 'SoD') // below 1024 px the main navigation is the drawer (bb3bceb)
   await page.getByRole('link', { name: 'Overview', exact: true }).first().focus()
   const seen: string[] = []
   for (let step = 0; step < 8; step++) {
@@ -162,7 +164,8 @@ test('keyboard focus is fully revealed inside scrolling navigation strips at 375
     seen.push(state.name)
     expect(state.inside, state.name).toBe(true)
   }
-  expect(seen).toEqual(expect.arrayContaining(['Activity Matrix', 'Reviews', 'Reports']))
+  // SoD keeps its four analysis pages; review pages moved to the Reviews workspace (e457ab6). The last ones need scrolling at 375 px.
+  expect(seen).toEqual(expect.arrayContaining(['Activity Matrix', 'Access Explorer']))
 })
 
 test('skip link is fully visible when focused', { tag: '@a11y' }, async ({ page }) => {

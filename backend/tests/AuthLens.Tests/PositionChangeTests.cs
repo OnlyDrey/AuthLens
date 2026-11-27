@@ -129,4 +129,44 @@ public sealed class PositionChangeTests : IAsyncLifetime
         Assert.False((bool)reviewed["position_change"]!["open"]!);
         Assert.Equal("Normal", (string)reviewed["priority"]!);                                      // the Functional Group review is still open
     }
+
+    /// <summary>Position Changes page: status and type filters and the summary come from the same position-change model and decisions as
+    /// Account Review; department and job title overlap; a review moves a change from pending to reviewed without new records.</summary>
+    [Fact]
+    public async Task Position_changes_filter_by_status_and_type_and_report_overlapping_counts()
+    {
+        var settings = JsonNode.Parse(await _client.GetStringAsync("/api/configuration"))!["settings"]!.AsObject();
+        settings["features"]!["employee_directory"] = true;
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/configuration", settings)).StatusCode);
+        var users = "USERNAME;ROLE_NAME;USER_GROUP;FIRST_NAME;LAST_NAME;EMAIL\n" + string.Join('\n', Enumerable.Range(0, 20).Select(i => $"USERP{i:00};ZC:FI:ROLE;GRP;Person;{i};person{i}@example.invalid")) + "\n";
+        await Select("users", users);
+        await Select("employees", File.ReadAllText(Path.Combine(Fixtures, "changes_before.txt")));
+        await Select("employees", File.ReadAllText(Path.Combine(Fixtures, "changes_after.txt")));
+        async Task<JsonNode> Page(string query) => JsonNode.Parse(await _client.GetStringAsync("/api/account-review?limit=100&" + query))!;
+        var all = await Page("position_status=all");
+        var summary = all["summary"]!;
+        var rows = all["items"]!.AsArray().Select(r => r!.AsObject()).ToList();
+        Assert.All(rows, r => Assert.NotNull(r["position_change"]));
+        Assert.Equal((int)summary["position_total"]!, rows.Count);
+        int Fields(string name) => rows.Count(r => r["position_change"]!["fields"]!.AsArray().Any(f => (string)f! == name));
+        Assert.Equal(Fields("department"), (int)summary["position_department"]!);
+        Assert.Equal(Fields("title"), (int)summary["position_title"]!);
+        Assert.Equal(rows.Count(r => r["position_change"]!["fields"]!.AsArray().Count == 2), (int)summary["position_both"]!);
+        Assert.True((int)summary["position_department"]! + (int)summary["position_title"]! >= (int)summary["position_total"]!);   // categories overlap
+        Assert.Equal((int)summary["position_changes"]!, (await Page("position_status=pending"))["total"]!.GetValue<int>());      // pending = Account Review metric
+        Assert.Equal(Fields("department"), (await Page("position_status=all&position_type=department"))["total"]!.GetValue<int>());
+        Assert.Equal((int)summary["position_both"]!, (await Page("position_status=all&position_type=both"))["total"]!.GetValue<int>());
+        Assert.Empty((await Page("position_status=reviewed"))["items"]!.AsArray());
+        // A review through the existing Account Review decision moves the change to reviewed; the totals stay consistent.
+        var row = await Row("USERP01");
+        var decision = await _client.PostAsJsonAsync("/api/account-review/decision/USERP01",
+            new { state = "No action required", reviewer = "Ada", rationale = "Position change reviewed", evidence_version = (string)row["evidence_version"]! });
+        Assert.True(decision.IsSuccessStatusCode, await decision.Content.ReadAsStringAsync());
+        var reviewed = await Page("position_status=reviewed");
+        Assert.Contains(reviewed["items"]!.AsArray(), r => (string)r!["username"]! == "USERP01");
+        Assert.Equal((int)summary["position_total"]!, (int)(await Page("position_status=all"))["summary"]!["position_total"]!);
+        Assert.Equal((int)summary["position_changes"]! - 1, (await Page("position_status=pending"))["total"]!.GetValue<int>());
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await _client.GetAsync("/api/account-review?position_status=closed")).StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await _client.GetAsync("/api/account-review?position_type=site")).StatusCode);
+    }
 }

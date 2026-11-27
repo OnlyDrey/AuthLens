@@ -51,8 +51,10 @@ selection, duplicate-module isolation and the elevated native NTFS restore gate.
 
 MSBuild is the only frontend build of a release; the scripts orchestrate and verify.
 
-On Windows, start with root-level `.\build.ps1`: it creates a unique UTC/SHA directory under `C:\AuthLens`, rejects dirty sources and orchestrates
-release verification and both installers. See [canonical Windows build](../deployment/WINDOWS_DEPLOYMENT.md#canonical-windows-build) for development switches,
+On Windows, start with root-level `.\build.ps1`: it generates one build id `<UTC yyyy-MM-dd_HHmm>-<sha7>` and writes `C:\AuthLens\Build\<version>\<build-id>`
+(the release) and `C:\AuthLens\Installer\<version>\<build-id>` (installers), rejects dirty sources and orchestrates release verification and both
+installers; `-ZipPackage` adds `C:\AuthLens\Packages\AuthLens-<version>-<build-id>.zip`. Focused tests of the layout, packaging and retention:
+`Invoke-Pester backend/scripts/tests/Artifact-Layout.Tests.ps1, backend/scripts/tests/Artifact-Retention.Tests.ps1`. See [canonical Windows build](../deployment/WINDOWS_DEPLOYMENT.md#canonical-windows-build) for development switches,
 traceability and manual upgrade acceptance. The lower-level scripts described below remain the implementation, not a second installation workflow.
 
 1. **Checks** (`build-release.ps1` on Windows, `build-release.sh` on Linux): Node.js 24 or 25, a valid `product-version.json`, the commit and
@@ -73,7 +75,7 @@ traceability and manual upgrade acceptance. The lower-level scripts described be
 `target_platform`, `dotnet_sdk`, `node`, `publish`, `executables` and `artifacts`; channel and file version follow from the version; the folder name
 carries version and platform; every artifact has a relative path, its size and SHA-256, and `SHA256SUMS` covers every file. Platform rules:
 `win-x64` lists `server/AuthLens.Api.exe`, a Desktop executable and `publish.desktop_native_libraries`; `linux-x64` lists only `server/AuthLens.Api`.
-Releases built before the rename to AuthLens keep verifying (naming register in [versioning](../architecture/VERSIONING.md)). The builders' texts
+Releases built before the rename to AuthLens keep verifying ([naming register](../architecture/VERSIONING.md#compatibility-identifiers-naming-register)). The builders' texts
 may differ where the platform does (for example the native-library note).
 
 Release folders on a Windows host are **server deployment packages** (no `desktop/`, no `symbols/`, a `deployment-package.json`): verify them

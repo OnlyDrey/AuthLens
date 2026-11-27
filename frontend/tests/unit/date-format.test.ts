@@ -20,3 +20,13 @@ test('Norwegian date utilities preserve SAP dates and local/offset time semantic
     assert.equal(formatTimestamp('2026-02-30T12:00:00Z'), 'Not available')
   } finally { if (previous === undefined) delete process.env.TZ; else process.env.TZ = previous }
 })
+
+// Scheduled refresh "Not available": earlier server builds could write ISO instants with a regional time separator. They are the same instant.
+test('timestamps written with a dotted time separator display as the same instant; malformed values keep the fallback', () => {
+  const dotted = formatTimestamp('2026-11-27T08.05.00+00:00'), colon = formatTimestamp('2026-11-27T08:05:00+00:00')
+  assert.notEqual(colon, 'Not available')
+  assert.equal(dotted, colon)
+  assert.equal(formatTimestamp('2026-11-27T08.05.00.123456+00:00'), colon)
+  assert.equal(formatTimestamp('27.11.2026 08.05', 'Never'), 'Never')
+  assert.equal(formatTimestamp(null, 'Never'), 'Never')
+})

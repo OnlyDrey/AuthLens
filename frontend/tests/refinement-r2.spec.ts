@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { goTo, seedSources, type SeededSources, recordClipboard, copiedText } from './support'
+import { goTo, localeNumber, seedSources, type SeededSources, recordClipboard, copiedText } from './support'
 
 const LONG = 'ZC:SYN:A_VERY_LONG_ROLE_IDENTIFIER_FOR_LAYOUT_STRESS_TESTING:ABCDEFGHIJKLMNOP:0123456789:QRSTUV'
 const roles = `FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,CHILD_AGR_TEXT,TCODE,TTEXT
@@ -53,7 +53,8 @@ test('SAP role identifiers never wrap and the copied value is the complete ident
   const code = page.locator('.role-identifier code', { hasText: LONG }).first()
   await expect(code).toBeVisible()
   expect(await code.evaluate(element => getComputedStyle(element).whiteSpace)).toBe('nowrap')
-  expect(await code.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy() // no internal scrolling
+  // BUG-09: no internal scrolling; a name wider than its box ends in an ellipsis and keeps the full value in its tooltip
+  expect(await code.evaluate(element => { const style = getComputedStyle(element); return style.overflowX === 'hidden' && (element.scrollWidth <= element.clientWidth + 1 || (style.textOverflow === 'ellipsis' && element.title === element.textContent)) })).toBeTruthy()
   expect((await code.boundingBox())!.height).toBeLessThan(32) // one line
   expect(await code.evaluate(element => element.textContent)).toBe(LONG)
   await page.getByRole('button', { name: `Copy role identifier ${LONG}`, exact: true }).first().click()
@@ -62,7 +63,7 @@ test('SAP role identifiers never wrap and the copied value is the complete ident
 
 test('multi-select shows Select all, Clear and Close with icons, and Clear is visible but disabled without a selection', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto('/#session=browser-test-session'); await goTo(page, 'User Access')
+  await page.goto('/#session=browser-test-session'); await goTo(page, 'Users')
   await page.getByRole('combobox', { name: 'SAP User Group', exact: true }).click()
   const popup = page.locator('.multi-popup'), actions = popup.locator('.multi-popup-actions').getByRole('button')
   await expect(actions).toHaveCount(3)
@@ -260,13 +261,13 @@ test('Data Sources section shows only relevant sources with honest, source-speci
   Object.assign(sources, { sod: { enabled: true, configured: true, loaded: true, loading: false, error: null, records: 40 }, users: { loaded: true, loading: false, error: null, records: 264, assignments: 5120 } })
   await page.reload()
   await expect(area.getByRole('button', { name: /^SoD Matrix: Ready/ })).toContainText('40 matrix records')
-  await expect(area.getByRole('button', { name: /^User–Role Mapping: Ready/ })).toContainText('264 users · 5,120 assignment records') // users and assignment records are different counts
+  await expect(area.getByRole('button', { name: /^User–Role Mapping: Ready/ })).toContainText(`264 users · ${await localeNumber(page, 5120)} assignment records`) // users and assignment records are different counts; grouping follows the locale
   await expect(area.getByRole('listitem')).toHaveCount(4)
 })
 
 test('User Access role rows keep a compact module badge beside the description and an unbroken role codeblock', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
-  await page.goto('/#session=browser-test-session'); await goTo(page, 'User Access')
+  await page.goto('/#session=browser-test-session'); await goTo(page, 'Users')
   await page.getByRole('link', { name: 'U2', exact: true }).click()
   const head = page.locator('.assigned-role-head').first()
   await expect(head).toBeVisible()
@@ -279,7 +280,8 @@ test('User Access role rows keep a compact module badge beside the description a
   expect(description!.x).toBeGreaterThanOrEqual(badge!.x + badge!.width - 1)
   const code = page.locator('.assigned-role .role-identifier code').first()
   await expect(code).toHaveCSS('white-space', 'nowrap') // identifiers are never wrapped
-  expect(await code.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBeTruthy()
+  // BUG-09: never scrolled; a cut-off name ends in an ellipsis with the full value in its tooltip
+  expect(await code.evaluate(el => { const style = getComputedStyle(el); return style.overflowX === 'hidden' && (el.scrollWidth <= el.clientWidth + 1 || (style.textOverflow === 'ellipsis' && el.title === el.textContent)) })).toBeTruthy()
   expect(await code.evaluate(el => el.textContent)).toBe(LONG) // the complete value is present, not truncated
 })
 

@@ -248,7 +248,7 @@ public sealed class AssignmentLifecycle(WriteCoordinator writer, IDbContextFacto
             var metaRow = rows.FirstOrDefault(r => r.Name == Meta);
             var now = clock.GetUtcNow();
             if (row is not null)
-                db.SodDocuments.Add(new SodDocument { Name = "assignment-lifecycle-before-" + now.ToString("yyyyMMddHHmmss"), Json = row.Json, Revision = row.Revision, UpdatedUtc = now.UtcDateTime, UpdatedBy = actor });
+                db.SodDocuments.Add(new SodDocument { Name = "assignment-lifecycle-before-" + now.ToString("yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture), Json = row.Json, Revision = row.Revision, UpdatedUtc = now.UtcDateTime, UpdatedBy = actor });
             int old;
             try { old = row is null ? 0 : (int?)JsonNode.Parse(row.Json)?["revision"] ?? 0; }
             catch (System.Text.Json.JsonException) { old = 0; }

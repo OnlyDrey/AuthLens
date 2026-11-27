@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { cleanup, seedGovernance } from './sod-fixture'
+import { selectSettingsSection } from './support'
 
 let directory = ''
 test.beforeEach(async ({ request }) => { directory = await seedGovernance(request, 'static') })
@@ -8,7 +9,7 @@ test.afterEach(async ({ request }) => { await cleanup(request, directory) })
 const open = async (page: Page, tab: 'Risks' | 'Activities') => {
   await page.goto('/#session=browser-test-session')
   await page.getByRole('button', { name: 'Open settings', exact: true }).click()
-  await page.getByRole('tab', { name: 'SoD Risk Configuration', exact: true }).click()
+  await selectSettingsSection(page, 'SoD Risk Configuration')
   await page.getByRole('tab', { name: tab, exact: true }).click()
 }
 

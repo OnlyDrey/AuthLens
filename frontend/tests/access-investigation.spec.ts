@@ -38,10 +38,11 @@ test("user to role to transactions and reverse role or transaction investigation
   await recordClipboard(page);
   await page.goto("/#session=browser-test-session");
   const navigation = page.getByRole("navigation", { name: "Main navigation" });
-  await expect(navigation.getByRole("link")).toHaveCount(4);
+  // NAV-1/NAV-2: the approved top-level modules in order (SoD is turned off in this fixture; Reports appears only with an available report).
+  await expect(navigation.getByRole("link")).toHaveText(["Dashboard", "Role Lookup", "Users", "Reviews"]);
   await expect(navigation.getByRole("link", {name:"Dashboard",exact:true})).toBeVisible();
   await navigation
-    .getByRole("link", { name: "User Access", exact: true })
+    .getByRole("link", { name: "Users", exact: true })
     .click();
   await page
     .getByLabel("Search users", { exact: true })
@@ -72,7 +73,7 @@ test("user to role to transactions and reverse role or transaction investigation
     .getByRole("button", { name: "Assigned users", exact: true })
     .click();
   await expect(
-    page.getByRole("region", { name: "User Access", exact: true }),
+    page.getByRole("region", { name: "Users", exact: true }),
   ).toContainText("Role: ZC:MM:BUY:EN*");
   await expect(
     page.getByRole("link", { name: "DEMO_ALFA", exact: true }),
@@ -112,7 +113,7 @@ test("directory-only users, expired and future assignments, unknown validity and
   await page.goto("/#session=browser-test-session");
   await page
     .getByRole("navigation", { name: "Main navigation" })
-    .getByRole("link", { name: "User Access", exact: true })
+    .getByRole("link", { name: "Users", exact: true })
     .click();
   await page.getByRole("link", { name: "DEMO_GAMMA", exact: true }).click();
   const detail = page.getByRole("region", {
@@ -153,13 +154,10 @@ test("release table matrix distinct counts, group comparison and user drilldown 
   page,
 }) => {
   await page.goto("/#session=browser-test-session");
-  await page
-    .getByRole("navigation", { name: "Main navigation" })
-    .getByRole("link", { name: "Release Roles", exact: true })
-    .click();
+  await goTo(page, 'Release Access');
   await page.getByRole("button", {name:"Table",exact:true}).click();
   const release = page.getByRole("region", {
-    name: "Release Roles",
+    name: "Release Access",
     exact: true,
   });
   await expect(release).toContainText("2");
@@ -177,11 +175,9 @@ test("release table matrix distinct counts, group comparison and user drilldown 
   await expect(
     page.getByRole("region", { name: "User details", exact: true }),
   ).toContainText("DEMO_BETA");
-  await page
-    .getByRole("navigation", { name: "Main navigation" })
-    .getByRole("link", { name: "Release Roles", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Back to Release Roles", exact: true }).click();
+  // NAV-1: navigation opens Release Access itself (its list); Back returns to the release role detail the user came from.
+  await page.goBack();
+  await page.getByRole("button", { name: "Back to Release Access", exact: true }).click();
   await page.getByRole("button", { name: "Matrix", exact: true }).click();
   await page.getByLabel("Compare SAP User Groups", { exact: true }).check();
   await expect(
@@ -278,7 +274,7 @@ test("user CSV detection preview and independent custom preset create rename dup
   await page.reload();
   await page
     .getByRole("navigation", { name: "Main navigation" })
-    .getByRole("link", { name: "User Access", exact: true })
+    .getByRole("link", { name: "Users", exact: true })
     .click();
   await expect(
     page.getByRole("link", { name: "DEMO_EMPTY", exact: true }),
@@ -301,20 +297,18 @@ for (const theme of DEFAULT_THEME_ONLY) {
     await page.setViewportSize({ width: 1024, height: 800 });
     await page.goto("/#session=browser-test-session");
     const nav = page.getByRole("navigation", { name: "Main navigation" });
-    await nav.getByRole("link", { name: "User Access", exact: true }).focus();
+    await nav.getByRole("link", { name: "Users", exact: true }).focus();
     await page.keyboard.press("Enter");
     await expect(
-      page.getByRole("heading", { name: "User Access", exact: true }),
+      page.getByRole("heading", { name: "Users", exact: true }),
     ).toBeVisible();
     await page.screenshot({
       path: info.outputPath(`user-access-${theme}.png`),
     });
-    await nav
-      .getByRole("link", { name: "Release Roles", exact: true })
-      .click();
+    await goTo(page, 'Release Access');
     await page.getByRole("button", { name: "Matrix", exact: true }).click();
     await expect(
-      page.getByRole("table", { name: "PR release matrix", exact: true }),
+      page.getByRole("table", { name: "release matrix", exact: true }),
     ).toBeVisible();
     await page.screenshot({
       path: info.outputPath(`release-matrix-${theme}.png`),
@@ -363,13 +357,10 @@ test("a partial matrix never presents off-page cells as zero users", async ({
       }),
   );
   await page.goto("/#session=browser-test-session");
-  await page
-    .getByRole("navigation", { name: "Main navigation" })
-    .getByRole("link", { name: "Release Roles", exact: true })
-    .click();
+  await goTo(page, 'Release Access');
   await page.getByRole("button", { name: "Matrix", exact: true }).click();
   const matrix = page.getByRole("table", {
-    name: "PR release matrix",
+    name: "release matrix",
     exact: true,
   });
   await expect(
@@ -390,12 +381,13 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1280, 600])
     await page.setViewportSize({ width, height: 1000 })
     await page.goto('/#session=browser-test-session')
     const nav = page.getByRole('navigation', { name: 'Main navigation' })
-    for (const name of ['Release Roles', 'Role Lookup', 'User Access']) {
+    for (const name of ['Release Access', 'Role Lookup', 'Users']) {
       await goTo(page, name)
       const mobile = width < 1024
       if (mobile) await page.getByRole('button', { name: 'Open navigation', exact: true }).click()
       const button = (mobile ? page.getByRole('dialog', { name: 'Navigation', exact: true }) : nav)
-        .getByRole('link', { name: mobile && name === 'User Access' ? 'User directory' : name, exact: true })
+        // the active entry: the subpage link in the drawer, the module link (Users for Release Access) in the desktop main navigation
+        .getByRole('link', { name: mobile ? (name === 'Users' ? 'User Directory' : name) : (name === 'Release Access' ? 'Users' : name), exact: true })
       await expect(button).toHaveAttribute('aria-current', 'page')
       await expect(button).toHaveCSS('box-shadow', 'none')
       await expect(button).toHaveCSS('border-bottom-width', '0px')
@@ -482,7 +474,7 @@ test('long username code wraps within its cell and copies without navigation', a
   })
   await page.setViewportSize({ width: 600, height: 900 })
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   const identifier = page.getByRole('link', { name: username, exact: true }).locator('..')
   await expect(identifier.locator('code')).toHaveText(username)
   expect(await identifier.evaluate(element => element.scrollWidth <= element.clientWidth)).toBeTruthy()

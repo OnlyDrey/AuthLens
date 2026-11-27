@@ -16,6 +16,9 @@ param(
     [string]$ConfigFile='',
     [switch]$Recover,
     [ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto',
+    # Candidate recovery whose configured certificate blocks it (G-007): replacement PFX and its protected password file.
+    [string]$RecoveryCertificateFile='',
+    [string]$RecoveryCertificatePasswordFile='',
     [switch]$PrepareOnly,
     [switch]$ResolveOnly,
     [switch]$PreflightOnly,
@@ -94,6 +97,7 @@ function Write-InstallerResult($Value) {
 }
 try {
     if($RecoveryAction -ne 'Auto' -and -not $Recover){throw 'RecoveryAction requires explicit Recover.'}
+    if(($RecoveryCertificateFile -or $RecoveryCertificatePasswordFile) -and (-not $Recover -or $Mode -ne 'Server' -or $RecoveryAction -notin @('VerifyCandidate','Resume') -or -not $RecoveryCertificateFile -or -not $RecoveryCertificatePasswordFile)){throw 'A recovery certificate needs Server -Recover -RecoveryAction VerifyCandidate or Resume with both certificate files.'}
     if($FailedPreflightReceipt -and $Operation -notin @('InspectState','QuarantineFailedSetup') -and (-not $PreflightOnly -or $Mode -ne 'Server' -or $PrepareOnly -or $Recover -or $Operation -notin @('Auto','Install'))){throw 'Failure evidence retry is read-only fresh Server preflight only.'}
     if($Operation -notin @('Auto','Install','Upgrade','Repair','Uninstall','UninstallPlan','Firewall','FirewallRemove','InspectState','QuarantineFailedSetup')){$stage='argument validation';throw 'Unknown installer operation. Use Auto, Install, Upgrade, Repair, Uninstall, Firewall, FirewallRemove, UninstallPlan, InspectState or QuarantineFailedSetup.'}
     if($ResultFile -and (Test-Path -LiteralPath $ResultFile)){throw 'A previous installer result exists; it will not be overwritten.'}
@@ -101,7 +105,7 @@ try {
     # Inno embeds these tools separately from the unchanged release manifest. Verify every helper before importing executable code.
     $proof = Join-Path $PSScriptRoot 'installer-tools.json'
     if (Test-Path -LiteralPath $proof) {
-        $expected=@('Install-AuthLens.ps1','verify-release.ps1','deploy/AuthLens.Deploy.psm1','deploy/Deploy-AuthLens.ps1','deploy/AuthLens.Paths.ps1','deploy/AuthLens.Acl.ps1','deploy/AuthLens.Installer.ps1')
+        $expected=@('Install-AuthLens.ps1','verify-release.ps1','deploy/AuthLens.Deploy.psm1','deploy/Deploy-AuthLens.ps1','deploy/AuthLens.Paths.ps1','deploy/AuthLens.Acl.ps1','deploy/AuthLens.Installer.ps1','recovery/New-AuthLensRecoveryBundle.ps1','recovery/Test-AuthLensRestoreRehearsal.ps1','acceptance/AuthLens.Acceptance.psm1')
         $entries=@((Get-Content -LiteralPath $proof -Raw -Encoding UTF8 | ConvertFrom-Json).files)
         if ((@($entries.path | Sort-Object) -join '|') -cne (@($expected | Sort-Object) -join '|')) { throw 'Installer helper inventory is incomplete or unexpected.' }
         foreach ($entry in $entries) {
@@ -189,7 +193,7 @@ try {
                 $result=Invoke-ALInstallerFirewallRecover $config -Rollback:$FirewallRollback
             }elseif($FirewallRollback){Stop-AL 'No firewall recovery journal exists; nothing was rolled back.'}
             elseif(Test-Path -LiteralPath (Join-AL $config.WorkRoot 'uninstall-pending.json')){$stage='Server uninstall recovery';$result=Invoke-ALInstallerServerUninstall $resolved}
-            else{$stage='Server recovery transaction'; $result=Invoke-ALInstallerServer $config '' -Recover -RecoveryAction $RecoveryAction}
+            else{$stage='Server recovery transaction'; $result=Invoke-ALInstallerServer $config '' -Recover -RecoveryAction $RecoveryAction -RecoveryCertificateFile $RecoveryCertificateFile -RecoveryCertificatePasswordFile $RecoveryCertificatePasswordFile}
         }
         elseif ($PrepareOnly) {
             $stage='Server installation preflight'; $plan=Get-ALServerSetupPlan $resolved $Package $Operation; $operation=$plan.operation
@@ -251,6 +255,9 @@ try {
     $technical=Get-InstallerTechnicalDiagnostic $failure
     $known=@('Unknown installer operation. Use Auto, Install, Upgrade, Repair, Uninstall, Firewall, FirewallRemove, UninstallPlan, InspectState or QuarantineFailedSetup.','A previous installer result exists; it will not be overwritten.','Select only one recovery, resolve, preflight or preparation mode.','Server lifecycle options are not Desktop options.','Installation requires explicit -Yes after reviewing the selected paths and configuration.','Packaged installer helper integrity manifest is missing.','Installer helper integrity verification failed.','Installer helper inventory is incomplete or unexpected.','Invalid installer helper path.','Server Setup requires an elevated operator session.','Recover and PrepareOnly cannot be combined.')
     $reason=if ($failure.Exception.Message -in $known -or $failure.Exception.Message -in $installerPublicErrors) { $failure.Exception.Message } else { 'Prerequisite/helper/configuration error ('+$failure.Exception.GetType().Name+'). Review the explicit configuration and packaged helper integrity.' }
+    # WP34: a storage refusal carries its computed breakdown (volume roots, byte counts and category names only); the GUI shows this first line.
+    $storage=if($failure.Exception.Data.Contains('AuthLensStorage')){$failure.Exception.Data['AuthLensStorage']}else{$null}
+    if($storage -and $reason -ceq $failure.Exception.Message){$reason=$reason+' '+[string]$storage.summary}
     $reason=[regex]::Replace($reason,'(?i)(password|token|secret|credential|passphrase)\s*[:=]\s*[^\s;,]+','$1=[REDACTED]')
     $summary="Stage: $stage. $reason "+(Get-InstallerJournalState).message
     $diagnostic=$summary+"`n"+$technical
@@ -263,7 +270,9 @@ try {
     $code=if($stage -like '*transaction'){4}else{2}
     if ($failure.Exception.PSObject.Properties['ExitCode']) { $code=$failure.Exception.ExitCode }
     try{
-        Write-InstallerResult @{schema=1;operation_id=$operationId;status='refused_or_failed';exit_code=$code;stage=$stage;message=$reason;technical_diagnostic=$technical;diagnostic_file=$DiagnosticFile;deployment_journal=$journalPath}
+        $refusal=@{schema=1;operation_id=$operationId;status='refused_or_failed';exit_code=$code;stage=$stage;message=$reason;technical_diagnostic=$technical;diagnostic_file=$DiagnosticFile;deployment_journal=$journalPath}
+        if($storage){$refusal.storage=$storage}
+        Write-InstallerResult $refusal
         # Create-only evidence for a later, explicitly selected read-only retry. Never certify a
         # transaction failure or an old result, and never infer a transaction from an expected path.
         if($Mode -eq 'Server' -and $stage -eq 'Server installation preflight' -and $code -eq 2 -and $SetupMetadataFile -and $diagnosticWritten -and -not $FailedPreflightReceipt -and -not (Get-InstallerJournalState).exists){

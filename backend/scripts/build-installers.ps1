@@ -5,11 +5,14 @@
 .DESCRIPTION
   1. Verifies the release folder with verify-release.ps1 (every artifact against build-manifest.json and SHA256SUMS) and refuses a dirty or non-win-x64 build.
   2. Compiles installer\AuthLens-Desktop.iss and installer\AuthLens-Server.iss with the manifest's version and file version.
-  3. Writes AuthLens-<version>-Setup.exe, AuthLens-Server-<version>-Setup.exe and installers-SHA256SUMS into -Output.
+  3. Writes AuthLens-<version>-Desktop-Setup.exe, AuthLens-<version>-Server-Setup.exe, installer-manifest.json, installers-SHA256SUMS, DEPLOY.txt and
+     Expand-AuthLensPackage.ps1 into -Output (an empty directory; build.ps1 passes C:\AuthLens\Installer\<version>\<build-id>). The packaged helper inventory (installer-tools-<unique id>\installer-tools.json) holds the deployment tools
+     and, since QA-028, the independent recovery scripts (recovery\) with the acceptance module that the restore rehearsal imports.
   Nothing is signed, uploaded, tagged or installed. Code signing is a separate, authorized release step.
 
 .EXAMPLE
-  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-installers.ps1 -ReleasePath C:\AuthLens-Build\builds\AuthLens-2.0.0-alpha.1-...-win-x64 -Output C:\AuthLens-Build\installers
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-installers.ps1 -ReleasePath C:\AuthLens\Build\<version>\<build-id> -Output C:\AuthLens\Installer\<version>\<build-id>
+  # Diagnostics only: candidates use the root-level build.ps1, which runs this script.
 #>
 param(
     [Parameter(Mandatory = $true)][string]$ReleasePath,
@@ -20,6 +23,7 @@ Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $installers = Join-Path (Split-Path -Parent $here) 'installer'
+. (Join-Path $here 'Build-Workflow.ps1')
 
 & (Join-Path $here 'verify-release.ps1') -ReleasePath $ReleasePath
 if ($LASTEXITCODE -ne 0) { throw "verify-release.ps1 refused $ReleasePath; no installer was built." }
@@ -42,10 +46,12 @@ if (-not $Iscc -or -not (Test-Path -LiteralPath $Iscc)) { throw 'Inno Setup 6 (I
 New-Item -ItemType Directory -Force $Output | Out-Null
 $Output = (Resolve-Path -LiteralPath $Output).ProviderPath
 if (@(Get-ChildItem -LiteralPath $Output -Force).Count) { throw 'Installer output must be empty; previous packages and incomplete artifacts are never overwritten.' }
-$packageName = Split-Path $release -Leaf
+# The installed release and Setup staging name keeps its convention AuthLens-<version>-<yyyyMMdd-HHmmss>-<sha7>-win-x64 (derived from the
+# manifest when the release is a WP32 Build\<version>\<build-id> directory).
+$packageName = Get-AuthLensReleaseName $release $manifest
 $tools = Join-Path $Output ('installer-tools-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory $tools | Out-Null
-$entries = foreach ($relative in @('Install-AuthLens.ps1','verify-release.ps1','deploy/AuthLens.Deploy.psm1','deploy/Deploy-AuthLens.ps1','deploy/AuthLens.Paths.ps1','deploy/AuthLens.Acl.ps1','deploy/AuthLens.Installer.ps1')) {
+$entries = foreach ($relative in @('Install-AuthLens.ps1','verify-release.ps1','deploy/AuthLens.Deploy.psm1','deploy/Deploy-AuthLens.ps1','deploy/AuthLens.Paths.ps1','deploy/AuthLens.Acl.ps1','deploy/AuthLens.Installer.ps1','recovery/New-AuthLensRecoveryBundle.ps1','recovery/Test-AuthLensRestoreRehearsal.ps1','acceptance/AuthLens.Acceptance.psm1')) {
     $target = Join-Path $tools $relative
     New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
     Copy-Item -LiteralPath (Join-Path $here $relative) -Destination $target
@@ -53,17 +59,23 @@ $entries = foreach ($relative in @('Install-AuthLens.ps1','verify-release.ps1','
 }
 [IO.File]::WriteAllText((Join-Path $tools 'installer-tools.json'),(@{schema=1;files=@($entries)} | ConvertTo-Json -Depth 5))
 
+# WP32 Setup names AuthLens-<version>-Desktop-Setup.exe and AuthLens-<version>-Server-Setup.exe (ISCC /F; the scripts' default names are unchanged).
+$outputNames = @{ 'AuthLens-Desktop.iss' = "AuthLens-$version-Desktop-Setup"; 'AuthLens-Server.iss' = "AuthLens-$version-Server-Setup" }
 foreach ($script in 'AuthLens-Desktop.iss', 'AuthLens-Server.iss') {
     $ErrorActionPreference = 'Continue'
-    & $Iscc '/Q' "/O$Output" "/DFullVersion=$version" "/DNumericVersion=$numeric" "/DReleaseDir=$release" "/DPackageName=$packageName" "/DToolsDir=$tools" (Join-Path $installers $script)
+    & $Iscc '/Q' "/O$Output" "/F$($outputNames[$script])" "/DFullVersion=$version" "/DNumericVersion=$numeric" "/DReleaseDir=$release" "/DPackageName=$packageName" "/DToolsDir=$tools" (Join-Path $installers $script)
     $code = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     if ($code -ne 0) { throw "ISCC failed for $script (exit $code)." }
 }
-$names = "AuthLens-$version-Setup.exe", "AuthLens-Server-$version-Setup.exe"
-$lines = foreach ($name in $names) {
+$names = "AuthLens-$version-Desktop-Setup.exe", "AuthLens-$version-Server-Setup.exe"
+# Standalone operator files beside the installers: the package extraction/verification script and concise deployment instructions.
+Copy-Item -LiteralPath (Join-Path $here 'Expand-AuthLensPackage.ps1') -Destination (Join-Path $Output 'Expand-AuthLensPackage.ps1')
+$deploy = (Get-Content -LiteralPath (Join-Path $here 'package-DEPLOY.txt') -Raw).Replace('{{VERSION}}', $version).Replace('{{SHA}}', [string]$manifest.source_sha).Replace('{{BUILD_ID}}', (Split-Path $Output -Leaf))
+[IO.File]::WriteAllText((Join-Path $Output 'DEPLOY.txt'), $deploy.Replace("`r`n", "`n").Replace("`n", "`r`n"), [Text.Encoding]::ASCII)
+$lines = foreach ($name in @($names) + @('DEPLOY.txt', 'Expand-AuthLensPackage.ps1')) {
     $file = Join-Path $Output $name
-    if (-not (Test-Path -LiteralPath $file)) { throw "Expected installer $name was not written." }
+    if (-not (Test-Path -LiteralPath $file)) { throw "Expected installer file $name was not written." }
     '{0} *{1}' -f (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant(), $name
 }
 [System.IO.File]::WriteAllLines((Join-Path $Output 'installers-SHA256SUMS'), [string[]]$lines)

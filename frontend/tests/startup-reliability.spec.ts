@@ -21,7 +21,8 @@ const model = async (page: Page, server: Server) => {
     const response = await route.fetch(), json = await response.json()
     await route.fulfill({ response, json: { ...json, loading: server.loading, data_revision: STABLE_REVISION, instance_id: server.instance } })
   })
-  await page.route('**/api/dashboard', async route => {
+  // The dashboard sends its population filters as a query string (2a78dfc); match the endpoint with or without one, never /filter-options.
+  await page.route(/\/api\/dashboard(\?.*)?$/, async route => {
     const response = await route.fetch(), json = await response.json()
     if (server.emptyDashboard) {
       json.metrics = json.metrics.map((metric: { value: number | null }) => ({ ...metric, value: null, unavailable_reason: 'Source not loaded' }))

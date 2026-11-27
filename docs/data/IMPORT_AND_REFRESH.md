@@ -55,15 +55,104 @@ Reports contain personal data and stay local. Diagnostic exports contain only al
 
 ## Scheduled refresh
 
+**How it runs.** `RefreshScheduler` is a hosted background service of the AuthLens process (Windows service, console Server and Desktop; not
+with `--no-worker`, which the status reports as `scheduler_active: false` and Settings shows as an alert). It evaluates the saved
+`refresh_schedule` every 20 seconds, so a saved change takes effect without a restart and the definition survives restarts in the settings.
+A changed definition starts from now. A due slot runs once through the same refresh pipeline and authorization as **Refresh** (only Dynamic
+sources are read; Static sources are skipped; an invalid, missing, unreadable or empty file keeps the last valid dataset). A refresh that is
+still running (manual or scheduled) makes the slot `skipped`; a run is cancelled after 30 minutes. **Missed slots** (application stopped or
+busy) are skipped, never replayed in a burst; there is no catch-up run. The outcome (`last_attempt`, `last_success`, `last_failure`,
+`last_status`, `consecutive_failures`) is kept in `<data>\refresh-schedule.json`. Daily and cron schedules use the selected IANA zone (for
+example Europe/Oslo, also on Windows through ICU); daylight-saving gaps are skipped and a repeated hour runs once. Saving refuses a schedule
+that never runs, runs more often than every 5 minutes or names a zone the system lacks; an enabled schedule that still cannot be evaluated
+(for example a restored setting) is reported as `error` and logged once, never shown as healthy.
+
+**Timestamps are culture-independent (RC6 defect, corrected for RC7).** The host formatted ISO instants with the Windows regional format of
+the account it runs as: a custom format's `:` is the culture's time separator, so under for example da-DK or fi-FI (ICU) the server wrote
+`2026-11-27T08.05.00+00:00`. Browsers cannot parse that, so the next runs and the source timestamps showed *Not available* / *Not yet
+loaded*, and the scheduler's state file was read as never attempted. The host now runs with the invariant culture (Server, Desktop and the
+maintenance commands) and every custom timestamp format names it; values written earlier with dots are read as the same instant (the
+backend repairs the scheduler state and the diagnostics output, the UI formatter accepts them) until the next refresh rewrites them. No
+timestamp is invented: a source whose history is genuinely unknown keeps its unknown state.
+
 ### Server source policy remediation (awaiting Windows acceptance)
 
-All four CSV sources use one policy for path selection, preview, individual refresh and Global Refresh.
-Browser uploads remain Static and never authorize access to client-device paths. Administrator requests may
-select CSVs beneath `<data-dir>/sources` or an additional operator-approved directory. Configure the latter
+All four CSV sources (Role Catalogue, User Access, SoD Matrix, Employee Directory) share one workflow and one policy for selection,
+validation, preview, individual refresh and Global Refresh.
+
+**Unified selection (WP33, after RC5).** In **Settings → Data Sources** every source asks two independent questions:
+
+1. **File location.** *Upload from this device* (a copy of a file from the device running the browser) or *File on the AuthLens host* (a
+   file the server reads directly). On the host, a local path (`D:\Exports\users.csv`) and a network path (`\\fileserver\share\users.csv`) use
+   the same field; the type is detected from the path and shown, never chosen up front. **Browse host…** opens the host file picker. Desktop
+   installations offer the upload (system file dialog) and a path field for a file on that computer.
+2. **Update mode.** *Static: replace manually* or *Dynamic: refresh from the file*. It can change before or after validation and import:
+   the configured file and the active dataset are kept, so switching back needs no new selection; saving the change reads nothing (the next
+   Global or scheduled refresh reads a Dynamic file, or use **Refresh source**). An uploaded copy cannot follow changes on the device it came
+   from: the panel says so and points to a host file instead.
+
+**Host file picker.** An Open-dialog style browser of the AuthLens **server** (not the browser device; usable from a phone): host name, approved
+locations (operator folders, administrator-approved folders, folders of configured sources), breadcrumbs, parent folder, direct path entry,
+search within the folder, sorting by name, size and modification time, CSV filter, folder and file icons, Select and Cancel, and explicit
+loading, empty, not approved, access denied, missing and unavailable states. It never creates, renames, moves, deletes or opens files; selecting
+returns the host path only.
+
+**Approved folders.** Administrators approve specific folders in the picker (an explicit confirmation; **Approved folders** lists and removes
+them). Files below an approved folder validate without a per-file grant (`authorization: approved_folder`); any other host file is approved
+for its exact source when it is first validated. Folder approval is stored in the protected, signed source authority (next to exact grants,
+outside restorable data) and refuses volume and share roots, the AuthLens installation and data, and Windows, program and user-profile
+locations. Operator folders (`AUTHLENS_SOURCE_ROOTS`) keep working. **Application approval is not a Windows permission:** the AuthLens service
+identity still needs NTFS read access (and share access for network files); AuthLens never changes NTFS or share permissions, never asks for
+or stores SMB credentials, and never uses the browser user's sign-in.
+
+**Browsing security.** Browsing and approval require administration. A folder outside every approved location is refused before the
+filesystem or network is touched, so an unapproved UNC path causes no SMB request; network targets must resolve to private addresses; every
+directory from the volume root down must be a plain directory (junctions and symbolic links are refused, and skipped inside listings); hidden,
+system and device entries are not listed; AuthLens private state (data, keys, TLS, backups, deployment state) is never listed even below a broad
+operator folder; listings are capped at 2,000 entries, and a location that does not answer within 15 seconds is reported as
+`network_unavailable` instead of holding the request. The picker also offers the last five folders selected in this browser (kept in the
+browser only; the server still enforces approval). API: `GET /api/server/sources/browse[?path=&q=&all=]`, `GET|POST|DELETE
+/api/server/sources/roots`.
+
+**Validate and import** (the normal flow) reads the complete dataset as the running backend identity and imports exactly that validated
+content (hash-bound; a suspicious reduction is still held for confirmation). **Validate only** checks without changing data; **Import
+validated file** imports it later only if its SHA-256 still matches, and disappears as soon as the path changes. A changed file requires
+validation again. **Limitation (FILE-008, partial):** the change is detected and refused at import (`source_changed`),
+but the panel does not yet indicate before import that the file changed since validation. Normal source configuration does not require editing JSON, registry or environment variables.
+
+Validation runs in the AuthLens server process, so it proves access for the actual service identity, not for an administrator's PowerShell
+session. Outcomes (`category`; the last valid dataset is always kept, `previous_preserved: true`):
+
+| Category | Meaning |
+| --- | --- |
+| `validated` (status) | The source is accessible and complete; record count reported, nothing activated by a test |
+| `invalid_path` | Not an absolute `.csv` path, or an unsupported form (device path, alternate data stream, traversal, junction or symbolic link) |
+| `not_a_file` | The path names a folder; a local folder is detected, a UNC path is never touched before authorization |
+| `policy_prohibited` | Authorization required: not authorized exactly on this host or by an approved directory (also after restore or revocation) |
+| `missing` | The file does not exist (or the share path does not) |
+| `access_denied` | The service identity cannot read it (NTFS, or for UNC also the SMB share permission) |
+| `network_unavailable` | The share or server is unreachable, or its name does not resolve |
+| `malformed_csv`, `encoding`, `headers`, `dates`, `validation` | Invalid CSV format, encoding, missing required columns or mappings, invalid dates, other validation |
+| `empty` | No usable records (empty or header only) |
+| `source_changed` | The file changed while it was read or after validation |
+
+An unconfigured source shows its setup state (`authorization: none`, `configured: false`) and is counted separately by Global Refresh.
+
+Exact-file authorization is source-specific and held in a protected sibling folder of the data directory,
+`.authlens-source-policy-<data-path-hash>`. Deployment provisions only this folder for the service identity;
+it grants no source/share access. The authority is authenticated to the protected host token and canonical
+data path, excluded from application backups and never inferred from restored settings. Changing the host
+token or data location requires reauthorization. Interrupted/invalid authority files fail closed; preserve
+them for operator review. The administrator can replace one source's exact authorization, not browse files
+or grant a whole directory. Application installation internals cannot be authorized through this interface.
+
+For compatibility, administrator requests may still select CSVs beneath `<data-dir>/sources` or an additional
+operator-approved directory. Configure the latter
 with deployment JSON `SourceDirectory` (passed as `--source-dir`), or `AUTHLENS_SOURCE_DIR`. Advanced hosts may
 provide `AUTHLENS_SOURCE_ROOTS` as a JSON array of absolute directories. Local directories and Windows UNC
 directories are supported; roots are host configuration, excluded from application backups and never changed
-by a browser. A restored external path requires approval on the destination host before a live read.
+by a browser. A restored external path requires approval on the destination host before a live read; its
+saved path, mode and durable snapshot remain intact while approval is pending.
 
 Use a dedicated export directory, not a drive containing unrelated confidential files. The actual service
 identity requires directory traversal and CSV read access; for UNC sources both share and NTFS permissions
@@ -71,13 +160,27 @@ must allow that identity. Virtual accounts normally authenticate remotely as the
 the effective identity with the domain administrator. No credentials are stored by this workflow, and the
 application does not change service accounts or grant filesystem access. Restart after host-policy changes.
 
-Paths must be absolute CSV paths, inside an approved directory at a directory boundary. Device paths,
+Paths must be absolute CSV paths, authorized exactly or inside an approved directory at a directory boundary. Device paths,
 alternate streams, traversal spellings, symbolic links and reparse points in any ancestor are refused.
-Operators must protect approved directory ancestors against untrusted replacement during reads. Network
+UNC targets must resolve only to private or loopback addresses; administrative `$` shares and WebDAV-style
+targets are refused. No SMB read is attempted until source authorization succeeds. Enterprise DNS, SMB
+signing, DFS referral policy and share administrators remain trusted host infrastructure; DNS validation
+does not pin the SMB session or replace host outbound-authentication policy. Protect source ancestors
+against untrusted replacement during reads. Network
 availability and ACL checks execute as the running service. Missing files, denied access, unavailable shares,
 policy refusal and parser/schema errors retain the last validated snapshot. Source status shows the last
 attempt separately from the durable snapshot; it does not claim current reachability without a read.
 Refresh can use the saved source without disclosing its path back to the browser.
+
+**Authorization status and revocation.** `GET /api/server/sources/{source}` (administrator only, `no-store`) reports the configured path,
+mode and `authorization` without reading the source or contacting a share: `none`, `managed` (upload copy), `approved_root`, `exact`,
+`required` (configured but needs authorization on this host, for example after restore or revocation) or `invalid` (path refused, or the
+protected authority file is tampered/unreadable; fails closed). The Data Sources panel shows this status. **Revoke authorization**
+(`DELETE /api/server/sources/{source}/authorize`) removes only that source's exact authority: the configured path, mode and last valid
+snapshot are retained, and later validation or refresh is refused (`policy_prohibited`) until an administrator authorizes the file again.
+Lexical UNC rules (named server and share, no administrative `$` share, no `@` WebDAV host) are enforced when authorizing, before anything
+is stored; DNS private-address checks run before any SMB read. Authorization and revocation are logged under `AuthLens.Sources` with the actor.
+Opening the panel selects **Local server file** or **Network file (UNC)** when such a path is configured, otherwise **Browser upload**.
 
 #### Data-source compatibility matrix
 
@@ -94,6 +197,53 @@ Historical code was inspected only; no Python service or fixtures were added to 
 | Browser uploads | Static managed uploads | Static multipart upload and durable managed copy | Native deployed UI smoke test |
 | Restore / restart | Saved source and durable snapshot; host source-root policy | Saved settings persist; host approval is independent; failed reads retain snapshots | AuthLens alpha and supported SAP Lens backup acceptance on Windows |
 | Unavailable/invalid source | Retain last valid data | Categorized refresh failures and durable snapshot retained | Denied ACL, disconnected share and recovery under SCM |
+
+#### Data-source coverage matrix
+
+Sources: the **SAP extract** is the Role Catalogue (SAP role/transaction extract) and the User–Role Mapping (SAP user/assignment extract);
+with the Employee Directory and the SoD Matrix these are all file-based sources (`Sources.All`); there are no others. Every source uses the
+same source policy (`ServerSourcePolicy`, `ServerSourceAuthorization`), validation endpoint, activation (`/api/data-sources/{source}/select`,
+multipart upload) and import pipeline (`ImportService`, staged and atomically activated dataset revisions); individual refresh and Global
+Refresh use the same resolution. Evidence: focused .NET tests on VM130 (Windows, not as a service) unless stated.
+
+| Capability | Role Catalogue | User–Role Mapping | Employee Directory | SoD Matrix | Evidence | Native acceptance |
+| --- | --- | --- | --- | --- | --- | --- |
+| Browser upload, Static | Yes | Yes | Yes | Yes | `DataSourcesTests` upload cases; `server-source-configuration.spec.ts` (panel) | D1 |
+| Local server file, Static and Dynamic | Yes | Yes | Yes | Yes | `DataSourcesTests.Administrator_authorizes_validates_and_activates_exact_server_file` (4 sources × 2 modes, restart, missing file) | D2 |
+| Network file (UNC), Static and Dynamic | Yes (same code path) | Yes | Yes | Yes | UNC lexical rules in `ServerSourcePolicyTests`; no SMB read is possible on VM130 | **D3, release blocker** |
+| Validate and import in one step (hash-bound) | Yes | Yes | Yes | Yes | `server-source-configuration.spec.ts` (all four panels) | D2 |
+| Validation outcomes (not configured, authorization required, missing, folder, invalid path, unsafe path, share unavailable, access denied, malformed, headers, empty, valid) | Yes | Yes | Yes | Yes | `DataSourcesTests.Source_validation_distinguishes_folder_invalid_path_authorization_missing_empty_and_valid`, `ServerSourcePolicyTests.Refusals_name_the_reason_and_never_touch_a_UNC_path_before_authorization`, category mapping | D5 to D7, D12 |
+| Static not reread by Global Refresh; Dynamic reread | Yes | Yes | Yes | Yes | `DataSourcesTests`, `RefreshTests` | D4 |
+| Failed or empty refresh keeps the last valid dataset | Yes | Yes | Yes | Yes | `RefreshTests.A_dynamic_source_whose_export_became_empty_keeps_its_data_on_refresh` (`empty`), `DataSourcesTests` | D5, D10 |
+| Partial success, per-source errors, View Changes only with changes | Yes | Yes | Yes | Yes | `RefreshTests`, `RefreshReportTests` | D4 |
+| Suspicious reduction held for confirmation | Yes | Yes | Yes | Yes | `SettingsReimportTests`, `DataSourcesTests` | D5 |
+| Exact authorization, revocation, `required` after restore | Yes | Yes | Yes | Yes | `DataSourcesTests.Revoked_server_authority_fails_closed_and_preserves_configuration_and_snapshot`, `ServerSourcePolicyTests` | D8, E3 |
+| Restart persistence (configuration, mode, snapshot) | Yes | Yes | Yes | Yes | `DataSourcesTests` restart cases | D9 |
+| Backup and restore, legacy migration | Yes | Yes | Yes | Yes | `ApplicationBackupTests`, `LegacyRestoreTests` (snapshots restored); the source authority is excluded from backups by design | E3, E5 |
+| Review and SoD evidence preserved across imports | n/a | Yes (review history) | n/a | Yes (fingerprints, revisions, stale reviews, approvals) | `SodSourceMetadataTests` (run in this round); the review and SoD suites were not rerun because their code is unchanged | E4 |
+| Administrator-only configuration | Yes | Yes | Yes | Yes | `ServerSourcePolicyTests` permission assertions | C2 smoke |
+
+Implemented in this round: precise validation categories (`not_a_file`, `invalid_path`, `empty`; `policy_prohibited` now means
+authorization required) and **Validate and import**. Remaining gaps: native Windows Service reads of local and UNC files (same-host and remote
+SMB), restored-source reauthorization end to end, and a persisted audit trail of source authorization beyond the service log (today
+authorization, revocation and validation are logged under `AuthLens.Sources` with the actor). Mocked or local tests never count as SMB or
+service-identity acceptance.
+
+Source-type compatibility (all four sources share one policy and pipeline; status per combination):
+
+| Combination | Implemented | Verified (focused tests, Windows host, not as a service) | Native Windows Service acceptance |
+| --- | --- | --- | --- |
+| Browser upload, Static | Yes | `DataSourcesTests` upload cases | Pending |
+| Local absolute path, Static and Dynamic, exact authorization | Yes | `DataSourcesTests.Administrator_authorizes_validates_and_activates_exact_server_file` (8 cases: 4 sources × 2 modes; restart, missing file, snapshot retained) | Pending (service identity NTFS read) |
+| Local path in operator-approved root | Yes | `DataSourcesTests`, `ServerSourcePolicyTests` | Pending |
+| Revocation, `required`/`invalid` status | Yes | `DataSourcesTests.Revoked_server_authority_fails_closed_and_preserves_configuration_and_snapshot`, `ServerSourcePolicyTests` | Pending |
+| UNC lexical policy (`$` share, `@` host, missing share) | Yes | `ServerSourcePolicyTests` (Windows only) | Pending |
+| UNC same-server and remote SMB read, Static and Dynamic | Yes (shared code path) | Not verifiable without SMB shares | **Pending, release blocker** |
+| Validate before activation, hash-bound activation | Yes | `DataSourcesTests` (changed file refused) | Pending |
+| Individual and Global Refresh, failure retains snapshot | Yes | `DataSourcesTests` | Pending under SCM |
+| Unauthorized (non-administrator) API access | Yes | `V1Auth.Permission` assertions in `ServerSourcePolicyTests` | Pending reviewer smoke test |
+| Restore requires reauthorization, path/mode/snapshot kept | Yes (authority excluded from backups) | Status `required` covered by unit test; end-to-end restore not run | **Pending** |
+| Native Linux absolute paths | Yes (same code path) | Not run in this round (Windows host) | n/a |
 
 No supported source type is intentionally dropped. Native UNC/service identity, restored-source and SoD
 evidence acceptance are release blockers until executed; focused local tests do not establish those results.

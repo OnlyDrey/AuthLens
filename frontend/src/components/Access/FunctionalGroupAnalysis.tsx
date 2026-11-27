@@ -11,7 +11,7 @@ import { SAPUserLink } from '@/components/Shared/SAPUserLink'
 import { Input } from '@/components/Shared/Controls'
 import { patternLabel, patternTone } from '@/lib/functionalGroupText'
 import { textMatches } from '@/lib/searchMatching'
-import { userAccessHref } from '@/hooks/useViewHistory'
+import { usersHref } from '@/hooks/useViewHistory'
 
 const pct = (value: number) => `${Math.round(value * 100)}%`
 type Filter = 'all' | 'common' | 'uncommon' | 'deviations'
@@ -99,7 +99,7 @@ export function FunctionalGroupAnalysis({ id, name, onClose, onViewMembers }: { 
                     <td>{user.additional_roles.join(', ') || '—'}</td><td>{user.missing_common_roles.join(', ') || '—'}</td></tr>))}</tbody>
               </DataTable>
             )}
-            <p className="ui-description">Investigate a difference in <a href={userAccessHref('compare')}>Compare users</a> or the user's details; any change goes through the existing review workflow.</p>
+            <p className="ui-description">Investigate a difference in <a href={usersHref('compare')}>Compare users</a> or the user's details; any change goes through the existing review workflow.</p>
           </>
         )}
       </div>

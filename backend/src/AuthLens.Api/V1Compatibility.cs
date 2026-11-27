@@ -167,6 +167,7 @@ public static class V1Compatibility
         V1ImportPreview.Map(api);
         V1Access.Map(api);
         V1DataHealth.Map(api);
+        V1Reports.Map(api);
         V1Dashboard.Map(api);
         V1SavedFilters.Map(api);
         V1AccessPackage.Map(api);

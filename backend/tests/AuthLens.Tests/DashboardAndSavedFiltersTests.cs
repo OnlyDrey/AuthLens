@@ -91,6 +91,171 @@ public sealed class DashboardAndSavedFiltersTests : IAsyncLifetime
         Assert.Equal(3, dashboard["sources"]!.AsArray().Count);
     }
 
+    [Fact]
+    public async Task Dashboard_population_filters_combine_OR_within_and_AND_between_dimensions_and_scope_access_metrics()
+    {
+        await Import("roles", Csv.Roles(4));                                        // ROLE_0000 T000-T002, ROLE_0001 T003-T005, ROLE_0002 T006-T008
+        const string open = "20000101;99991231";
+        await Import("users", Csv.UsersHeader + "\n" + string.Join("\n",
+            $"USER0001;ZC:FI:ROLE_0000;GRP_FIN;First;Last;;{open};{open};;A",
+            $"USER0001;ZC:FI:ROLE_0002;GRP_FIN;First;Last;;{open};{open};;A",
+            $"USER0002;ZC:FI:ROLE_0001;GRP_HR;First;Last;;{open};{open};;S",
+            $"USER0003;ZC:FI:ROLE_0002;GRP_HR;First;Last;;20000101;20010101;{open};;A") + "\n");
+        async Task<JsonNode> Get(string query) => JsonNode.Parse(await _client.GetStringAsync("/api/dashboard" + query))!;
+        var all = await Get("");
+        Assert.Equal(3, (int)Metric(all, "users")["value"]!);
+        Assert.Equal(3, (int)Metric(all, "assigned_roles")["value"]!);
+        Assert.Equal(9, (int)Metric(all, "assigned_tcodes")["value"]!);
+        Assert.Equal(4, (int)all["role_distribution"]!["FI"]!);                     // no population: the whole catalogue
+        Assert.Null(all["population_usernames"]);
+
+        var hr = await Get("?user_groups=GRP_HR");
+        Assert.Equal(2, (int)Metric(hr, "users")["value"]!);
+        Assert.Equal(2, (int)Metric(hr, "assigned_roles")["value"]!);              // ROLE_0001 and ROLE_0002 (current role validity)
+        Assert.Equal(6, (int)Metric(hr, "assigned_mappings")["value"]!);
+        Assert.Equal(4, (int)Metric(hr, "roles")["value"]!);                       // catalogue metrics stay global and are labelled so
+        Assert.Contains("roles", hr["scope"]!["global_metrics"]!.AsArray().Select(m => (string)m!));
+        Assert.Equal("population", (string)hr["scope"]!["role_distribution"]!);
+        Assert.Equal(2, (int)hr["role_distribution"]!["FI"]!);
+        Assert.Equal(new[] { "USER0002", "USER0003" }, hr["population_usernames"]!.AsArray().Select(u => (string)u!));
+        // OR inside a dimension, AND between dimensions.
+        Assert.Equal(3, (int)Metric(await Get("?user_groups=GRP_HR&user_groups=GRP_FIN"), "users")["value"]!);
+        Assert.Equal(1, (int)Metric(await Get("?user_groups=GRP_HR&user_types=S"), "users")["value"]!);
+        Assert.Equal(2, (int)Metric(await Get("?roles=ZC:FI:ROLE_0002"), "users")["value"]!);                     // users holding the role
+        Assert.Equal(1, (int)Metric(await Get("?roles=ZC:FI:ROLE_0002&user_groups=GRP_FIN"), "users")["value"]!);
+        Assert.Equal(1, (int)Metric(await Get("?tcodes=T004"), "users")["value"]!);
+        // Role and transaction filters may be met by different assignments of the same user (documented user-population semantics).
+        Assert.Equal(1, (int)Metric(await Get("?roles=ZC:FI:ROLE_0000&tcodes=T007"), "users")["value"]!);
+        Assert.Equal(1, (int)Metric(await Get("?account_states=expired"), "users")["value"]!);
+        Assert.Equal(0, (int)Metric(await Get("?user_groups=GRP_UNKNOWN"), "users")["value"]!);              // an empty population is reported, not hidden
+        var options = JsonNode.Parse(await _client.GetStringAsync("/api/dashboard/filter-options"))!;
+        Assert.Contains(options["user_groups"]!.AsArray(), o => (string)o!["value"]! == "GRP_HR" && (int)o["count"]! == 2);
+        Assert.Contains(options["account_states"]!.AsArray(), o => (string)o!["value"]! == "expired");
+        Assert.Contains(options["tcodes"]!.AsArray(), o => (string)o!["value"]! == "T004");
+        Assert.False((bool)options["directory_available"]!);
+        Assert.Empty(options["departments"]!.AsArray());                           // no directory: no invented directory values
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await _client.GetAsync("/api/dashboard?" + string.Join("&", Enumerable.Range(0, 201).Select(i => $"tcodes=T{i}")))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Dashboard_access_modes_role_types_suffixes_lock_and_governance_dimensions()
+    {
+        await Import("roles", Csv.Roles(4));                                        // ROLE_0000 T000-T002, ROLE_0001 T003-T005, ROLE_0002 T006-T008
+        const string open = "20000101;99991231";
+        await Import("users", Csv.UsersHeader + "\n" + string.Join("\n",
+            $"USER0001;ZC:FI:ROLE_0000;GRP_FIN;First;Last;;{open};{open};;A",
+            $"USER0001;ZC:FI:ROLE_0002;GRP_FIN;First;Last;;{open};{open};;A",
+            $"USER0002;ZC:FI:AP:N100;GRP_HR;First;Last;;{open};{open};X;A",              // locked; organizational suffix N100 under two stems
+            $"USER0002;ZC:MM:PO:N100;GRP_HR;First;Last;;{open};{open};X;A",
+            $"USER0003;ZO:MM:PLANT:PR_REL_ST_01_02:N100;GRP_HR;First;Last;;{open};20000101;20000102;;A") + "\n");   // expired release role
+        async Task<JsonNode> Get(string query) => JsonNode.Parse(await _client.GetStringAsync("/api/dashboard" + query))!;
+        int Users(JsonNode d) => (int)Metric(d, "users")["value"]!;
+        // Population (default): role and code may come from different current assignments; matching: one assignment must carry both.
+        Assert.Equal(1, Users(await Get("?roles=ZC:FI:ROLE_0000&tcodes=T007")));
+        var matching = await Get("?roles=ZC:FI:ROLE_0000&tcodes=T007&access_scope=matching");
+        Assert.Equal(0, Users(matching));
+        Assert.Equal("matching_access", (string)matching["scope"]!["access_semantics"]!);
+        var population = await Get("?roles=ZC:FI:ROLE_0000");
+        Assert.Equal(2, (int)Metric(population, "assigned_roles")["value"]!);                         // the user's complete current access
+        Assert.Equal(1, (int)Metric(await Get("?roles=ZC:FI:ROLE_0000&access_scope=matching"), "assigned_roles")["value"]!);   // only the matching role
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await _client.GetAsync("/api/dashboard?access_scope=other")).StatusCode);
+        // Role type and organizational suffix use currently valid assignments only (USER0003's release role has expired).
+        Assert.Equal(0, Users(await Get("?role_types=release")));
+        Assert.Equal(2, Users(await Get("?role_types=business")));
+        Assert.Equal(1, Users(await Get("?org_suffixes=N100")));
+        Assert.Equal(1, Users(await Get("?lock_states=locked")));
+        // Governance: review status from the current Account Review evaluation; SoD risk needs enabled SoD with a matrix.
+        Assert.Equal(3, Users(await Get("?review_states=pending")));
+        Assert.Equal(0, Users(await Get("?review_states=completed")));
+        Assert.Equal(HttpStatusCode.Conflict, (await _client.GetAsync("/api/dashboard?sod_risks=R001")).StatusCode);
+        var options = JsonNode.Parse(await _client.GetStringAsync("/api/dashboard/filter-options"))!;
+        Assert.Contains(options["org_suffixes"]!.AsArray(), o => (string)o!["value"]! == "N100" && (int)o["count"]! == 1);
+        Assert.DoesNotContain(options["role_types"]!.AsArray(), o => (string)o!["value"]! == "release");
+        Assert.Contains(options["lock_states"]!.AsArray(), o => (string)o!["value"]! == "locked");
+        Assert.Contains(options["review_states"]!.AsArray(), o => (string)o!["value"]! == "pending" && (int)o["count"]! == 3);
+        Assert.False((bool)options["sod_available"]!);
+        Assert.Empty(options["sod_risks"]!.AsArray());
+    }
+
+    [Fact]
+    public async Task Dashboard_SoD_risk_filter_selects_users_with_current_findings_and_keeps_their_complete_access()
+    {
+        foreach (var source in new[] { "roles", "users", "sod" })
+            await Import(source, File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "sod", "analysis", source + ".sod.txt")));
+        var settings = JsonNode.Parse(await _client.GetStringAsync("/api/configuration"))!["settings"]!.AsObject();
+        settings["features"]!["sod"] = true;
+        Assert.True((await _client.PostAsync("/api/configuration", new StringContent(settings.ToJsonString(), Encoding.UTF8, "application/json"))).IsSuccessStatusCode);
+        var options = JsonNode.Parse(await _client.GetStringAsync("/api/dashboard/filter-options"))!;
+        Assert.True((bool)options["sod_available"]!);
+        var risk = options["sod_risks"]!.AsArray().First()!;
+        var dashboard = JsonNode.Parse(await _client.GetStringAsync("/api/dashboard?sod_risks=" + Uri.EscapeDataString((string)risk["value"]!)))!;
+        Assert.Equal((int)risk["count"]!, (int)Metric(dashboard, "users")["value"]!);
+        // The SoD summary for the same population evaluates every conflict of those users (an access filter never hides a conflicting role).
+        var overview = await _client.GetAsync("/api/sod/overview?sod_risks=" + Uri.EscapeDataString((string)risk["value"]!));
+        Assert.Equal(HttpStatusCode.OK, overview.StatusCode);
+        var all = JsonNode.Parse(await _client.GetStringAsync("/api/dashboard"))!;
+        Assert.True((int)Metric(dashboard, "assigned_roles")["value"]! <= (int)Metric(all, "assigned_roles")["value"]!);
+    }
+
+    /// <summary>BUG-015: the SAP User Group heatmap (group_by=group) and its CSV follow the SoD Overview population (population=overview, the same
+    /// SubjectSelection resolver as /api/sod/overview): the filtered KPI and the heatmap's distinct total agree, every selected user keeps the
+    /// complete conflicts of their access, users in several groups count once in the distinct total, and no population means the global view.</summary>
+    [Fact]
+    public async Task SoD_group_heatmap_and_export_follow_the_overview_population()
+    {
+        foreach (var source in new[] { "roles", "users", "sod" })
+            await Import(source, File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "sod", "analysis", source + ".sod.txt")));
+        var settings = JsonNode.Parse(await _client.GetStringAsync("/api/configuration"))!["settings"]!.AsObject();
+        settings["features"]!["sod"] = true;
+        Assert.True((await _client.PostAsync("/api/configuration", new StringContent(settings.ToJsonString(), Encoding.UTF8, "application/json"))).IsSuccessStatusCode);
+        async Task<JsonNode> Get(string url) => JsonNode.Parse(await _client.GetStringAsync(url))!;
+        int Users(JsonNode overview) => (int)overview["governance"]!["users_with_conflicts"]!;
+        foreach (var kind in new[] { "risk", "activity" })
+        {
+            var globalMap = await Get($"/api/sod/matrix/{kind}?context=current&group_by=group&limit=200");
+            var globalOverview = await Get("/api/sod/overview?context=current");
+            Assert.Null(globalMap["population"]);                                                          // v1 contract unchanged without the parameter
+            Assert.Equal(Users(globalOverview), (int)globalMap["totals"]!["users"]!);                   // unfiltered: the same population
+            var unfiltered = (await Get($"/api/sod/matrix/{kind}?context=current&group_by=group&limit=200&population=overview")).AsObject();
+            Assert.Equal("global", (string)unfiltered["population"]!);                                       // no population filter: the global view
+            unfiltered.Remove("population");
+            Assert.Equal(globalMap.ToJsonString(), unfiltered.ToJsonString());
+            var byUser = await Get($"/api/sod/matrix/{kind}?context=current&limit=200");
+            var users = byUser["rows"]!.AsArray().Select(r => r!.AsObject()).ToList();
+            Assert.True(users.Count >= 2, "the fixture needs at least two users with conflicts");
+            var chosen = users.Take(2).ToList();
+            var names = string.Join("&", chosen.Select(r => "usernames=" + Uri.EscapeDataString((string)r["user"]!)));
+            var filteredOverview = await Get($"/api/sod/overview?context=current&{names}");
+            var map = await Get($"/api/sod/matrix/{kind}?context=current&group_by=group&limit=200&population=overview&{names}");
+            Assert.Equal("overview", (string)map["population"]!);
+            Assert.Equal(2, Users(filteredOverview));
+            Assert.Equal(Users(filteredOverview), (int)map["totals"]!["users"]!);                        // KPI and heatmap agree (the reported discrepancy)
+            var expectedGroups = chosen.SelectMany(r => r["groups"]!.AsArray().Select(g => (string)g!)).Distinct().OrderBy(g => g, StringComparer.Ordinal).ToList();
+            var rows = map["rows"]!.AsArray().Select(r => r!.AsObject()).ToList();
+            if (expectedGroups.Count > 0) Assert.Equal(expectedGroups, rows.Select(r => (string)r["user"]!).Where(g => expectedGroups.Contains(g)).OrderBy(g => g, StringComparer.Ordinal).ToList());
+            Assert.True(rows.Sum(r => (int)r["users"]!) >= (int)map["totals"]!["users"]!);                // group rows may add up to more than the distinct total
+            // Complete conflicts: the population matrix keeps every cell of each selected user exactly as in the global matrix.
+            var scopedUsers = await Get($"/api/sod/matrix/{kind}?context=current&limit=200&population=overview&{names}");
+            foreach (var row in chosen)
+            {
+                var scoped = scopedUsers["rows"]!.AsArray().Single(r => (string)r!["user"]! == (string)row["user"]!)!;
+                Assert.Equal(row["cells"]!.AsObject().Select(c => c.Key).OrderBy(k => k, StringComparer.Ordinal), scoped["cells"]!.AsObject().Select(c => c.Key).OrderBy(k => k, StringComparer.Ordinal));
+            }
+            foreach (var column in map["columns"]!.AsArray()) Assert.True((int)column!["users"]! <= 2);
+            // The CSV export follows the same population.
+            var csv = await _client.GetStringAsync($"/api/sod/matrix/{kind}/group-export?context=current&population=overview&{names}");
+            var groupsInCsv = csv.Split('\n', StringSplitOptions.RemoveEmptyEntries).Skip(1).Select(l => l.Split(';')[0].Trim('"', '\r')).Distinct().ToList();   // v1 CSV: quoted, ';'
+            Assert.All(groupsInCsv, g => Assert.Contains(g, rows.Select(r => (string)r["user"]!)));
+            var globalCsv = await _client.GetStringAsync($"/api/sod/matrix/{kind}/group-export?context=current");
+            Assert.True(csv.Length <= globalCsv.Length);
+            // An empty population is empty, not global; an unknown population mode is refused.
+            var empty = await Get($"/api/sod/matrix/{kind}?context=current&group_by=group&population=overview&usernames=NO_SUCH_USER_X");
+            Assert.Equal(0, (int)empty["totals"]!["users"]!);
+            Assert.Empty(empty["rows"]!.AsArray());
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, (await _client.GetAsync($"/api/sod/matrix/{kind}?context=current&population=everyone")).StatusCode);   // the routes' validation status
+        }
+    }
+
     [Theory]
     [InlineData(0, "0–5")]
     [InlineData(5, "0–5")]
@@ -104,6 +269,17 @@ public sealed class DashboardAndSavedFiltersTests : IAsyncLifetime
     {
         var response = await _client.PostAsJsonAsync("/api/saved-filters", body);
         return (response.StatusCode, JsonNode.Parse(await response.Content.ReadAsStringAsync()));
+    }
+
+    /// <summary>Found during BUG-014: the "dashboard" view was accepted but had no field list, so every save failed with HTTP 500.</summary>
+    [Fact]
+    public async Task Every_saved_filter_view_has_a_field_list_and_dashboard_filters_save()
+    {
+        foreach (var view in V1SavedFilters.Views) Assert.True(V1SavedFilters.Allowed.ContainsKey(view), view);
+        var (status, created) = await Save(new { name = "Dashboard G1", view = "dashboard", filters = new { user_groups = new[] { "G1" }, roles = new[] { "ZC:MM:A" }, functional_groups = new[] { "fg-1" }, usernames = new[] { "DEMO_ONE" }, access_scope = "matching" } });
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("dashboard", (string)created!["view"]!);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await Save(new { name = "Dashboard result", view = "dashboard", filters = new { users = 3 } })).Status);
     }
 
     [Fact]

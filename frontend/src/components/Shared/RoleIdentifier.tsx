@@ -1,43 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type ButtonHTMLAttributes } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type ButtonHTMLAttributes } from 'react'
 import { Check, Copy, ArrowUpRight } from 'lucide-react'
 
 /** SAP identifiers are rendered as one unbroken string: no characters are inserted, copy writes the exact value. */
 export const identifierFragments = (value: string) => value
 
-/** Smallest font size a codeblock is scaled down to when its container is narrower than the name; below it the container adapts instead. */
-const MIN_FIT_SIZE = 9
-
 /**
- * A role name is always one complete line: never wrapped, scrolled, clipped or ellipsized. When the surrounding layout is narrower than
- * the name, the font is scaled down (not below MIN_FIT_SIZE) so it fits; when even that is not enough the codeblock keeps its full width
- * (`data-fit="overflow"`) and the container, not the codeblock, has to make room.
+ * BUG-09 (reopened): an identifier is one line inside its own box. When the container is narrower than the name, the name truncates with an
+ * ellipsis (CSS); the full value stays in the tooltip and is what Copy writes. No font scaling and no container scrolling: both changed the
+ * geometry while a sidebar opened or closed and made the surrounding container scroll.
  */
-function fit(root: HTMLElement) {
-  root.style.removeProperty('--role-code-size')
-  root.removeAttribute('data-fit')
-  const excess = root.scrollWidth - root.clientWidth
-  if (excess <= 0.5) return
-  const code = root.querySelector('code')
-  if (!code) return
-  const base = parseFloat(getComputedStyle(code).fontSize), width = code.getBoundingClientRect().width
-  if (!base || width <= excess) return
-  const size = Math.max(MIN_FIT_SIZE, Math.floor(base * ((width - excess) / width) * 10) / 10)
-  if (size < base) root.style.setProperty('--role-code-size', `${size}px`)
-  root.dataset.fit = root.scrollWidth - root.clientWidth > 0.5 ? 'overflow' : 'scaled'
-}
-
-const fitted = new Map<Element, Set<HTMLElement>>()
-let observer: ResizeObserver | undefined
-function watch(root: HTMLElement) {
-  const parent = root.parentElement
-  if (!parent || typeof ResizeObserver === 'undefined') return () => undefined
-  observer ??= new ResizeObserver((entries) => { for (const entry of entries) fitted.get(entry.target)?.forEach(fit) })
-  const group = fitted.get(parent) ?? new Set<HTMLElement>()
-  if (!group.size) { fitted.set(parent, group); observer.observe(parent) }
-  group.add(root)
-  return () => { group.delete(root); if (!group.size) { fitted.delete(parent); observer?.unobserve(parent) } }
-}
-
 interface RoleIdentifierProps {
   separateOpenAction?: boolean
   action?: ReactNode
@@ -53,17 +24,10 @@ interface RoleIdentifierProps {
 
 export function RoleIdentifier({ separateOpenAction = false, action, moduleId: _moduleId, value, label = 'role identifier', onOpen, href, openLabel, openButtonProps }: RoleIdentifierProps) {
   const [message, setMessage] = useState('')
-  const timer = useRef<ReturnType<typeof setTimeout>>(), root = useRef<HTMLSpanElement>(null)
+  const timer = useRef<ReturnType<typeof setTimeout>>()
   useEffect(() => () => clearTimeout(timer.current), [])
-  useLayoutEffect(() => {
-    const node = root.current
-    if (!node) return
-    fit(node)
-    return watch(node)
-  }, [value, action, separateOpenAction])
   return (
     <span
-      ref={root}
       className="role-identifier"
       data-np
       data-copied={message === 'Copied'}

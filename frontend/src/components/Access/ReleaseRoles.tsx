@@ -4,6 +4,7 @@ import {SAPUserLink} from '@/components/Shared/SAPUserLink'
 import {ExportCSVButton} from '@/components/Shared/ExportCSVButton'
 import {useAssignmentCSVExport} from '@/hooks/useAssignmentCSVExport'
 import { PageHeader } from '@/components/Shared/Presentation'
+import { UsersNavigation } from './UsersNavigation'
 import { FileCheck2 as PageIcon } from 'lucide-react'
 import { Button, ButtonGroup } from '@/components/Shared/Button'
 import { SavedFilters } from '@/components/Shared/SavedFilters'
@@ -20,7 +21,8 @@ import { AssignmentDateFilters, emptyDates, dateParams, datesActive, type Assign
 import { ClearFilterButton } from '@/components/Shared/ClearFilterButton'
 import { Select } from '@/components/Shared/Select';
 import { useHistoryValue, type ReleaseDrill } from '@/hooks/useViewHistory';
-import { List, Grid3X3, Plus, Check, Copy, Download } from 'lucide-react';
+import { List, Grid3X3, Plus, Check, Copy, Download, ClipboardCheck } from 'lucide-react';
+import { useSodReviewAction } from '@/hooks/useSodReviewNavigation';
 import { useRecordNavigation, type RecordNavigationState } from "@/hooks/useRecordNavigation";
 import { DetailNavigation, AssignmentStatus, DetailButton } from "@/components/Shared/InvestigationNavigation";
 import { ReleaseFilter, ReleaseMultiFilter } from "./ReleaseFilter";
@@ -30,6 +32,7 @@ import {
   accessQuery,
   type Assignment,
   type Cell,
+  type MatrixTotal,
   type Page,
   type ReleasePage,
   type ReleaseInfo,
@@ -47,6 +50,7 @@ import {
 } from "./Shared";
 
 type Drill = ReleaseDrill;
+const RELEASE_TYPES = ['PR', 'PO'] as const;
 export const RELEASE_SORTS = [
   { value: 'role_name', label: 'Role name' }, { value: 'document_type', label: 'PR/PO' }, { value: 'release_group', label: 'Release Group' },
   { value: 'release_strategy', label: 'Release Strategy' }, { value: 'assigned_users', label: 'Assigned users' },
@@ -117,7 +121,7 @@ export function ReleaseRoles({
   const result = useQuery({
     queryKey: ["release-roles", subjectKey, assignmentDates, userGroups, kind, areaKey, groupKey, strategyKey, query, status, compareGroups, sort, descending, offset, matrixOffset, matrix, pageSize],
     queryFn: () =>
-      accessQuery<ReleasePage>("releases", { ...filters, offset: matrix ? 0 : offset, limit: pageSize, matrix_offset: matrixOffset, matrix_complete:matrix, list_complete:false }),
+      accessQuery<ReleasePage>("releases", { ...filters, offset: matrix ? 0 : offset, limit: pageSize, matrix_offset: matrixOffset, matrix_complete:matrix, matrix_totals:matrix, list_complete:false }),
   });
   useEffect(() => {
     if (!result.data || result.isFetching) return;
@@ -181,10 +185,25 @@ export function ReleaseRoles({
       release_group: cell.release_group,
       strategy: cell.release_strategy,
     });
+  /** NAV-6: a total opens the population it counts: parsed release roles of its scope, type and Release Group, with the matrix's area, group and
+   *  strategy filters (the backend total and the drill-down's distinct users are the same set). */
+  const drillTotal = ({ userGroup, group, strategy }: { userGroup: string; group: string | null; strategy: string | null }) =>
+    openDrill({
+      username: query.username,
+      role_search: query.role,
+      ungrouped: compareGroups && !userGroup,
+      ...(compareGroups ? { group: userGroup } : { user_groups: userGroups }),
+      ...(kind ? { document_type: kind } : {}),
+      ...(group ? { release_group: group } : {}),
+      ...(strategy ? { strategy } : {}),
+      parsed: true,
+      strategies, release_groups: releaseGroups, release_areas: releaseAreas,
+    });
   const context = { ...dateParams(assignmentDates), status };
   return (
-    <section aria-label="Release Roles" className="space-y-4">
-      <PageHeader title="Release Roles" icon={<PageIcon size={22} aria-hidden="true"/>}/>
+    <section aria-label="Release Access" className="space-y-4">
+      <UsersNavigation current="release-access" />
+      <PageHeader title="Release Access" icon={<PageIcon size={22} aria-hidden="true"/>}/>
       <p className="text-sm">
         PR/PO release assignments from the User Access CSV. M and ALL are opaque
         naming tokens; no release-authority meaning is assumed.
@@ -253,7 +272,9 @@ export function ReleaseRoles({
           <>
             <ReleaseMatrix
               cells={result.data.matrix}
+              totals={result.data.matrix_totals}
               onCell={drillCell}
+              onTotal={drillTotal}
               compare={compareGroups}
               partial={result.data.matrix_total>result.data.matrix.length}
             />
@@ -331,12 +352,16 @@ export function ReleaseRoles({
 
 function ReleaseMatrix({
   cells,
+  totals,
   onCell,
+  onTotal,
   compare,
   partial,
 }: {
   cells: Cell[];
+  totals: MatrixTotal[] | undefined;
   onCell: (c: Cell) => void;
+  onTotal: (total: { userGroup: string; group: string | null; strategy: string | null }) => void;
   compare: boolean;
   partial: boolean;
 }) {
@@ -347,78 +372,91 @@ function ReleaseMatrix({
         view.
       </p>
     );
-  const groups = [...new Set(cells.map((c) => (compare ? c.user_group : "")))];
+  const scopes = [...new Set(cells.map((c) => (compare ? c.user_group : "")))];
+  /** NAV-6: one matrix per scope with one column per strategy key (no PR/PO prefix, no grouped headers; the PR/PO filter separates the types).
+   *  PR and PO stay separate in the data: with one release type a cell is that type's cell; with both, a strategy shared by PR and PO is one cell
+   *  whose distinct users come from the backend totals, so a user holding the strategy under both types counts once. Totals are never sums of cells. */
   return (
     <div className="release-matrices">
-      {groups.map((group) =>
-        ["PR", "PO"].map((kind) => {
-          const selected = cells.filter(
-            (c) =>
-              (!compare || c.user_group === group) && c.document_type === kind,
-          );
-          if (!selected.length) return null;
-          const lookup=new Map(selected.map(cell=>[`${cell.release_group}|||${cell.release_strategy}`,cell]))
-          const maximum=Math.max(1,...selected.map(cell=>cell.user_count))
-          const strategies = [
-              ...new Set(selected.map((c) => c.release_strategy)),
-            ].sort(),
-            rows = [...new Set(selected.map((c) => c.release_group))].sort();
-          return (
-            <div key={`${group}-${kind}`}>
-              <h2 className="font-semibold">
-                {compare ? `${group || "Unknown group"} · ` : ""}
-                {kind} · distinct users
-              </h2>
-              <div className="access-table matrix-scroll" role="region" aria-label={`${kind} release matrix scroll area`} tabIndex={0}>
-                <ConfigurableTable
-                  className="release-matrix" aria-label={`${compare ? (group || "Unknown group") + " " : ""}${kind} release matrix`}
-                >
-                  <thead>
-                    <tr>
-                      <th scope="col">Release group</th>
-                      {strategies.map((s) => (
-                        <th scope="col" key={s}>{s}</th>
-                      ))}
+      {scopes.map((scope) => {
+        const selected = cells.filter((c) => !compare || c.user_group === scope);
+        const types = RELEASE_TYPES.filter((type) => selected.some((c) => c.document_type === type));
+        const single = types.length === 1 ? types[0] : null;
+        const strategies = [...new Set(selected.map((c) => c.release_strategy))].sort();
+        const rows = [...new Set(selected.map((c) => c.release_group))].sort();
+        const typeLabel = single ?? "PR and PO";
+        const name = compare ? `${scope || "Unknown group"} ` : "";
+        const total = (group: string | null, strategy: string | null) =>
+          totals?.find((t) => t.user_group === scope && t.document_type === null && t.release_group === group && (t.release_strategy ?? null) === strategy)?.distinct_users;
+        const present = new Set(selected.map((c) => `${c.release_group}|||${c.release_strategy}`));
+        const values = new Map<string, number | undefined>(rows.flatMap((row) => strategies.map((strategy) => {
+          const key = `${row}|||${strategy}`;
+          if (!present.has(key)) return [key, undefined] as const;
+          const own = selected.filter((c) => c.release_group === row && c.release_strategy === strategy);
+          return [key, own.length === 1 ? own[0].user_count : total(row, strategy)] as const;
+        })));
+        const maximum = Math.max(1, ...[...values.values()].map((value) => value ?? 0));
+        const withTotals = !!totals?.length; // the backend totals are requested in Matrix view; without them no total is shown or derived
+        const totalButton = (group: string | null, strategy: string | null, label: string) => {
+          const value = total(group, strategy);
+          return value === undefined ? <span className="release-na" title="Total not available">—</span>
+            : <DetailButton aria-label={`Investigate ${name}${typeLabel} ${label}: ${value} distinct users`} onClick={() => onTotal({ userGroup: scope, group, strategy })}>{value}</DetailButton>;
+        };
+        return (
+          <div key={scope || "all"}>
+            <h2 className="font-semibold">{compare ? `${scope || "Unknown group"} · ` : ""}{typeLabel} · distinct users</h2>
+            <div className="access-table matrix-scroll" role="region" aria-label={`${name}release matrix scroll area`} tabIndex={0}>
+              <ConfigurableTable className="release-matrix" aria-label={`${name}release matrix`}>
+                <thead>
+                  <tr>
+                    <th scope="col">Release group</th>
+                    {strategies.map((strategy) => <th scope="col" key={strategy}>{strategy}</th>)}
+                    {withTotals && <th scope="col" className="release-total">Users</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={row}>
+                      <th scope="row">{row}</th>
+                      {strategies.map((strategy) => {
+                        const key = `${row}|||${strategy}`, value = values.get(key);
+                        const own = selected.filter((c) => c.release_group === row && c.release_strategy === strategy);
+                        return (
+                          <td key={strategy} data-intensity={value === undefined ? undefined : value === 0 ? 0 : Math.ceil((3 * value) / maximum)}>
+                            {value !== undefined ? (
+                              <DetailButton aria-label={`Investigate ${name}${own.length === 1 ? own[0].document_type : typeLabel} ${row} ${strategy}: ${value} users`}
+                                onClick={() => own.length === 1 ? onCell(own[0]) : onTotal({ userGroup: scope, group: row, strategy })}>{value}</DetailButton>
+                            ) : present.has(key) ? (
+                              <span className="release-na" title="Combined count not available">—</span>
+                            ) : partial ? "—" : (
+                              <span className="release-na" title={`No ${typeLabel} release role with strategy ${strategy} in Release Group ${row}`}>n/a</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                      {withTotals && <td className="release-total">{totalButton(row, null, `${row} all strategies`)}</td>}
                     </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r) => (
-                      <tr key={r}>
-                        <th scope="row">{r}</th>
-                        {strategies.map((s) => {
-                          const cell = lookup.get(`${r}|||${s}`);
-                          return (
-                            <td key={s} data-intensity={!cell?undefined:cell.user_count===0?0:Math.ceil(3*cell.user_count/maximum)}>
-                              {cell ? (
-                                <DetailButton
-                                  aria-label={`Investigate ${compare ? (group || "Unknown group") + " " : ""}${kind} ${r} ${s}: ${cell.user_count} users`}
-                                  onClick={() => onCell(cell)}
-                                >
-                                  {cell.user_count}
-                                </DetailButton>
-                              ) : partial ? (
-                                "—"
-                              ) : (
-                                "0"
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </ConfigurableTable>
-              </div>
+                  ))}
+                </tbody>
+                {withTotals && <tfoot>
+                  <tr>
+                    <th scope="row">All Release Groups</th>
+                    {strategies.map((strategy) => <td key={strategy} className="release-total">{totalButton(null, strategy, `all Release Groups ${strategy}`)}</td>)}
+                    <td className="release-total">{totalButton(null, null, "all Release Groups")}</td>
+                  </tr>
+                </tfoot>}
+              </ConfigurableTable>
             </div>
-          );
-        }),
-      )}
+          </div>
+        );
+      })}
       <p className="text-xs text-[var(--muted)]">
         {partial &&
           "Matrix data is incomplete. A dash means no supplied cell, not a zero user count. "}
-        A user is counted once per cell. Group comparisons use the group on each
-        source assignment; counts across groups are not additive. Unparsed roles
-        are excluded from the matrix only.
+        A user is counted once per cell and once per total. With PR and PO shown together, a strategy key used by both release types is one column
+        and a user holding it under both counts once; use the PR/PO filter to see one release type. n/a marks a Release Group without a release role
+        of that strategy. Group comparisons use the group on each source assignment; counts across groups are not additive. Unparsed roles are
+        excluded from the matrix only.
       </p>
     </div>
   );
@@ -466,7 +504,7 @@ function ReleaseDetail({
   return (
     <section aria-label="Release role details" className="space-y-4">
       <DetailNavigation
-        parent="Release Roles"
+        parent="Release Access"
         current={drill.role || 'Release role details'}
         onBack={onBack}
         {...navigation}
@@ -565,12 +603,7 @@ function ReleaseDetail({
                       </td>
                     )}
                     <td>
-                      <RoleIdentifier
-                        value={a.username}
-                        label="username"
-                        onOpen={() => onUser(a.username)}
-                        openLabel={`Open user ${a.username}`}
-                      />
+                      <div className="flex flex-wrap items-center gap-2"><SAPUserLink routeLink={false} reviewSupported={false} username={a.username} copyLabel="username" onOpen={() => onUser(a.username)} openLabel={`Open user ${a.username}`} /><ReleaseReviewButton username={a.username} role={a.role_name || drill.role || ''} /></div>
                     </td>
                     <td>{a.user_group || 'Unknown'}</td>
                     <td className="assignment-date">
@@ -609,6 +642,14 @@ function ReleaseDetail({
       <EvidenceNote />
     </section>
   )
+}
+
+/** BUG-02: review this user's role assignments in the shared review panel, with this release role in focus. Shown only when the user is
+ * reviewable (SoD enabled, an assignment in the current context); permissions and scope stay enforced by the review API. */
+function ReleaseReviewButton({ username, role }: { username: string; role: string }) {
+  const review = useSodReviewAction(username)
+  if (!review) return null
+  return <Button size="compact" aria-pressed={review.active} aria-label={`Review roles for ${username}`} onClick={() => review.toggle(role || undefined)}><ClipboardCheck size={14} aria-hidden="true" />{review.active ? 'Close review' : 'Review'}</Button>
 }
 
 /** Users holding one release role, within the list's validity scope and filters. Names are shown only when the user source carries them. */

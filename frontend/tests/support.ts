@@ -90,17 +90,31 @@ export const resetConfiguration = (request: APIRequestContext) => request.post('
 
 export const mainNavigation = (page: Page) => page.getByRole('navigation', { name: 'Main navigation', exact: true })
 
-/** Open one main navigation destination by its link name. */
+/** Default landing page of each multi-page module (NAV-1) and the module of each subpage (NAV-2, NAV-3, NAV-4). */
+const moduleLanding: Record<string, string> = { Users: 'User Directory', SoD: 'Overview', Reviews: 'Overview', Reports: 'Review Reports' }
+const subpageModule: Record<string, string> = {
+  'User Directory': 'Users', 'Compare Users': 'Users', 'Release Access': 'Users',
+  'Work Queue': 'Reviews', 'Position Changes': 'Reviews', 'Account Review': 'Reviews', 'Bulk Review': 'Reviews', 'Remediation': 'Reviews', 'Review Periods': 'Reviews',
+  'Review Reports': 'Reports', 'Access Reports': 'Reports', 'SoD Reports': 'Reports', 'Evidence': 'Reports',
+}
+/** Open a main navigation destination (a module, which opens its default landing page) or a module subpage, through the visible navigation:
+ *  the drawer below 1024 px, otherwise the main link or the module's dropdown. */
 export const goTo = async (page: Page, name: string) => {
+  const module = subpageModule[name], target = module ?? name
   if((page.viewportSize()?.width??1280)<1024){
     await page.getByRole('button',{name:'Open navigation',exact:true}).click()
     const drawer=page.getByRole('dialog',{name:'Navigation',exact:true})
-    if(['User Access','SoD'].includes(name)){
-      const group=drawer.locator('details').filter({has:page.locator('summary').filter({hasText:name})})
+    if(moduleLanding[target]){
+      const group=drawer.locator('details').filter({has:page.locator('summary').filter({hasText:target})})
       if(await group.getAttribute('open')===null)await group.locator('summary').click()
-      await group.getByRole('link',{name:name==='User Access'?'User directory':'Overview',exact:true}).click()
+      await group.getByRole('link',{name:module?name:moduleLanding[target],exact:true}).click()
     }else await drawer.getByRole('link',{name,exact:true}).click()
-  }else await mainNavigation(page).getByRole('link', { name, exact: true }).click()
+    return
+  }
+  if (!module || name === moduleLanding[module]) { await mainNavigation(page).getByRole('link', { name: target, exact: true }).click(); return }
+  // A subpage opens directly from the module's dropdown: one navigation, one history entry (NAV-1).
+  await mainNavigation(page).getByRole('button', { name: `${module} pages`, exact: true }).click()
+  await page.getByRole('dialog', { name: `${module} pages`, exact: true }).getByRole('link', { name, exact: true }).click()
 }
 
 export async function openSettings(page: Page, tab?: string) {
@@ -179,6 +193,9 @@ export async function recordClipboard(page: Page) {
 }
 export const copiedText = (page: Page) => page.evaluate(() => (window as Window & { __authLensCopied?: string[] }).__authLensCopied?.at(-1) ?? null)
 
+/** A number as the application renders it (`toLocaleString()` in the page's locale): grouping may be a comma, a full stop, a space or a
+ *  non-breaking space depending on the machine's locale, so expectations are formatted by the page instead of hard-coding one locale. */
+export const localeNumber = (page: Page, value: number) => page.evaluate(number => number.toLocaleString(), value)
 export async function selectSettingsSection(page: Page, label: string) {
   if((page.viewportSize()?.width??1280)<768){
     await page.getByRole('button',{name:/^Settings sections:/}).click()

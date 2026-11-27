@@ -7,6 +7,7 @@ using System.Security.Authentication;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.Json.Nodes;
 
 [assembly: InternalsVisibleTo("AuthLens.Tests")]
 
@@ -93,7 +94,7 @@ public sealed class HostSettings
         }
         if (Certificate is not null)
         {
-            var problems = CertificatePolicy.Validate(Certificate, NetworkAccess ? AllowedHosts : [], now ?? DateTimeOffset.UtcNow).Problems;
+            var problems = CertificatePolicy.Validate(Certificate, CertificatePolicy.RequiredIdentities(this), now ?? DateTimeOffset.UtcNow).Problems;
             if (problems.Count > 0) throw new InvalidOperationException("The TLS certificate is not usable: " + string.Join(" ", problems));
         }
     }
@@ -130,6 +131,43 @@ public sealed record CertificateCheck(IReadOnlyList<string> Problems, IReadOnlyL
 public static class CertificatePolicy
 {
     private const string ServerAuth = "1.3.6.1.5.5.7.3.1";
+
+    /// <summary>The HTTPS endpoint identities the certificate must cover; one rule for runtime startup, Setup and deployment preflight, network
+    /// changes, certificate replacement and recovery (D-004). Network access: every allowed host, because those are the only Host values the server
+    /// accepts (the readiness probe uses the first). Loopback: the loopback listen address the local probe and browser use. The socket bind address is
+    /// not an identity of its own: an IP is required only when clients are meant to use it, that is when it is an allowed host, so a CA-issued
+    /// certificate with DNS names only is valid for DNS-only access. Reverse-proxy public hosts are terminated at the proxy and are not backend names.</summary>
+    public static IReadOnlyList<string> RequiredIdentities(HostSettings settings) =>
+        settings.Mode == HostMode.Desktop ? []
+        : settings.NetworkAccess ? settings.AllowedHosts.Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+        : [settings.ListenAddress.ToString()];
+
+    /// <summary>Operator-facing description of a certificate against the required identities: subject, issuer, validity, thumbprints, SANs and
+    /// per-identity coverage. Public data only; the private key and its password are never part of it.</summary>
+    public static JsonObject Describe(X509Certificate2 certificate, IReadOnlyList<string> required, DateTimeOffset now)
+    {
+        var san = certificate.Extensions.OfType<X509SubjectAlternativeNameExtension>().FirstOrDefault();
+        var dns = san?.EnumerateDnsNames().ToList() ?? [];
+        var ips = san?.EnumerateIPAddresses().ToList() ?? [];
+        var check = Validate(certificate, required, now);
+        JsonArray Strings(IEnumerable<string> values) => new(values.Select(v => (JsonNode?)JsonValue.Create(v)).ToArray());
+        var coverage = new JsonArray(required.Select(host => (JsonNode?)new JsonObject
+        {
+            ["identity"] = host,
+            ["covered"] = IPAddress.TryParse(host, out var ip) ? ips.Any(a => a.Equals(ip)) : dns.Any(d => DnsMatches(d, host)),
+        }).ToArray());
+        return new JsonObject
+        {
+            ["subject"] = certificate.Subject, ["issuer"] = certificate.Issuer, ["self_signed"] = certificate.SubjectName.RawData.AsSpan().SequenceEqual(certificate.IssuerName.RawData),
+            ["not_before_utc"] = certificate.NotBefore.ToUniversalTime().ToString("o"), ["not_after_utc"] = certificate.NotAfter.ToUniversalTime().ToString("o"),
+            ["days_remaining"] = (int)Math.Floor((certificate.NotAfter.ToUniversalTime() - now.UtcDateTime).TotalDays),
+            ["thumbprint_sha1"] = certificate.Thumbprint, ["thumbprint_sha256"] = certificate.GetCertHashString(HashAlgorithmName.SHA256),
+            ["dns_names"] = Strings(dns), ["ip_addresses"] = Strings(ips.Select(a => a.ToString())),
+            ["required_identities"] = coverage, ["missing_identities"] = Strings(coverage.Where(c => !(bool)c!["covered"]!).Select(c => (string)c!["identity"]!)),
+            ["has_private_key"] = certificate.HasPrivateKey, ["usable"] = check.Problems.Count == 0,
+            ["problems"] = Strings(check.Problems), ["warnings"] = Strings(check.Warnings),
+        };
+    }
 
     public static CertificateCheck Validate(X509Certificate2 certificate, IReadOnlyList<string> hosts, DateTimeOffset now)
     {

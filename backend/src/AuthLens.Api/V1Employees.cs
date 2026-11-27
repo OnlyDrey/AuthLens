@@ -239,11 +239,11 @@ public static class V1Employees
             if (path.Length is 0 or > 4096 || !Path.IsPathFullyQualified(path)) return (null, path, Detail(400, "Choose an absolute Employee Directory CSV path."));
             try
             {
-                path = ServerSourcePolicy.Resolve(http.RequestServices.GetRequiredService<HostSettings>(), path);
+                path = ServerSourcePolicy.Resolve(http.RequestServices.GetRequiredService<HostSettings>(), path, "employees");
                 if (new FileInfo(path).Length > EmployeeDirectory.MaxBytes) return (null, path, Detail(400, "Employee Directory CSV exceeds the 50 MB limit."));
                 var raw = await File.ReadAllBytesAsync(path, http.RequestAborted);
                 var rows = EmployeeDirectory.Parse(raw);
-                return (new EmployeeDirectory(rows, Path.GetFileName(path), EmployeeDirectory.Sha256(raw), DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'")), path, null);
+                return (new EmployeeDirectory(rows, Path.GetFileName(path), EmployeeDirectory.Sha256(raw), DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'", System.Globalization.CultureInfo.InvariantCulture)), path, null);
             }
             catch (AuthLens.Domain.Csv.CsvFormatException error) { return (null, path, Detail(400, error.Message)); }
             catch (ArgumentException error) { return (null, path, Detail(400, V1Refresh.Category(error).Message)); }

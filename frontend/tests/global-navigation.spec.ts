@@ -2,12 +2,12 @@ import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
-import { headers, setDescending, sortDirection, pickMulti, postConfiguration } from './support'
+import { headers, setDescending, sortDirection, pickMulti, postConfiguration, goTo } from './support'
 let directory = '', source = '', rows: string[] = []
 const csv = () => 'USERNAME,ROLE_NAME,USER_GROUP,FIRST_NAME,ROLE_VALID_FROM,ROLE_VALID_TO\n' + rows.join('\n') + '\n'
 const user = (n: number) => `DEMO_${String(n).padStart(3, '0')}`
 const role = (n: number) => `ZO:MM:M:PR_REL_ST_G${String(n).padStart(3, '0')}_N6:ALL`
-const destination = async(page: Page, name: string) => {await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name, exact: true }).click();if(name==='Release Roles')await page.getByRole('button',{name:'Table',exact:true}).click()}
+const destination = async(page: Page, name: string) => {await goTo(page, name);if(name==='Release Access')await page.getByRole('button',{name:'Table',exact:true}).click()}
 test.beforeEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
   directory = mkdtempSync(path.join(tmpdir(), 'authlens-global-nav-'))
@@ -33,8 +33,8 @@ for (const descending of [false, true]) test(`user global navigation crosses bou
   const lookups: URL[] = []
   page.on('request', request => { const url = new URL(request.url()); if (url.pathname === '/api/access/users' && url.searchParams.has('anchor')) lookups.push(url) })
   await page.goto('/#session=browser-test-session')
-  await destination(page, 'User Access')
-  const list = page.getByRole('region', { name: 'User Access', exact: true })
+  await destination(page, 'Users')
+  const list = page.getByRole('region', { name: 'Users', exact: true })
   const filteredResponse = page.waitForResponse(response => {
     const url = new URL(response.url())
     return url.pathname === '/api/access/users' && !url.searchParams.has('anchor') && url.searchParams.get('search') === 'DEMO_' && url.searchParams.getAll('groups').join() === 'GROUP_KEEP' && url.searchParams.get('sort') === 'first_name' && url.searchParams.get('descending') === String(descending)
@@ -89,8 +89,8 @@ for (const descending of [false, true]) test(`user global navigation crosses bou
 })
 
 test('complete release list preserves descending tie order and returns focus to the origin', { tag: '@a11y' }, async ({ page }) => {
-  await page.goto('/#session=browser-test-session'); await destination(page, 'Release Roles')
-  const list = page.getByRole('region', { name: 'Release Roles', exact: true })
+  await page.goto('/#session=browser-test-session'); await destination(page, 'Release Access')
+  const list = page.getByRole('region', { name: 'Release Access', exact: true })
   await pickMulti(list, 'Release SAP User Group', 'GROUP_KEEP', page)
   await list.getByRole('combobox', { name: 'Sort release roles', exact: true }).selectOption('assigned_users')
   await setDescending(list, true)
@@ -104,14 +104,14 @@ test('complete release list preserves descending tie order and returns focus to 
   await navigation.getByRole('button', { name: 'Next', exact: true }).click()
   await expect(navigation).toContainText('101 of 125')
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(role(24))
-  await page.getByRole('button', { name: 'Back to Release Roles', exact: true }).click()
+  await page.getByRole('button', { name: 'Back to Release Access', exact: true }).click()
   await expect(list.getByRole('button',{name:'Release role details',exact:true})).toHaveCount(100)
   await expect(sortDirection(list)).toHaveAttribute('aria-pressed', 'true')
   await expect(list.getByRole('button', { name: 'Release role details', exact: true }).filter({ hasText: role(25) })).toBeFocused()
 })
 
 test('direct user and release investigations locate global position and handle removal after refresh', async ({ page, request }) => {
-  await page.goto('/#session=browser-test-session'); await destination(page, 'Release Roles')
+  await page.goto('/#session=browser-test-session'); await destination(page, 'Release Access')
   await page.getByRole('combobox', { name: 'Release role pages: rows per page' }).selectOption('100')
   await page.getByRole('button', { name: 'Release role details', exact: true }).filter({ hasText: role(50) }).click()
   await page.getByRole('region', { name: 'Release role details', exact: true }).getByRole('button', { name: `Open user ${user(50)}`, exact: true }).click()
@@ -120,14 +120,15 @@ test('direct user and release investigations locate global position and handle r
   await page.getByRole('tab', { name: 'Release Roles — ZO:*', exact: true }).click()
   await page.getByRole('button', { name: 'View role details', exact: true }).click()
   await expect(navigation).toContainText('51 of 125')
-  await page.getByRole('button', { name: 'Back to Release Roles', exact: true }).click()
+  await page.getByRole('button', { name: 'Back to Release Access', exact: true }).click()
   await expect(page.getByRole('combobox', { name: 'Release assignment status', exact: true })).toHaveValue('all')
-  await destination(page, 'User Access')
+  // BUG-08: main navigation would open User Access fresh; Back returns to the open user record and its position.
+  for (let step = 0; step < 3 && !(await navigation.first().textContent({ timeout: 1000 }).catch(() => ''))?.includes('51 of 126'); step++) { await page.goBack(); await page.waitForTimeout(300) }
   await expect(navigation).toContainText('51 of 126')
   rows = rows.filter(row => !row.startsWith(user(50) + ','))
   writeFileSync(source, csv())
   await page.getByRole('button', { name: 'Refresh role data from CSV', exact: true }).click()
-  await expect(page.getByText('This record is missing or no longer matches these filters.', { exact: false })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'User details' }).getByText('This record is missing or no longer matches these filters.', { exact: false })).toBeVisible()
   await expect(navigation).toHaveCount(0)
   await expect(page.getByRole('alert').filter({ hasText: 'User not found' })).toBeVisible({ timeout: 15000 })
   await page.getByRole('button', { name: 'Back to users', exact: true }).click()
@@ -136,8 +137,8 @@ test('direct user and release investigations locate global position and handle r
 })
 
 test('a removed last-page record disables traversal and clamps an obsolete origin page', async ({ page, request }) => {
-  await page.goto('/#session=browser-test-session'); await destination(page, 'User Access')
-  const list = page.getByRole('region', { name: 'User Access', exact: true })
+  await page.goto('/#session=browser-test-session'); await destination(page, 'Users')
+  const list = page.getByRole('region', { name: 'Users', exact: true })
   await pickMulti(list, 'SAP User Group', 'GROUP_KEEP', page)
   const pages = page.getByRole('navigation', { name: 'User pages' })
   await pages.getByRole('button', { name: 'Next', exact: true }).click()

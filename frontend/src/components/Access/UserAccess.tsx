@@ -1,3 +1,4 @@
+import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 import {FunctionalGroupPills} from '@/components/Shared/FunctionalGroupPills'
 import {parseUsernameList,looksLikeUsernameList} from '@/lib/usernameList'
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
@@ -5,17 +6,16 @@ import { BulkAssignDialog } from './BulkAssignDialog'
 import {SAPUserLink} from '@/components/Shared/SAPUserLink'
 import {ExportCSVButton} from '@/components/Shared/ExportCSVButton'
 import { ASSIGNMENT_BANDS, LEGACY_ASSIGNMENT_BANDS } from '@/lib/assignmentBands'
-import { USER_ACCESS_VIEWS } from '@/lib/navigationItems'
 import {useAssignmentCSVExport} from '@/hooks/useAssignmentCSVExport'
 import { PageHeader } from '@/components/Shared/Presentation'
 import { UsersRound as PageIcon } from 'lucide-react'
 import { useRoles } from '@/hooks/useRoles'
 import { FilterChip } from '@/components/Shared/FilterChip'
 import { Button, ButtonGroup } from '@/components/Shared/Button'
-import { SecondaryNavigation, ContentTabs } from '@/components/Shared/Navigation'
+import { ContentTabs } from '@/components/Shared/Navigation'
 import { UserComparison, type ComparisonContext } from './UserComparison'
 import { SavedFilters } from '@/components/Shared/SavedFilters'
-import { AccountReview } from './AccountReview'
+import { UsersNavigation } from './UsersNavigation'
 import { AccountStatus } from '@/components/Shared/AccountStatus'
 import { useApplicationData } from '@/state/ApplicationData'
 import { AssignmentDateFilters, emptyDates, dateParams, datesActive } from '@/components/Shared/AssignmentDateFilters'
@@ -28,7 +28,7 @@ import { formatDate } from '@/lib/dateFormat';
 import { exportAssignments } from '@/lib/accessExport';
 import { announceExport } from '@/lib/exportNotice'
 import { ArrowLeftRight, ArrowRight, Briefcase, Download, FileCheck2, Layers, UsersRound, X } from 'lucide-react';
-import { useHistoryValue, useViewHistory, userAccessHref } from '@/hooks/useViewHistory';
+import { useHistoryValue, useViewHistory } from '@/hooks/useViewHistory';
 import { useRecordNavigation, type RecordNavigationState } from "@/hooks/useRecordNavigation";
 import { DetailNavigation, LockStatus, AssignmentStatus } from "@/components/Shared/InvestigationNavigation";
 import { MultiSelectFilter } from '@/components/Shared/MultiSelectFilter';
@@ -86,7 +86,7 @@ export function UserAccess({
   const setComparisonContext=(state:ComparisonContext)=>changeComparison({userComparison:state},true);
   const [compareInitial,setCompareInitial]=useState('');
   const [accessMode,setAccessMode]=useHistoryValue('accessMode');
-  const modeButtons=<SecondaryNavigation label="User Access view" items={USER_ACCESS_VIEWS.map(({value,label,icon})=>({value,label,icon,href:userAccessHref(value),active:(accessMode||'directory')===value,onSelect:()=>{setCompareInitial('');setAccessMode(value)}}))}/>;
+  const modeButtons=<UsersNavigation current={accessMode==='compare'?'compare':'directory'} onSelect={()=>setCompareInitial('')}/>;
   const {loading:dataLoading}=useApplicationData();
   const listScroll = useRef(0);
   const originUser = useRef(initialUser || "");
@@ -126,6 +126,9 @@ export function UserAccess({
   const [selectionBusy, setSelectionBusy] = useState(false), [selectionNote, setSelectionNote] = useState('');
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [exportUserScope,setExportUserScope] = useState<'matching'|'selected'>('matching');
+  // #35: which assignments of the exported users the CSV contains. It never changes the listed population; it is sent only when it is not the default.
+  const [assignmentScope,setAssignmentScope] = useState<'matching'|'all_assignments'>('matching');
+  const scopeParams: Record<string,string> = assignmentScope==='all_assignments'?{export_scope:'all_assignments'}:{};
   useEffect(() => {
     const t = setTimeout(() => setTerm(search), 250);
     return () => clearTimeout(t);
@@ -168,7 +171,11 @@ export function UserAccess({
     const last = Math.max(0, Math.floor((result.data.total - 1) / limit) * limit);
     if (offset > last) setOffset(last);
   }, [result.data, result.isFetching, offset]);
-  const assignmentExport=useAssignmentCSVExport('users',filters,result.data?.data_revision,result.data?.as_of,exportUserScope==='selected'?[...picked].sort():undefined)
+  // The listing never depends on the assignment scope; the All assignments row count is read separately (one row, same filters) when chosen.
+  const allAssignments = useQuery({ queryKey: ['access-users-all-assignments', JSON.stringify(filters), result.data?.data_revision], enabled: assignmentScope==='all_assignments' && !!result.data,
+    queryFn: () => accessQuery<Page<UserRow>>('users', { ...filters, ...scopeParams, offset: 0, limit: 1 }) })
+  const exportRows = assignmentScope==='all_assignments' ? allAssignments.data?.export_assignments : result.data?.export_assignments
+  const assignmentExport=useAssignmentCSVExport('users',{...filters,...scopeParams},result.data?.data_revision,result.data?.as_of,exportUserScope==='selected'?[...picked].sort():undefined)
   const previousSelected = useRef(selected);
   useLayoutEffect(() => {
     if (!selected && previousSelected.current) restoreList.current = true;
@@ -184,7 +191,6 @@ export function UserAccess({
     return () => cancelAnimationFrame(frame);
   }, [selected, result.data, result.isFetching]);
   if(accessMode==='compare') return <><div hidden={!!selected}>{modeButtons}<UserComparison context={comparisonContext} onContext={setComparisonContext} initialUser={compareInitial} onUser={openUser} onRole={onRole} onTransaction={code=>{setCompareInitial('');directoryTransaction.setInput('');directoryTransaction.setChips([code]);setAccessMode('directory')}}/></div>{selected&&<UserDetails username={selected} onCompare={()=>{setCompareInitial(selected);setSelected('')}} onBack={()=>setSelected('')} onRole={onRole} onRelease={onRelease} navigation={{index:-1,total:0,loading:false,error:null,missing:false,onPrevious:undefined,onNext:undefined}}/>}</>;
-  if(accessMode==='review') return <><div hidden={!!selected}>{modeButtons}<AccountReview onUser={openUser}/></div>{selected&&<UserDetails username={selected} onCompare={()=>{setCompareInitial(selected);setSelected('');setAccessMode('compare')}} onBack={()=>setSelected('')} onRole={onRole} onRelease={onRelease} navigation={{index:-1,total:0,loading:false,error:null,missing:false,onPrevious:undefined,onNext:undefined}}/>}</>;
   if (selected)
     return (
       <UserDetails
@@ -199,8 +205,8 @@ export function UserAccess({
   const clearAll=()=>{setUsernames('');setUsernameDraft('');setAssignmentBand('');setSearch('');setGroups([]);setFunctionalGroups([]);setManagers([]);setSort('username');setDescending(false);setRoles([]);directoryTransaction.clear();setTransactionMode('and');excludeTransaction.clear();setExcludeMode('any');setExpired(false);setTerm('');setMissingRoles([]);setMissingMode('any');clearEvidence()}
   const clearDisabled=!activeFilterCount&&!search&&!roles.length&&!groups.length&&!functionalGroups.length&&!managers.length&&!expired&&!missingRoles.length&&sort==='username'&&!descending
   return (
-    <section aria-label="User Access" className="space-y-4">
-      {modeButtons}<PageHeader title="User Access" icon={<PageIcon size={22} aria-hidden="true"/>}/>
+    <section aria-label="Users" className="space-y-4">
+      {modeButtons}<PageHeader title="Users" icon={<PageIcon size={22} aria-hidden="true"/>}/>
       <EvidenceNote />
 
       <FilterLayout label="Filters" activeCount={activeFilterCount} onClear={clearAll} clearDisabled={clearDisabled}
@@ -308,7 +314,8 @@ export function UserAccess({
                 finally{setSelectionBusy(false)}}}>Select all {result.data.total.toLocaleString()} matching</Button>}
               {picked.size>0&&<Button variant="primary" onClick={()=>setAssignOpen(true)}><UsersRound size={16} aria-hidden="true"/>Assign group</Button>}
               {picked.size>0&&<Button variant="outline" onClick={()=>setPicked(new Set())}><X size={16} aria-hidden="true"/>Clear selection</Button>}
-              <ExportCSVButton loading={assignmentExport.busy} disabled={dataLoading||result.isFetching||search!==term||directoryTransaction.settling||!result.data.export_assignments||(exportUserScope==='selected'&&!picked.size)} title="Export assignments for the chosen user scope, across pages. Active role filters restrict exported roles; MATCHED_FILTER marks filter evidence. See Export scope." onClick={()=>void assignmentExport.download()}/>
+              <OpenInReviewsButton scope={{ functional_groups: functionalGroups, managers, usernames: parseUsernameList(usernames) }} />
+              <ExportCSVButton loading={assignmentExport.busy} disabled={dataLoading||result.isFetching||search!==term||directoryTransaction.settling||!exportRows||(assignmentScope==='all_assignments'&&allAssignments.isFetching)||(exportUserScope==='selected'&&!picked.size)} title="Export assignments for the chosen users and assignment scope, across pages. MATCHED_FILTER marks filter evidence. See Export scope." onClick={()=>void assignmentExport.download()}/>
             </div>
           </div>
           <UsernameFeedback feedback={result.data.username_filter}/>
@@ -319,7 +326,11 @@ export function UserAccess({
               <option value="matching">All matching users ({result.data.total.toLocaleString()})</option>
               <option value="selected" disabled={!picked.size}>Selected users ({picked.size.toLocaleString()})</option>
             </Select></label>
-            <p className="ui-description">{roles.length?'Exports only assignments matching the selected role filters.':'No role filter is active: exports all imported assignments for the chosen users.'} {expired?'Expired assignments are included.':'Expired assignments are excluded while Show expired assignments is off.'} All active user filters still apply, including when exporting selected users. All matching users covers every page. MATCHED_FILTER identifies contributing evidence; it does not expand the exported role scope. Role-derived transactions do not prove effective SAP authorization.</p>
+            <label className="grid gap-1 text-sm">Assignment CSV rows<Select aria-label="Assignment CSV rows" value={assignmentScope} onChange={event=>setAssignmentScope(event.target.value as 'matching'|'all_assignments')}>
+              <option value="matching">Matching role assignments</option>
+              <option value="all_assignments">All assignments for matching users</option>
+            </Select></label>
+            <p className="ui-description">{!roles.length?'No role filter is active: exports all imported assignments for the chosen users.':assignmentScope==='matching'?'Exports only assignments matching the selected role filters.':'Exports every assignment of the chosen users, including roles outside the role filters; MATCHED_FILTER marks the matching ones.'} {exportRows===undefined?'Counting assignment rows…':`${exportRows.toLocaleString()} assignment rows for all matching users.`} {expired?'Expired assignments are included.':'Expired assignments are excluded while Show expired assignments is off.'} All active user filters still apply, including when exporting selected users. All matching users covers every page. MATCHED_FILTER identifies contributing evidence; it does not expand the exported role scope. Role-derived transactions do not prove effective SAP authorization.</p>
           </div></details>
 
           <div className="access-table user-directory-table" tabIndex={0} role="region" aria-label="User directory table">
@@ -382,7 +393,9 @@ export function UserAccess({
   );
 }
 
-function UserDetails({
+/** User details, shared by Users and the Reviews account pages (NAV-3); `parent` names the page Back returns to. */
+export function UserDetails({
+  parent = 'Users',
   username,
   onCompare,
   onBack,
@@ -390,6 +403,7 @@ function UserDetails({
   onRelease,
   navigation,
 }: {
+  parent?: string;
   navigation: RecordNavigationState;
   username: string;
   onCompare: () => void;
@@ -447,7 +461,7 @@ function UserDetails({
   const user = result.isError ? undefined : result.data;
   return (
     <section aria-label="User details" className="space-y-4">
-      <DetailNavigation parent="User Access" current={username} onBack={onBack} {...navigation}/>
+      <DetailNavigation parent={parent} current={username} onBack={onBack} {...navigation}/>
       <div className="flex flex-wrap items-center gap-3"><h1 className="text-xl font-semibold">User details</h1><Button className="settings-secondary-button" onClick={onCompare}><ArrowLeftRight size={16} aria-hidden="true" />Compare users</Button></div>
       <QueryState subject="user details" loading={result.isLoading || (dataLoading && !result.data)} error={dataLoading && !result.data ? null : result.error} />
       {user && (

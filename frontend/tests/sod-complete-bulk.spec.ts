@@ -26,7 +26,7 @@ async function select(page:Page,label:string,value:string){
 }
 async function preview(page:Page){
  await openSod(page,'Reviews')
- await page.getByRole('tab',{name:'Bulk Review',exact:true}).click()
+ await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Bulk Review',exact:true}).click()
  await select(page,'Assigned role',family)
  await select(page,'Role suffix','CDK')
  const table=page.getByRole('table',{name:'Bulk assignment preview',exact:true})
@@ -65,7 +65,7 @@ for(const [action,decision,confirm] of [['Keep','Keep','Keep 2 assignments'],['R
  expect(remediation.items[0].recommended).toBe(action==='Keep'?'Maintain access':action==='Remove'?'Remove assignment':'Investigate assignment')
  await dialog.getByRole('button',{name:'Done',exact:true}).click()
  const queueLoaded=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/sod/queue/users'&&response.request().method()==='GET'&&response.ok())
- await page.getByRole('tab',{name:'Work queue',exact:true}).click()
+ await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Work Queue',exact:true}).click()
  const displayedQueue=await(await queueLoaded).json()
  expect(displayedQueue.items.some((item:{user:string})=>item.user===`${names.c}_ONLY`)).toBe(true)
  await expect(page.getByRole('table',{name:'SoD review work queue',exact:true}).locator('tbody tr').filter({hasText:`${names.c}_ONLY`})).toBeVisible()
@@ -115,7 +115,7 @@ test('Access Explorer transfers the effective base role and suffix into one pres
  let writes=0
  page.on('request',request=>{if(request.method()==='POST'&&request.url().includes('/api/sod/decisions/'))writes++})
  await page.getByRole('button',{name:'Review matching assignments',exact:true}).click()
- await expect(page.getByRole('tab',{name:'Bulk Review',exact:true})).toHaveAttribute('aria-selected','true')
+ await expect(page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Bulk Review',exact:true})).toHaveAttribute('aria-current','page')
  const preview=page.getByRole('table',{name:'Bulk assignment preview',exact:true})
  await expect(preview.locator('tbody tr')).toHaveCount(2)
  await expect(preview).toContainText(`${names.c}_ONLY`)
@@ -131,7 +131,7 @@ test('Access Explorer transfers the effective base role and suffix into one pres
 
 test('restored legacy role searches keep their semantics when a group filter changes',async({page,request})=>{
  expect((await request.post('/api/saved-filters',{headers,data:{name:'Synthetic legacy search',view:'sod_queue',filters:{role:'SYN_READ',role_match:'search',assignment_scope:'all',validity:'active'}}})).ok()).toBeTruthy()
- await openSod(page,'Reviews');await page.getByRole('tab',{name:'Bulk Review',exact:true}).click()
+ await openSod(page,'Reviews');await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Bulk Review',exact:true}).click()
  await page.locator('[aria-label="sod_queue saved filters"]').getByRole('button',{name:/Saved filters/}).click()
  const menu=page.getByRole('dialog',{name:'sod_queue saved filters',exact:true})
  await menu.getByRole('combobox',{name:'Saved filter',exact:true}).click()
@@ -147,7 +147,7 @@ test('restored legacy role searches keep their semantics when a group filter cha
 test('prior reviews stay hidden and unselected until explicitly reconsidered; hidden scope never executes',async({page,request})=>{
  const selection=await(await request.get('/api/sod/explorer/access_list/selection',{headers,params:{assignment_scope:'all',usernames:names.a,role_exact:readRole}})).json()
  expect((await request.post('/api/sod/decisions/assignment/bulk',{headers,data:{context:'current',expected_revision:selection.revision,expected_generation:selection.generation,atomic:true,action:'Keep',reviewer:'Synthetic Reviewer',justification:'Synthetic previous review',items:selection.items.map(({key,user,ref,evidence_version}:{key:string;user:string;ref:string;evidence_version:string})=>({key,user,ref,evidence_version}))}})).ok()).toBeTruthy()
- await openSod(page,'Reviews');await page.getByRole('tab',{name:'Bulk Review',exact:true}).click()
+ await openSod(page,'Reviews');await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Bulk Review',exact:true}).click()
  await select(page,'Assigned role',family);await select(page,'Role suffix','CDK')
  const table=page.getByRole('table',{name:'Bulk assignment preview',exact:true}),scope=page.getByLabel('Bulk review scope')
  await expect(scope.getByRole('group',{name:'Users',exact:true})).toContainText('2')
@@ -177,7 +177,7 @@ test('page checkbox is indeterminate and all eligible selection spans pages with
  const file=path.join(directory,'users.csv')
  writeFileSync(file,readFileSync(file,'utf8')+Array.from({length:65},(_,i)=>`SYN_BULK_PAGE_${String(i).padStart(3,'0')},${readRole},FIN,20000101,99991231\n`).join(''))
  await importSource(request,'users')
- await openSod(page,'Reviews');await page.getByRole('tab',{name:'Bulk Review',exact:true}).click()
+ await openSod(page,'Reviews');await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Bulk Review',exact:true}).click()
  await select(page,'Assigned role',family);await select(page,'Role suffix','CDK')
  const table=page.getByRole('table',{name:'Bulk assignment preview',exact:true}),header=table.getByRole('checkbox',{name:'Select eligible assignments on current page',exact:true})
  await expect(table.locator('tbody tr')).toHaveCount(50)

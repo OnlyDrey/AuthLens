@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test'
 import {mkdtempSync,writeFileSync,appendFileSync,rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import { headers, postConfiguration } from './support'
+import { headers, postConfiguration, goTo, selectSettingsSection } from './support'
 let directory:string
 const csv='FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,CHILD_AGR_TEXT,TCODE,TTEXT\n'+[
 'BC,ZC:SYN:A,Synthetic Alpha,ZS:SYN:SHARED,BC - Batch Input Management,SOST,Mail',
@@ -21,7 +21,7 @@ test.beforeEach(async({request})=>{
 })
 test.afterEach(async({request})=>{await request.post('/api/configuration/reset',{headers});rmSync(directory,{recursive:true,force:true})})
 test('sidebar wildcard filters rows as well as roles and restores the original collapsed state', { tag: '@smoke' },async({page,request})=>{
- await page.goto('/#session=browser-test-session');await page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'Role Lookup',exact:true}).click();await page.getByRole('button',{name:'View details for Synthetic Alpha',exact:true}).click()
+ await page.goto('/#session=browser-test-session');await goTo(page,'Role Lookup');await page.getByRole('button',{name:'View details for Synthetic Alpha',exact:true}).click()
  const dialog=page.getByRole('dialog'),input=dialog.getByRole('textbox',{name:'Find transaction code',exact:true})
  const shared=dialog.locator('.single-role-entry').filter({has:page.getByRole('button',{name:'Expand single role ZS:SYN:SHARED',exact:true})})
  await expect(shared.locator('.role-entry-title')).toHaveText('Batch Input Management');await expect(shared.locator('.module-badge-label')).toHaveText('BC')
@@ -37,15 +37,15 @@ for(const theme of ['light','dark'])test(`restored shared surfaces spacing and n
  for(const name of ['Role Distribution','Assignment Distribution']){const card=page.getByRole('region',{name,exact:true});await expect(card).toHaveCSS('padding','16px');await expect(card).toHaveCSS('border-radius','12px');await expect(card).not.toHaveCSS('background-color','rgba(0, 0, 0, 0)')}
  await expect(page.locator('.dashboard-section .info-row').first()).toHaveCSS('padding-left','8px')
  await expect(page.locator('.app-header-row')).toHaveCSS('min-height','72px')
- await page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'User Access',exact:true}).click()
- const link=page.getByRole('navigation',{name:'User Access view',exact:true}).getByRole('link',{name:'User directory',exact:true});await expect(link).toHaveCSS('border-top-width','0px');await expect(link).toHaveCSS('border-bottom-width','2px');const before=(await link.boundingBox())!;await link.hover();expect((await link.boundingBox())!.height).toBe(before.height)
- await page.getByRole('button',{name:'Open settings',exact:true}).click();await page.getByRole('tab',{name:'Component Library',exact:true}).click()
+ await goTo(page,'Users')
+ const link=page.getByRole('navigation',{name:'Users view',exact:true}).getByRole('link',{name:'User Directory',exact:true});await expect(link).toHaveCSS('border-top-width','0px');await expect(link).toHaveCSS('border-bottom-width','2px');const before=(await link.boundingBox())!;await link.hover();expect((await link.boundingBox())!.height).toBe(before.height)
+ await page.getByRole('button',{name:'Open settings',exact:true}).click();await selectSettingsSection(page,'Component Library')
  const panel=page.locator('.component-library>.ui-tabs>[role=tabpanel]');await expect(panel).toHaveCSS('display','grid');await expect(panel).toHaveCSS('row-gap','16px')
  const cards=panel.locator(':scope > .ui-card');const a=(await cards.nth(0).boundingBox())!,b=(await cards.nth(1).boundingBox())!;expect(b.y-a.y-a.height).toBeGreaterThanOrEqual(15)
 })
 test('comparison uses responsive tiles and shared transaction filtering without losing totals',async({page,request},info)=>{
  const source=await(await request.post('/api/compare',{headers,data:{roles:['ZC:SYN:A','ZC:SYN:B']}})).json()
- await page.goto('/#session=browser-test-session');await page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'Role Lookup',exact:true}).click()
+ await page.goto('/#session=browser-test-session');await goTo(page,'Role Lookup')
  for(const name of ['Synthetic Alpha','Synthetic Beta'])await page.getByRole('article',{name,exact:true}).getByRole('button',{name:'Add to comparison',exact:true}).click()
  await page.getByRole('button',{name:'Compare now',exact:true}).click()
  const comparison=page.getByRole('region',{name:'Role comparison',exact:true});await expect(comparison.getByRole('region',{name:'Single role overlap',exact:true})).toHaveCount(0)
@@ -61,13 +61,15 @@ test('comparison uses responsive tiles and shared transaction filtering without 
  await page.screenshot({path:info.outputPath('comparison-tiles.png'),fullPage:true})
 })
 test('review validity stays status-only and Release Roles retains the chosen view through filters',async({page})=>{
- await page.goto('/#session=browser-test-session');const nav=page.getByRole('navigation',{name:'Main navigation',exact:true});await nav.getByRole('link',{name:'User Access',exact:true}).click();await page.getByRole('link',{name:'Account Review',exact:true}).click()
- const row=page.getByRole('row').filter({has:page.getByRole('link', { name: 'SYN_VIEW',exact:true})});await expect(row).toBeVisible();await expect(row.locator('.review-account-dates')).toHaveCount(0);await expect(row.locator('td').nth(4)).toContainText('Valid')
- await nav.getByRole('link',{name:'Release Roles',exact:true}).click();const group=page.getByRole('group',{name:'Release results view',exact:true});await expect(group.getByRole('button').first()).toHaveText('Matrix');await expect(group.getByRole('button',{name:'Matrix',exact:true})).toHaveAttribute('aria-pressed','true');await group.getByRole('button',{name:'Table',exact:true}).click();await page.getByRole('combobox',{name:'Release assignment status',exact:true}).selectOption('all');await expect(group.getByRole('button',{name:'Table',exact:true})).toHaveAttribute('aria-pressed','true')
+ await page.goto('/#session=browser-test-session');await goTo(page,'Account Review') // a Reviews page (NAV-3)
+ const row=page.getByRole('row').filter({has:page.getByRole('link', { name: 'SYN_VIEW',exact:true})});await expect(row).toBeVisible();await expect(row.locator('.review-account-dates')).toHaveCount(0)
+ const validity=row.locator(`[data-column-index="${await page.getByRole('table',{name:'Account Review results'}).getByRole('columnheader',{name:'SAP validity',exact:true}).getAttribute('data-column-index')}"]`) // by column, not position (Functional Group and Manager columns, f4cb364)
+ await expect(validity).toContainText('Valid')
+ await goTo(page, 'Release Access');const group=page.getByRole('group',{name:'Release results view',exact:true});await expect(group.getByRole('button').first()).toHaveText('Matrix');await expect(group.getByRole('button',{name:'Matrix',exact:true})).toHaveAttribute('aria-pressed','true');await group.getByRole('button',{name:'Table',exact:true}).click();await page.getByRole('combobox',{name:'Release assignment status',exact:true}).selectOption('all');await expect(group.getByRole('button',{name:'Table',exact:true})).toHaveAttribute('aria-pressed','true')
 })
 test('theme colors are an editable grid that shows every color together and edits, resets and syncs draft logos',async({page,request})=>{
  await page.setViewportSize({width:1600,height:1000})
- await page.goto('/#session=browser-test-session');await page.getByRole('button',{name:'Open settings',exact:true}).click();await page.getByRole('tab',{name:'Appearance & Branding',exact:true}).click()
+ await page.goto('/#session=browser-test-session');await page.getByRole('button',{name:'Open settings',exact:true}).click();await selectSettingsSection(page,'Appearance & Branding')
  const colors=page.getByRole('region',{name:'Theme color settings',exact:true}),grid=colors.getByRole('group',{name:'Theme colors',exact:true})
  await colors.scrollIntoViewIfNeeded()
  const names=['Primary color','Accent color','Secondary color','Application background','Surface / card background','Primary text color']
@@ -93,10 +95,10 @@ for(const theme of ['light','dark'])for(const width of [375,800,1280,1600])test(
  await request.post('/api/configuration/theme',{headers,data:{theme}});const settings=(await(await request.get('/api/configuration',{headers})).json()).settings;appendFileSync(settings.user_csv_path,'SYN_VIEW,ZO:MM:M:PR_REL_ST_G1_N1:ALL,synthetic@example.test,20000101,99991231,20000101,99991231\nSYN_VIEW,ZO:MM:M:PO_REL_ST_G2_N2:ALL,synthetic@example.test,20000101,99991231,20000101,99991231\n');expect((await request.post('/api/data-sources/users/select',{headers,data:{path:settings.user_csv_path,revision:settings.revision,mode:'dynamic'}})).ok()).toBeTruthy();await page.setViewportSize({width,height:950});await page.goto('/#session=browser-test-session')
  const capture=async(name:string)=>{expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();await page.screenshot({path:info.outputPath(`${name}-${theme}-${width}.png`)})}
  await expect(page.getByRole('region',{name:'Role Distribution',exact:true})).not.toHaveCSS('background-color','rgba(0, 0, 0, 0)');await capture('dashboard')
- const nav=page.getByRole('navigation',{name:'Main navigation',exact:true});await nav.getByRole('link',{name:'Role Lookup',exact:true}).click();await page.getByRole('button',{name:'View details for Synthetic Alpha',exact:true}).click();await page.getByRole('textbox',{name:'Find transaction code',exact:true}).fill('SO*');await expect(page.getByRole('dialog').locator('.single-role-entry:visible')).toHaveCount(1);await expect(page.getByRole('dialog').locator('.single-role-entry:visible tbody tr')).toHaveCount(2);await capture('wildcard-sidebar');await page.getByRole('button',{name:'Close role details',exact:true}).click()
+ await goTo(page,'Role Lookup');await page.getByRole('button',{name:'View details for Synthetic Alpha',exact:true}).click();await page.getByRole('textbox',{name:'Find transaction code',exact:true}).fill('SO*');await expect(page.getByRole('dialog').locator('.single-role-entry:visible')).toHaveCount(1);await expect(page.getByRole('dialog').locator('.single-role-entry:visible tbody tr')).toHaveCount(2);await capture('wildcard-sidebar');await page.getByRole('button',{name:'Close role details',exact:true}).click()
  for(const name of ['Synthetic Alpha','Synthetic Beta'])await page.getByRole('article',{name,exact:true}).getByRole('button',{name:'Add to comparison',exact:true}).click();await page.getByRole('button',{name:'Compare now',exact:true}).click();await page.getByRole('textbox',{name:'Search comparison transactions',exact:true}).fill('SO*');const comparison=page.getByRole('region',{name:'Role comparison',exact:true});await expect(comparison).toHaveAttribute('aria-busy','false');await expect(comparison.locator('tbody tr')).toHaveCount(3);await capture('comparison')
- await nav.getByRole('link',{name:'User Access',exact:true}).click();await page.getByRole('link',{name:'Account Review',exact:true}).click();await expect(page.getByRole('link', { name: 'SYN_VIEW',exact:true})).toBeVisible();await capture('review');await nav.getByRole('link',{name:'Release Roles',exact:true}).click();await expect(page.getByRole('table',{name:'PR release matrix',exact:true})).toBeVisible();await capture('release-matrix')
- await page.getByRole('button',{name:'Open settings',exact:true}).click();await page.getByRole('tab',{name:'Appearance & Branding',exact:true}).click();await capture('branding');const carousel=page.getByRole('region',{name:'Theme color settings',exact:true});await carousel.scrollIntoViewIfNeeded();await capture('colors');await page.getByAltText('Selected header logo preview',{exact:true}).scrollIntoViewIfNeeded();await capture('logo')
- await page.getByRole('tab',{name:'Component Library',exact:true}).click();const panel=page.locator('.component-library>.ui-tabs>[role=tabpanel]');await expect(panel).toHaveCSS('row-gap','16px');await capture('library')
+ await goTo(page, 'Account Review');await expect(page.getByRole('link', { name: 'SYN_VIEW',exact:true})).toBeVisible();await capture('review');await goTo(page, 'Release Access');await expect(page.getByRole('table',{name:'release matrix',exact:true})).toBeVisible();await capture('release-matrix')
+ await page.getByRole('button',{name:'Open settings',exact:true}).click();await selectSettingsSection(page,'Appearance & Branding');await capture('branding');const carousel=page.getByRole('region',{name:'Theme color settings',exact:true});await carousel.scrollIntoViewIfNeeded();await capture('colors');await page.getByAltText('Selected header logo preview',{exact:true}).scrollIntoViewIfNeeded();await capture('logo')
+ await selectSettingsSection(page,'Component Library');const panel=page.locator('.component-library>.ui-tabs>[role=tabpanel]');await expect(panel).toHaveCSS('row-gap','16px');await capture('library')
  const pagination=page.getByRole('navigation',{name:'Demo pagination',exact:true});await pagination.scrollIntoViewIfNeeded();await expect(pagination).toHaveCSS('justify-content','center');await expect(pagination.getByRole('button',{name:'Next',exact:true})).toBeVisible();expect(Math.abs((await pagination.getByRole('button',{name:'Previous',exact:true}).boundingBox())!.y-(await pagination.getByRole('button',{name:'Next',exact:true}).boundingBox())!.y)).toBeLessThanOrEqual(1);await capture('pagination')
 })

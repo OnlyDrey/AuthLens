@@ -49,7 +49,7 @@ public static partial class V1DataMigration
     private static string Folder(string data, string id) => Path.Combine(Root(data), id);
     private static string PendingActivation(string data) => Path.Combine(Root(data), "pending-activation.json");
     private static string PendingRollback(string data) => Path.Combine(Root(data), "pending-rollback.json");
-    private static string Stamp(DateTimeOffset now) => now.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'");
+    private static string Stamp(DateTimeOffset now) => now.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'", System.Globalization.CultureInfo.InvariantCulture);
     private static string Sha(string path) => Digests.File(path);
     private static string Sha(byte[] bytes) => Digests.Bytes(bytes);
     private static void Save(string path, JsonNode value) { Directory.CreateDirectory(Path.GetDirectoryName(path)!); BackupKeys.WriteAtomic(path, value.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping })); }

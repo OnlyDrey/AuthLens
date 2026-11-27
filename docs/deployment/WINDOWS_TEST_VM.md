@@ -3,8 +3,8 @@
 A runbook for one **isolated Windows 11 Pro test VM**: building a release natively, starting the Server by hand or with the test launcher,
 checking HTTPS from the VM and from another machine, and recording what passed. The configuration reference (every option, environment
 variable, default and refusal) is [SERVER_NETWORK_ACCESS.md, section 2](SERVER_NETWORK_ACCESS.md#2-configuration); certificates
-are in [section 4](SERVER_NETWORK_ACCESS.md#1-hosting-boundary). The Windows service procedure is in
-[section 5](SERVER_NETWORK_ACCESS.md#7-windows-service-and-filesystem-permissions); it has **not** been run natively yet.
+are in [section 1](SERVER_NETWORK_ACCESS.md#1-hosting-boundary). The Windows service procedure is in
+[section 7](SERVER_NETWORK_ACCESS.md#7-windows-service-and-filesystem-permissions); native service results are recorded in the [acceptance tracker](../validation/ACCEPTANCE_TRACKER.md).
 
 ## Restricted unattended administration
 
@@ -65,8 +65,8 @@ the capsule's administrative target paths and must not be removed.
 ```powershell
 # Once, from an administrator PowerShell. Substitute one verified build and independent recovery bundle.
 .\backend\scripts\Register-AuthLensAdmin.ps1 `
-  -Package '<verified-build>\build\<release>' `
-  -ToolsDirectory '<verified-build>\installer\installer-tools-<id>' `
+  -Package 'C:\AuthLens\Build\<version>\<build-id>' `
+  -ToolsDirectory 'C:\AuthLens\Installer\<version>\<build-id>\installer-tools-<id>' `
   -ConfigFile 'C:\ProgramData\AuthLens\config\deploy.json' `
   -RecoveryBundle 'C:\AuthLens-Recovery\<verified-independent-bundle>' `
   -Operations Health,Preflight,Start,Stop,Restart,Upgrade,Repair,Recover -Approve
@@ -91,7 +91,7 @@ environment: the Server's own defaults are `127.0.0.1:18790` over HTTP with netw
 environment-specific is built into the executables or the scripts; the same release runs with any address, host name and port.
 
 Keep your environment's real values in a local file that is never committed: copy
-`backend\scripts\start-server-test.example.json` to `C:\AuthLens-Acceptance\start-server-test.local.json` (or
+`backend\scripts\start-server-test.example.json` to `C:\AuthLens\server-test\start-server-test.local.json` (or
 `start-server-test.local.json` next to the script; `*.local.json` is git-ignored) and edit it. The launcher reads it automatically; explicit
 parameters still win, and the file must not contain secrets (the certificate password stays in its own protected file). To keep your real values
 out of future commits, list them one per line in `.secret-scan.local` at the repository root (git-ignored); `python scripts/check-secrets.py`
@@ -101,14 +101,14 @@ then reports any tracked file that contains them.
 | --- | --- |
 | Server IP (a private address assigned to the VM) | `192.168.10.20` |
 | HTTPS port | `18795` (any free port) |
-| Test data directory (disposable, synthetic data only) | `C:\AuthLens-Acceptance\server-test` |
-| Releases built on the VM | `C:\AuthLens-Acceptance\builds\<name>` |
-| Certificate (PFX, SAN includes `192.168.10.20`) | `C:\AuthLens-Acceptance\tls\server.pfx` |
-| Certificate password file | `C:\AuthLens-Acceptance\tls\cert-password` |
+| Test data directory (disposable, synthetic data only) | `C:\AuthLens\server-test\data` |
+| Builds on the VM (canonical) | `C:\AuthLens\Build\<version>\<build-id>` (release) and `C:\AuthLens\Installer\<version>\<build-id>` (installers) |
+| Certificate (PFX, SAN includes `192.168.10.20`) | `C:\AuthLens\server-test\tls\server.pfx` |
+| Certificate password file | `C:\AuthLens\server-test\tls\cert-password` |
 | Repository checkout | `C:\src\AuthLens` |
 
 The certificate and password file are created once by an administrator with the commands in
-[SERVER_NETWORK_ACCESS.md section 4](SERVER_NETWORK_ACCESS.md#7-windows-service-and-filesystem-permissions), using `$ip = '192.168.10.20'` and a DNS name
+[SERVER_NETWORK_ACCESS.md section 7](SERVER_NETWORK_ACCESS.md#7-windows-service-and-filesystem-permissions), using `$ip = '192.168.10.20'` and a DNS name
 of your choice. Nothing in this runbook creates or overwrites them.
 
 ## 1. Build a native release
@@ -118,11 +118,17 @@ Prerequisites: .NET 10 SDK, Node.js 24 or 25, Git. PowerShell 5.1 or 7.
 ```powershell
 cd C:\src\AuthLens
 git fetch origin experiment/dotnet-backend; git checkout experiment/dotnet-backend; git pull --ff-only
-powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\build-release.ps1 -Output C:\AuthLens-Acceptance\builds
+Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force
+.\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)
 ```
 
-`-ExecutionPolicy Bypass` on the `powershell -File` call applies to that one process only; it changes no machine or user policy. `-Output` is the
-parent folder: each build creates a new folder `AuthLens-<version>-<UTC time>-<commit>-win-x64` inside it and never overwrites one.
+The [canonical Windows build](WINDOWS_DEPLOYMENT.md#canonical-windows-build) is mandatory: each build generates one build id
+`<UTC yyyy-MM-dd_HHmm>-<sha7>` and writes the release to `C:\AuthLens\Build\<version>\<build-id>` and the installers to
+`C:\AuthLens\Installer\<version>\<build-id>`; it never overwrites anything. The test launcher searches `Build\<version>\<build-id>` and legacy run
+directories' `build\<release folder>` by default (`-BuildsRoot C:\AuthLens`); select a reviewed candidate explicitly with
+`-ReleasePath C:\AuthLens\Build\<version>\<build-id>`. Its runtime state
+(data, certificate, logs, local configuration) lives under `C:\AuthLens\server-test`, separate from every build directory, release folder and the
+installed application in `C:\ProgramData\AuthLens`.
 
 `build-release.ps1` builds the solution (which builds the UI once, [build and publish flow](../development/README.md#build-and-publish-flow)), runs the tests, publishes both executables, validates the packages, writes `README.txt`,
 `build-manifest.json` and `SHA256SUMS`, and verifies them with `verify-release.ps1`. It **does not install or start anything**. A completed build
@@ -146,7 +152,7 @@ inside its application folder (`startup refused: The data directory must be outs
 replaced or deleted without touching data.
 
 ```powershell
-$release = Get-ChildItem C:\AuthLens-Acceptance\builds -Directory -Filter 'AuthLens-*' | Sort-Object { (Get-Item (Join-Path $_.FullName 'build-manifest.json')).LastWriteTime } | Select-Object -Last 1
+$release = Get-Item 'C:\AuthLens\Build\<version>\<build-id>'   # select explicitly; never the newest partial build
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\src\AuthLens\backend\scripts\verify-release.ps1 -ReleasePath $release.FullName   # after copying a release, too
 Get-Content (Join-Path $release.FullName 'build-manifest.json') | Select-Object -First 12
 & (Join-Path $release.FullName 'server\AuthLens.Api.exe') --version
@@ -156,7 +162,7 @@ Get-Content (Join-Path $release.FullName 'build-manifest.json') | Select-Object 
 ## 2. Start the Server with the test launcher (recommended)
 
 `backend\scripts\start-server-test.ps1` is a development and acceptance-testing utility, **not** a deployment mechanism.
-It picks the newest complete release under `C:\AuthLens-Acceptance\builds` (one with `build-manifest.json`, `server\AuthLens.Api.exe` and `e_sqlite3.dll`;
+It picks the newest complete release under `C:\AuthLens` (`Build\<version>\<build-id>`, a legacy run directory's `build\`, or directly under the root; one with `build-manifest.json`, `server\AuthLens.Api.exe` and `e_sqlite3.dll`;
 earlier folder-publish releases with `manifest.json` and `server-win-x64\` are still recognized), validates the
 configuration and runs the Server in the foreground.
 
@@ -164,27 +170,27 @@ configuration and runs the Server in the foreground.
 cd C:\src\AuthLens\backend
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-server-test.ps1 -DryRun       # validate and show the command; starts nothing
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-server-test.ps1              # foreground; Ctrl+C stops it gracefully
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-server-test.ps1 -Background  # detached; logs and PID file in C:\AuthLens-Acceptance\logs
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-server-test.ps1 -Background  # detached; logs and PID file in C:\AuthLens\server-test\logs
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-server-test.ps1 -Stop        # stops exactly the process -Background started
-.\scripts\start-server-test.ps1 -ListenAddress '192.168.10.20' -Port 18795 -DataDirectory 'C:\AuthLens-Acceptance\server-test' `
-    -AllowedHosts 'authlens.test.example','192.168.10.20' -ReleasePath "C:\AuthLens-Acceptance\builds\$name"
+.\scripts\start-server-test.ps1 -ListenAddress '192.168.10.20' -Port 18795 -DataDirectory 'C:\AuthLens\server-test\data' `
+    -AllowedHosts 'authlens.test.example','192.168.10.20' -ReleasePath 'C:\AuthLens\Build\<version>\<build-id>'
 ```
 
 | Parameter | Default (example VM) | Notes |
 | --- | --- | --- |
-| `-ConfigFile` | see lookup order | Local JSON with environment values (`start-server-test.example.json` is the template); lookup: `-ConfigFile`, `%AUTHLENS_TEST_CONFIG%`, `C:\AuthLens-Acceptance\start-server-test.local.json`, `start-server-test.local.json` next to the script |
-| `-BuildsRoot` | `C:\AuthLens-Acceptance\builds` | Searched when `-ReleasePath` is not given |
+| `-ConfigFile` | see lookup order | Local JSON with environment values (`start-server-test.example.json` is the template); lookup: `-ConfigFile`, `%AUTHLENS_TEST_CONFIG%`, `C:\AuthLens\server-test\start-server-test.local.json`, `start-server-test.local.json` next to the script |
+| `-BuildsRoot` | `C:\AuthLens` | Searched when `-ReleasePath` is not given |
 | `-ReleasePath` | none | A release folder, its `server` folder, or a plain `dotnet publish` folder |
 | `-ListenAddress` | none (required, from the parameter or the local file) | Must be assigned to this machine; loopback and `0.0.0.0` are refused |
 | `-Port` | `18790` | Must be free on that address |
 | `-AllowedHosts` | the listen address | Host names or addresses clients type; the certificate SAN must cover each |
 | `-TrustedProxies` | none | Reverse-proxy tests only: IP or CIDR of the proxy peer, passed as `--trusted-proxies` ([section 11](SERVER_NETWORK_ACCESS.md#5-reverse-proxy-pangolin-or-another-trusted-proxy)) |
-| `-DataDirectory` | `C:\AuthLens-Acceptance\server-test` | Absolute, local; refused inside protected installation/system roots or the release folder |
-| `-CertificatePath` | `C:\AuthLens-Acceptance\tls\server.pfx` | Must exist; never created |
-| `-CertificatePasswordFile` | `C:\AuthLens-Acceptance\tls\cert-password` | Must exist and be non-empty; the Server reads it, the launcher never does |
+| `-DataDirectory` | `C:\AuthLens\server-test\data` | Absolute, local; refused inside protected installation/system roots or the release folder |
+| `-CertificatePath` | `C:\AuthLens\server-test\tls\server.pfx` | Must exist; never created |
+| `-CertificatePasswordFile` | `C:\AuthLens\server-test\tls\cert-password` | Must exist and be non-empty; the Server reads it, the launcher never does |
 | `-DryRun` | off | Validates and prints the command without secrets |
 | `-Background` / `-Stop` | off | Start detached (output to `<LogDirectory>\server-<UTC time>.out.log`/`.err.log`, identity in `authlens-test-server.json`; waits until the port accepts connections, reports a startup refusal with its exit code and error log) / stop exactly that process (id and start time must match). A detached console process can only be stopped hard; a running import is recovered by its 30-second lease on the next start. Use the foreground or the Windows service for a graceful stop |
-| `-LogDirectory` | `C:\AuthLens-Acceptance\logs` | Background logs and PID file; refused inside the release folder |
+| `-LogDirectory` | `C:\AuthLens\server-test\logs` | Background logs and PID file; refused inside the release folder |
 
 The Server receives `--data-dir --network --listen --port --allowed-hosts --cert --cert-password-file`. Exit codes: `0` normal stop,
 `2` the launcher refused the configuration (reason on stderr), `3` the Server refused it (`startup refused: <reason>`), anything else is the
@@ -207,8 +213,8 @@ The same configuration without the launcher. The password stays in its file; it 
 
 ```powershell
 $server = Join-Path $release.FullName 'server\AuthLens.Api.exe'
-& $server --data-dir 'C:\AuthLens-Acceptance\server-test' --network --listen 192.168.10.20 --port 18795 --allowed-hosts 192.168.10.20 `
-  --cert 'C:\AuthLens-Acceptance\tls\server.pfx' --cert-password-file 'C:\AuthLens-Acceptance\tls\cert-password'
+& $server --data-dir 'C:\AuthLens\server-test\data' --network --listen 192.168.10.20 --port 18795 --allowed-hosts 192.168.10.20 `
+  --cert 'C:\AuthLens\server-test\tls\server.pfx' --cert-password-file 'C:\AuthLens\server-test\tls\cert-password'
 "exit code $LASTEXITCODE"
 ```
 
@@ -226,7 +232,7 @@ part of the release packages), then complete the setup in the browser:
 
 ```powershell
 cd C:\src\AuthLens\backend
-dotnet run --project src\AuthLens.Cli -c Release -- accounts-code --data C:\AuthLens-Acceptance\server-test
+dotnet run --project src\AuthLens.Cli -c Release -- accounts-code --data C:\AuthLens\server-test\data
 ```
 
 ## 4. Check HTTPS on the VM and from another machine
@@ -255,8 +261,8 @@ Then open `https://192.168.10.20:18795/` in a browser. It must show a valid lock
 ## 5. Validate the TLS certificate
 
 ```powershell
-$pfx = Get-PfxData -FilePath C:\AuthLens-Acceptance\tls\server.pfx `
-  -Password (ConvertTo-SecureString (Get-Content C:\AuthLens-Acceptance\tls\cert-password -Raw) -AsPlainText -Force)   # administrator prompt only
+$pfx = Get-PfxData -FilePath C:\AuthLens\server-test\tls\server.pfx `
+  -Password (ConvertTo-SecureString (Get-Content C:\AuthLens\server-test\tls\cert-password -Raw) -AsPlainText -Force)   # administrator prompt only
 $cert = $pfx.EndEntityCertificates[0]
 $cert | Format-List Subject, NotBefore, NotAfter, Thumbprint, HasPrivateKey
 ($cert.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.17' }).Format($true)    # SAN: must list 192.168.10.20 and every allowed host name
@@ -292,7 +298,7 @@ The rule names one release's executable. Update `-Program` when you test a newer
 
 | Mode | Where the log goes |
 | --- | --- |
-| Console (launcher or manual start) | JSON lines on the console only; redirect if you need a file: `... 2>&1 \| Tee-Object C:\AuthLens-Acceptance\server-test-console.log` |
+| Console (launcher or manual start) | JSON lines on the console only; redirect if you need a file: `... 2>&1 \| Tee-Object C:\AuthLens\server-test\data-console.log` |
 | Windows service | `<data-dir>\logs\server-YYYYMMDD.log` (same lines); Service Control Manager events in the System event log |
 
 Stop: press **Ctrl+C** in the console. The host shuts down gracefully within 15 seconds: a running import is handed back as Queued and the
@@ -306,9 +312,9 @@ Restart and persistence check:
 3. Start again with the same command. Sign in again (sessions do not survive a restart). The counts, the decision and its history are
    unchanged, and `/api/v1/admin/integrity` reports `database_ok: true` (shared-token client) or Settings → Data Health shows no integrity
    finding.
-4. `C:\AuthLens-Acceptance\server-test` holds `authlens.sqlite3` (and `-wal`/`-shm` while running), `api-token` and the accounts store.
+4. `C:\AuthLens\server-test\data` holds `authlens.sqlite3` (and `-wal`/`-shm` while running), `api-token` and the accounts store.
 
-Reset: stop the Server and delete `C:\AuthLens-Acceptance\server-test`. It holds only synthetic test data.
+Reset: stop the Server and delete `C:\AuthLens\server-test\data`. It holds only synthetic test data.
 
 ## 8. What each result proves
 
@@ -338,7 +344,7 @@ selects the real `AuthLens` service or any unrelated service. Do not copy produc
 
 ```powershell
 $run  = [guid]::NewGuid().ToString('N')
-$root = "C:\AuthLens-Acceptance\restore-$run"
+$root = "C:\AuthLens\server-test\restore-$run"
 $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0); $listener.Start(); $port = $listener.LocalEndpoint.Port; $listener.Stop()
 $config = Join-Path $env:TEMP "authlens-acceptance-$run.json"
 [ordered]@{ Root=$root; RepositoryPath=(Get-Location).Path; ServiceName="AuthLens.Acceptance-$run"; ListenAddress='127.0.0.1'; Port=$port
@@ -364,7 +370,7 @@ synthetic clock tests; never change the VM clock/timezone. Retention previews mu
 approval after shortening a period. Check all four backup tabs at the documented themes/widths.
 
 Cleanup is a **separate explicit** operation: verify the service name matches this run's GUID, stop/delete only that service, verify the absolute
-root is exactly `C:\AuthLens-Acceptance\restore-<GUID>`, and remove only that folder and the temporary configuration file. Do not use wildcard
+root is exactly `C:\AuthLens\server-test\restore-<GUID>`, and remove only that folder and the temporary configuration file. Do not use wildcard
 service deletion or recursive production-path cleanup. Never include secrets in shared acceptance evidence.
 
 ## Fetch and validate without deployment
@@ -382,11 +388,11 @@ python scripts/check-secrets.py
 python scripts/check-workflows.py
 Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force
 $filter = Get-ALTestFilter focused
-# Produces a separate acceptance package; never installs or starts it.
-& .\backend\scripts\build-release.ps1 -Output C:\AuthLens-Acceptance\builds -TestFilter $filter
+# Produces the canonical acceptance package (release, installers, summary); never installs or starts it.
+.\build.ps1 -OutputRoot C:\AuthLens -TestFilter $filter
 if ($LASTEXITCODE) { throw 'Acceptance build failed' }
-$release = Get-ChildItem C:\AuthLens-Acceptance\builds -Directory -Filter 'AuthLens-*-win-x64' | Sort-Object Name | Select-Object -Last 1
-& .\backend\scripts\verify-release.ps1 -ReleasePath $release.FullName
+$release = 'C:\AuthLens\Build\<version>\<build-id printed by build.ps1>'
+& .\backend\scripts\verify-release.ps1 -ReleasePath $release
 ```
 
 Stop on a dirty checkout, unexpected branch, divergent history, failed checks or dirty manifest. Do not reset local changes or install a service

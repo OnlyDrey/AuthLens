@@ -164,6 +164,40 @@ public sealed class SodBulkReviewTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task An_atomic_investigation_tracks_its_actions_in_the_same_transaction()
+    {
+        // NAV-8: Bulk Review is atomic; atomic_actions creates the investigation actions with the decisions, all or nothing.
+        var user = (string)Reference["user"]!;
+        var store = _app.Services.GetRequiredService<SodDecisionStore>();
+        var roles = Reference["roles"]!.AsArray().Take(2).Select(r => (string)r!).ToList();
+        var items = new JsonArray();
+        foreach (var role in roles) items.Add(await Resolve(new JsonArray(user, role)));
+        var subject = await Subject(user);
+        JsonObject Body(int revision, bool atomic, bool atomicActions, bool track = false) => new()
+        {
+            ["expected_revision"] = revision, ["expected_generation"] = subject["generation"]!.DeepClone(), ["items"] = items.DeepClone(), ["action"] = "Investigate",
+            ["reviewer"] = "Synthetic actor", ["justification"] = "Check with the line manager", ["atomic"] = atomic, ["atomic_actions"] = atomicActions, ["track_action"] = track,
+        };
+        var revision = (int)subject["revision"]!;
+        // The v1 combination stays refused, and atomic_actions needs an atomic Investigate review.
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await Post("/api/sod/decisions/assignment/bulk", Body(revision, true, false, track: true))).Status);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await Post("/api/sod/decisions/assignment/bulk", Body(revision, false, true))).Status);
+        // A stale revision saves neither the decisions nor the actions.
+        Assert.Equal(HttpStatusCode.Conflict, (await Post("/api/sod/decisions/assignment/bulk", Body(revision + 5, true, true))).Status);
+        Assert.Equal(revision, await store.RevisionAsync(CancellationToken.None));
+        Assert.DoesNotContain(await store.ActionsAsync("current", CancellationToken.None), a => (string?)a["user"] == user);
+        // Accepted: both decisions and both actions, under one new store revision.
+        var (status, result) = await Post("/api/sod/decisions/assignment/bulk", Body(revision, true, true));
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(2, result!["recorded"]!.AsArray().Count);
+        Assert.Equal(2, result["tracked_actions"]!.AsArray().Count);
+        Assert.Equal(revision + 1, await store.RevisionAsync(CancellationToken.None));
+        var actions = (await store.ActionsAsync("current", CancellationToken.None)).Where(a => (string?)a["user"] == user && (string?)a["recommended"] == "Investigate assignment").ToList();
+        Assert.Equal(items.Select(i => (string)i!["key"]!).Order(), actions.Select(a => (string)a["assignment_id"]!).Order());
+        Assert.All(actions, a => Assert.Equal(("Open", "Check with the line manager"), ((string)a["status"]!, (string)a["reason"]!)));
+    }
+
+    [Fact]
     public async Task A_shared_access_token_cannot_review_in_bulk_or_track_actions()
     {
         var subject = await Subject((string)Reference["user"]!);

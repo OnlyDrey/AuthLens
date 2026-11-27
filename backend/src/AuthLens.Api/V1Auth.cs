@@ -29,9 +29,10 @@ public static class Actors
 /// <summary>Port of routers/authentication.py and session_boundary.py: the v1 account API and its route permission map.</summary>
 public static partial class V1Auth
 {
-    public const string SessionCookie = "sap-lens-session", CsrfCookie = "sap-lens-csrf", CsrfHeader = "X-SAP-Lens-CSRF";
+    public const string SessionCookie = "sap-lens-session", CsrfCookie = "sap-lens-csrf", CsrfHeader = "X-SAP-Lens-CSRF", ActivityHeader = "X-AuthLens-Activity";
     public static readonly HashSet<string> PublicPaths = ["/api/auth/state", "/api/auth/login", "/api/auth/reset", "/api/auth/activate", "/api/auth/recover"];
-    private static readonly string[] AdminRead = ["/api/v1/admin", "/api/backups", "/api/storage", "/api/retention", "/api/diagnostics", "/api/configuration", "/api/settings", "/api/functional-groups/audit"];
+    // NAV-5: Data Health (directory matching quality and data findings) is administrator-only, like the Settings page that shows it.
+    private static readonly string[] AdminRead = ["/api/server/sources", "/api/v1/admin", "/api/backups", "/api/storage", "/api/retention", "/api/diagnostics", "/api/configuration", "/api/settings", "/api/functional-groups/audit", "/api/data-health"];
     private static readonly string[] AdminWrite = ["/api/settings", "/api/configuration", "/api/refresh", "/api/server/", "/api/data-sources", "/api/sources", "/api/branding", "/api/storage",
         "/api/retention", "/api/backups", "/api/import", "/api/sod/configuration", "/api/sod/reference", "/api/sod/periods", "/api/saved-filters", "/api/functional-groups",
         "/api/user-import", "/api/employees", "/api/data/cancel", "/api/refresh-schedule", "/api/sod/catalogue", "/api/sod/reports/branding"];
@@ -196,6 +197,9 @@ public static partial class V1Auth
             return Json(new { code = await store.IssueBackupVerificationAsync(actor, password), expires_in = 300 });
         });
         Route("GET", "/auth/sessions", async (_, store, actor) => Json(new { items = await store.SessionsAsync(actor) }));
+        // BUG-04: when the session ends (read passively by the inactivity warning) and the explicit "Continue session" action.
+        Route("GET", "/auth/session", async (_, store, actor) => Json(await store.SessionTimingAsync(actor)));
+        Route("POST", "/auth/session/continue", async (_, store, actor) => Json(await store.ContinueSessionAsync(actor)));
         Route("POST", "/auth/logout", async (http, store, actor) => { await store.LogoutAsync(actor); Clear(http); return Json(new { ok = true }); });
         Route("POST", "/auth/logout-all", async (http, store, actor) => { await store.LogoutAsync(actor, true); Clear(http); return Json(new { ok = true }); });
         Route("POST", "/auth/logout-others", async (_, store, actor) => { await store.LogoutOthersAsync(actor); return Json(new { ok = true }); });
@@ -305,7 +309,9 @@ public static partial class V1Auth
         if (tokenAuthenticated || PublicPaths.Contains(path) || !path.StartsWith("/api/", StringComparison.Ordinal)) return null;
         try
         {
-            var actor = await store.SessionAsync(request.Cookies[SessionCookie]);
+            // A read the client marks as background (polling, focus refresh, the session timer) does not count as user activity; writes always do.
+            var passive = (HttpMethods.IsGet(request.Method) || HttpMethods.IsHead(request.Method)) && string.Equals(request.Headers[ActivityHeader].ToString(), "passive", StringComparison.Ordinal);
+            var actor = await store.SessionAsync(request.Cookies[SessionCookie], touch: !passive);
             AccountStore.Require(actor, Permission(request.Method, path));
             if (!HttpMethods.IsGet(request.Method) && !HttpMethods.IsHead(request.Method) && !HttpMethods.IsOptions(request.Method))
                 await store.CsrfAsync(actor, request.Headers[CsrfHeader].ToString());

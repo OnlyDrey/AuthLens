@@ -46,6 +46,28 @@ Describe 'Release selection' {
         $release.Layout | Should -Be 'single-file'
     }
 
+    It 'selects releases inside canonical build.ps1 run directories (C:\AuthLens\run\build\release)' {
+        $runA = Join-Path $builds 'AuthLens-2.0.0-2026-11-24_1815-aaaaaaa'; $runB = Join-Path $builds 'AuthLens-2.0.0-2026-11-24_2021-bbbbbbb'
+        New-Item -ItemType Directory -Force -Path (Join-Path $runA 'build'), (Join-Path $runA 'installer'), (Join-Path $runB 'build'), (Join-Path $runB 'installer') | Out-Null
+        New-FakeRelease (Join-Path $runA 'build') 'AuthLens-2.0.0-20261124-181522-aaaaaaa-win-x64' ([datetime]'2026-11-24T18:15:22Z') | Out-Null
+        $expected = New-FakeRelease (Join-Path $runB 'build') 'AuthLens-2.0.0-20261124-202117-bbbbbbb-win-x64' ([datetime]'2026-11-24T20:21:17Z')
+        New-Item -ItemType Directory (Join-Path $builds 'acceptance') | Out-Null
+        $release = Resolve-ServerRelease -BuildsRoot $builds -ReleasePath ''
+        $release.Release | Should -Be (Get-Item $expected).FullName
+    }
+
+    It 'selects releases in the WP32 layout (C:\AuthLens\Build\version\build-id) beside legacy run directories' {
+        $legacyRun = Join-Path $builds 'AuthLens-2.0.0-2026-11-25_1442-aaaaaaa'
+        New-Item -ItemType Directory -Force -Path (Join-Path $legacyRun 'build'), (Join-Path $legacyRun 'installer') | Out-Null
+        New-FakeRelease (Join-Path $legacyRun 'build') 'AuthLens-2.0.0-20261125-144246-aaaaaaa-win-x64' ([datetime]'2026-11-25T14:42:46Z') | Out-Null
+        $version = Join-Path (Join-Path $builds 'Build') '2.0.0'
+        New-Item -ItemType Directory -Force -Path $version, (Join-Path $builds 'Installer\2.0.0\2026-11-26_0900-bbbbbbb'), (Join-Path $builds 'Packages') | Out-Null
+        $expected = New-FakeRelease $version '2026-11-26_0900-bbbbbbb' ([datetime]'2026-11-26T09:00:00Z')
+        (Resolve-ServerRelease -BuildsRoot $builds -ReleasePath '').Release | Should -Be (Get-Item $expected).FullName
+        (Resolve-ServerRelease -BuildsRoot '' -ReleasePath $expected).Release | Should -Be (Get-Item $expected).FullName
+        (Resolve-ServerRelease -BuildsRoot '' -ReleasePath (Join-Path $legacyRun 'build')).Release | Should -Be (Get-Item (Join-Path $legacyRun 'build\AuthLens-2.0.0-20261125-144246-aaaaaaa-win-x64')).FullName
+    }
+
     It 'still recognizes earlier folder-publish releases' {
         $legacy = New-FakeRelease $builds 'legacy' ([datetime]'2026-11-20T10:00:00Z') -Legacy
         New-FakeRelease $builds 'current' ([datetime]'2026-11-10T10:00:00Z') | Out-Null

@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { enableSod, headers } from './sod-fixture'
-import { recordClipboard, copiedText } from './support'
+import { recordClipboard, copiedText, goTo } from './support'
 
 /** Suffix CDK, EMS, ES2, ENO, ESH and ENP are all catalogue roles of the same two families, so a pattern-level filter would mix them. */
 const SUFFIXES = ['CDK', 'EMS', 'ES2', 'ENO', 'ESH', 'ENP']
@@ -45,8 +45,8 @@ test.afterEach(async ({ request }) => {
 async function openAssignments(page: Page, width = 1440) {
   await page.setViewportSize({ width, height: 1000 })
   await page.goto('/#session=browser-test-session')
-  await page.getByRole('navigation', { name: 'Main navigation', exact: true }).getByRole('link', { name: 'SoD', exact: true }).click()
-  await page.getByRole('link', { name: 'Access Explorer', exact: true }).click()
+  await goTo(page, 'SoD') // the navigation drawer below 1024 px
+  await page.getByRole('navigation', { name: 'SoD views', exact: true }).getByRole('link', { name: 'Access Explorer', exact: true }).click()
   await page.getByRole('tab', { name: 'Assignments', exact: true }).click()
   await expect(page.getByRole('table', { name: 'Access list' })).toBeVisible()
 }
@@ -60,6 +60,15 @@ const pick = async (page: Page, label: string, option: string) => {
 }
 const reviewStatus = async (page: Page, label: string) => page.getByRole('combobox', { name: 'Assignment review status', exact: true }).selectOption({ label })
 const toolbar = (page: Page) => page.getByRole('toolbar', { name: 'Bulk assignment review' })
+/** NAV-8: the Access Explorer selection opens Bulk Review with exactly those assignments; the decision is chosen and confirmed there. */
+async function reviewInBulk(page: Page, decision: 'Keep' | 'Remove' | 'Investigate', count: number, notice = '') {
+  await toolbar(page).getByRole('button', { name: 'Review in Bulk Review', exact: true }).click()
+  await expect(page).toHaveURL(/#\/reviews\/bulk/)
+  await expect(page.getByRole('status').filter({ hasText: `${count} ${count === 1 ? 'assignment' : 'assignments'} selected in Access Explorer` })).toBeVisible()
+  if (notice) await expect(page.getByRole('status').filter({ hasText: notice })).toBeVisible()
+  await page.getByRole('group', { name: 'Proposed decision', exact: true }).getByRole('button', { name: decision, exact: true }).click()
+  await page.getByRole('toolbar', { name: 'Bulk review actions', exact: true }).getByRole('button', { name: `Review ${count} assignments`, exact: true }).click()
+}
 const sourceHashes = () => files.map((file) => createHash('sha256').update(readFileSync(file)).digest('hex'))
 
 test('role suffix filtering matches the exact actual role suffix and multi-selects combine with OR', async ({ page }) => {
@@ -180,7 +189,7 @@ test('batch Keep is confirmed with a summary, persists per assignment and keeps 
   await page.keyboard.press('Escape')
   await expect.poll(() => roles(page)).toHaveLength(3)
   await page.getByRole('checkbox', { name: 'Select all assignments on this page' }).check()
-  await toolbar(page).getByRole('button', { name: 'Keep', exact: true }).click()
+  await reviewInBulk(page, 'Keep', 3)
   const dialog = page.getByRole('dialog', { name: 'Keep assignments' })
   await expect(dialog.getByRole('region', { name: 'Batch review summary' })).toContainText('Assignments affected3')
   await expect(dialog.getByRole('region', { name: 'Selected role suffixes' })).toContainText('CDK · 3')
@@ -192,7 +201,8 @@ test('batch Keep is confirmed with a summary, persists per assignment and keeps 
   await apply.click()
   await expect(dialog.getByRole('status')).toContainText('3 of 3 assignments saved.')
   await dialog.getByRole('button', { name: 'Done' }).click()
-  await expect(toolbar(page)).toHaveCount(0) // saved assignments leave the selection
+  await page.goBack() // back to Access Explorer with its filters
+  await expect(toolbar(page)).toHaveCount(0) // nothing stays selected after the confirmed review
   await expect.poll(() => roles(page)).toHaveLength(0) // completed decisions leave the default working view
   await reviewStatus(page, 'Reviewed assignments')
   // A Keep decision is displayed as Approved (the stored and API value stays Keep, asserted below).
@@ -217,22 +227,23 @@ test('Recommend removal for suffix and users, existing decisions need explicit r
   await page.keyboard.press('Escape')
   await expect.poll(() => roles(page)).toEqual(['ZC:MM:BUY:ENP', 'ZC:MM:BUY:ENP', 'ZC:MM:SEL:ENP', 'ZC:MM:SEL:ENP'])
   await page.getByRole('button', { name: /^Select all 4 matching$/ }).or(page.getByRole('button', { name: /select all 4 matching/i })).first().click()
-  await toolbar(page).getByRole('button', { name: 'Recommend removal', exact: true }).click()
+  await reviewInBulk(page, 'Remove', 4)
   let dialog = page.getByRole('dialog', { name: 'Recommend removal' })
   await expect(dialog).toContainText('no role is removed from SAP')
   await expectReviewerProfile(dialog.getByRole('textbox', { name: 'Reviewer' }))
   await dialog.getByRole('textbox', { name: 'Rationale' }).fill('Not needed after reorganization')
-  await dialog.getByRole('button', { name: 'Recommend removal for 4 assignments' }).click()
+  await dialog.getByRole('button', { name: 'Mark 4 role assignments for removal' }).click()
   await expect(dialog.getByRole('status')).toContainText('4 of 4 assignments saved.')
   await dialog.getByRole('button', { name: 'Done' }).click()
+  await page.goBack()
   await reviewStatus(page, 'Reviewed assignments')
   await expect(table(page).locator('tbody tr').filter({ hasText: 'Remove' })).toHaveCount(4)
   // The remediation view lists the same four assignments as recommended removals.
   const remediation = await (await page.request.get('/api/sod/remediation', { headers, params: { recommended: 'Remove assignment', limit: '50' } })).json()
   expect(remediation.items.filter((row: { user: string }) => [user.e, user.f].includes(row.user))).toHaveLength(4)
-  // Keeping previously reviewed assignments needs an explicit replacement confirmation.
+  // Keeping previously reviewed assignments needs an explicit replacement confirmation; Bulk Review states that they are included.
   await page.getByRole('button', { name: /select all 4 matching/i }).first().click()
-  await toolbar(page).getByRole('button', { name: 'Keep', exact: true }).click()
+  await reviewInBulk(page, 'Keep', 4, 'including 4 previously reviewed')
   dialog = page.getByRole('dialog', { name: 'Keep assignments' })
   await expectReviewerProfile(dialog.getByRole('textbox', { name: 'Reviewer' }))
   await dialog.getByRole('textbox', { name: 'Rationale' }).fill('Reconsidered')
@@ -243,13 +254,15 @@ test('Recommend removal for suffix and users, existing decisions need explicit r
   await keep.click()
   await expect(dialog.getByRole('status')).toContainText('4 of 4 assignments saved.')
   await dialog.getByRole('button', { name: 'Done' }).click()
+  await page.goBack()
   const history = await (await page.request.get('/api/sod/explorer/access_list', { headers, params: { role_suffix: 'ENP', usernames: user.e, limit: '50' } })).json()
   const key = history.items[0].id as string
   const events = (await (await page.request.get('/api/sod/decisions/assignment/history', { headers, params: { key, context: 'current' } })).json()).items
   expect(events.map((event: { decision: string }) => event.decision)).toEqual(['Keep', 'Remove']) // earlier recommendation is retained
-  // Investigate is a review decision: it stays outstanding and creates an action only when asked.
+  // Investigate is a review decision: it stays outstanding and creates an action only when asked. In Bulk Review (atomic, NAV-8) the actions are
+  // saved in the same transaction as the decisions.
   await page.getByRole('button', { name: /select all 4 matching/i }).first().click()
-  await toolbar(page).getByRole('button', { name: 'Investigate', exact: true }).click()
+  await reviewInBulk(page, 'Investigate', 4)
   dialog = page.getByRole('dialog', { name: 'Mark for further investigation' })
   await expectReviewerProfile(dialog.getByRole('textbox', { name: 'Reviewer' }))
   await dialog.getByRole('textbox', { name: 'Rationale' }).fill('Check with the line manager')
@@ -260,6 +273,7 @@ test('Recommend removal for suffix and users, existing decisions need explicit r
   await expect(dialog.getByRole('status')).toContainText('4 of 4 assignments saved.')
   await expect(dialog).toContainText('4 investigation actions were tracked.')
   await dialog.getByRole('button', { name: 'Done' }).click()
+  await page.goBack()
   const query = new URLSearchParams({ assignment_decision: 'Investigate', limit: '50' }); query.append('usernames', user.e); query.append('usernames', user.f)
   const decisions = (await (await page.request.get(`/api/sod/explorer/access_list?${query}`, { headers })).json()).items
   expect(decisions).toHaveLength(4)
@@ -267,7 +281,7 @@ test('Recommend removal for suffix and users, existing decisions need explicit r
   expect(tracked.actions.filter((action: { recommended: string; user: string }) => action.recommended === 'Investigate assignment' && [user.e, user.f].includes(action.user))).toHaveLength(4)
 })
 
-test('partial failures are reported accurately and failed assignments stay selected', async ({ page }) => {
+test('partial failures are reported accurately', async ({ page }) => {
   await openAssignments(page)
   await pick(page, 'Role suffix', 'CDK')
   await page.keyboard.press('Escape')
@@ -278,15 +292,15 @@ test('partial failures are reported accurately and failed assignments stay selec
     const [ok, ...rest] = body.items
     await route.fulfill({ json: { action: 'Keep', recorded: [ok.key], skipped: [], failed: rest.map((item) => ({ key: item.key, user: item.user, ref: item.ref, reason: 'Evidence changed since the selection was made.' })), revision: 9 } })
   })
-  await toolbar(page).getByRole('button', { name: 'Keep', exact: true }).click()
+  await reviewInBulk(page, 'Keep', 3)
   const dialog = page.getByRole('dialog', { name: 'Keep assignments' })
   await expectReviewerProfile(dialog.getByRole('textbox', { name: 'Reviewer' }))
   await dialog.getByRole('textbox', { name: 'Rationale' }).fill('Partial result check')
   await dialog.getByRole('button', { name: 'Keep 3 assignments' }).click()
+  // The result is reported exactly as the server returned it (Bulk Review is atomic, so the real backend saves all or nothing).
   await expect(dialog.getByRole('status')).toContainText('1 of 3 assignments saved; 0 skipped and 2 failed.')
   await expect(dialog.getByRole('alert')).toContainText('Evidence changed since the selection was made.')
   await dialog.getByRole('button', { name: 'Done' }).click()
-  await expect(toolbar(page)).toContainText('2 assignments selected')
 })
 
 test('rows of the previous filter cannot be selected while the filtered rows load', async ({ page }) => {
@@ -317,11 +331,13 @@ test('a rejected request never reports success', async ({ page }) => {
   await expect.poll(() => roles(page)).toHaveLength(1) // select the filtered page, not rows of the previous filter
   await page.getByRole('checkbox', { name: 'Select all assignments on this page' }).check()
   await page.route('**/api/sod/decisions/assignment/bulk', (route) => route.fulfill({ status: 409, json: { detail: 'SoD evidence changed. Reload before reviewing.' } }))
-  await toolbar(page).getByRole('button', { name: 'Recommend removal', exact: true }).click()
+  await toolbar(page).getByRole('button', { name: 'Review in Bulk Review', exact: true }).click()
+  await page.getByRole('group', { name: 'Proposed decision', exact: true }).getByRole('button', { name: 'Remove', exact: true }).click()
+  await page.getByRole('toolbar', { name: 'Bulk review actions', exact: true }).getByRole('button', { name: /^Review 1 assignments?$/ }).click()
   const dialog = page.getByRole('dialog', { name: 'Recommend removal' })
   await expectReviewerProfile(dialog.getByRole('textbox', { name: 'Reviewer' }))
   await dialog.getByRole('textbox', { name: 'Rationale' }).fill('Conflict check')
-  await dialog.getByRole('button', { name: 'Recommend removal for 1 assignment' }).click()
+  await dialog.getByRole('button', { name: 'Mark 1 role assignments for removal' }).click()
   await expect(dialog.getByRole('alert')).toContainText('SoD evidence changed')
   await expect(dialog.getByRole('status')).toHaveCount(0)
   await expect(dialog.getByRole('button', { name: 'Done' })).toHaveCount(0)
@@ -350,7 +366,7 @@ test('the bulk toolbar stays usable with the filter sidebar open at 800 px and w
     if (width < 1024) await page.keyboard.press('Escape')
     await page.getByRole('checkbox', { name: 'Select all assignments on this page' }).check()
     await expect(toolbar(page)).toBeVisible()
-    for (const name of ['Investigate', 'Keep', 'Recommend removal', 'Clear selection']) await expect(toolbar(page).getByRole('button', { name, exact: true })).toBeVisible()
+    for (const name of ['Clear selection', 'Review in Bulk Review']) await expect(toolbar(page).getByRole('button', { name, exact: true })).toBeVisible() // NAV-8
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy()
   }
 })
@@ -374,7 +390,7 @@ test('multi-select and bulk selection are keyboard operable with visible focus',
   await row.focus(); await page.keyboard.press('Space')
   await expect(toolbar(page)).toContainText('1 assignment selected')
   await expect(row).toHaveCSS('outline-style', 'solid')
-  const names = ['Select all 1 matching', 'Clear selection', 'Investigate', 'Keep', 'Recommend removal']
+  const names = ['Select all 1 matching', 'Clear selection', 'Review in Bulk Review'] // NAV-8: decisions are made in Bulk Review
   await toolbar(page).getByRole('button').first().focus()
   const seen: string[] = []
   for (let step = 0; step < names.length; step++) { seen.push(await page.evaluate(() => (document.activeElement as HTMLElement).textContent?.trim() || '')); await page.keyboard.press('Tab') }
@@ -390,7 +406,7 @@ test('the removal recommendation modal is compact: four metrics, a details line 
     await page.keyboard.press('Escape')
     await expect.poll(() => roles(page)).toHaveLength(3)
     await page.getByRole('checkbox', { name: 'Select all assignments on this page' }).check()
-    await toolbar(page).getByRole('button', { name: 'Recommend removal', exact: true }).click()
+    await reviewInBulk(page, 'Remove', 3)
     const dialog = page.getByRole('dialog', { name: 'Recommend removal' })
     const summary = dialog.getByRole('region', { name: 'Batch review summary' })
     await expect(summary.locator('dl.bulk-dialog-summary > div')).toHaveCount(4)
@@ -409,7 +425,7 @@ test('the removal recommendation modal is compact: four metrics, a details line 
     await expect(dialog).toContainText('no role is removed from SAP')
     const overflow = await dialog.evaluate((element) => element.scrollWidth > element.clientWidth + 1)
     expect(overflow).toBe(false)
-    await expect(dialog.getByRole('button', { name: /^Recommend removal for/ })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: /^Mark \d+ role assignments for removal$/ })).toBeVisible() // the Bulk Review (atomic) confirmation
     await dialog.getByRole('button', { name: 'Cancel' }).click()
   }
 })

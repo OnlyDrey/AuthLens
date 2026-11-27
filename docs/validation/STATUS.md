@@ -2,6 +2,29 @@
 
 AuthLens development targets `2.0.0`. **Release status: NOT APPROVED / NO-GO** until all mandatory acceptance gates pass. Existing alpha installation evidence below does not approve the new target. This page records current verification boundaries, not a release history.
 
+## RC6 candidate status
+
+The current candidate is **RC6**: AuthLens 2.0.0, source commit `839123cd74d381add81468c25617cd204e507d5f`, build id
+`2026-11-26_0330-839123c` ([build record](ACCEPTANCE_TRACKER.md#rc6-build-record)). Documentation commits made after this build are not its
+source commit. **NOT APPROVED.**
+
+| Item | State |
+| --- | --- |
+| Build and package verification | Passed: focused build tests 155/155; release, installer, secret and branding verification; independent package extraction on the build host |
+| Automated validation | Focused and affected .NET, Pester, browser and static checks passed per work package ([work packages](WORK_PACKAGES.md#ninth-round-rc6-implementation-and-consolidation-wp29-to-wp34-2026-11-25)) |
+| FULL regression | **Not executed** (required before a merge or release) |
+| FILE-008 source diagnostics | **Partially implemented, open 2.0.0 requirement**: a source changed since validation is refused at import, but no pre-import indication is shown |
+| Unified file sources, native | Implemented; native same-host and remote UNC acceptance with the service identity **pending** (R6-F1 to R6-F4) |
+| Strict ACL gate | Implemented (`-StrictAcl`); native acceptance **pending** (expected to refuse while the named operator account on VM130 is unreviewed) |
+| Recovery bundle in Service Manager | Implemented (QA-028); native acceptance **pending** |
+| Storage preflight and retention | Implemented (WP34); native acceptance **pending** (Setup text, `ArtifactInventory`, `PruneArtifacts -DryRun`) |
+| Package transfer | Implemented: flat package (WP32 amendment) with root `Expand-AuthLensPackage.ps1`, internal `SHA256SUMS.txt` and optional `.zip.sha256`; extraction on a target machine **pending** |
+| iOS Safari | Implemented for WebKit/emulation; acceptance on a real iPhone **pending** (R6-M1) |
+| RC5 and older packaging | Not supported: legacy run directories lack the extraction tooling; they stay installable from their own folders |
+| Signing | Both Setup programs `NotSigned`; checksums prove integrity, not publisher authenticity |
+
+## Earlier verification boundaries
+
 | Area | Current result |
 | --- | --- |
 | Windows Server | Installed service passed local HTTPS, readiness, identity, automatic startup, restart and persistent-state checks |
@@ -12,6 +35,7 @@ AuthLens development targets `2.0.0`. **Release status: NOT APPROVED / NO-GO** u
 | Branding | Brand Assets v2 uses stable canonical paths and byte-identical supplied images; manifest metadata does not override application theme colors. Focused build/visual verification is recorded in the design-system guide; native Explorer/taskbar/installed-shortcut appearance remains separate acceptance |
 | Windows build workflow | Root build entry point produced both Windows packages and Setup executables with matching manifests; focused orchestration/installer tests passed |
 | Server Setup lifecycle | Fresh configuration editing, local TLS generation/PFX import, bound publication, owned firewall lifecycle, receipt-bound missing virtual-account service repair, interrupted-repair recovery and preservation-only CLI/Inno uninstall implemented. Published Server releases use their explicit verification scope; full installer payload checks remain strict. Restricted SYSTEM task bootstrap has focused security and native synthetic timeout coverage; actual read-only SYSTEM Health/Preflight now pass with structured reports; mutating lifecycle acceptance remains pending. These checks and Inno compilation do not establish installer acceptance. Installed-certificate renewal, custom accounts, optional test-data deletion and native SCM lifecycle acceptance remain incomplete |
+| Server sources and Reviews | Exact server-source authorization status/revocation, recovery-key states and the top-level Reviews workspace passed focused backend and browser tests on a Windows workstation (not as a service); see [work packages](WORK_PACKAGES.md). Native SMB/service-identity acceptance pending |
 | Mobile UX | Header tools, independent navigation drawers, Filters, configurable tables, Functional Group pills and SoD scrolling passed focused isolated browser acceptance; not deployed |
 
 Scheduled refresh stays disabled until configured external sources and credentials have been reviewed. Production data, accounts, keys,

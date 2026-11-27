@@ -89,7 +89,7 @@ test('Reviews: the work queue and remediation show the group next to the user an
   const row = queue.getByRole('row', { name: new RegExp(names.a) }).first()
   await expect(row.locator('.user-group-text')).toHaveText('FIN')
   await expect(row.getByRole('progressbar').or(row.locator('progress'))).toHaveCount(1)
-  await page.getByRole('tab', { name: 'Remediation', exact: true }).click()
+  await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Remediation',exact:true}).click()
   // no remediation rows until decisions exist; the header order is still verifiable once a decision is recorded
   const remediation = page.getByRole('table', { name: 'Access remediation rows' })
   if (await remediation.count()) expect((await headerTexts(remediation)).slice(0, 3)).toEqual(['SAP user', 'SAP User Group', 'Role assignment'])

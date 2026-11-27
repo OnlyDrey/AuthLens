@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 
 $script:Exe = 'AuthLens.Api.exe'
 $script:Lock = $null; $script:RunFolder = $null; $script:RunLog = $null; $script:RunId = ''
-$script:HostLock = $null
+$script:HostLock = $null; $script:RecoveryContext = $null
 # One service and one installation root. Services of earlier products (SAP Lens: sap-lens, SapLens, SapLens2) are never detected, adopted or
 # changed: AuthLens is installed fresh beside them and receives their data by restoring a backup (docs/deployment/WINDOWS_DEPLOYMENT.md).
 $script:ServiceName = 'AuthLens'
@@ -78,12 +78,17 @@ function Read-AuthLensSettings([string]$Path, [switch]$Packaged) {
         if (-not $config.Contains($p.Name)) { Stop-AL "Unknown deployment setting '$($p.Name)' in $Path." }
         $config[$p.Name] = $p.Value
     }
-    if ($Packaged -and -not $config.RepositoryPath) { $config.RepositoryPath = $PSScriptRoot } # packaged installs never build or invoke Git
-    foreach ($required in 'RepositoryPath', 'ListenAddress', 'DataDirectory', 'CertificatePath', 'CertificatePasswordFile') {
+    # Execution context. A configuration with RepositoryPath is a repository (source checkout) deployment that may build from Git. Without it,
+    # as Server Setup publishes it, the configuration belongs to an installed (packaged) Server: every installed action works, and only actions that
+    # build from source refuse (Assert-ALRepositoryContext). No repository path is invented. -Packaged is kept for callers that require that context.
+    $config['ExecutionContext'] = if ($config.RepositoryPath) { 'repository' } else { 'packaged' }
+    if ($Packaged -and $config.RepositoryPath) { $config['ExecutionContext'] = 'repository' }
+    foreach ($required in 'ListenAddress', 'DataDirectory', 'CertificatePath', 'CertificatePasswordFile') {
         if (-not $config[$required]) { Stop-AL "Deployment setting '$required' is required ($Path)." }
     }
     if ([int]$config.Port -lt 1 -or [int]$config.Port -gt 65535) { Stop-AL "Deployment setting 'Port' must be 1..65535." }
     foreach ($pathSetting in 'Root', 'RepositoryPath', 'WorkRoot', 'ReleasesRoot', 'BackupRoot', 'DataDirectory', 'CertificatePath', 'CertificatePasswordFile') {
+        if ($pathSetting -eq 'RepositoryPath' -and -not $config[$pathSetting]) { continue }
         if ([string]$config[$pathSetting] -notmatch '^([A-Za-z]:[\\/]|\\\\|/)') { Stop-AL "Deployment setting '$pathSetting' must be an absolute path." }
     }
     $config.AllowedHosts = @($config.AllowedHosts); $config.ProxyHosts = @($config.ProxyHosts); $config.TrustedProxies = @($config.TrustedProxies)
@@ -131,6 +136,10 @@ function Get-ALServerAccessPlan($Config) {
     if($Config.PSObject.Properties['TrustedProxies']){$proxies=@($Config.TrustedProxies)}
     if($mode -ne 'Auto' -and $network -and -not(Test-ALPrivateAddress $address)){Stop-AL 'Network access requires a specific private LAN address.'}
     if($mode -eq 'Local' -and ($network -or $proxies.Count -or $proxyHosts.Count -or @($hosts|Where-Object{$_ -notin @('localhost','127.0.0.1','::1','[::1]')}).Count)){Stop-AL 'Local access requires loopback binding and loopback hosts without proxy trust.'}
+    # D-003: the runtime accepts only loopback names on a loopback listener, so other allowed hosts can never be reached and the readiness probe
+    # could not address them. Refused in every mode, including configurations without AccessMode (Auto).
+    $unreachable=@($hosts|Where-Object{$_ -and $_ -notin @('localhost','127.0.0.1','::1','[::1]')})
+    if(-not $network -and $unreachable.Count){Stop-AL ("A loopback listener accepts loopback host names only; allowed hosts {0} cannot reach it. Listen on a private interface (Corporate access) or remove them." -f ($unreachable -join ', '))}
     if($mode -eq 'Corporate' -and (-not $network -or -not $hosts.Count -or $proxies.Count -or $proxyHosts.Count)){Stop-AL 'Corporate access requires a private interface and explicit allowed hosts without proxy trust.'}
     if($mode -eq 'ReverseProxy' -and (-not $network -or -not $hosts.Count -or -not $proxies.Count -or -not $proxyHosts.Count)){Stop-AL 'Reverse proxy access requires a private backend interface, backend hosts, public proxy hosts and explicit trusted peers.'}
     [pscustomobject]@{access_mode=$mode;network_access=$network;listen_address=$Config.ListenAddress;allowed_hosts=$hosts;wildcard_supported=$false;probe_authority=$(if($network){$hosts|Select-Object -First 1}else{$Config.ListenAddress})}
@@ -455,7 +464,10 @@ function Set-ALPhase($Config, $Journal, [string]$Phase) {
     # (A typed list: an if-expression or a function would unroll a one-entry history into a bare hashtable again.)
     $history = [System.Collections.Generic.List[object]]::new()
     if ($Journal.PSObject.Properties['history'] -and $null -ne $Journal.history) { foreach ($entry in @($Journal.history)) { $history.Add($entry) } }
-    $history.Add(@{ phase = $Phase; at = [DateTime]::UtcNow.ToString('o') })
+    $entry = @{ phase = $Phase; at = [DateTime]::UtcNow.ToString('o') }
+    # During a recovery every new history entry names the action, the recovery run and the operator (G-004); earlier entries are kept unchanged.
+    if ($script:RecoveryContext) { foreach ($key in $script:RecoveryContext.Keys) { $entry[$key] = $script:RecoveryContext[$key] } }
+    $history.Add($entry)
     $Journal | Add-Member -NotePropertyName history -NotePropertyValue $history.ToArray() -Force
     Write-ALJournal $Config $Journal
     Write-ALLog "phase: $Phase"
@@ -502,7 +514,13 @@ function Get-ALProjectRoot([string]$Worktree) {
     Stop-AL "No .NET project (AuthLens.slnx) in $Worktree under experiments\dotnet-backend or backend." 1
 }
 
+# Building from Git needs a source checkout; installed (packaged) Servers deploy verified packages (Setup or -Action Deploy -Release).
+function Assert-ALRepositoryContext($Config) {
+    if (-not $Config.RepositoryPath) { Stop-AL 'This action builds from a source repository, but the configuration has no RepositoryPath (an installed Server). Deploy a verified package with Server Setup or -Action Deploy -Release <published release>.' }
+}
+
 function Resolve-ALCommit($Config, [string]$Branch, [string]$Commit) {
+    Assert-ALRepositoryContext $Config
     if (-not $Branch) { $Branch = $Config.Branch }
     if ($Branch -in @('main', 'work')) { Stop-AL "Deployments are built from the development branch, not '$Branch'." }
     Invoke-ALGit $Config.RepositoryPath @('fetch', '--quiet', $Config.Remote, "refs/heads/${Branch}:refs/remotes/$($Config.Remote)/$Branch") | Out-Null
@@ -517,6 +535,7 @@ function Resolve-ALCommit($Config, [string]$Branch, [string]$Commit) {
 
 # An isolated worktree per commit under WorkRoot: the developer's checkout and its working tree are never touched.
 function New-ALWorktree($Config, [string]$Commit) {
+    Assert-ALRepositoryContext $Config
     $path = Join-AL (Join-AL $Config.WorkRoot 'worktrees') $Commit.Substring(0, 12)
     if (Test-Path -LiteralPath $path) {
         $head = Get-ALGitValue $path @('rev-parse', 'HEAD')
@@ -581,8 +600,20 @@ function Test-ALPublishedRelease([string]$Folder) {
 # The versioned deployment folder <ReleasesRoot>\<release name>. It is assembled in <ReleasesRoot>\.staging\<release name>, verified there and only
 # then moved into place, so an interrupted or incomplete copy is never visible as a release. An existing folder is reused only when its manifest
 # names the same commit and it verifies as a server package; it is never overwritten or repaired.
+# The installed release name keeps its convention AuthLens-<version>-<yyyyMMdd-HHmmss>-<sha7>-<platform>. A WP32 build directory
+# (C:\AuthLens\Build\<version>\<build-id>) does not carry it in its folder name, so it is derived from the verified manifest
+# (Build-Workflow.ps1 Get-AuthLensReleaseName is the same rule). Every other package keeps its own folder name.
+function Get-ALReleaseName([string]$Release, $Manifest = $null) {
+    $leaf = Split-Path ([IO.Path]::GetFullPath($Release).TrimEnd('\', '/')) -Leaf
+    if ($leaf -notmatch '^\d{4}-\d{2}-\d{2}_\d{4}-[0-9a-f]{7}(-\d{2})?$') { return $leaf }
+    if (-not $Manifest) { $Manifest = Get-Content -LiteralPath (Join-AL $Release 'build-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json }
+    $stamp = $Manifest.build_timestamp_utc
+    $built = if ($stamp -is [datetime]) { $stamp.ToUniversalTime() } else { [DateTime]::Parse([string]$stamp, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal) }
+    'AuthLens-{0}-{1}-{2}-{3}' -f $Manifest.version, $built.ToString('yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture), ([string]$Manifest.source_sha).Substring(0, 7), $Manifest.target_platform
+}
+
 function Publish-ALRelease($Config, [string]$Release, $Manifest, [string]$RepairId='') {
-    $name = Split-Path $Release -Leaf
+    $name = Get-ALReleaseName $Release $Manifest
     if($RepairId){
         if($RepairId -notmatch '^[a-f0-9]{32}$'){Stop-AL 'Invalid immutable repair publication identity.'}
         $name='repair-'+$RepairId
@@ -661,6 +692,7 @@ function Install-ALService($Config, [switch]$Reconfigure) {
 # key. Grants are added; existing permissions (administrators, the owner) are not removed.
 function Grant-ALAccess($Config) {
     $account = $Config.ServiceAccount
+    Initialize-ALSourceAuthorityDirectory $Config
     $grants = @(
         @($Config.DataDirectory, "${account}:(OI)(CI)M"), @($Config.ReleasesRoot, "${account}:(OI)(CI)RX"),
         @($Config.CertificatePath, "${account}:R"), @($Config.CertificatePasswordFile, "${account}:R")
@@ -671,6 +703,36 @@ function Grant-ALAccess($Config) {
         $result = Invoke-ALProcess 'icacls' @($grant[0], '/grant', $grant[1]) ''
         if ($result.ExitCode -ne 0) { Stop-AL "icacls could not grant $($grant[1]) on $($grant[0])." }
     }
+}
+
+# The web source authority is deliberately outside restorable application data. Same deterministic path as ServerSourceAuthorization.
+function Get-ALSourceAuthorityDirectory($Config) {
+    $data=[IO.Path]::GetFullPath($Config.DataDirectory).TrimEnd('\','/').ToUpperInvariant()
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try { $digest=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($data)))).Replace('-','').ToLowerInvariant().Substring(0,16) }
+    finally { $sha.Dispose() }
+    Join-AL ([IO.Path]::GetDirectoryName($data)) ('.authlens-source-policy-'+$digest)
+}
+
+function Initialize-ALSourceAuthorityDirectory($Config) {
+    $path=Get-ALSourceAuthorityDirectory $Config
+    $sid=([Security.Principal.NTAccount]::new($Config.ServiceAccount)).Translate([Security.Principal.SecurityIdentifier])
+    Test-ALPathTree $path
+    if(-not(Test-Path -LiteralPath $path)) {
+        $security=New-ALProtectedDirectorySecurity
+        $security.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,'Modify','ContainerInherit, ObjectInherit','None','Allow'))
+        New-ALDirectoryWithAcl $path $security
+    }
+    $acl=Get-Acl -LiteralPath $path
+    $allowed=@('S-1-5-18','S-1-5-32-544',$sid.Value)
+    $owners=$allowed+@([Security.Principal.WindowsIdentity]::GetCurrent().User.Value)
+    if(-not $acl.AreAccessRulesProtected -or $owners -notcontains $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value) { Stop-AL 'Source authority directory has unrecognized ownership or inheritance; explicit operator review is required.' }
+    foreach($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
+        if($rule.AccessControlType -eq 'Allow' -and $allowed -notcontains $rule.IdentityReference.Value) { Stop-AL 'Source authority directory grants access to an unrecognized principal; nothing was changed.' }
+    }
+    # Existing protected folders may belong to a previously configured service identity: refuse rather than adopt them.
+    $required=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]) | Where-Object { $_.IdentityReference.Value -eq $sid.Value -and $_.AccessControlType -eq 'Allow' -and ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Modify) -eq [Security.AccessControl.FileSystemRights]::Modify })
+    if(-not $required.Count) { Stop-AL 'Source authority directory lacks access for the configured service identity; explicit operator review is required.' }
 }
 
 # ---- status
@@ -696,7 +758,34 @@ function Get-ALStatus($Config) {
         current_release = $current; current_commit = $(if ($manifest) { $manifest.source_sha } else { $null }); current_version = $(if ($manifest) { $manifest.version } else { $null })
         listeners = $listeners; ready = $ready; running_identity = $identity
         journal_phase = $(if ($journal) { $journal.phase } else { $null }); recovery_needed = ($journal -and $journal.phase -in $script:CriticalPhases)
+        configuration_change_pending = [bool](Get-ALPendingConfigurationRecord $Config); backup_key_service_access = (Get-ALKeyServiceAccess $Config)
+        execution_context = $Config.ExecutionContext; access_mode = $Config.AccessMode; listen_address = $Config.ListenAddress; port = [int]$Config.Port
+        allowed_hosts = @($Config.AllowedHosts); proxy_hosts = @($Config.ProxyHosts); trusted_proxies = @($Config.TrustedProxies); certificate = $Config.CertificatePath
+        certificate_status = $(try { ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $Config) } catch { $null })
+        # D-007: whether the protected web source-authority folder exists (missing: server sources cannot be authorized until it is provisioned).
+        source_authority = $(try { if (Test-Path -LiteralPath (Get-ALSourceAuthorityDirectory $Config)) { 'present' } else { 'missing' } } catch { 'unknown' })
     }
+}
+
+# Whether the configured service identity can read the configured host backup key, from the key file's DACL (read-only; the key is never opened):
+# not_configured, readable, not_readable (no explicit Allow read or a Deny read), unknown (the DACL is not readable by this session, run elevated),
+# identity_unresolved or missing. Group membership is not evaluated; provisioning creates an explicit grant (Grant-ALAccess, Service Manager).
+function Get-ALKeyServiceAccess($Config) {
+    $pointer = Join-AL $Config.DataDirectory 'backup-key-location.json'
+    if (-not [IO.File]::Exists($pointer)) { return 'not_configured' }
+    try { $key = [string]([IO.File]::ReadAllText($pointer) | ConvertFrom-Json).path } catch { return 'unknown' }
+    if (-not $key -or -not [IO.File]::Exists($key)) { return 'missing' }
+    try { $sid = ([Security.Principal.NTAccount]::new($Config.ServiceAccount)).Translate([Security.Principal.SecurityIdentifier]) } catch { return 'identity_unresolved' }
+    if ($sid.Value -eq 'S-1-5-18') { return 'readable' }
+    try {
+        $info = [IO.FileInfo]::new($key)
+        $acl = if ($PSVersionTable.PSEdition -eq 'Core') { [IO.FileSystemAclExtensions]::GetAccessControl($info, [Security.AccessControl.AccessControlSections]::Access) } else { $info.GetAccessControl([Security.AccessControl.AccessControlSections]::Access) }
+        $rules = @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]) | Where-Object { $_.IdentityReference.Value -eq $sid.Value })
+    } catch { return 'unknown' }
+    $read = [Security.AccessControl.FileSystemRights]::ReadData
+    if (@($rules | Where-Object { $_.AccessControlType -eq 'Deny' -and ($_.FileSystemRights -band $read) }).Count) { return 'not_readable' }
+    if (@($rules | Where-Object { $_.AccessControlType -eq 'Allow' -and ($_.FileSystemRights -band $read) -eq $read }).Count) { return 'readable' }
+    'not_readable'
 }
 
 # ---- deployment state machine
@@ -864,6 +953,10 @@ function Invoke-ALDeploy($Config, [string]$ReleaseFolder, [string]$Commit, [swit
         Write-ALLog 'dry run: no backup, no service change'
         return [pscustomobject]@{ dry_run = $true; plan = $journal }
     }
+    # D-007: installations created before the web source authority existed (and updated since) never received its protected folder, because
+    # only service installation, repair, restore and configuration changes provisioned it. Provision it here, before any change: create-only
+    # with the service identity's Modify right; an existing folder is validated, never widened, and its authorizations are never touched.
+    if ($service.Exists) { Initialize-ALSourceAuthorityDirectory $Config }
     Set-ALPhase $Config $journal 'backup'
     if ($schema.database_exists) {
         $backupExe = if ($previous) { Join-AL $previous 'server\AuthLens.Api.exe' } else { $newExe }
@@ -908,7 +1001,12 @@ function Invoke-ALDeploy($Config, [string]$ReleaseFolder, [string]$Commit, [swit
     }
 }
 
-function Confirm-ALCandidateRecovery($Config,$Journal,[switch]$StartStoppedService) {
+# -Preview runs every check of the real recovery but never starts the service or writes the journal (D-006); a stopped service is reported
+# as the start Resume would perform, and readiness is then not proven.
+# -CertificateFile/-CertificatePasswordFile (G-007): the candidate is proven with the replacement certificate instead of the configured one, and the
+# replacement is applied through the recorded configuration transaction (create-only import, service read, configuration and command line,
+# restart, pinned readiness; any failure restores the previous certificate) before the journal is completed.
+function Confirm-ALCandidateRecovery($Config,$Journal,[switch]$StartStoppedService,[switch]$Preview,[string]$CertificateFile='',[string]$CertificatePasswordFile='') {
     Assert-ALInstallerServerConfiguration $Config
     $fingerprint=(Get-FileHash -LiteralPath $Config.ConfigFile -Algorithm SHA256).Hash
     $stored=Read-AuthLensSettings $Config.ConfigFile -Packaged
@@ -933,10 +1031,43 @@ function Confirm-ALCandidateRecovery($Config,$Journal,[switch]$StartStoppedServi
         Assert-ALRecoveryBackup $Config $Journal
     }
     $exe=Join-AL $candidate 'server/AuthLens.Api.exe'
-    $probe=Invoke-ALMaintenance $exe (@('--server-preflight')+@(Get-ALServiceArguments $Config))
+    $proven=$Config
+    if($CertificateFile){
+        Assert-ALCertificateInput $CertificateFile $CertificatePasswordFile
+        $proven=Copy-ALConfig $Config @{CertificatePath=$CertificateFile;CertificatePasswordFile=$CertificatePasswordFile}
+    }
+    $probe=Invoke-ALMaintenance $exe (@('--server-preflight')+@(Get-ALServiceArguments $proven))
     if(-not $probe.validated -or -not $probe.read_only -or $probe.data_modified -ne $false -or $probe.source_sha -cne $Journal.commit -or $probe.version -cne $Journal.version -or -not $probe.schema.compatible -or @($probe.schema.pending).Count){Stop-AL 'Candidate recovery could not prove read-only TLS, key and database/schema compatibility.' 4}
+    if($service.State -ne 'Running' -and -not($service.State -eq 'Stopped' -and $StartStoppedService)){Stop-AL 'Candidate is not running; explicit Resume is required to start an existing stopped service.' 4}
+    if($Preview){
+        $ready=$null
+        # With a replacement certificate the current listener still serves the configured one; readiness is proven after the switch.
+        if($service.State -eq 'Running' -and -not $CertificateFile){$ready=Wait-ALReady $Config $Journal.commit $Journal.version}
+        $plan=[ordered]@{would_succeed=$true;would_phase='complete';would_start_service=($service.State -ne 'Running');readiness_verified=[bool]$ready
+            release=$candidate;identity=$(if($ready -and $ready.PSObject.Properties['identity']){$ready.identity}else{$null});instance_id=$instance}
+        if($CertificateFile){
+            $plan.would_replace_certificate=$true;$plan.would_restart_service=$true
+            $plan.certificate_current=ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $Config $exe)
+            $plan.certificate_proposed=ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $proven $exe)
+            $plan.client_trust_notice=Get-ALCertificateTrustNotice $plan.certificate_current $plan.certificate_proposed
+        }
+        return [pscustomobject]$plan
+    }
+    if($CertificateFile){
+        $currentCertificate=ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $Config $exe)
+        $tls=Copy-ALServerTlsMaterial $proven (Join-AL (Join-AL $Config.Root 'tls') ('renew-'+[guid]::NewGuid().ToString('N')))
+        $next=Copy-ALConfig $Config @{CertificatePath=$tls.certificate;CertificatePasswordFile=$tls.password_file}
+        $copy=Invoke-ALMaintenance $exe (@('--server-preflight')+@(Get-ALServiceArguments $next))
+        if(-not $copy.validated -or -not $copy.read_only){Stop-AL 'The imported certificate copy did not validate; the service was not changed and the copy was retained for review.' 4}
+        Write-ALLog "recovery: replacing the certificate of candidate $($Journal.run)"
+        $applied=Invoke-ALConfigurationTransaction $Config $next @{CertificatePath=$tls.certificate;CertificatePasswordFile=$tls.password_file} 'recovery certificate replacement' ([pscustomobject]@{service=$service;manifest=$manifest})
+        Set-ALPhase $Config $Journal 'complete'
+        $proposed=ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $next $exe)
+        return [pscustomobject]@{recovered=$true;phase='complete';release=$candidate;identity=$applied.identity;instance_id=$instance;action='candidate revalidated with a replacement certificate';data_restored=$false
+            certificate_replaced=$true;certificate=$tls.certificate;public_certificate=$tls.public_certificate;previous_certificate_retained=$Config.CertificatePath;trust_store_modified=$false
+            certificate_previous=$currentCertificate;certificate_active=$proposed;client_trust_notice=(Get-ALCertificateTrustNotice $currentCertificate $proposed)}
+    }
     if($service.State -eq 'Stopped' -and $StartStoppedService){Start-ALService $Config.ServiceName}
-    elseif($service.State -ne 'Running'){Stop-AL 'Candidate is not running; explicit Resume is required to start an existing stopped service.' 4}
     $ready=Wait-ALReady $Config $Journal.commit $Journal.version
     if((Get-FileHash -LiteralPath $Config.ConfigFile -Algorithm SHA256).Hash -ine $fingerprint){Stop-AL 'Recovery configuration changed during candidate verification; completion was refused.' 4}
     Set-ALPhase $Config $Journal 'complete'
@@ -952,44 +1083,268 @@ function Assert-ALRecoveryBackup($Config,$Journal) {
     if(-not $proof.verified -or $proof.sha256 -ine $Journal.backup.sha256){Stop-AL 'Recovery backup could not be verified with the retained key.' 4}
 }
 
-function Invoke-ALRecover($Config,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto') {
+# The recovery decision for a journal and a requested action, without side effects. Invoke-ALRecover executes it; Get-ALRecoveryPreview evaluates
+# it read-only (-DryRun); Get-ALRecoveryOptions lists the actions a journal state allows. A finished journal is never reopened: an explicit action
+# on it reports that nothing is to recover instead of re-verifying (and, on a refusal, downgrading) a completed deployment.
+function Resolve-ALRecoveryDecision($Config,$Journal,[string]$RecoveryAction='Auto') {
+    if (-not $Journal) { return [pscustomobject]@{ kind = 'none'; reason = 'no journal' } }
+    $adopted=[bool]($Journal.PSObject.Properties['service_binary_before'] -and $Journal.service_binary_before)
+    if ($Journal.phase -in $script:FinalPhases) { return [pscustomobject]@{ kind = 'none'; reason = "the last deployment $($Journal.run) ended in '$($Journal.phase)'"; phase = $Journal.phase } }
+    if($RecoveryAction -eq 'Cancel' -and $Journal.phase -notin @('prepared','backup')){return [pscustomobject]@{kind='refuse';reason='Recovery cancellation is unavailable after a release or service may have changed; evidence was preserved.'}}
+    if($RecoveryAction -in @('VerifyCandidate','Resume') -or ($RecoveryAction -eq 'Auto' -and -not $Journal.from_release -and -not $adopted -and $Journal.phase -in $script:CriticalPhases)){
+        return [pscustomobject]@{kind='candidate';reason='revalidate the installed candidate';start=($RecoveryAction -eq 'Resume')}
+    }
+    if($Journal.phase -eq 'manual_recovery_required' -and $RecoveryAction -ne 'Rollback'){return [pscustomobject]@{kind='refuse';reason='Manual recovery requires an explicit VerifyCandidate, Resume or verified Rollback decision.'}}
+    if($RecoveryAction -eq 'Rollback'){return [pscustomobject]@{kind='rollback';reason='return to the verified previous release'}}
+    if ($Journal.phase -in @('prepared', 'backup')) { return [pscustomobject]@{ kind = 'abort'; reason = 'the deployment stopped before any release or service change'; cancel = ($RecoveryAction -eq 'Cancel') } }
+    if (-not $Journal.from_release -and -not $adopted) { return [pscustomobject]@{ kind = 'manual'; reason = 'an interrupted first deployment has no previous release to return to' } }
+    [pscustomobject]@{ kind = 'auto_rollback'; reason = 'return to the previous release of the interrupted update' }
+}
+
+function Assert-ALRecoveryRollback($Config,$Journal) {
+    if(-not $Journal.from_release -or -not(Test-ALPathWithin $Journal.from_release $Config.ReleasesRoot) -or -not(Test-ALPublishedRelease $Journal.from_release).Verified){Stop-AL 'Rollback is unavailable without a verified previous release.' 4}
+    Assert-ALRecoveryBackup $Config $Journal
+}
+
+function Assert-ALRecoveryCancel($Config,$Journal) {
+    $adopted=$Journal.PSObject.Properties['service_binary_before'] -and $Journal.service_binary_before
+    $observed=Get-ALService $Config.ServiceName
+    if((Get-ALLink (Get-ALCurrentLink $Config)) -ine $Journal.from_release -or
+        ($observed.Exists -and $Journal.service_state_before -eq 'Missing') -or
+        ($observed.Exists -and -not(Test-ALServiceBinary $observed.PathName $Config) -and (-not $adopted -or $observed.PathName -ine $Journal.service_binary_before))){Stop-AL 'Cancellation found changed service or release identity; explicit recovery review is required.' 4}
+}
+
+function Invoke-ALRecover($Config,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto',[string]$CertificateFile='',[string]$CertificatePasswordFile='') {
     Assert-ALNoPendingRepair $Config
     $journal = Read-ALJournal $Config
-    if (-not $journal) { Write-ALLog 'no deployment journal: nothing to recover'; return [pscustomobject]@{ recovered = $false; reason = 'no journal' } }
-    $adopted=$journal.PSObject.Properties['service_binary_before'] -and $journal.service_binary_before
-    if($RecoveryAction -eq 'Cancel' -and $journal.phase -notin @('prepared','backup')){Stop-AL 'Recovery cancellation is unavailable after a release or service may have changed; evidence was preserved.' 4}
-    if($RecoveryAction -in @('VerifyCandidate','Resume') -or ($RecoveryAction -eq 'Auto' -and -not $journal.from_release -and -not $adopted -and $journal.phase -in $script:CriticalPhases)){
-        try{return Confirm-ALCandidateRecovery $Config $journal -StartStoppedService:($RecoveryAction -eq 'Resume')}
-        catch{Set-ALPhase $Config $journal 'manual_recovery_required';Write-ALRecoveryInstructions $Config $journal 'Candidate verification refused; review the latest sanitized operation result.';throw}
-    }
-    if($journal.phase -eq 'manual_recovery_required' -and $RecoveryAction -ne 'Rollback'){Stop-AL 'Manual recovery requires an explicit VerifyCandidate, Resume or verified Rollback decision.' 4}
-    if($RecoveryAction -eq 'Rollback'){
-        if(-not $journal.from_release -or -not(Test-ALPathWithin $journal.from_release $Config.ReleasesRoot) -or -not(Test-ALPublishedRelease $journal.from_release).Verified){Stop-AL 'Rollback is unavailable without a verified previous release.' 4}
-        Assert-ALRecoveryBackup $Config $journal
-        Invoke-ALRollbackCore $Config $journal $journal.from_release
-        return [pscustomobject]@{recovered=$true;phase='rolled_back';release=$journal.from_release}
-    }
-    if ($journal.phase -in $script:FinalPhases) { Write-ALLog "last deployment $($journal.run) ended in '$($journal.phase)': nothing to recover"; return [pscustomobject]@{ recovered = $false; phase = $journal.phase } }
-    if ($journal.phase -in @('prepared', 'backup')) {
-        if($RecoveryAction -eq 'Cancel'){
-            $observed=Get-ALService $Config.ServiceName
-            if((Get-ALLink (Get-ALCurrentLink $Config)) -ine $journal.from_release -or
-                ($observed.Exists -and $journal.service_state_before -eq 'Missing') -or
-                ($observed.Exists -and -not(Test-ALServiceBinary $observed.PathName $Config) -and (-not $adopted -or $observed.PathName -ine $journal.service_binary_before))){Stop-AL 'Cancellation found changed service or release identity; explicit recovery review is required.' 4}
+    $pending = Get-ALPendingConfigurationRecord $Config
+    $decision = Resolve-ALRecoveryDecision $Config $journal $RecoveryAction
+    # G-004: a durable audit record for every recovery attempt that acts on something (not for 'nothing to recover', never for a simulation).
+    if (-not $pending -and $decision.kind -eq 'none') { return Invoke-ALRecoverDecision $Config $journal $decision $RecoveryAction $CertificateFile $CertificatePasswordFile }
+    $operator = Get-ALOperatorIdentity
+    $script:RecoveryContext = [ordered]@{ recovery_action = $RecoveryAction; recovery_decision = $(if ($pending) { 'configuration_restore' } else { $decision.kind }); recovery_run = $script:RunId; operator = $operator.name }
+    $before = if ($journal) { [string]$journal.phase } else { $null }
+    try {
+        # An interrupted configuration change (also a recovery certificate step) is restored before any journal decision.
+        $result = if ($pending) { Invoke-ALConfigurationRecover $Config 'an interrupted configuration change was found before recovery' }
+            else { Invoke-ALRecoverDecision $Config $journal $decision $RecoveryAction $CertificateFile $CertificatePasswordFile }
+        Write-ALRecoveryAudit $Config $journal $RecoveryAction $script:RecoveryContext.recovery_decision $operator $before 'succeeded' '' $result
+        return $result
+    } catch {
+        $reason = $_.Exception.Message
+        try { Write-ALRecoveryAudit $Config $journal $RecoveryAction $script:RecoveryContext.recovery_decision $operator $before $(if ($_.Exception.PSObject.Properties['ExitCode'] -and [int]$_.Exception.ExitCode -eq 4) { 'refused' } else { 'failed' }) $reason $null }
+        catch { Write-ALLog "recovery audit could not be written: $($_.Exception.Message)" }
+        throw
+    } finally { $script:RecoveryContext = $null }
+}
+
+function Invoke-ALRecoverDecision($Config, $journal, $decision, [string]$RecoveryAction, [string]$CertificateFile, [string]$CertificatePasswordFile) {
+    if ($CertificateFile -and $decision.kind -ne 'candidate') { Stop-AL 'A replacement certificate applies only to candidate recovery (VerifyCandidate or Resume) of an interrupted deployment.' 4 }
+    switch ($decision.kind) {
+        'none' {
+            Write-ALLog "nothing to recover: $($decision.reason)"
+            if (-not $journal) { return [pscustomobject]@{ recovered = $false; reason = 'no journal' } }
+            return [pscustomobject]@{ recovered = $false; phase = $journal.phase }
         }
-        Set-ALPhase $Config $journal 'aborted'
-        $service = Get-ALService $Config.ServiceName
-        if ($service.Exists -and $service.State -eq 'Stopped' -and $journal.service_state_before -eq 'Running') { Start-ALService $Config.ServiceName }
-        return [pscustomobject]@{ recovered = $true; phase = 'aborted' }
-    }
-    $adopted = $journal.PSObject.Properties['service_binary_before'] -and $journal.service_binary_before
-    if (-not $journal.from_release -and -not $adopted) {
-        Set-ALPhase $Config $journal 'manual_recovery_required'
-        Write-ALRecoveryInstructions $Config $journal 'an interrupted first deployment has no previous release to return to'
-        Stop-AL 'Interrupted first deployment: see RECOVERY-REQUIRED.txt.' 4
+        'refuse' { Stop-AL $decision.reason 4 }
+        'candidate' {
+            try{return Confirm-ALCandidateRecovery $Config $journal -StartStoppedService:$decision.start -CertificateFile $CertificateFile -CertificatePasswordFile $CertificatePasswordFile}
+            catch{Set-ALPhase $Config $journal 'manual_recovery_required';Write-ALRecoveryInstructions $Config $journal 'Candidate verification refused; review the latest sanitized operation result.';throw}
+        }
+        'rollback' {
+            Assert-ALRecoveryRollback $Config $journal
+            Invoke-ALRollbackCore $Config $journal $journal.from_release
+            return [pscustomobject]@{recovered=$true;phase='rolled_back';release=$journal.from_release}
+        }
+        'abort' {
+            if ($decision.cancel) { Assert-ALRecoveryCancel $Config $journal }
+            Set-ALPhase $Config $journal 'aborted'
+            $service = Get-ALService $Config.ServiceName
+            if ($service.Exists -and $service.State -eq 'Stopped' -and $journal.service_state_before -eq 'Running') { Start-ALService $Config.ServiceName }
+            return [pscustomobject]@{ recovered = $true; phase = 'aborted' }
+        }
+        'manual' {
+            Set-ALPhase $Config $journal 'manual_recovery_required'
+            Write-ALRecoveryInstructions $Config $journal $decision.reason
+            Stop-AL 'Interrupted first deployment: see RECOVERY-REQUIRED.txt.' 4
+        }
     }
     Invoke-ALRollbackCore $Config $journal $journal.from_release
     [pscustomobject]@{ recovered = $true; phase = 'rolled_back'; release = $journal.from_release }
+}
+
+# The explicit recovery actions a journal state allows, from the same decision as Invoke-ALRecover plus the observable prerequisites (service
+# state, previous release, recorded backup). Read-only; the expensive checks run in Get-ALRecoveryPreview for the chosen action.
+function Get-ALRecoveryOptions($Config,$Journal) {
+    $service = Get-ALService $Config.ServiceName
+    foreach ($action in 'VerifyCandidate', 'Resume', 'Rollback', 'Cancel') {
+        $decision = Resolve-ALRecoveryDecision $Config $Journal $action
+        $available = $decision.kind -notin @('none', 'refuse'); $reason = $decision.reason
+        if ($available -and $action -eq 'VerifyCandidate' -and $service.State -ne 'Running') { $available = $false; $reason = 'the service is not running (use Resume)' }
+        if ($available -and $action -eq 'Resume' -and $service.State -ne 'Stopped') { $available = $false; $reason = 'the service is not stopped' }
+        if ($available -and $action -eq 'Rollback' -and (-not $Journal.from_release -or -not $Journal.backup)) { $available = $false; $reason = 'no previous release with recorded backup evidence' }
+        [pscustomobject]@{ action = $action; available = [bool]$available; reason = $reason }
+    }
+}
+
+# -Action Recover -DryRun: evaluates the recovery Invoke-ALRecover would perform with every read-only check and reports it as a simulation. It
+# never writes the journal or recovery notes, restores a configuration, starts, stops or reconfigures the service, or switches releases.
+function Get-ALRecoveryPreview($Config,[ValidateSet('Auto','VerifyCandidate','Resume','Rollback','Cancel')][string]$RecoveryAction='Auto',[string]$CertificateFile='',[string]$CertificatePasswordFile='') {
+    Assert-ALNoPendingRepair $Config
+    $journal = Read-ALJournal $Config
+    $base = [ordered]@{ dry_run = $true; requested_action = $RecoveryAction; journal_run = $(if ($journal) { $journal.run } else { $null }); journal_phase = $(if ($journal) { $journal.phase } else { $null })
+        history = @(if ($journal -and $journal.PSObject.Properties['history']) { @($journal.history) | ForEach-Object { $_.phase } })
+        from_release = $(if ($journal) { $journal.from_release } else { $null }); to_release = $(if ($journal) { $journal.to_release } else { $null })
+        options = @(if ($journal) { Get-ALRecoveryOptions $Config $journal }) }
+    $pending = Get-ALPendingConfigurationRecord $Config
+    if ($pending) {
+        $base.would_action = "restore the interrupted $($pending.record.operation) (previous configuration and command line, service restart)"
+        $base.would_succeed = $true; $base.pending_configuration_change = $pending.record.operation
+        return [pscustomobject]$base
+    }
+    $decision = Resolve-ALRecoveryDecision $Config $journal $RecoveryAction
+    $base.decision = $decision.kind; $base.would_action = $decision.reason
+    if ($CertificateFile -and $decision.kind -ne 'candidate') { $base.would_succeed = $false; $base.blocking_reason = 'A replacement certificate applies only to candidate recovery (VerifyCandidate or Resume) of an interrupted deployment.'; return [pscustomobject]$base }
+    try {
+        switch ($decision.kind) {
+            'none' { $base.would_succeed = $true; $base.would_phase = $base.journal_phase }
+            'refuse' { $base.would_succeed = $false; $base.blocking_reason = $decision.reason }
+            'candidate' { $check = Confirm-ALCandidateRecovery $Config $journal -StartStoppedService:$decision.start -Preview -CertificateFile $CertificateFile -CertificatePasswordFile $CertificatePasswordFile; foreach ($p in $check.PSObject.Properties) { $base[$p.Name] = $p.Value } }
+            'rollback' { Assert-ALRecoveryRollback $Config $journal; $base.would_succeed = $true; $base.would_phase = 'rolled_back' }
+            'abort' { if ($decision.cancel) { Assert-ALRecoveryCancel $Config $journal }; $base.would_succeed = $true; $base.would_phase = 'aborted' }
+            'manual' { $base.would_succeed = $false; $base.would_phase = 'manual_recovery_required'; $base.blocking_reason = $decision.reason }
+            default { $base.would_succeed = $true; $base.would_phase = 'rolled_back' }
+        }
+    } catch {
+        # The real run would refuse here (and, for a candidate, record manual_recovery_required); the preview records nothing.
+        $base.would_succeed = $false; $base.blocking_reason = $_.Exception.Message
+    }
+    [pscustomobject]$base
+}
+
+# ---- recovery audit (G-004)
+
+# The identity of this process from its Windows token (the account that runs the deployment tools, also over SSH or as a scheduled task).
+# Never taken from environment variables; where no token is available the operator is recorded as unknown instead of being guessed.
+function Get-ALOperatorIdentity {
+    try {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        if ($identity -and $identity.Name) { return [pscustomobject]@{ name = $identity.Name; sid = $identity.User.Value; source = 'windows_process_token' } }
+    } catch { }
+    [pscustomobject]@{ name = $null; sid = $null; source = 'unavailable' }
+}
+
+function Get-ALRecoveryAuditPath($Config) { Join-AL $Config.WorkRoot 'recovery-audit.jsonl' }
+
+# Appends one JSON line per recovery attempt to WorkRoot\recovery-audit.jsonl (append-only; a later deployment replaces the journal, not this
+# log). It holds identifiers, hashes and outcomes only: no configuration values, certificate passwords, keys or paths beyond the release name.
+function Write-ALRecoveryAudit($Config, $Journal, [string]$RequestedAction, [string]$Decision, $Operator, [string]$PhaseBefore, [string]$Outcome, [string]$Reason, $Result) {
+    $after = Read-ALJournal $Config
+    # Journals written by older builds or interrupted early may lack fields: read them without assuming they exist.
+    $field = { param($Object, $Name) if ($null -ne $Object -and $Object.PSObject.Properties[$Name]) { $Object.$Name } else { $null } }
+    $target = & $field $Journal 'to_release'
+    $release = if ($target) { [string]$target } else { [string](Get-ALLink (Get-ALCurrentLink $Config)) }
+    $manifestFile = if ($release) { Join-AL $release 'build-manifest.json' } else { '' }
+    $record = [ordered]@{
+        schema = 1; recorded_utc = [DateTime]::UtcNow.ToString('o'); requested_action = $RequestedAction; decision = $Decision; outcome = $Outcome
+        operator = $Operator.name; operator_sid = $Operator.sid; operator_source = $Operator.source
+        original_run = (& $field $Journal 'run'); recovery_run = $script:RunId
+        phase_before = $PhaseBefore; phase_after = (& $field $after 'phase')
+        version = (& $field $Journal 'version'); source_commit = (& $field $Journal 'commit')
+        release = $(if ($release) { Split-Path $release -Leaf } else { $null })
+        manifest_sha256 = $(if ($manifestFile -and (Test-Path -LiteralPath $manifestFile -PathType Leaf)) { (Get-FileHash -LiteralPath $manifestFile -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null })
+        config_sha256 = $(if (Test-Path -LiteralPath $Config.ConfigFile -PathType Leaf) { (Get-FileHash -LiteralPath $Config.ConfigFile -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null })
+        certificate_replaced = [bool]($Result -and $Result.PSObject.Properties['certificate_replaced'] -and $Result.certificate_replaced)
+        reason = $(if ($Reason) { [regex]::Replace($Reason, '(?i)(password|passphrase|secret|token|key)\s*[:=]\s*\S+', '$1=[REDACTED]') } else { $null })
+    }
+    $path = Get-ALRecoveryAuditPath $Config
+    New-Item -ItemType Directory -Force (Split-Path $path) | Out-Null
+    [IO.File]::AppendAllText($path, (($record | ConvertTo-Json -Compress -Depth 4) + "`n"), [Text.UTF8Encoding]::new($false))
+    Write-ALLog "recovery audit: $RequestedAction -> $Outcome"
+}
+
+function Read-ALRecoveryAudit($Config) {
+    $path = Get-ALRecoveryAuditPath $Config
+    if (-not (Test-Path -LiteralPath $path)) { return @() }
+    @([IO.File]::ReadAllLines($path) | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json })
+}
+
+# ---- service restart (WP19)
+
+# Restarts the installed service on its unchanged configuration and verifies it like a deployment: refused while a deployment or configuration
+# change awaits recovery, while the service runs outside the managed release or with another identity or command line; afterwards the service
+# must own the listener and report readiness and the installed release identity. -DryRun runs the checks only.
+function Invoke-ALServiceRestart($Config, [switch]$DryRun) {
+    if (Get-ALPendingConfigurationRecord $Config) { Stop-AL 'An interrupted configuration change is recorded; run -Action Recover before restarting the service.' 4 }
+    $context = Assert-ALConfigurationChangeAllowed $Config
+    $before = $context.service
+    $plan = [pscustomobject]@{ service = $Config.ServiceName; state_before = $before.State; process_before = $before.ProcessId; release = Get-ALLink (Get-ALCurrentLink $Config)
+        version = $context.manifest.version; commit = $context.manifest.source_sha; downtime = 'The service stops and starts; clients are disconnected until readiness returns (usually under a minute).' }
+    if ($DryRun) { $plan | Add-Member -NotePropertyName dry_run -NotePropertyValue $true; return $plan }
+    Write-ALLog "restarting $($Config.ServiceName) (state $($before.State), process $($before.ProcessId))"
+    Stop-ALService $Config.ServiceName ([int]$Config.StopTimeoutSeconds)
+    Start-ALService $Config.ServiceName
+    $ready = Wait-ALReady $Config $context.manifest.source_sha $context.manifest.version
+    $plan | Add-Member -NotePropertyName restarted -NotePropertyValue $true
+    $plan | Add-Member -NotePropertyName process_after -NotePropertyValue $ready.process_id
+    $plan | Add-Member -NotePropertyName identity -NotePropertyValue $(if ($ready.PSObject.Properties['identity']) { $ready.identity } else { $null })
+    $plan
+}
+
+# ---- simulation policy (-DryRun, D-006)
+
+# Every Deploy-AuthLens action is classified once. read_only actions never change anything; simulated actions implement -DryRun as a read-only
+# evaluation; any other changing action refuses -DryRun instead of running for real. -DryRun never replaces -Yes: without -DryRun an approval
+# action needs -Yes, and -DryRun with -Yes is still only a simulation.
+$script:ReadOnlyActions = @('Status', 'Health', 'AuditAcl', 'ArtifactInventory')
+$script:SimulatedActions = @('Deploy', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestartService', 'AuthorizeAclPrincipal', 'RevokeAclPrincipal', 'PruneArtifacts')
+$script:ApprovalActions = @('Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ProtectAcl', 'RestoreAcl', 'RestartService', 'AuthorizeAclPrincipal', 'RevokeAclPrincipal', 'PruneArtifacts')
+
+function Get-ALActionPolicy([string]$Action, [switch]$DryRun, [switch]$Yes) {
+    if ($Action -in $script:ReadOnlyActions) { return [pscustomobject]@{ action = $Action; mode = 'read_only'; approval_required = $false } }
+    if ($DryRun) {
+        if ($Action -notin $script:SimulatedActions) { Stop-AL "-DryRun is not supported for $Action; nothing was run or changed. Review -Action Status (and AuditAcl) instead, then run $Action with -Yes." 2 }
+        return [pscustomobject]@{ action = $Action; mode = 'simulate'; approval_required = $false }
+    }
+    $approval = $Action -in $script:ApprovalActions
+    if ($approval -and -not $Yes) { Stop-AL "$Action changes the service or its permissions; repeat with -Yes after reviewing -Action Status or -Action AuditAcl (or -DryRun where supported)." }
+    [pscustomobject]@{ action = $Action; mode = 'execute'; approval_required = $approval }
+}
+
+function Get-ALFileFingerprint([string]$Path) {
+    try { if ([IO.File]::Exists($Path)) { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash } } catch { return 'unreadable' }
+    'missing'
+}
+
+# The persistent installation state a simulation must leave unchanged: deployment state files (journal, pending records, firewall receipts,
+# recovery notes), configuration, installed-product record, release pointer and release folders, TLS and key folder names, the service
+# registration and process, and the Setup registry values. Application data is excluded because the running service writes it.
+function Get-ALStateSnapshot($Config) {
+    $state = [ordered]@{}
+    $state['config'] = Get-ALFileFingerprint $Config.ConfigFile
+    $state['installed-product'] = Get-ALFileFingerprint (Join-AL (Join-AL $Config.Root 'config') 'installed-product.json')
+    try {
+        if (Test-Path -LiteralPath $Config.WorkRoot) {
+            foreach ($item in @(Get-ChildItem -LiteralPath $Config.WorkRoot -Force | Sort-Object Name)) {
+                if ($item.PSIsContainer) { $state["work:$($item.Name)/"] = @(Get-ChildItem -LiteralPath $item.FullName -Force -ErrorAction SilentlyContinue).Count }
+                elseif ($item.Name -ne 'deployment.lock') { $state["work:$($item.Name)"] = Get-ALFileFingerprint $item.FullName }
+            }
+        } else { $state['work'] = 'missing' }
+    } catch { $state['work'] = 'unreadable' }
+    try { $state['current'] = [string](Get-ALLink (Get-ALCurrentLink $Config)) } catch { $state['current'] = 'unreadable' }
+    foreach ($folder in @($Config.ReleasesRoot, (Join-AL $Config.Root 'tls'), (Join-AL $Config.Root 'keys'))) {
+        try { $state["dir:$folder"] = (@(Get-ChildItem -LiteralPath $folder -Force -ErrorAction Stop | ForEach-Object { $_.Name } | Sort-Object) -join '|') } catch { $state["dir:$folder"] = 'missing' }
+    }
+    try { $service = Get-ALService $Config.ServiceName; $state['service'] = "$($service.Exists)|$($service.State)|$($service.Account)|$($service.PathName)|$($service.ProcessId)" } catch { $state['service'] = 'unreadable' }
+    try {
+        $registry = Get-ItemProperty -LiteralPath 'HKLM:\Software\AuthLens\Server' -ErrorAction Stop
+        $state['registry'] = (@($registry.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { "$($_.Name)=$($_.Value)" } | Sort-Object) -join '|')
+    } catch { $state['registry'] = 'missing' }
+    $state
+}
+
+function Compare-ALStateSnapshot($Before, $After) {
+    @(@($Before.Keys) + @($After.Keys) | Select-Object -Unique | Where-Object { "$($Before[$_])" -cne "$($After[$_])" })
 }
 
 function Invoke-ALRollback($Config, [string]$ToRelease) {
@@ -1038,6 +1393,306 @@ function Initialize-ALInstallation($Config) {
     }
 }
 
+# ---- installed configuration changes (network settings and certificate replacement)
+
+# One recorded transaction for changes to an installed Server's deployment configuration. configuration-pending.json (deployment state) holds the
+# previous configuration bytes, their hash and the previous service command line while a change is in flight; the next change or -Action
+# Recover restores it first. An earlier pre-release name (certificate-pending.json) is still recognized.
+function Get-ALConfigurationPendingPath($Config) { Join-AL $Config.WorkRoot 'configuration-pending.json' }
+function Get-ALCertificatePendingPath($Config) { Join-AL $Config.WorkRoot 'certificate-pending.json' }
+function Get-ALPendingConfigurationRecord($Config) {
+    foreach ($path in (Get-ALConfigurationPendingPath $Config), (Get-ALCertificatePendingPath $Config)) {
+        if (Test-Path -LiteralPath $path) { return [pscustomobject]@{ path = $path; record = ([IO.File]::ReadAllText($path) | ConvertFrom-Json) } }
+    }
+    $null
+}
+
+# A shallow copy of the configuration with selected settings replaced; the original object is never changed.
+function Copy-ALConfig($Config, [hashtable]$Changes) {
+    $copy = [ordered]@{}
+    foreach ($property in $Config.PSObject.Properties) { $copy[$property.Name] = $property.Value }
+    foreach ($key in $Changes.Keys) { $copy[$key] = $Changes[$key] }
+    [pscustomobject]$copy
+}
+
+# Replaces a file's bytes through a temporary file in the same directory (atomic on NTFS); no backup copy is left beside it.
+function Write-ALReplaceFile([string]$Path, [byte[]]$Bytes) {
+    $temporary = $Path + '.next-' + [guid]::NewGuid().ToString('N')
+    $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try { $stream.Write($Bytes, 0, $Bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
+    [IO.File]::Replace($temporary, $Path, [NullString]::Value) # $null would become "" (an invalid backup path)
+}
+
+# Preconditions shared by every installed configuration change: no interrupted deployment or change, a managed service with the configured
+# identity whose command line equals the configuration (no drift), and the current release manifest.
+function Assert-ALConfigurationChangeAllowed($Config) {
+    Assert-ALNoPendingRepair $Config
+    $journal = Read-ALJournal $Config
+    if ($journal -and $journal.phase -in $script:CriticalPhases) { Stop-AL 'An interrupted deployment requires -Action Recover before the configuration can be changed.' 4 }
+    $service = Get-ALService $Config.ServiceName
+    if (-not $service.Exists) { Stop-AL "Service $($Config.ServiceName) is not installed; nothing was changed." }
+    if (-not (Test-ALServiceBinary $service.PathName $Config)) { Stop-AL 'The service runs outside the managed release link; the configuration was not changed.' }
+    if ($service.Account -ine $Config.ServiceAccount) { Stop-AL 'The service identity differs from the deployment configuration; nothing was changed.' }
+    if (@(Compare-ALServiceArguments @(@(Split-ALCommandLine $service.PathName) | Select-Object -Skip 1) @(Get-ALServiceArguments $Config)).Count) {
+        Stop-AL 'The service command line differs from the deployment configuration; review it (-Action Status) before changing the configuration.'
+    }
+    $manifest = Get-Content -LiteralPath (Join-AL (Get-ALLink (Get-ALCurrentLink $Config)) 'build-manifest.json') -Raw | ConvertFrom-Json
+    [pscustomobject]@{ service = $service; manifest = $manifest }
+}
+
+# Validates a candidate configuration without changing anything: access-mode rules, an address assigned to this machine, a port that is free or
+# held by the service itself, and the packaged host's read-only --server-preflight (TLS names for the hosts, key, validity, host/proxy policy).
+function Test-ALCandidateConfiguration($Config, $Candidate, $Service) {
+    $access = Get-ALServerAccessPlan $Candidate
+    if (-not (Test-ALInstallerListenAddress $Candidate.ListenAddress)) { Stop-AL "The listen address $($Candidate.ListenAddress) is not assigned to this machine; nothing was changed." }
+    $listeners = @(Get-ALListener $Candidate.ListenAddress ([int]$Candidate.Port))
+    if (@($listeners | Where-Object { $_ -and $_ -ne $Service.ProcessId }).Count) { Stop-AL ("Port {0} on {1} is used by process {2}, not by the service; nothing was changed." -f $Candidate.Port, $Candidate.ListenAddress, ($listeners -join ',')) }
+    $probe = Invoke-ALMaintenance (Get-ALServiceExe $Config) (@('--server-preflight') + @(Get-ALServiceArguments $Candidate))
+    if (-not $probe.validated -or -not $probe.read_only) { Stop-AL 'The packaged Server did not validate the proposed configuration (TLS names, host or proxy policy); nothing was changed.' }
+    $access
+}
+
+# Applies a validated candidate: records the previous state, replaces the named settings in the configuration file (other settings and formatting
+# of values are kept), grants the service identity its read access, switches the command line, restarts and verifies readiness and the release
+# identity against the candidate (pinned to its certificate, using its listener and hosts). Optional firewall work runs after readiness through the
+# existing owned-firewall transaction. Any failure before that restores the previous configuration and command line and restarts on them.
+function Invoke-ALConfigurationTransaction($Config, $Candidate, [hashtable]$Settings, [string]$Operation, $Context, $Firewall = $null) {
+    $pending = Get-ALConfigurationPendingPath $Config
+    $previousBytes = [IO.File]::ReadAllBytes($Config.ConfigFile)
+    $record = [pscustomobject]@{
+        schema = 2; operation = $Operation; config_file = $Config.ConfigFile; previous_config = [Convert]::ToBase64String($previousBytes)
+        previous_sha256 = (Get-ALInstallerBytesHash $previousBytes); previous_binary = $Context.service.PathName; settings = @($Settings.Keys | Sort-Object)
+        started_utc = [DateTime]::UtcNow.ToString('o')
+    }
+    Write-ALInstallerPrivateBytes $pending ([Text.Encoding]::UTF8.GetBytes(($record | ConvertTo-Json -Depth 4)))
+    Write-ALLog "$Operation started: $(@($Settings.Keys | Sort-Object) -join ', ')"
+    try {
+        $raw = [Text.Encoding]::UTF8.GetString($previousBytes).TrimStart([char]0xfeff) | ConvertFrom-Json
+        foreach ($key in $Settings.Keys) { $raw | Add-Member -NotePropertyName $key -NotePropertyValue $Settings[$key] -Force }
+        Write-ALReplaceFile $Config.ConfigFile ([Text.Encoding]::UTF8.GetBytes(($raw | ConvertTo-Json -Depth 5)))
+        Grant-ALAccess $Candidate
+        Stop-ALService $Config.ServiceName ([int]$Config.StopTimeoutSeconds)
+        Set-ALServiceBinary $Config.ServiceName (Get-ALBinaryPath $Candidate)
+        Start-ALService $Config.ServiceName
+        $ready = Wait-ALReady $Candidate $Context.manifest.source_sha $Context.manifest.version
+    } catch {
+        $reason = $_.Exception.Message
+        $null = Restore-ALConfigurationChange $Config $record $reason $pending
+        Stop-AL "$Operation failed and the previous configuration was restored: $reason" 1
+    }
+    [IO.File]::Delete($pending)
+    $firewallResult = $null
+    if ($Firewall) {
+        try { $firewallResult = Invoke-ALInstallerFirewallChange $Candidate $Firewall.sources $Firewall.profiles -Remove:$Firewall.remove -Approved -LockHeld }
+        catch { $firewallResult = @{ changed = $false; recovery_required = $true; error = $_.Exception.Message } }
+    }
+    Write-ALLog "$Operation complete; service process $($ready.process_id) is ready"
+    [pscustomobject]@{ changed = $true; operation = $Operation; process_id = $ready.process_id; identity = $(if ($ready.PSObject.Properties['identity']) { $ready.identity } else { $null }); firewall = $firewallResult
+        firewall_recovery_required = [bool]($firewallResult -is [hashtable] -and $firewallResult['recovery_required']) }
+}
+
+# Restores the configuration bytes and service command line recorded before a configuration change and restarts on them. The record must belong
+# to this configuration and its previous bytes must match their hash; otherwise it is retained for manual recovery.
+function Restore-ALConfigurationChange($Config, $Record, [string]$Reason, [string]$PendingPath) {
+    if ($Record.schema -notin 1, 2 -or [IO.Path]::GetFullPath([string]$Record.config_file) -ine [IO.Path]::GetFullPath($Config.ConfigFile)) { Stop-AL 'The pending configuration record does not belong to this configuration; it was retained for manual recovery.' 4 }
+    $bytes = [Convert]::FromBase64String([string]$Record.previous_config)
+    if ((Get-ALInstallerBytesHash $bytes) -ine $Record.previous_sha256) { Stop-AL 'The recorded previous configuration is damaged; the pending record was retained for manual recovery.' 4 }
+    Write-ALLog "restoring the previous configuration: $Reason"
+    Write-ALReplaceFile $Config.ConfigFile $bytes
+    $previous = Read-AuthLensSettings $Config.ConfigFile
+    $manifest = Get-Content -LiteralPath (Join-AL (Get-ALLink (Get-ALCurrentLink $previous)) 'build-manifest.json') -Raw | ConvertFrom-Json
+    Stop-ALService $previous.ServiceName ([int]$previous.StopTimeoutSeconds)
+    Set-ALServiceBinary $previous.ServiceName ([string]$Record.previous_binary)
+    Start-ALService $previous.ServiceName
+    $ready = Wait-ALReady $previous $manifest.source_sha $manifest.version
+    [IO.File]::Delete($PendingPath)
+    Write-ALLog 'previous configuration restored and ready'
+    [pscustomobject]@{ changed = $false; restored_previous = $true; certificate = $previous.CertificatePath; listen_address = $previous.ListenAddress
+        port = $previous.Port; process_id = $ready.process_id; reason = $Reason }
+}
+
+# Restores an interrupted configuration change, if one is recorded. Returns $null when nothing is pending.
+function Invoke-ALConfigurationRecover($Config, [string]$Reason = 'an interrupted configuration change was found') {
+    $pending = Get-ALPendingConfigurationRecord $Config
+    if (-not $pending) { return $null }
+    Restore-ALConfigurationChange $Config $pending.record $Reason $pending.path
+}
+
+# Replaces the TLS certificate of the installed Server. The new PFX is validated by the packaged host against the unchanged listener and hosts
+# before anything changes, imported create-only into a new protected Root\tls\renew-<id> directory and validated again, then applied through the
+# configuration transaction. Previous TLS files are retained; no trusted root is added.
+function Invoke-ALReplaceCertificate($Config, [string]$CertificateFile, [string]$PasswordFile, [switch]$DryRun) {
+    if (Get-ALPendingConfigurationRecord $Config) {
+        if ($DryRun) { Stop-AL 'An interrupted configuration change is recorded; run without -DryRun (or -Action Recover) to restore the previous configuration first.' 4 }
+        return Invoke-ALConfigurationRecover $Config
+    }
+    Assert-ALCertificateInput $CertificateFile $PasswordFile
+    $context = Assert-ALConfigurationChangeAllowed $Config
+    $candidate = Copy-ALConfig $Config @{ CertificatePath = $CertificateFile; CertificatePasswordFile = $PasswordFile }
+    $probe = Invoke-ALMaintenance (Get-ALServiceExe $Config) (@('--server-preflight') + @(Get-ALServiceArguments $candidate))
+    if (-not $probe.validated -or -not $probe.read_only) { Stop-AL 'The packaged Server did not validate the new certificate for the configured hosts; nothing was changed.' }
+    $currentCertificate = ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $Config)
+    $proposedCertificate = ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $candidate)
+    $notice = Get-ALCertificateTrustNotice $currentCertificate $proposedCertificate
+    if ($DryRun) { return [pscustomobject]@{ dry_run = $true; certificate_validated = $true; service = $Config.ServiceName; restart_required = $true; network_changed = $false
+        certificate_current = $currentCertificate; certificate_proposed = $proposedCertificate; client_trust_notice = $notice } }
+    $tls = Copy-ALServerTlsMaterial $candidate (Join-AL (Join-AL $Config.Root 'tls') ('renew-' + [guid]::NewGuid().ToString('N')))
+    $next = Copy-ALConfig $Config @{ CertificatePath = $tls.certificate; CertificatePasswordFile = $tls.password_file }
+    $probe = Invoke-ALMaintenance (Get-ALServiceExe $Config) (@('--server-preflight') + @(Get-ALServiceArguments $next))
+    if (-not $probe.validated -or -not $probe.read_only) { Stop-AL 'The imported certificate copy did not validate; the service was not changed and the copy was retained for review.' 4 }
+    $result = Invoke-ALConfigurationTransaction $Config $next @{ CertificatePath = $tls.certificate; CertificatePasswordFile = $tls.password_file } 'certificate replacement' $context
+    $result | Add-Member -NotePropertyName replaced -NotePropertyValue $true
+    $result | Add-Member -NotePropertyName certificate -NotePropertyValue $tls.certificate
+    $result | Add-Member -NotePropertyName public_certificate -NotePropertyValue $tls.public_certificate
+    $result | Add-Member -NotePropertyName previous_certificate_retained -NotePropertyValue $Config.CertificatePath
+    $result | Add-Member -NotePropertyName trust_store_modified -NotePropertyValue $false
+    $result | Add-Member -NotePropertyName network_changed -NotePropertyValue $false
+    $result | Add-Member -NotePropertyName certificate_previous -NotePropertyValue $currentCertificate
+    $result | Add-Member -NotePropertyName certificate_active -NotePropertyValue $proposedCertificate
+    $result | Add-Member -NotePropertyName client_trust_notice -NotePropertyValue $notice
+    $result
+}
+
+# ---- TLS certificate lifecycle (WP20)
+
+function Assert-ALCertificateInput([string]$CertificateFile, [string]$PasswordFile) {
+    foreach ($file in $CertificateFile, $PasswordFile) {
+        if (-not $file -or -not [IO.Path]::IsPathRooted($file) -or -not (Test-Path -LiteralPath $file -PathType Leaf)) { Stop-AL 'A certificate change needs -CertificateFile <absolute .pfx file> and -CertificatePasswordFile <absolute protected password file>.' }
+        if ((Get-Item -LiteralPath $file -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { Stop-AL 'Certificate files must not be reparse points; nothing was changed.' }
+    }
+    if ([IO.Path]::GetExtension($CertificateFile) -notin @('.pfx', '.p12')) { Stop-AL 'Certificate replacement requires a PFX/PKCS12 file; nothing was changed.' }
+}
+
+# The packaged host's read-only description of the configured (or proposed) certificate against the shared endpoint-identity rule; $null when the
+# release predates --certificate-info or the certificate cannot be opened.
+function Get-ALCertificateInfo($Config, [string]$Exe = '') {
+    if (-not $Exe) { $Exe = Get-ALServiceExe $Config }
+    if (-not $Exe -or -not (Test-Path -LiteralPath $Exe -PathType Leaf)) { return $null }
+    Invoke-ALMaintenance $Exe (@('--certificate-info') + @(Get-ALServiceArguments $Config)) -AllowUnsupported
+}
+
+function ConvertTo-ALCertificateSummary($Info) {
+    if (-not $Info -or -not $Info.PSObject.Properties['thumbprint_sha256']) { return $null }
+    $value = { param($Name) if ($Info.PSObject.Properties[$Name]) { $Info.$Name } else { $null } }
+    [pscustomobject]@{ subject = (& $value 'subject'); issuer = (& $value 'issuer'); self_signed = [bool](& $value 'self_signed'); not_after_utc = (& $value 'not_after_utc'); days_remaining = (& $value 'days_remaining')
+        thumbprint_sha256 = $Info.thumbprint_sha256; dns_names = @(& $value 'dns_names' | Where-Object { $_ }); ip_addresses = @(& $value 'ip_addresses' | Where-Object { $_ }); missing_identities = @(& $value 'missing_identities' | Where-Object { $_ })
+        usable = [bool](& $value 'usable'); warnings = @(& $value 'warnings' | Where-Object { $_ }) }
+}
+
+# What a certificate change means for clients. Trust stores are never changed; distribution is an administrator decision.
+function Get-ALCertificateTrustNotice($Current, $Proposed) {
+    if (-not $Proposed) { return 'The new certificate could not be described; review it before applying.' }
+    if ($Current -and $Current.thumbprint_sha256 -eq $Proposed.thumbprint_sha256) { return 'The certificate is unchanged; client trust is not affected.' }
+    $old = if ($Current) { $Current.thumbprint_sha256 } else { 'unknown' }
+    $text = "The server certificate changes from SHA-256 $old to $($Proposed.thumbprint_sha256). Clients that trusted the previous certificate by its fingerprint will ask for trust again."
+    if ($Proposed.self_signed) { $text + ' The new certificate is self-signed: distribute its public .cer (never the PFX or its password) through an approved channel such as Group Policy (Trusted People or Trusted Root, per your policy), or replace it with a certificate from your internal CA. AuthLens does not change any trust store.' }
+    else { $text + " It is issued by '$($Proposed.issuer)': clients that already trust that CA need no change. AuthLens does not change any trust store." }
+}
+
+# Writes the public certificate of the installed Server (DER .cer) to a new file for client trust distribution; the PFX, its password and keys are
+# never exported. Create-only, outside the installation's private folders.
+function Export-ALPublicCertificate($Config, [string]$Destination) {
+    if (-not $Destination -or -not [IO.Path]::IsPathRooted($Destination)) { Stop-AL 'Select an absolute destination file ending in .cer (-PublicCertificateFile).' }
+    $full = [IO.Path]::GetFullPath($Destination)
+    foreach ($private in @($Config.DataDirectory, $Config.WorkRoot, (Join-AL $Config.Root 'keys'), (Join-AL $Config.Root 'tls'), $Config.BackupRoot)) {
+        if ($private -and (Test-ALPathWithin $full $private)) { Stop-AL 'Export the public certificate outside the installation''s private folders.' }
+    }
+    $exe = Get-ALServiceExe $Config
+    $result = Invoke-ALMaintenance $exe (@('--certificate-export-public', $full) + @(Get-ALServiceArguments $Config))
+    if (-not $result.exported -or $result.private_key_included) { Stop-AL 'The public certificate export was refused.' }
+    $result
+}
+
+# The network settings a supported post-installation change may set, and how each is normalized. Anything else (data directory, identity, paths,
+# certificate) is refused here; certificates use Invoke-ALReplaceCertificate.
+$script:NetworkSettings = @('AccessMode', 'ListenAddress', 'Port', 'AllowedHosts', 'ProxyHosts', 'TrustedProxies')
+
+function ConvertTo-ALNetworkSettings([hashtable]$Requested, $Config) {
+    $changes = @{}
+    foreach ($key in @($Requested.Keys)) {
+        if ($script:NetworkSettings -notcontains $key) { Stop-AL "Setting '$key' cannot be changed by a network configuration change." }
+        $value = $Requested[$key]
+        if ($key -in 'AllowedHosts', 'ProxyHosts', 'TrustedProxies') {
+            $items = @(@($value) | ForEach-Object { "$_".Split(',') } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            foreach ($item in $items) { if ($item -match '[\s"*/\\]' -and $key -ne 'TrustedProxies') { Stop-AL "Invalid host '$item': host names and IP addresses only, no wildcards, URLs or paths." } }
+            if ($key -eq 'TrustedProxies') { foreach ($item in $items) { if ($item -match '\*|^0\.0\.0\.0|^::/0') { Stop-AL 'Trusted proxies must be explicit addresses or restricted subnets.' } } }
+            $value = [string[]]@($items | Select-Object -Unique)
+        } elseif ($key -eq 'Port') {
+            $port = 0; if (-not [int]::TryParse("$value", [ref]$port) -or $port -lt 1 -or $port -gt 65535) { Stop-AL 'Port must be 1..65535.' }
+            $value = $port
+        } else { $value = "$value".Trim() }
+        $changes[$key] = $value
+    }
+    if (-not $changes.Count) { Stop-AL 'No network setting was given; nothing was changed.' }
+    $effective = @{}
+    foreach ($key in $changes.Keys) {
+        $current = $Config.$key
+        if (($current -is [array]) -or ($changes[$key] -is [array])) { if ((@($current) -join ',') -cne (@($changes[$key]) -join ',')) { $effective[$key] = $changes[$key] } }
+        elseif ("$current" -cne "$($changes[$key])") { $effective[$key] = $changes[$key] }
+    }
+    if (-not $effective.Count) { Stop-AL 'The proposed network settings equal the current configuration; nothing was changed.' }
+    $effective
+}
+
+# Changes the network settings of the installed Server (access mode, listener, port, allowed hosts, proxy hosts, trusted proxies) as one recorded
+# transaction with validation first, a consolidated summary (-DryRun returns it without changing anything), readiness on the new listener with the
+# existing certificate, automatic restoration on failure and interrupted-run recovery. An installer-owned firewall rule is updated or removed only
+# with an explicit firewall decision; a change that would leave an owned rule pointing at the old listener is refused without one.
+function Invoke-ALNetworkChange($Config, [hashtable]$Requested, [string]$FirewallSources = '', [string]$FirewallProfiles = 'Domain', [switch]$ApproveFirewall, [switch]$RemoveFirewall, [switch]$DryRun, [string]$CertificateFile = '', [string]$CertificatePasswordFile = '') {
+    if (Get-ALPendingConfigurationRecord $Config) {
+        if ($DryRun) { Stop-AL 'An interrupted configuration change is recorded; run without -DryRun (or -Action Recover) to restore the previous configuration first.' 4 }
+        return Invoke-ALConfigurationRecover $Config
+    }
+    $context = Assert-ALConfigurationChangeAllowed $Config
+    $changes = ConvertTo-ALNetworkSettings $Requested $Config
+    $candidate = Copy-ALConfig $Config $changes
+    # Combined change: the replacement certificate is validated against the proposed network settings and applied in the same transaction.
+    if ($CertificateFile) { Assert-ALCertificateInput $CertificateFile $CertificatePasswordFile; $candidate = Copy-ALConfig $candidate @{ CertificatePath = $CertificateFile; CertificatePasswordFile = $CertificatePasswordFile } }
+    try { $access = Test-ALCandidateConfiguration $Config $candidate $context.service }
+    catch {
+        $missing = ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $candidate)
+        if ($missing -and @($missing.missing_identities).Count) { Stop-AL ("The certificate does not cover {0} required by the proposed settings; nothing was changed. Add -CertificateFile with a certificate that covers every allowed host (and the listener IP only if clients use it), or change the hosts." -f (@($missing.missing_identities) -join ', ')) }
+        throw
+    }
+    $currentCertificate = ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $Config)
+    $proposedCertificate = ConvertTo-ALCertificateSummary (Get-ALCertificateInfo $candidate)
+    # The receipts come back as one array object (",$records"); unroll it so an empty result counts as no owned rule.
+    $owned = @((Get-ALOwnedFirewallReceipts $Config) | Where-Object { $_ })
+    $listenerMoved = $candidate.ListenAddress -ne $Config.ListenAddress -or [int]$candidate.Port -ne [int]$Config.Port
+    $firewall = $null
+    if ($ApproveFirewall -and $RemoveFirewall) { Stop-AL 'Choose either -ApproveFirewall with sources or -RemoveFirewall.' }
+    if ($RemoveFirewall) { $firewall = @{ sources = ''; profiles = $FirewallProfiles; remove = $true } }
+    elseif ($ApproveFirewall) {
+        $plan = Get-ALInstallerFirewallPlan $candidate $FirewallSources $FirewallProfiles -AllowOwnedUpdate
+        if (-not $plan.required) { Stop-AL 'A loopback listener needs no firewall rule; use -RemoveFirewall to remove an owned rule.' }
+        $firewall = @{ sources = $FirewallSources; profiles = $FirewallProfiles; remove = $false }
+    } elseif ($owned.Count -and $listenerMoved) {
+        Stop-AL 'An installer-owned firewall rule allows the current listener only. Decide explicitly: -ApproveFirewall -FirewallSources <addresses> [-FirewallProfiles Domain] or -RemoveFirewall.'
+    }
+    $summary = [ordered]@{
+        operation = $(if ($CertificateFile) { 'network and certificate change' } else { 'network change' }); service = $Config.ServiceName; restart_required = $true
+        certificate = $(if ($CertificateFile) { "replaced by $CertificateFile (imported create-only into Root\tls\renew-<id>)" } else { $Config.CertificatePath })
+        certificate_current = $currentCertificate; certificate_proposed = $proposedCertificate
+        client_trust_notice = $(if ($CertificateFile) { Get-ALCertificateTrustNotice $currentCertificate $proposedCertificate } else { 'The certificate is unchanged; client trust is not affected.' })
+        current = [ordered]@{ access_mode = $Config.AccessMode; listen_address = $Config.ListenAddress; port = [int]$Config.Port; allowed_hosts = @($Config.AllowedHosts); proxy_hosts = @($Config.ProxyHosts); trusted_proxies = @($Config.TrustedProxies) }
+        proposed = [ordered]@{ access_mode = $candidate.AccessMode; listen_address = $candidate.ListenAddress; port = [int]$candidate.Port; allowed_hosts = @($candidate.AllowedHosts); proxy_hosts = @($candidate.ProxyHosts); trusted_proxies = @($candidate.TrustedProxies) }
+        changed_settings = @($changes.Keys | Sort-Object); network_access = $access.network_access
+        firewall = $(if ($firewall) { if ($firewall.remove) { 'remove the installer-owned rule' } else { "allow TCP $($candidate.ListenAddress):$($candidate.Port) from $FirewallSources ($FirewallProfiles)" } } elseif ($owned.Count) { 'installer-owned rule unchanged' } else { 'no change' })
+    }
+    if ($DryRun) { return [pscustomobject]@{ dry_run = $true; validated = $true; summary = $summary } }
+    $settings = $changes
+    if ($CertificateFile) {
+        $tls = Copy-ALServerTlsMaterial $candidate (Join-AL (Join-AL $Config.Root 'tls') ('renew-' + [guid]::NewGuid().ToString('N')))
+        $candidate = Copy-ALConfig $candidate @{ CertificatePath = $tls.certificate; CertificatePasswordFile = $tls.password_file }
+        $copy = Invoke-ALMaintenance (Get-ALServiceExe $Config) (@('--server-preflight') + @(Get-ALServiceArguments $candidate))
+        if (-not $copy.validated -or -not $copy.read_only) { Stop-AL 'The imported certificate copy did not validate; the service was not changed and the copy was retained for review.' 4 }
+        $settings = @{} + $changes; $settings.CertificatePath = $tls.certificate; $settings.CertificatePasswordFile = $tls.password_file
+    }
+    $result = Invoke-ALConfigurationTransaction $Config $candidate $settings $summary.operation $context $firewall
+    $result | Add-Member -NotePropertyName summary -NotePropertyValue $summary
+    $result
+}
+
 # ---- restore (fresh installation + restore of an AuthLens or SAP Lens backup)
 
 # Restores a verified .slbak backup into this installation: the host key that sealed it is copied into <root>\keys (never overwritten) and
@@ -1077,6 +1732,201 @@ function Invoke-ALRestore($Config, [string]$Backup, [string]$KeyFile) {
     Write-ALLog $operation.message
     [pscustomobject]@{ restored = $true; id = $operation.id; source_product = $staged.staged.preview.source_product; source_version = $staged.staged.preview.source_version
         created_at = $staged.staged.preview.created_at; message = $operation.message; status = (Get-ALStatus $Config) }
+}
+
+# ---- artifact inventory and retention (WP34, INST-119 to INST-121)
+
+# Categories that may become eligible for a reviewed cleanup. Everything else (application data and review evidence, in-app backups, keys,
+# configuration, TLS, the deployment journal, recovery audit, ACL backups and authorizations, firewall receipts) is reported as protected only.
+$script:ArtifactCategories = @('setup_stage', 'release', 'failed_publication', 'deployment_run', 'predeploy_backup', 'failed_backup')
+$script:ArtifactPendingMarkers = @('uninstall-pending.json', 'repair-pending.json', 'firewall-pending.json', 'configuration-pending.json', 'certificate-pending.json')
+
+# Size of a file or tree without following reparse points (a reparse point is reported, never traversed).
+function Measure-ALTree([string]$Path) {
+    $bytes = [long]0; $reparse = $false
+    if (-not (Test-Path -LiteralPath $Path)) { return [pscustomobject]@{ bytes = [long]0; reparse_points = $false } }
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { return [pscustomobject]@{ bytes = [long]0; reparse_points = $true } }
+    if (-not $item.PSIsContainer) { return [pscustomobject]@{ bytes = [long]$item.Length; reparse_points = $false } }
+    $stack = [Collections.Generic.Stack[string]]::new(); $stack.Push($item.FullName)
+    while ($stack.Count) {
+        foreach ($child in @(Get-ChildItem -LiteralPath $stack.Pop() -Force)) {
+            if ($child.Attributes -band [IO.FileAttributes]::ReparsePoint) { $reparse = $true; continue }
+            if ($child.PSIsContainer) { $stack.Push($child.FullName) } else { $bytes += $child.Length }
+        }
+    }
+    [pscustomobject]@{ bytes = $bytes; reparse_points = $reparse }
+}
+
+function Get-ALSelectionHash([object[]]$Items) {
+    $text = (@($Items | Sort-Object id | ForEach-Object { '{0}|{1}' -f $_.id, $_.bytes }) -join "`n")
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($text)))).Replace('-', '').ToLowerInvariant() } finally { $sha.Dispose() }
+}
+
+function Get-ALFullPath([string]$Path) { if ($Path) { [IO.Path]::GetFullPath($Path).TrimEnd('\', '/') } else { '' } }
+
+# Read-only inventory of installation artifacts with a retention preview. Never creates, changes or deletes anything.
+# Preserved, with the reason recorded per item:
+#   releases      the active release (releases\current), journal from/to releases, the installed-product release, the newest
+#                 -KeepPreviousReleases other releases (rollback targets), anything with a reparse point
+#   setup stages  the stage of every preserved release, the newest stage (Setup's uninstaller and Service Manager shortcut), stages with a failure
+#                 receipt, diagnostic or non-completed/missing operation result (incomplete deployment evidence)
+#   runs          the journal run, runs referenced by recovery-audit.jsonl, runs holding repair or manual-recovery evidence, the newest -KeepRuns
+#                 runs and every run younger than -KeepRunDays
+#   backups       the journal's pre-deployment backup and the newest -KeepBackups archives; a backup root that overlaps application data
+# While any deployment journal is not terminal or a repair, uninstall, firewall or configuration change is pending, nothing is eligible.
+function Get-ALArtifactInventory($Config, [int]$KeepPreviousReleases = 1, [int]$KeepBackups = 2, [int]$KeepRuns = 20, [int]$KeepRunDays = 90, [string[]]$Category = @(), [string]$ExcludeRun = '') {
+    if ($KeepPreviousReleases -lt 1 -or $KeepBackups -lt 1 -or $KeepRuns -lt 1 -or $KeepRunDays -lt 7) { Stop-AL 'Retention minimums: at least one previous release, one pre-deployment backup, one run and seven days of run logs are always kept.' }
+    foreach ($name in @($Category)) { if ($name -notin $script:ArtifactCategories) { Stop-AL 'Unknown artifact category. Use setup_stage, release, failed_publication, deployment_run, predeploy_backup or failed_backup.' } }
+    $items = [Collections.Generic.List[object]]::new()
+    $add = { param($Kind, $Path, $Built)
+        $m = Measure-ALTree $Path
+        $item = Get-Item -LiteralPath $Path -Force
+        $entry = [pscustomobject]@{ id = $Kind + ':' + $item.Name; category = $Kind; name = $item.Name; path = $item.FullName; bytes = $m.bytes; last_write_utc = $item.LastWriteTimeUtc.ToString('o')
+            built_utc = $Built; state = 'preserved'; reasons = [Collections.Generic.List[string]]::new() }
+        if ($m.reparse_points -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $entry.reasons.Add('contains_reparse_point') }
+        $items.Add($entry); $entry }
+    # Global state: anything awaiting recovery keeps every artifact.
+    $blocking = [Collections.Generic.List[string]]::new()
+    $journal = $null
+    try { $journal = Read-ALJournal $Config } catch { $blocking.Add('deployment_journal_unreadable') }
+    if ($journal -and $journal.PSObject.Properties['phase'] -and $journal.phase -notin $script:FinalPhases) { $blocking.Add('deployment_journal_' + $journal.phase) }
+    foreach ($marker in $script:ArtifactPendingMarkers) { if (Test-Path -LiteralPath (Join-AL $Config.WorkRoot $marker)) { $blocking.Add('pending_' + $marker) } }
+    $field = { param($Object, $Name) if ($null -ne $Object -and $Object.PSObject.Properties[$Name]) { $Object.$Name } else { $null } }
+    $active = ''; try { $active = Get-ALFullPath (Get-ALLink (Get-ALCurrentLink $Config)) } catch { $blocking.Add('release_pointer_unreadable') }
+    $installed = ''; try { $identity = Get-ALInstallerServerIdentity $Config; if ($identity) { $installed = Get-ALFullPath $identity.release } } catch { $blocking.Add('installed_product_record_invalid') }
+    $referenced = @{}
+    if ($active) { $referenced[$active.ToLowerInvariant()] = 'active_release' }
+    if ($installed -and -not $referenced.ContainsKey($installed.ToLowerInvariant())) { $referenced[$installed.ToLowerInvariant()] = 'installed_product_release' }
+    foreach ($name in 'from_release', 'to_release') { $value = [string](& $field $journal $name); if ($value -and -not $referenced.ContainsKey((Get-ALFullPath $value).ToLowerInvariant())) { $referenced[(Get-ALFullPath $value).ToLowerInvariant()] = 'rollback_dependency_' + $name } }
+    # Releases.
+    $releaseEntries = @()
+    if (Test-Path -LiteralPath $Config.ReleasesRoot) {
+        foreach ($dir in @(Get-ChildItem -LiteralPath $Config.ReleasesRoot -Directory -Force | Where-Object { $_.Name -notin @('current', '.staging') -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) })) {
+            $built = ''; try { $built = [string](Get-Content -LiteralPath (Join-AL $dir.FullName 'build-manifest.json') -Raw | ConvertFrom-Json).build_timestamp_utc } catch { $built = '' }
+            $entry = & $add 'release' $dir.FullName $built
+            $key = $entry.path.ToLowerInvariant(); if ($referenced.ContainsKey($key)) { $entry.reasons.Add($referenced[$key]) }
+            $releaseEntries += $entry
+        }
+        foreach ($dir in @(Get-ChildItem -LiteralPath (Join-AL $Config.ReleasesRoot '.staging') -Force -ErrorAction SilentlyContinue)) { $null = & $add 'failed_publication' $dir.FullName '' }
+    }
+    $others = @($releaseEntries | Where-Object { $_.reasons.Count -eq 0 } | Sort-Object @{ Expression = { if ($_.built_utc) { $_.built_utc } else { $_.last_write_utc } }; Descending = $true })
+    foreach ($entry in @($others | Select-Object -First $KeepPreviousReleases)) { $entry.reasons.Add('retention_keep_previous_release') }
+    $keptReleaseNames = @($releaseEntries | Where-Object { $_.reasons.Count } | ForEach-Object name)
+    # Setup stages.
+    $setupRoot = Join-AL (Join-AL $Config.Root 'app') 'setup'
+    if (Test-Path -LiteralPath $setupRoot) {
+        $stages = @(foreach ($dir in @(Get-ChildItem -LiteralPath $setupRoot -Directory -Force)) {
+            $entry = & $add 'setup_stage' $dir.FullName ''
+            if ($entry.name -in $keptReleaseNames) { $entry.reasons.Add('setup_stage_of_preserved_release') }
+            if ((Test-Path -LiteralPath (Join-AL $dir.FullName 'preflight-failure.json')) -or (Test-Path -LiteralPath (Join-AL $dir.FullName 'transaction-diagnostic.txt'))) { $entry.reasons.Add('setup_failure_evidence') }
+            $resultFile = Join-AL $dir.FullName 'operation-result.json'
+            if (-not (Test-Path -LiteralPath $resultFile)) { $entry.reasons.Add('setup_result_missing_incomplete_evidence') }
+            else { try { if ((Get-Content -LiteralPath $resultFile -Raw | ConvertFrom-Json).status -cne 'completed') { $entry.reasons.Add('setup_failure_evidence') } } catch { $entry.reasons.Add('setup_result_unreadable') } }
+            $entry })
+        foreach ($entry in @($stages | Sort-Object last_write_utc -Descending | Select-Object -First 1)) { $entry.reasons.Add('latest_setup_stage') }
+    }
+    # Deployment runs.
+    $runsRoot = Join-AL $Config.WorkRoot 'runs'
+    if (Test-Path -LiteralPath $runsRoot) {
+        $auditRuns = @(); try { $auditRuns = @(Read-ALRecoveryAudit $Config | ForEach-Object { [string](& $field $_ 'original_run'); [string](& $field $_ 'recovery_run') } | Where-Object { $_ }) } catch { $blocking.Add('recovery_audit_unreadable') }
+        $journalRun = [string](& $field $journal 'run')
+        $runs = @(foreach ($dir in @(Get-ChildItem -LiteralPath $runsRoot -Directory -Force | Where-Object { $_.Name -ne $ExcludeRun })) {
+            $entry = & $add 'deployment_run' $dir.FullName ''
+            if ($journalRun -and $entry.name -eq $journalRun) { $entry.reasons.Add('deployment_journal_run') }
+            if ($entry.name -in $auditRuns) { $entry.reasons.Add('recovery_audit_reference') }
+            foreach ($evidence in 'repair-journal.json', 'RECOVERY-REQUIRED.txt', 'uninstall-journal.json') { if (Test-Path -LiteralPath (Join-AL $dir.FullName $evidence)) { $entry.reasons.Add('recovery_evidence'); break } }
+            if ($dir.LastWriteTimeUtc -gt [DateTime]::UtcNow.AddDays(-$KeepRunDays)) { $entry.reasons.Add('retention_keep_recent_days') }
+            $entry })
+        foreach ($entry in @($runs | Sort-Object name -Descending | Select-Object -First $KeepRuns)) { $entry.reasons.Add('retention_keep_recent_runs') }
+    }
+    # Pre-deployment backups.
+    if (Test-Path -LiteralPath $Config.BackupRoot) {
+        $journalBackup = ''; $backup = & $field $journal 'backup'; if ($backup) { $journalBackup = Get-ALFullPath ([string](& $field $backup 'file')) }
+        $overlap = Test-ALPathOverlap $Config.BackupRoot $Config.DataDirectory
+        $archives = @()
+        foreach ($entryItem in @(Get-ChildItem -LiteralPath $Config.BackupRoot -Force)) {
+            $kind = if (-not $entryItem.PSIsContainer -and $entryItem.Name -like '*.slbak') { 'predeploy_backup' } elseif (-not $entryItem.PSIsContainer -and $entryItem.Name -like '*.partial') { 'failed_backup' } else { 'unrecognized_backup_entry' }
+            $entry = & $add $kind $entryItem.FullName ''
+            if ($overlap) { $entry.reasons.Add('backup_root_overlaps_application_data') }
+            if ($kind -eq 'unrecognized_backup_entry') { $entry.reasons.Add('unrecognized_never_touched') }
+            if ($journalBackup -and $entry.path -ieq $journalBackup) { $entry.reasons.Add('deployment_journal_backup') }
+            if ($kind -eq 'predeploy_backup') { $archives += $entry }
+        }
+        foreach ($entry in @($archives | Sort-Object last_write_utc -Descending | Select-Object -First $KeepBackups)) { $entry.reasons.Add('retention_keep_newest_backups') }
+    }
+    foreach ($entry in $items) {
+        if ($blocking.Count) { $entry.reasons.Add('incomplete_deployment_or_recovery') }
+        if ($entry.reasons.Count -eq 0 -and $entry.category -in $script:ArtifactCategories) {
+            $entry.state = 'eligible'
+            $entry.reasons.Add(@{ setup_stage = 'superseded_setup_stage'; release = 'superseded_release'; failed_publication = 'interrupted_publication_leftover'; deployment_run = 'expired_run_log'; predeploy_backup = 'superseded_predeploy_backup'; failed_backup = 'interrupted_backup_leftover' }[$entry.category])
+        }
+    }
+    # Protected locations: reported for operator guidance only, never eligible.
+    $protected = @(foreach ($pair in @(@('application_data_and_review_evidence', $Config.DataDirectory), @('in_app_backups', (Join-AL $Config.DataDirectory 'backups')), @('recovery_keys', (Join-AL $Config.Root 'keys')),
+            @('configuration', (Join-AL $Config.Root 'config')), @('tls', (Join-AL $Config.Root 'tls')), @('deployment_state_and_audit', $Config.WorkRoot))) {
+        if (Test-Path -LiteralPath $pair[1]) { [pscustomobject]@{ category = $pair[0]; path = $pair[1]; bytes = $(if ($pair[0] -eq 'deployment_state_and_audit') { [long]0 } else { (Measure-ALTree $pair[1]).bytes }); reason = 'never_deleted_by_retention' } }
+    })
+    $eligible = @($items | Where-Object state -eq 'eligible')
+    $selection = if (@($Category).Count) { @($eligible | Where-Object { $_.category -in $Category }) } else { $eligible }
+    $volumes = @(foreach ($volume in @(@($Config.Root, $Config.ReleasesRoot, $Config.BackupRoot, $Config.WorkRoot, $Config.DataDirectory) | ForEach-Object { [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($_)).ToUpperInvariant() } | Select-Object -Unique)) {
+        $available = $null; try { $available = [long](Get-ALInstallerFreeBytes $volume) } catch { $available = $null }
+        [pscustomobject]@{ volume = $volume; available_bytes = $available; eligible_bytes = [long](@($eligible | Where-Object { [IO.Path]::GetPathRoot($_.path).ToUpperInvariant() -eq $volume } | ForEach-Object bytes) | Measure-Object -Sum).Sum }
+    })
+    [pscustomobject]@{ schema = 1; generated_utc = [DateTime]::UtcNow.ToString('o'); read_only = $true; root = $Config.Root; cleanup_allowed = ($blocking.Count -eq 0); blocking = @($blocking)
+        retention = [pscustomobject]@{ keep_previous_releases = $KeepPreviousReleases; keep_backups = $KeepBackups; keep_runs = $KeepRuns; keep_run_days = $KeepRunDays }
+        items = @($items | ForEach-Object { [pscustomobject]@{ id = $_.id; category = $_.category; name = $_.name; path = $_.path; bytes = $_.bytes; last_write_utc = $_.last_write_utc; state = $_.state; reasons = @($_.reasons) } })
+        protected = $protected; volumes = $volumes
+        eligible_count = $eligible.Count; eligible_bytes = [long](@($eligible | ForEach-Object bytes) | Measure-Object -Sum).Sum
+        categories = @($Category); selection = @($selection | ForEach-Object id); selection_bytes = [long](@($selection | ForEach-Object bytes) | Measure-Object -Sum).Sum
+        selection_sha256 = (Get-ALSelectionHash $selection)
+        guidance = 'Read-only preview. Delete only after review: Deploy-AuthLens.ps1 -Action PruneArtifacts -ArtifactCategory <categories> -DryRun, then the same command with -ExpectedSelectionSha256 <selection_sha256> -Yes. Upgrades never delete artifacts.' }
+}
+
+# PruneArtifacts: -DryRun returns the exact preview (no mutation). Execution needs -Yes (D-006 policy), explicit categories, a terminal deployment
+# state and the preview's selection hash; it re-validates every path, deletes only that selection, reports the reclaimed storage per volume and
+# appends one line to <WorkRoot>\artifact-retention.jsonl. Never called by Setup, Deploy, Recover or any upgrade path.
+function Invoke-ALArtifactPrune($Config, [string[]]$Category, [string]$ExpectedSelectionSha256 = '', [int]$KeepPreviousReleases = 1, [int]$KeepBackups = 2, [int]$KeepRuns = 20, [int]$KeepRunDays = 90, [switch]$DryRun) {
+    if (-not @($Category).Count) { Stop-AL 'PruneArtifacts needs an explicit -ArtifactCategory selection (setup_stage, release, failed_publication, deployment_run, predeploy_backup, failed_backup); nothing was deleted.' }
+    $inventory = Get-ALArtifactInventory $Config $KeepPreviousReleases $KeepBackups $KeepRuns $KeepRunDays $Category $script:RunId
+    $selected = @($inventory.items | Where-Object { $_.id -in $inventory.selection })
+    if ($DryRun) {
+        return [pscustomobject]@{ preview = $true; cleanup_allowed = $inventory.cleanup_allowed; blocking = $inventory.blocking; categories = @($Category)
+            would_delete = @($selected | ForEach-Object { [pscustomobject]@{ id = $_.id; path = $_.path; bytes = $_.bytes; reasons = $_.reasons } }); would_reclaim_bytes = $inventory.selection_bytes
+            selection_sha256 = $inventory.selection_sha256; volumes = $inventory.volumes; preserved = @($inventory.items | Where-Object state -eq 'preserved' | ForEach-Object { [pscustomobject]@{ id = $_.id; reasons = $_.reasons } })
+            next = 'Repeat with -ExpectedSelectionSha256 ' + $inventory.selection_sha256 + ' -Yes (without -DryRun) to delete exactly this selection.' }
+    }
+    if (-not $inventory.cleanup_allowed) { Stop-AL 'Artifact cleanup is refused while a deployment, repair, uninstall, firewall or configuration change awaits recovery; all evidence was preserved.' 4 }
+    if ($ExpectedSelectionSha256 -notmatch '^[a-f0-9]{64}$' -or $ExpectedSelectionSha256 -cne $inventory.selection_sha256) { Stop-AL 'The artifact selection differs from the reviewed preview; run PruneArtifacts -DryRun again and pass its selection_sha256. Nothing was deleted.' }
+    $roots = @{ setup_stage = (Join-AL (Join-AL $Config.Root 'app') 'setup'); release = $Config.ReleasesRoot; failed_publication = (Join-AL $Config.ReleasesRoot '.staging'); deployment_run = (Join-AL $Config.WorkRoot 'runs'); predeploy_backup = $Config.BackupRoot; failed_backup = $Config.BackupRoot }
+    $never = @($Config.DataDirectory, (Join-AL $Config.Root 'keys'), (Join-AL $Config.Root 'config'), (Join-AL $Config.Root 'tls'), $Config.ConfigFile, $Config.CertificatePath)
+    $active = Get-ALFullPath (Get-ALLink (Get-ALCurrentLink $Config))
+    $before = @{}; foreach ($v in $inventory.volumes) { $before[$v.volume] = $v.available_bytes }
+    $deleted = [Collections.Generic.List[object]]::new(); $failure = ''
+    foreach ($item in $selected) {
+        try {
+            $full = Get-ALFullPath $item.path
+            if ((Split-Path $full -Parent) -ine (Get-ALFullPath $roots[$item.category]) -or ($active -and $full -ieq $active)) { Stop-AL "Refused $($item.id): it is not a direct entry of its artifact root or it is the active release." }
+            foreach ($path in $never) { if ($path -and (Test-ALPathOverlap $full $path)) { Stop-AL "Refused $($item.id): it overlaps protected data, keys, configuration or TLS." } }
+            Test-ALPathTree $full
+            if ((Measure-ALTree $full).reparse_points) { Stop-AL "Refused $($item.id): it contains a reparse point." }
+            Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop
+            $deleted.Add([pscustomobject]@{ id = $item.id; bytes = $item.bytes })
+            Write-ALLog "artifact retention: deleted $($item.id) ($($item.bytes) bytes)"
+        } catch { $failure = $_.Exception.Message; Write-ALLog "artifact retention stopped: $failure"; break }
+    }
+    $volumes = @(foreach ($v in $inventory.volumes) {
+        $after = $null; try { $after = [long](Get-ALInstallerFreeBytes $v.volume) } catch { $after = $null }
+        [pscustomobject]@{ volume = $v.volume; available_before = $before[$v.volume]; available_after = $after }
+    })
+    $operator = Get-ALOperatorIdentity
+    $record = [ordered]@{ schema = 1; recorded_utc = [DateTime]::UtcNow.ToString('o'); run = $script:RunId; operator = $operator.name; operator_sid = $operator.sid; categories = @($Category)
+        selection_sha256 = $inventory.selection_sha256; deleted = @($deleted); reclaimed_bytes = [long](@($deleted | ForEach-Object bytes) | Measure-Object -Sum).Sum; failure = $failure }
+    New-Item -ItemType Directory -Force $Config.WorkRoot | Out-Null
+    [IO.File]::AppendAllText((Join-AL $Config.WorkRoot 'artifact-retention.jsonl'), (($record | ConvertTo-Json -Compress -Depth 5) + "`n"), [Text.UTF8Encoding]::new($false))
+    if ($failure) { Stop-AL "Artifact retention stopped after $($deleted.Count) of $($selected.Count) items; the remaining artifacts were kept. Review artifact-retention.jsonl and the run log." 1 }
+    [pscustomobject]@{ pruned = $true; deleted = @($deleted); reclaimed_bytes = $record.reclaimed_bytes; volumes = $volumes; audit = (Join-AL $Config.WorkRoot 'artifact-retention.jsonl') }
 }
 
 . (Join-Path $PSScriptRoot 'AuthLens.Paths.ps1')

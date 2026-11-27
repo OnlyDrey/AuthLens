@@ -11,7 +11,7 @@ test.afterEach(async () => { await sources.cleanup() })
 
 async function open(page: Page) {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await openFilters(page)
   const input = page.getByRole('combobox', { name: 'Filter users by role', exact: true })
   await input.click()

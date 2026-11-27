@@ -139,7 +139,7 @@ public static class SodAnalyzer
         return new SodResult
         {
             Users = userResults, Roles = roleResults, EligibleAssignments = eligible, MappedAssignments = mapped, SupportedRisks = risks.Count,
-            UsersAvailable = available, SodContentHash = sod?.ContentHash, Validity = validity, AsOf = asOf.ToString("yyyy-MM-dd"),
+            UsersAvailable = available, SodContentHash = sod?.ContentHash, Validity = validity, AsOf = asOf.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
         };
     }
 

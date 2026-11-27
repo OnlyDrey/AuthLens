@@ -89,7 +89,7 @@ for (const width of [375, 800]) test(`long roles never widen the page or break t
   expect(await noOverflow()).toBeTruthy()
   const open = page.getByRole('button', { name: /^Open / }).first()
   expect((await open.boundingBox())!.height).toBeLessThan(56)
-  await page.getByRole('tab', { name: 'Remediation', exact: true }).click()
+  await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Remediation',exact:true}).click()
   expect(await noOverflow()).toBeTruthy()
   await openSod(page, 'Risk Matrix')
   await cellButton(page, names.c, 'R1').click()

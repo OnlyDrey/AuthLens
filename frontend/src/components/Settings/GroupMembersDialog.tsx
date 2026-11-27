@@ -20,7 +20,7 @@ const parseNames = (text: string) => [...new Set(text.split(/[\s,;]+/).map(item 
 
 /** Members of one Functional Group: Directory context where the SAP user is uniquely linked, per-membership status and confirmation, add and remove (also in bulk).
  *  Only classification is changed (through the same audited APIs as User Details); SAP roles and access are never touched. */
-export function GroupMembersDialog({ group, onClose }: { group: FunctionalGroup; onClose: () => void }) {
+export function GroupMembersDialog({ group, onClose, readOnly = false }: { group: Pick<FunctionalGroup, 'id' | 'name' | 'status'>; onClose: () => void; readOnly?: boolean }) {
   const client = useQueryClient()
   const [search, setSearch] = useState(''), [status, setStatus] = useState(''), [offset, setOffset] = useState(0), [picked, setPicked] = useState<Set<string>>(new Set())
   const [adding, setAdding] = useState(false), [names, setNames] = useState(''), [assign, setAssign] = useState<string[] | null>(null)
@@ -48,13 +48,13 @@ export function GroupMembersDialog({ group, onClose }: { group: FunctionalGroup;
   return (
     <Dialog title={`Members of ${group.name}`} onClose={onClose} footer={null}>
       <div className="grid min-w-0 gap-3">
-        <p className="ui-description">{group.status === 'archived' ? 'Archived group: members are kept; new members cannot be added until it is restored. ' : ''}Classification only. Adding or removing a member never changes SAP access.</p>
+        <p className="ui-description">{group.status === 'archived' ? 'Archived group: members are kept; new members cannot be added until it is restored. ' : ''}{readOnly ? 'Classification only; membership is managed by an administrator in Settings.' : 'Classification only. Adding or removing a member never changes SAP access.'}</p>
         <div className="ui-toolbar">
           <SearchInput aria-label="Search members" placeholder="Search members" value={search} onChange={event => { setSearch(event.target.value); setOffset(0) }} onClear={() => { setSearch(''); setOffset(0) }} />
           <Select aria-label="Filter by membership status" value={status} onChange={event => { setStatus(event.target.value); setOffset(0) }}>
             <option value="">All statuses</option><option value="Confirmed">Confirmed</option><option value="Needs review">Needs review</option></Select>
-          <Button onClick={() => setAdding(true)} disabled={group.status !== 'active'}><Plus size={16} aria-hidden="true" />Add users</Button>
-          {picked.size > 0 && <Button variant="outline" onClick={() => { setRemoval(selectedMembers); setRationale('') }}><Trash2 size={16} aria-hidden="true" />Remove {picked.size} selected</Button>}
+          {!readOnly && <Button onClick={() => setAdding(true)} disabled={group.status !== 'active'}><Plus size={16} aria-hidden="true" />Add users</Button>}
+          {!readOnly && picked.size > 0 && <Button variant="outline" onClick={() => { setRemoval(selectedMembers); setRationale('') }}><Trash2 size={16} aria-hidden="true" />Remove {picked.size} selected</Button>}
         </div>
         {adding && (
           <div role="group" aria-label="Add users to the group" className="fg-remove">
@@ -72,19 +72,20 @@ export function GroupMembersDialog({ group, onClose }: { group: FunctionalGroup;
               <Button variant="destructive" disabled={!reviewer.trim() || !rationale.trim() || remove.isPending} onClick={() => remove.mutate(removal)}>Remove from group</Button></div>
           </div>
         )}
+        {data && <p role="status" className="ui-description">{data.total.toLocaleString()} {data.total === 1 ? 'member' : 'members'}</p>}
         {query.isError ? <p role="alert">{message(query.error)}</p> : !data ? <LoadingState /> : items.length ? (
           <DataTable caption={`Members of ${group.name}`} density="compact">
             <thead><tr>
-              <th className="col-select"><Checkbox aria-label="Select all members on this page" checked={allOnPage} onChange={() => setPicked(previous => { const next = new Set(previous); for (const item of items) { if (allOnPage) next.delete(item.username); else next.add(item.username) } return next })}><span className="sr-only">Select</span></Checkbox></th>
-              <th>SAP user</th><th>Full name</th><th>Department</th><th>Job title</th><th>Status</th><th>Last confirmed</th><th className="col-actions"><span className="sr-only">Actions</span></th></tr></thead>
+              {!readOnly && <th className="col-select"><Checkbox aria-label="Select all members on this page" checked={allOnPage} onChange={() => setPicked(previous => { const next = new Set(previous); for (const item of items) { if (allOnPage) next.delete(item.username); else next.add(item.username) } return next })}><span className="sr-only">Select</span></Checkbox></th>}
+              <th>SAP user</th><th>Full name</th><th>Department</th><th>Job title</th><th>Status</th><th>Last confirmed</th>{!readOnly && <th className="col-actions"><span className="sr-only">Actions</span></th>}</tr></thead>
             <tbody>{items.map(member => (
               <tr key={member.username} data-selected={picked.has(member.username) ? '' : undefined}>
-                <td className="col-select"><Checkbox aria-label={`Select ${member.username}`} checked={picked.has(member.username)} onChange={() => toggle(member.username)}><span className="sr-only">Select</span></Checkbox></td>
+                {!readOnly && <td className="col-select"><Checkbox aria-label={`Select ${member.username}`} checked={picked.has(member.username)} onChange={() => toggle(member.username)}><span className="sr-only">Select</span></Checkbox></td>}
                 <td><SAPUserLink username={member.username} copyLabel="username" /></td>
                 <td>{member.full_name || '—'}</td><td>{member.department || '—'}</td><td>{member.title || '—'}</td>
                 <td><ClassificationPill status={member.status} />{member.identity !== 'matched' && <> <StatusBadge>{member.identity === 'not_in_import' ? 'Not in SAP import' : 'No Directory match'}</StatusBadge></>}</td>
                 <td>{confirmationText(member.confirmed_at, member.confirmed_by, member.status === 'Confirmed') ?? '—'}</td>
-                <td className="col-actions"><Button size="compact" variant="outline" aria-label={`Remove ${member.username} from ${group.name}`} onClick={() => { setRemoval([member]); setRationale('') }}><Trash2 size={14} aria-hidden="true" />Remove</Button></td></tr>))}</tbody>
+                {!readOnly && <td className="col-actions"><Button size="compact" variant="outline" aria-label={`Remove ${member.username} from ${group.name}`} onClick={() => { setRemoval([member]); setRationale('') }}><Trash2 size={14} aria-hidden="true" />Remove</Button></td>}</tr>))}</tbody>
           </DataTable>
         ) : <EmptyState>{search || status ? 'No member matches the filter.' : 'This group has no members yet.'}</EmptyState>}
         {data && <Pagination offset={offset} total={data.total} limit={PAGE} onChange={setOffset} label="Member pages" />}

@@ -8,7 +8,7 @@ import {
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, postConfiguration } from './support'
+import { headers, postConfiguration, goTo, selectSettingsSection } from './support'
 import { layoutMatrix } from './matrix'
 const columns =
   'Site;Name;SamAccountName;UserPrincipalName;Mail;Department;Title;Enabled;DistinguishedName;ManagerDN;ManagerName;ManagerSamAccountName;ManagerMail;ManagerDepartment;ManagerTitle;ManagerLookupStatus'
@@ -43,7 +43,7 @@ async function enable(request: APIRequestContext, value = true) {
 async function source(page: Page) {
   await page.goto('/#session=browser-test-session')
   await page.getByRole('button', { name: 'Open settings', exact: true }).click()
-  await page.getByRole('tab', { name: 'Data Sources', exact: true }).click()
+  await selectSettingsSection(page, 'Data Sources')
   await page
     .getByRole('tab', { name: 'Employee Directory', exact: true })
     .click()
@@ -99,7 +99,7 @@ test('automatic directory import, feature persistence, manager drill-down and fa
   await expect(page.getByRole('status').filter({ hasText: 'Settings saved successfully.' })).toBeVisible()
   await page
     .getByRole('navigation', { name: 'Main navigation' })
-    .getByRole('link', { name: 'User Access', exact: true })
+    .getByRole('link', { name: 'Users', exact: true })
     .click()
   await page.getByRole('link', { name: 'DEMO_EMPLOYEE', exact: true }).click()
   const enrichment = page.getByRole('region', {
@@ -112,9 +112,9 @@ test('automatic directory import, feature persistence, manager drill-down and fa
   await page.goBack()
   await expect(page.getByRole('region',{name:'SAP Identity',exact:true})).toContainText('DEMO_EMPLOYEE')
   // The manager link is a real route and the trail offers a visible way back.
-  await expect(enrichment.getByRole('link', { name: 'View SAP user' })).toHaveAttribute('href', '#/user-access/user/SAP_MANAGER')
+  await expect(enrichment.getByRole('link', { name: 'View SAP user' })).toHaveAttribute('href', '#/users/user/SAP_MANAGER')
   await enrichment.getByRole('link', { name: 'View SAP user' }).click()
-  await expect(page).toHaveURL(/#\/user-access\/user\/SAP_MANAGER$/)
+  await expect(page).toHaveURL(/#\/users\/user\/SAP_MANAGER$/)
   // The contextual way back sits in the Organization section with the manager relationship, once, not in the top navigation.
   const back = page.getByRole('button', { name: 'Return to previous user: DEMO_EMPLOYEE', exact: true })
   await expect(back).toHaveCount(1)
@@ -130,7 +130,7 @@ test('automatic directory import, feature persistence, manager drill-down and fa
   await expect(enrichment).toContainText('Engineering')
   await expect(enrichment).not.toContainText('Exact email match')
   await page.getByRole('button', { name: 'Open settings', exact: true }).click()
-  await page.getByRole('tab', { name: 'Data Sources', exact: true }).click()
+  await selectSettingsSection(page, 'Data Sources')
   await page
     .getByRole('tab', { name: 'Employee Directory', exact: true })
     .click()
@@ -154,7 +154,7 @@ test('disabled and missing optional directory never replaces SAP information or 
   await page.goto('/#session=browser-test-session')
   await page
     .getByRole('navigation', { name: 'Main navigation' })
-    .getByRole('link', { name: 'User Access', exact: true })
+    .getByRole('link', { name: 'Users', exact: true })
     .click()
   await page.getByRole('link', { name: 'DEMO_EMPLOYEE', exact: true }).click()
   await expect(
@@ -300,7 +300,7 @@ test('duplicate and missing email states remain distinct with diagnostics warnin
   await page.goto('/#session=browser-test-session')
   await page
     .getByRole('navigation', { name: 'Main navigation' })
-    .getByRole('link', { name: 'User Access', exact: true })
+    .getByRole('link', { name: 'Users', exact: true })
     .click()
   await page.getByRole('link', { name: 'DEMO_EMPLOYEE', exact: true }).click()
   await expect(
@@ -325,12 +325,12 @@ test('directory import and clear preserve independent catalogue filters, compari
   const sapGeneration = async () => ((await (await request.get('/api/access/users/DEMO_EMPLOYEE', { headers })).json()).data_revision as string).split('.').slice(0, 2).join('.')
   const before = await sapGeneration()
   await page.goto('/#session=browser-test-session')
-  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Role Lookup',exact:true}).click()
+  await goTo(page, 'Role Lookup')
   const search = page.getByPlaceholder('Search roles by name or description...')
   await search.fill('finance')
   await page.getByRole('button', { name: 'Add to comparison', exact: true }).first().click()
   await page.getByRole('button', { name: 'Open settings', exact: true }).click()
-  await page.getByRole('tab', { name: 'Data Sources', exact: true }).click()
+  await selectSettingsSection(page, 'Data Sources')
   await page.getByRole('tab', { name: 'Employee Directory', exact: true }).click()
   await activateCSV(page,'employees',csv)
   await expect(page.getByRole('region', { name: 'Directory import preview' })).toHaveCount(0)
@@ -362,11 +362,11 @@ test('explicit import, independent feature toggles, retained data and Diagnostic
   await page.getByRole('button',{name:'Apply settings',exact:true}).click()
   // Settings count as unsaved until Apply completes: navigating or reloading earlier meets the discard prompt or cancels the save.
   await expect(page.getByRole('status').filter({ hasText: 'Settings saved successfully.' })).toBeVisible()
-  await expect(page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'User Access',exact:true})).toBeEnabled()
+  await expect(page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Users',exact:true})).toBeEnabled()
   await page.reload()
-  await expect(page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'User Access',exact:true})).toBeEnabled()
+  await expect(page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Users',exact:true})).toBeEnabled()
   expect((await settings(request)).features).toEqual({employee_directory:true,user_role_mapping:false,sod:false})
-  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'User Access',exact:true}).click()
+  await goTo(page, 'Users')
   await expect(page.getByRole('region',{name:'User–Role Mapping disabled',exact:true})).toBeVisible()
   expect((await request.get('/api/access/users',{headers})).status()).toBe(409)
   const dependency=await (await request.get('/api/employees/status',{headers})).json()
@@ -383,7 +383,7 @@ test('explicit import, independent feature toggles, retained data and Diagnostic
   await page.getByRole('switch',{name:'User–Role Mapping feature',exact:true}).click()
   await page.getByRole('button',{name:'Apply settings',exact:true}).click()
   await expect(page.getByRole('status').filter({ hasText: 'Settings saved successfully.' })).toBeVisible()
-  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'User Access',exact:true}).click()
+  await goTo(page, 'Users')
   await expect(page.getByRole('link', { name: 'DEMO_EMPLOYEE',exact:true})).toBeVisible()
   expect((await settings(request)).employee_snapshot_id).toBe(identity)
   expect((await (await request.get('/api/employees/status',{headers})).json()).coverage.matched).toBe(2)
@@ -397,7 +397,7 @@ for (const [state,message] of [['unmatched','SAP user not found'],['ambiguous','
       await route.fulfill({response,json:{...json,manager_sap:{status:state,username:null}}})
     })
     await page.goto('/#session=browser-test-session')
-    await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'User Access',exact:true}).click()
+    await goTo(page, 'Users')
     await page.getByRole('link', { name: 'DEMO_EMPLOYEE',exact:true}).click()
     const profile=page.getByRole('region',{name:'Organization',exact:true})
     await expect(profile).toContainText(message)
@@ -412,7 +412,7 @@ for (const { theme, width } of layoutMatrix([375,800,1280])) {
     expect((await postConfiguration(request, current)).ok()).toBeTruthy()
     await page.setViewportSize({width,height:1000})
     await page.goto('/#session=browser-test-session')
-    await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'User Access',exact:true}).click()
+    await goTo(page, 'Users')
     await page.getByRole('link', { name: 'DEMO_EMPLOYEE',exact:true}).click()
     const profile=page.getByRole('region',{name:'Organization',exact:true})
     await expect(profile).toContainText('Engineering'); await expect(page.getByRole('region',{name:'Account Status',exact:true})).toContainText('AD account')
@@ -449,7 +449,7 @@ test('unified profile keeps SAP identity authoritative and directory fields in t
   writeFileSync(path.join(directory,'users.csv'),'USERNAME,ROLE_NAME,FIRST_NAME,LAST_NAME,EMAIL,USER_GROUP,USER_VALID_FROM,USER_VALID_TO,ROLE_VALID_FROM,ROLE_VALID_TO\nDEMO_EMPLOYEE,ZC:FI:VIEW,SAP,Authoritative,employee@example.test,DEMO,20200101,99991231,20200101,99991231\nSAP_MANAGER,,SAP,Manager,manager@example.test,DEMO,20200101,99991231,,\n')
   expect((await request.post('/api/refresh',{headers})).ok()).toBeTruthy()
   await page.goto('/#session=browser-test-session')
-  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'User Access',exact:true}).click()
+  await goTo(page, 'Users')
   await page.getByRole('link', { name: 'DEMO_EMPLOYEE',exact:true}).click()
   const identity=page.getByRole('region',{name:'SAP Identity',exact:true}),account=page.getByRole('region',{name:'Account Status',exact:true}),organization=page.getByRole('region',{name:'Organization',exact:true})
   await expect(page.locator('.profile-identity-header')).toContainText('SAP Authoritative');await expect(page.locator('.profile-identity-header')).toContainText('employee@example.test')

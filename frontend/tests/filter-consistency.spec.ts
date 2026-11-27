@@ -41,7 +41,8 @@ test('organizational and exact filters combine, follow SoD views and constrain e
  await filters.getByRole('button',{name:'Apply exact usernames',exact:true}).click()
  await expect(page.locator('tbody th.matrix-row-head code')).toHaveCount(1)
  for(const destination of ['Activity Matrix','Access Explorer','Reviews']){
-  await page.getByRole('link',{name:destination,exact:true}).click()
+  if(destination==='Reviews'){await page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'Reviews',exact:true}).click();await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Work Queue',exact:true}).click()}
+  else await page.getByRole('link',{name:destination,exact:true}).click()
   await expect(filters.getByRole('textbox',{name:'Exact usernames',exact:true})).toHaveValue(names.a)
   await expect(filters.getByRole('group',{name:'Selected Functional Group',exact:true})).toContainText(groupName)
   await expect(filters.getByRole('group',{name:'Selected Functional Group',exact:true})).toContainText(otherName)
@@ -51,7 +52,7 @@ test('organizational and exact filters combine, follow SoD views and constrain e
    expect(text).toContain(names.a);expect(text).not.toContain(names.b)
   }
  }
- await page.getByRole('tab',{name:'Remediation',exact:true}).click()
+ await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Remediation',exact:true}).click()
  await expect(filters.getByRole('combobox',{name:'Functional Group',exact:true})).toBeVisible()
  await expect(filters.getByRole('combobox',{name:'Manager',exact:true})).toBeVisible()
  await expect(filters.getByRole('textbox',{name:'Exact usernames',exact:true})).toHaveValue(names.a)
@@ -59,15 +60,19 @@ test('organizational and exact filters combine, follow SoD views and constrain e
 
 test('population filters are available across user views and fit the narrow layout',async({page})=>{
  await page.goto('/#session=browser-test-session');await goTo(page,'Dashboard')
- await choose(page,page,'Functional Group',groupName)
+ // WP30/BUG-014: dashboard filters live in the shared, closed-by-default filter sidebar (drawer on narrow screens) and take effect on Apply.
+ await page.getByRole('toolbar',{name:'Page actions',exact:true}).getByRole('button',{name:/^Filters/}).click()
+ const dashboardFilters=page.getByRole('group',{name:'Dashboard filters',exact:true})
+ await choose(dashboardFilters,page,'Functional Group',groupName)
+ await dashboardFilters.getByRole('button',{name:'Apply filters',exact:true}).first().click()
  await page.getByRole('button',{name:/^SAP users/}).click()
  await expect(page.getByRole('group',{name:'Selected Functional Group',exact:true})).toContainText(groupName)
- await page.getByRole('link',{name:'Account Review',exact:true}).click()
+ await page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'Reviews',exact:true}).click();await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Account Review',exact:true}).click()
  await expect(page.getByRole('combobox',{name:'Functional Group',exact:true})).toBeVisible()
  await expect(page.getByRole('textbox',{name:'Exact usernames',exact:true})).toBeVisible()
- await page.getByRole('link',{name:'Compare users',exact:true}).click()
+ await goTo(page,'Compare Users') // NAV-2/3: a Users page, opened from Reviews through the navigation
  await expect(page.getByRole('combobox',{name:'Functional Group',exact:true})).toBeVisible()
- await goTo(page,'Release Roles')
+ await goTo(page,'Release Access')
  await expect(page.getByRole('combobox',{name:'Functional Group',exact:true})).toBeVisible()
  await expect(page.getByRole('textbox',{name:'Exact usernames',exact:true})).toBeVisible()
  await openSettings(page,'Data Sources');await page.getByRole('tab',{name:'Employee Directory',exact:true}).click()

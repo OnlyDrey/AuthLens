@@ -1,14 +1,22 @@
 import { test, expect, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { cleanup, createPeriod, names, openSod, seedGovernance } from './sod-fixture'
-import { pickMulti } from './support'
+import { goTo, pickMulti } from './support'
 
 let directory = ''
 test.beforeEach(async ({ request }) => { directory = await seedGovernance(request, 'static') })
 test.afterEach(async ({ request }) => { await cleanup(request, directory) })
 
 const sidebar = (page: Page) => page.getByRole('complementary', { name: 'Filters', exact: true })
-const goto = async (page: Page, link: string) => { await page.getByRole('link', { name: link, exact: true }).click() }
+const SOD_VIEWS = ['Overview', 'Risk Matrix', 'Activity Matrix', 'Access Explorer']
+/** An SoD view through the SoD view navigation (entering SoD through the main navigation when on a Reviews page), a Reviews page through
+ *  Reviews (NAV-3). SoD and Reviews are one review workspace: shared selections and the review context travel between them. */
+const goto = async (page: Page, link: string) => {
+  if (!SOD_VIEWS.includes(link)) return goTo(page, link)
+  const views = page.getByRole('navigation', { name: 'SoD views', exact: true })
+  if (!(await views.isVisible())) await goTo(page, 'SoD')
+  await views.getByRole('link', { name: link, exact: true }).click()
+}
 const selected = (page: Page, label: string) => sidebar(page).getByRole('group', { name: `Selected ${label}` })
 const rows = (page: Page) => page.locator('tbody th.matrix-row-head code')
 const clearPage = (page: Page) => sidebar(page).getByRole('button', { name: 'Clear page filters', exact: true })
@@ -21,7 +29,7 @@ test('shared selections follow the user across the SoD pages that offer them, mu
   await pickMulti(sidebar(page), 'SAP User Group', 'P2P', page)
   await pickMulti(sidebar(page), 'Risk ID', 'R1', page)
   await expect(rows(page)).toHaveCount(2) // FIN and P2P users with R1
-  for (const link of ['Activity Matrix', 'Access Explorer', 'Reviews']) {
+  for (const link of ['Activity Matrix', 'Access Explorer', 'Work Queue']) {
     await goto(page, link)
     await expect(selected(page, 'SAP User Group')).toContainText('FIN')
     await expect(selected(page, 'SAP User Group')).toContainText('P2P')
@@ -117,7 +125,7 @@ test('the review context stays selected across SoD pages while filters change in
   const context = page.getByRole('combobox', { name: 'Review context', exact: true })
   await context.selectOption(id)
   await pickMulti(sidebar(page), 'SAP User Group', 'FIN', page)
-  for (const link of ['Activity Matrix', 'Access Explorer', 'Reviews', 'Overview']) {
+  for (const link of ['Activity Matrix', 'Access Explorer', 'Work Queue', 'Overview']) {
     await goto(page, link)
     await expect(context).toHaveValue(id)
   }

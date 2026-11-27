@@ -35,7 +35,7 @@ public sealed partial class DataRetention(DatabaseOptions options, IDbContextFac
 
     private string Data => options.DataDirectory;
     private static string FileOf(string data) => Path.Combine(data, "data-retention.json");
-    private static string Iso(DateTimeOffset value) => value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'");
+    private static string Iso(DateTimeOffset value) => value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'", System.Globalization.CultureInfo.InvariantCulture);
     private static string Iso(DateTime value) => Iso(new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Utc)));
 
     /// <summary>This installation's identity: random, private, never part of an application backup.</summary>

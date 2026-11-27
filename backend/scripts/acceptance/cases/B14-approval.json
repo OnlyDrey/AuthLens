@@ -1,0 +1,188 @@
+{
+  "scenario": "B14-approval",
+  "context": "elevated",
+  "description": "Missing -Yes refuses every approval-gated action before anything runs. Runs ELEVATED so the elevation gate cannot be the reason. Inputs are chosen to fail safely if the approval gate were missing (nonexistent backup/release/ACL inventory); the asserted refusal reason identifies the approval gate, so an unrelated refusal does not pass.",
+  "cases": [
+    {
+      "id": "Deploy-noYes",
+      "args": [
+        "-Action",
+        "Deploy",
+        "-Release",
+        "{scratch}\nonexistent-release"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "changes the service or its permissions; repeat with -Yes",
+        "forbidden_reason": "needs an elevated session",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "InstallService-noYes",
+      "args": [
+        "-Action",
+        "InstallService"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "changes the service or its permissions; repeat with -Yes",
+        "forbidden_reason": "needs an elevated session",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Restore-noYes",
+      "args": [
+        "-Action",
+        "Restore",
+        "-Backup",
+        "{scratch}\nonexistent.slbak"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "changes the service or its permissions; repeat with -Yes",
+        "forbidden_reason": "needs an elevated session",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Rollback-noYes",
+      "args": [
+        "-Action",
+        "Rollback",
+        "-ToRelease",
+        "{scratch}\nonexistent-release"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "changes the service or its permissions; repeat with -Yes",
+        "forbidden_reason": "needs an elevated session",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Recover-noYes",
+      "args": [
+        "-Action",
+        "Recover"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "changes the service or its permissions; repeat with -Yes",
+        "forbidden_reason": "needs an elevated session",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "Recover-VerifyCandidate-noYes",
+      "args": [
+        "-Action",
+        "Recover",
+        "-RecoveryAction",
+        "VerifyCandidate"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "changes the service or its permissions; repeat with -Yes",
+        "forbidden_reason": "needs an elevated session",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "ReplaceCertificate-noYes",
+      "args": [
+        "-Action",
+        "ReplaceCertificate",
+        "-CertificateFile",
+        "{cert_full}",
+        "-CertificatePasswordFile",
+        "{cert_full_password}"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "changes the service or its permissions; repeat with -Yes",
+        "forbidden_reason": "needs an elevated session",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "ChangeNetwork-noYes",
+      "args": [
+        "-Action",
+        "ChangeNetwork",
+        "-Port",
+        "18796"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "changes the service or its permissions; repeat with -Yes",
+        "forbidden_reason": "needs an elevated session",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "RestartService-noYes",
+      "args": [
+        "-Action",
+        "RestartService"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "changes the service or its permissions; repeat with -Yes",
+        "forbidden_reason": "needs an elevated session",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "ProtectAcl-noYes",
+      "args": [
+        "-Action",
+        "ProtectAcl"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "changes the service or its permissions; repeat with -Yes",
+        "forbidden_reason": "needs an elevated session",
+        "state_unchanged": true
+      }
+    },
+    {
+      "id": "RestoreAcl-noYes",
+      "args": [
+        "-Action",
+        "RestoreAcl",
+        "-AclBackup",
+        "{scratch}\nonexistent-acl"
+      ],
+      "expect": {
+        "exit": [
+          2
+        ],
+        "reason": "changes the service or its permissions; repeat with -Yes",
+        "forbidden_reason": "needs an elevated session",
+        "state_unchanged": true
+      }
+    }
+  ]
+}

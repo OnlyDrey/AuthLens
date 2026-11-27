@@ -21,7 +21,7 @@ test.afterEach(async ({ request }) => { await cleanup(request, directory) })
 
 async function openRemediation(page: Page) {
   await openSod(page, 'Reviews')
-  await page.getByRole('tab', { name: 'Remediation', exact: true }).click()
+  await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Remediation',exact:true}).click()
   await expect(page.getByRole('table', { name: 'Access remediation rows' })).toBeVisible()
 }
 const parse = (path: string) => readFileSync(path, 'utf8').replace(/^\uFEFF/, '').split('\r\n').filter(Boolean).map((line) => line.split(';').map((cell) => cell.replace(/^"|"$/g, '').replace(/""/g, '"')))

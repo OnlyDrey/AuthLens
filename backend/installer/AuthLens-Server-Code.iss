@@ -3,14 +3,27 @@ var
   ServerConfigPage: TInputFileWizardPage;
   ServerCreatePage: TInputOptionWizardPage;
   ServerTlsModePage: TInputOptionWizardPage;
+  ServerAccessPage, ServerExposurePage: TInputOptionWizardPage;
+  ServerEditProxy: TInputQueryWizardPage;
   ServerEditPaths, ServerEditNetwork, ServerEditTls: TInputQueryWizardPage;
-  ServerPathsPage, ServerNetworkPage, ServerIdentityPage, ServerValidationPage: TOutputMsgWizardPage;
+  ServerReviewPage, ServerValidationPage: TOutputMsgWizardPage;
   ServerFirewallPage: TInputOptionWizardPage;
   ServerFirewallScope: TInputQueryWizardPage;
   ServerConfig, ServerConfigHash, ServerRoot, ServerPlanFile, ServerError, ServerOperation: String;
   ServerToolsReady, ServerPayloadReady, ServerResolved, ServerPreflighted, ServerVerified: Boolean;
   ServerAttempt: Integer;
   ServerGenerateTls: Boolean;
+  ServerSuggestedListen, ServerSuggestedHosts: String;
+  ServerLastAccess: Integer;
+  ServerProgress: TOutputProgressWizardPage;
+  ServerInNextClick: Boolean;
+
+function ServerAccessMode(): String;
+begin
+  Result := 'Local';
+  if ServerAccessPage.SelectedValueIndex = 1 then Result := 'Corporate';
+  if ServerAccessPage.SelectedValueIndex = 2 then Result := 'ReverseProxy';
+end;
 
 function ServerFirewallArguments(): String;
 begin
@@ -61,10 +74,11 @@ begin
   end;
   Draft := ExpandConstant('{tmp}\AuthLens-configuration-') + IntToStr(ServerAttempt) + '.json';
   Contents := '{"Root":' + JsonString(Trim(ServerEditPaths.Values[0])) +
+    ',"AccessMode":' + JsonString(ServerAccessMode()) +
     ',"ListenAddress":' + JsonString(Trim(ServerEditNetwork.Values[0])) + ',"Port":' + IntToStr(Port) +
     ',"AllowedHosts":' + JsonList(ServerEditNetwork.Values[2]) +
-    ',"ProxyHosts":' + JsonList(ServerEditNetwork.Values[3]) +
-    ',"TrustedProxies":' + JsonList(ServerEditNetwork.Values[4]) +
+    ',"ProxyHosts":' + JsonList(ServerEditProxy.Values[0]) +
+    ',"TrustedProxies":' + JsonList(ServerEditProxy.Values[1]) +
     ',"CertificatePath":' + JsonString(Trim(ServerEditTls.Values[0])) +
     ',"CertificatePasswordFile":' + JsonString(Trim(ServerEditTls.Values[1]));
   if Trim(ServerEditPaths.Values[1]) <> '' then Contents := Contents + ',"DataDirectory":' + JsonString(Trim(ServerEditPaths.Values[1]));
@@ -100,8 +114,18 @@ begin
   ServerPayloadReady := True;
 end;
 
+// What the hidden helper is doing, shown on a marquee progress page while the wizard waits (certificate generation and preflight take time).
+function ServerHelperActivity(Flags: String): String;
+begin
+  Result := '';
+  if Pos('-GenerateTlsDraft', Flags) > 0 then Result := 'Generating a local HTTPS certificate (3072-bit RSA) and validating the configuration...'
+  else if Pos('-ResolveOnly', Flags) > 0 then Result := 'Validating the deployment configuration and detecting the existing installation...'
+  else if Pos('-PreflightOnly', Flags) > 0 then Result := 'Running read-only preflight: package identity, ownership, ACLs, address and port, TLS, database and schema...'
+  else if Pos('-PrepareOnly', Flags) > 0 then Result := 'Preparing protected directories and the reviewed configuration...';
+end;
+
 function RunServerHelper(Flags: String; NeedPlan: Boolean): Boolean;
-var Arguments, Diagnostic, Report, RequestedDir: String; Detail: AnsiString; Code: Integer;
+var Arguments, Diagnostic, Report, RequestedDir: String; Detail: AnsiString; Code: Integer; Shown: Boolean;
 begin
   EnsureServerTools();
   ServerAttempt := ServerAttempt + 1;
@@ -117,10 +141,23 @@ begin
   end;
   if RequestedDir <> '' then Arguments := Arguments + ' -InstallRoot "' + RequestedDir + '"';
   if ServerConfigHash <> '' then Arguments := Arguments + ' -ExpectedConfigSha256 ' + ServerConfigHash;
-  Arguments := Arguments + ' -Operation ' + ServerOperation + ' -DiagnosticFile "' + Diagnostic + '" -ResultFile "' + Report + '"';
+  if Pos('-NetworkSuggestions', Flags) > 0 then Arguments := Arguments + ' -Operation Auto'
+  else Arguments := Arguments + ' -Operation ' + ServerOperation;
+  Arguments := Arguments + ' -DiagnosticFile "' + Diagnostic + '" -ResultFile "' + Report + '"';
   Arguments := Arguments + ServerFirewallArguments();
   if NeedPlan then Arguments := Arguments + ' -PlanFile "' + ServerPlanFile + '"';
-  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Arguments, '', SW_HIDE, ewWaitUntilTerminated, Code) then Code := 4;
+  // Progress pages may be shown only from NextButtonClick; elsewhere (initial suggestions, silent Setup, PrepareToInstall) the helper runs as before.
+  Shown := ServerInNextClick and not WizardSilent and (ServerHelperActivity(Flags) <> '');
+  if Shown then begin
+    ServerProgress.SetText(ServerHelperActivity(Flags), 'The wizard stays open until the check finishes; nothing is installed in this step.');
+    ServerProgress.ProgressBar.Style := npbstMarquee;
+    ServerProgress.Show;
+  end;
+  try
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Arguments, '', SW_HIDE, ewWaitUntilTerminated, Code) then Code := 4;
+  finally
+    if Shown then ServerProgress.Hide;
+  end;
   if LoadStringFromFile(Report, Detail) then Log(UTF8Decode(Detail));
   Result := Code = 0;
   if not Result then begin
@@ -151,9 +188,9 @@ begin
   end;
   WizardForm.DirEdit.Text := ServerValue('program_directory');
   ServerConfigPage.Values[0] := ServerConfig;
-  ServerPathsPage.MsgLabel.Caption := 'Configuration: ' + ServerConfig + #13#10 + 'Root: ' + ServerRoot + #13#10 + 'Program staging: ' + WizardDirValue() + #13#10 + 'Data: ' + ServerValue('data_directory') + #13#10 + 'Backups: ' + ServerValue('backup_directory') + #13#10#13#10 + 'Paths are derived from the validated configuration. Fresh wizard choices are published only after approval. Existing installations are never relocated.';
-  ServerNetworkPage.MsgLabel.Caption := 'HTTPS listen address: ' + ServerValue('listen_address') + #13#10 + 'Port: ' + ServerValue('port') + #13#10 + 'Certificate: ' + ServerValue('certificate') + #13#10 + 'Allowed hosts: ' + ServerValue('allowed_hosts') + #13#10 + 'Public proxy hosts: ' + ServerValue('proxy_hosts') + #13#10 + 'Trusted proxy peers: ' + ServerValue('trusted_proxies') + #13#10#13#10 + 'Fresh TLS is imported into a new protected versioned directory under the selected root. Existing TLS/network settings are preserved during upgrade. Setup never adds trusted roots, disables certificate verification or trusts arbitrary proxies.';
-  ServerIdentityPage.MsgLabel.Caption := 'Service: ' + ServerValue('service_name') + #13#10 + 'Identity: ' + ServerValue('service_account') + #13#10#13#10 + 'Fresh Setup uses NT SERVICE\AuthLens. Existing identities are preserved and checked. Password-bearing accounts and gMSA provisioning are not exposed until service-logon and credential validation are supported.';
+  ServerReviewPage.MsgLabel.Caption := 'Configuration: ' + ServerConfig + #13#10 + 'Root: ' + ServerRoot + #13#10 + 'Program staging: ' + WizardDirValue() + #13#10 + 'Data: ' + ServerValue('data_directory') + #13#10 + 'Backups: ' + ServerValue('backup_directory') + #13#10#13#10 + 'Paths are derived from the validated configuration. Fresh wizard choices are published only after approval. Existing installations are never relocated.';
+  ServerReviewPage.MsgLabel.Caption := ServerReviewPage.MsgLabel.Caption + #13#10#13#10 + 'HTTPS listen address: ' + ServerValue('listen_address') + #13#10 + 'Port: ' + ServerValue('port') + #13#10 + 'Certificate: ' + ServerValue('certificate') + #13#10 + 'Allowed hosts: ' + ServerValue('allowed_hosts') + #13#10 + 'Public proxy hosts: ' + ServerValue('proxy_hosts') + #13#10 + 'Trusted proxy peers: ' + ServerValue('trusted_proxies') + #13#10#13#10 + 'Fresh TLS is imported into a new protected versioned directory under the selected root. Existing TLS/network settings are preserved during upgrade. Setup never adds trusted roots, disables certificate verification or trusts arbitrary proxies.';
+  ServerReviewPage.MsgLabel.Caption := ServerReviewPage.MsgLabel.Caption + #13#10#13#10 + 'Service: ' + ServerValue('service_name') + #13#10 + 'Identity: ' + ServerValue('service_account') + #13#10#13#10 + 'Fresh Setup uses NT SERVICE\AuthLens. Existing identities are preserved and checked. Password-bearing accounts and gMSA provisioning are not exposed until service-logon and credential validation are supported.';
   ServerResolved := True;
 end;
 
@@ -187,41 +224,69 @@ begin
   ServerEditPaths.Add('Installation root:', False); ServerEditPaths.Values[0] := 'C:\ProgramData\AuthLens';
   ServerEditPaths.Add('Advanced application data directory (optional):', False);
   ServerEditPaths.Add('Advanced predeployment backup directory (optional):', False);
-  ServerEditNetwork := CreateInputQueryPage(ServerEditPaths.ID, 'HTTPS and reverse proxy', 'Choose explicit network boundaries', 'Use 127.0.0.1 for local HTTPS. LAN requires an assigned IP and certificate-valid hosts. Proxy hosts and trusted peers are comma-separated; leave blank without a reverse proxy.');
+  ServerAccessPage := CreateInputOptionPage(ServerEditPaths.ID, 'Server access mode', 'Choose the intended audience', 'Corporate network is recommended for a shared Server. Only a specific private interface is supported; all-interface binding is refused by the runtime. Reverse proxy is an advanced mode requiring a private backend interface and explicit trusted peers.', True, False);
+  ServerAccessPage.Add('Local access only - this computer');
+  ServerAccessPage.Add('Corporate network - recommended for a shared Server');
+  ServerAccessPage.Add('Reverse proxy - advanced private backend');
+  ServerAccessPage.SelectedValueIndex := 1; ServerLastAccess := -1;
+  ServerEditNetwork := CreateInputQueryPage(ServerAccessPage.ID, 'HTTPS listener and hostnames', 'Review the specific interface and editable host suggestions', 'Local access uses loopback. Corporate and proxy modes require an assigned private IP and certificate-valid backend hosts. Suggestions do not prove DNS, client trust or external connectivity.');
   ServerEditNetwork.Add('Listening IP address:', False); ServerEditNetwork.Values[0] := '127.0.0.1';
   ServerEditNetwork.Add('HTTPS port:', False); ServerEditNetwork.Values[1] := '18795';
   ServerEditNetwork.Add('Allowed hosts (comma-separated):', False);
-  ServerEditNetwork.Add('Public reverse-proxy hosts (optional):', False);
-  ServerEditNetwork.Add('Trusted proxy IP addresses (optional):', False);
-  ServerTlsModePage := CreateInputOptionPage(ServerEditNetwork.ID, 'HTTPS certificate', 'Select existing TLS or generate a local certificate', 'Generated certificates are self-signed and are NOT automatically trusted. No trusted store is changed. Review client trust separately; public server.cer is retained beside the protected draft. Both options create new private imported files under the installation root after approval.', True, False);
+  ServerEditProxy := CreateInputQueryPage(ServerEditNetwork.ID, 'Advanced reverse proxy', 'Review exact public hosts and trusted backend peers', 'Only explicit trusted proxies may supply forwarded headers. Do not trust arbitrary peers or broad networks. The current runtime requires a specific private backend listener, not loopback.');
+  ServerEditProxy.Add('Public reverse-proxy hosts:', False);
+  ServerEditProxy.Add('Trusted proxy IP addresses/CIDRs:', False);
+  ServerExposurePage := CreateInputOptionPage(ServerEditProxy.ID, 'Network exposure approval', 'Explicit approval is required before preparing network access', 'Review the selected IP, port and allowed hosts. HTTPS, authentication and strict host/Origin checks remain required. Firewall approval is separate and must name restricted source networks.', False, False);
+  ServerExposurePage.Add('I approve the reviewed corporate/proxy network exposure');
+  ServerExposurePage.Values[0] := CompareText(ExpandConstant('{param:APPROVENETWORK|No}'), 'Yes') = 0;
+  ServerTlsModePage := CreateInputOptionPage(ServerExposurePage.ID, 'HTTPS certificate', 'Select existing TLS or generate a local certificate', 'Generated certificates are self-signed and are NOT automatically trusted. No trusted store is changed. Review client trust separately; public server.cer is retained beside the protected draft. Both options create new private imported files under the installation root after approval.', True, False);
   ServerTlsModePage.Add('Use an existing PFX certificate and protected password file');
   ServerTlsModePage.Add('Generate local HTTPS: new 3072-bit RSA key, server authentication, one-year validity');
   ServerTlsModePage.SelectedValueIndex := 0;
   ServerEditTls := CreateInputQueryPage(ServerTlsModePage.ID, 'Existing TLS certificate', 'Select protected certificate material', 'Provide an existing PFX and its protected password file. Password contents are never entered here or passed on a command line. Certificate name, validity and private key are validated before provisioning. Client trust remains an explicit administrator responsibility.');
   ServerEditTls.Add('Absolute PFX certificate path:', False);
   ServerEditTls.Add('Absolute certificate password file path:', False);
-  ServerPathsPage := CreateOutputMsgPage(ServerEditTls.ID, 'Installation directories', 'Validated configuration owns the directory selection', '');
-  ServerNetworkPage := CreateOutputMsgPage(ServerPathsPage.ID, 'Network and TLS', 'Review preserved HTTPS and reverse-proxy settings', '');
-  ServerIdentityPage := CreateOutputMsgPage(ServerNetworkPage.ID, 'Windows Service', 'Review the explicit service identity', '');
-  ServerFirewallPage := CreateInputOptionPage(ServerIdentityPage.ID, 'Windows Firewall security approval', 'Choose whether to authorize a source-restricted inbound rule', 'Default preserves all rules. Loopback never needs an exception. A new rule is restricted to the selected local IP, TCP port, AuthLens service, remote addresses and Private/Domain profiles. Administrator-created rules remain untouched.', True, False);
+  ServerReviewPage := CreateOutputMsgPage(ServerEditTls.ID, 'Configuration review', 'Review actual paths, HTTPS boundaries and Windows Service identity', '');
+  ServerFirewallPage := CreateInputOptionPage(ServerReviewPage.ID, 'Windows Firewall security approval', 'Choose whether to authorize a source-restricted inbound rule', 'Default preserves all rules. Loopback never needs an exception. A new rule is restricted to the selected local IP, TCP port, AuthLens service, remote addresses and Private/Domain profiles. Administrator-created rules remain untouched.', True, False);
   ServerFirewallPage.Add('Preserve firewall configuration; no new inbound exception');
   ServerFirewallPage.Add('I explicitly authorize the source-restricted rule reviewed below');
   ServerFirewallPage.SelectedValueIndex := 0;
   ServerFirewallScope := CreateInputQueryPage(ServerFirewallPage.ID, 'Review approved firewall scope', 'Only the following traffic will be allowed', 'Comma-separated literal IP addresses or CIDR subnets are required. No wildcard, Public or Any profile is accepted. The rule is applied only after the Server transaction succeeds.');
   ServerFirewallScope.Add('Allowed source addresses/subnets:', False);
-  ServerFirewallScope.Add('Profiles (Private and/or Domain):', False); ServerFirewallScope.Values[1] := 'Private';
+  ServerFirewallScope.Add('Profiles (Domain by default; Private only after review):', False); ServerFirewallScope.Values[1] := 'Domain';
   if CompareText(ExpandConstant('{param:APPROVEFIREWALL|No}'), 'Yes') = 0 then begin
     ServerFirewallPage.SelectedValueIndex := 1;
     ServerFirewallScope.Values[0] := ExpandConstant('{param:FIREWALLSOURCES|}');
-    ServerFirewallScope.Values[1] := ExpandConstant('{param:FIREWALLPROFILES|Private}');
+    ServerFirewallScope.Values[1] := ExpandConstant('{param:FIREWALLPROFILES|Domain}');
   end;
+  ServerProgress := CreateOutputProgressPage('AuthLens Server', 'Working');
   ServerValidationPage := CreateOutputMsgPage(ServerFirewallScope.ID, 'Read-only preflight', 'Validation runs before confirmation and system provisioning', 'The helper verifies package identity, installation/service ownership, directory isolation, ACLs, assigned address, port ownership and staging/backup storage. The packaged host validates HTTPS/proxy policy, certificate names/private key/expiry, database integrity and schema without initializing data. Upgrade rollback compatibility is checked. Backup verification, service-identity key access and actual TLS/readiness are repeated in the protected transaction.');
+  if not WizardSilent then begin
+    if RunServerHelper('-NetworkSuggestions', True) then begin
+      ServerSuggestedListen := ServerValue('listen_address'); ServerSuggestedHosts := ServerValue('allowed_hosts');
+    end;
+  end;
   if WizardSilent then if not ResolveServerWizard() then RaiseException(ServerError);
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+  ServerInNextClick := True;
+  try
+  if (CurPageID = ServerAccessPage.ID) and (ServerLastAccess <> ServerAccessPage.SelectedValueIndex) then begin
+    ServerLastAccess := ServerAccessPage.SelectedValueIndex;
+    ServerEditProxy.Values[0] := ''; ServerEditProxy.Values[1] := '';
+    if ServerAccessPage.SelectedValueIndex = 0 then begin
+      ServerEditNetwork.Values[0] := '127.0.0.1'; ServerEditNetwork.Values[2] := 'localhost,127.0.0.1';
+      ServerFirewallPage.SelectedValueIndex := 0;
+    end else begin
+      ServerEditNetwork.Values[0] := ServerSuggestedListen; ServerEditNetwork.Values[2] := ServerSuggestedHosts;
+    end;
+  end;
+  if (CurPageID = ServerExposurePage.ID) and not ServerExposurePage.Values[0] then begin
+    ServerError := 'Explicit network exposure approval is required.'; Result := False;
+  end;
   if CurPageID = ServerConfigPage.ID then Result := ResolveServerWizard();
   if CurPageID = ServerEditTls.ID then begin
     Result := CreateServerDraft();
@@ -232,6 +297,9 @@ begin
     if Result then Result := ResolveServerWizard();
   end;
   if (CurPageID = ServerValidationPage.ID) or ((CurPageID = wpReady) and not ServerPreflighted) then Result := PreflightServerWizard();
+  finally
+    ServerInNextClick := False;
+  end;
   if not Result then SuppressibleMsgBox(ServerError, mbError, MB_OK, IDOK);
 end;
 
@@ -239,16 +307,61 @@ function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := PageID = wpSelectDir;
   if PageID = ServerFirewallScope.ID then Result := ServerFirewallPage.SelectedValueIndex <> 1;
+  if PageID = ServerEditProxy.ID then Result := (ServerCreatePage.SelectedValueIndex <> 1) or (ServerAccessPage.SelectedValueIndex <> 2);
+  if PageID = ServerExposurePage.ID then Result := (ServerCreatePage.SelectedValueIndex <> 1) or (ServerAccessPage.SelectedValueIndex = 0);
+  if PageID = ServerAccessPage.ID then Result := ServerCreatePage.SelectedValueIndex <> 1;
   if PageID = ServerConfigPage.ID then Result := ServerCreatePage.SelectedValueIndex = 1;
   if (PageID = ServerEditPaths.ID) or (PageID = ServerEditNetwork.ID) or (PageID = ServerTlsModePage.ID) then Result := ServerCreatePage.SelectedValueIndex <> 1;
   if PageID = ServerEditTls.ID then Result := (ServerCreatePage.SelectedValueIndex <> 1) or (ServerTlsModePage.SelectedValueIndex = 1);
 end;
 
-function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
+function ServerFreshInstall(): Boolean;
 begin
-  Result := 'Operation: ' + ServerValue('operation') + NewLine + 'AuthLens {#FullVersion}' + NewLine + 'Root: ' + ServerRoot + NewLine + 'Program staging: ' + WizardDirValue() + NewLine + 'Data preserved: ' + ServerValue('data_directory') + NewLine + 'Backups preserved: ' + ServerValue('backup_directory') + NewLine + 'Existing configuration, TLS, encryption keys, accounts and history are preserved.' + NewLine + 'New immutable payload/release and transaction evidence will be created. The owned service may stop/restart after verified backup and rollback checks.' + NewLine + 'No DNS, legacy installation or external proxy changes.';
-  if ServerFirewallPage.SelectedValueIndex = 1 then Result := Result + NewLine + 'Explicitly approved firewall: TCP ' + ServerValue('listen_address') + ':' + ServerValue('port') + ', sources ' + ServerFirewallScope.Values[0] + ', profiles ' + ServerFirewallScope.Values[1]
-  else Result := Result + NewLine + 'Firewall configuration preserved; no new rule.';
+  Result := ServerValue('operation') = 'fresh installation';
+end;
+
+function ServerAccessLabel(): String;
+begin
+  Result := 'Local access only (loopback)';
+  if ServerAccessPage.SelectedValueIndex = 1 then Result := 'Corporate network';
+  if ServerAccessPage.SelectedValueIndex = 2 then Result := 'Reverse proxy (private backend)';
+end;
+
+// Consolidated configuration review: every value comes from the validated plan (ServerValue) or the approved wizard choice; nothing is inferred.
+function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
+var Fresh: Boolean;
+begin
+  Fresh := ServerFreshInstall();
+  Result := 'Operation: ' + ServerValue('operation') + NewLine + 'Version: AuthLens {#FullVersion}' + NewLine + NewLine +
+    'Storage' + NewLine + Space + 'Root: ' + ServerRoot + NewLine + Space + 'Program staging: ' + WizardDirValue() + NewLine +
+    Space + 'Application data: ' + ServerValue('data_directory') + NewLine + Space + 'Predeployment backups: ' + ServerValue('backup_directory') + NewLine;
+  // WP34: the preflight's per-volume free-storage breakdown (available, required, deficit, categories); a refusal shows it in the error dialog.
+  if ServerValue('storage_summary') <> '' then Result := Result + Space + 'Free storage check: ' + ServerValue('storage_summary') + NewLine;
+  Result := Result + NewLine + 'Network' + NewLine;
+  if Fresh and (ServerCreatePage.SelectedValueIndex = 1) then Result := Result + Space + 'Access mode: ' + ServerAccessLabel() + NewLine
+  else Result := Result + Space + 'Access mode: existing configuration (preserved)' + NewLine;
+  Result := Result + Space + 'HTTPS listener: ' + ServerValue('listen_address') + ':' + ServerValue('port') + NewLine +
+    Space + 'Allowed hosts: ' + ServerValue('allowed_hosts') + NewLine;
+  if ServerValue('proxy_hosts') <> '' then Result := Result + Space + 'Public proxy hosts: ' + ServerValue('proxy_hosts') + NewLine + Space + 'Trusted proxy peers: ' + ServerValue('trusted_proxies') + NewLine;
+  Result := Result + Space + 'Certificate: ' + ServerValue('certificate') + NewLine;
+  if ServerValue('certificate_thumbprint') <> '' then
+    Result := Result + Space + 'Certificate subject: ' + ServerValue('certificate_subject') + NewLine + Space + 'Issuer: ' + ServerValue('certificate_issuer') + NewLine +
+      Space + 'Valid until (UTC): ' + ServerValue('certificate_expires') + NewLine + Space + 'SHA-256 thumbprint: ' + ServerValue('certificate_thumbprint') + NewLine +
+      Space + 'Covers the required HTTPS identities: ' + ServerValue('certificate_identities') + NewLine;
+  if Fresh and (ServerCreatePage.SelectedValueIndex = 1) and (ServerTlsModePage.SelectedValueIndex = 1) then
+    Result := Result + Space + 'Generated self-signed certificate: not trusted by clients until an administrator distributes its public server.cer (never the PFX or its password), for example through Group Policy, or replaces it with an internal CA certificate. No trust store is changed.' + NewLine;
+  if Fresh then Result := Result + Space + 'Public certificate: server.cer is written beside the imported certificate under ' + ServerRoot + '\tls; Service Manager (TLS certificates) can export it later.' + NewLine
+  else Result := Result + Space + 'The existing certificate is preserved; upgrade and repair never replace it.' + NewLine;
+  if ServerFirewallPage.SelectedValueIndex = 1 then Result := Result + Space + 'Firewall: approved rule for TCP ' + ServerValue('listen_address') + ':' + ServerValue('port') + ', sources ' + ServerFirewallScope.Values[0] + ', profiles ' + ServerFirewallScope.Values[1] + NewLine
+  else Result := Result + Space + 'Firewall: configuration preserved; no new rule.' + NewLine;
+  Result := Result + NewLine + 'Windows Service' + NewLine + Space + 'Name: ' + ServerValue('service_name') + NewLine + Space + 'Identity: ' + ServerValue('service_account') + NewLine + NewLine;
+  if Fresh then Result := Result + 'A new configuration, imported TLS files and an empty data directory are created after approval. No existing data, service or SAP Lens installation is adopted.' + NewLine
+  else Result := Result + 'Existing configuration, TLS, encryption keys, accounts and history are preserved. A verified backup is taken before the owned service stops; rollback compatibility was checked.' + NewLine;
+  Result := Result + 'New immutable payload/release and transaction evidence will be created. No DNS, trusted-root, legacy installation or external proxy changes.';
+  if Fresh then Result := Result + NewLine + NewLine + 'After installation' + NewLine +
+    Space + '1. Create the first administrator with an activation code (AuthLens Service Manager).' + NewLine +
+    Space + '2. Create the host backup key with Service Manager; it grants the service identity read access to the key file only.' + NewLine +
+    Space + '3. Export the recovery copy, verify it in Settings, then configure server data sources.';
 end;
 
 function InstallerArguments(): String;
@@ -280,11 +393,6 @@ begin
     if not RunServerHelper('-PrepareOnly -CommitNewConfiguration -ImportTls -Package "' + ServerPackage() + '" -Yes', True) then begin Result := ServerError; Exit; end;
     ServerConfig := ServerValue('config_file'); ServerConfigHash := ServerValue('config_sha256');
   end else if not RunServerHelper('-PrepareOnly -Package "' + ServerPackage() + '" -Yes', False) then Result := ServerError;
-end;
-
-function ServerFreshInstall(): Boolean;
-begin
-  Result := ServerValue('operation') = 'fresh installation';
 end;
 
 function ServerRegistrationName(Param: String): String;
@@ -320,12 +428,18 @@ begin
   Result := ServerVerified and (ServerAccessUrl('') <> '');
 end;
 
+// The certificate export is offered only after the shared transaction verified the installation.
+function ServerVerifiedCheck(): Boolean;
+begin
+  Result := ServerVerified;
+end;
+
 procedure CurPageChanged(CurPageID: Integer);
 begin
   if (CurPageID = wpFinished) and ServerVerified then begin
     WizardForm.FinishedLabel.Caption := 'AuthLens {#FullVersion} transaction completed with service/API/TLS/database readiness checks.' + #13#10 +
       'Backend URL: ' + ServerAccessUrl('') + #13#10 +
       'Operation report: ' + ExpandConstant('{app}\setup\{#PackageName}\operation-result.json') + #13#10#13#10 +
-      'Retain the deployment journal, encrypted backups and recovery tools. Fresh installations still need administrator activation and host backup-key provisioning/escrow. External proxy, DNS and client trust remain separate acceptance checks.';
+      'Retain the deployment journal, encrypted backups and recovery tools. Fresh installations still need administrator activation and host backup-key provisioning/escrow (AuthLens Service Manager: Create initial host key grants the service read access). External proxy, DNS and client trust remain separate acceptance checks.';
   end;
 end;

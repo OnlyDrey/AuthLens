@@ -120,7 +120,7 @@ public static class V1DataHealth
             var directory = V1Employees.Status(state, settings, @private: false);
             var coverage = (Dictionary<string, int>)directory["coverage"]!;
             var datasets = await db.Datasets.AsNoTracking().Where(d => d.Status == DatasetStatus.Active).ToListAsync(ct);
-            string? Last(string source) => datasets.FirstOrDefault(d => d.Source == source)?.ActivatedUtc?.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'");
+            string? Last(string source) => datasets.FirstOrDefault(d => d.Source == source)?.ActivatedUtc?.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'", System.Globalization.CultureInfo.InvariantCulture);
             object Totals(string source)
             {
                 var report = datasets.FirstOrDefault(d => d.Source == source)?.ReportJson is { } json ? JsonNode.Parse(json) : null;

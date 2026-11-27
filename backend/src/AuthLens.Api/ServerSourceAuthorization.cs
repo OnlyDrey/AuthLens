@@ -1,0 +1,171 @@
+using System.Net;
+using System.Security.AccessControl;
+using System.Security.Cryptography;
+using System.Security.Principal;
+using System.Text;
+using System.Text.Json;
+
+namespace AuthLens.Api;
+
+/// <summary>The protected source-authority folder is missing and this process may not create it (D-007). Nothing was authorized.</summary>
+public sealed class SourceAuthorityUnavailableException() : InvalidOperationException(
+    "The server source authority folder is missing and the service cannot create it, so nothing was authorized. An administrator provisions it with the Server installer's Repair or a supported upgrade (deployment tools after RC4), or with Deploy-AuthLens.ps1 -Action InstallService -Reconfigure -Yes. Browser uploads remain available.");
+
+/// <summary>Administrator source authority: exact files per source and (WP33) approved browse folders. Outside restorable data, authenticated
+/// to this host token and data path. Restoring settings never grants filesystem authority. No share credentials or wildcard grants.</summary>
+public static class ServerSourceAuthorization
+{
+    private static readonly object Gate = new();
+    // Roots (WP33): folders an administrator approved for browsing and source selection. Absent in documents written before WP33.
+    private sealed record Document(int Schema, string Data, Dictionary<string, string> Files, List<string>? Roots = null);
+    public const int MaxRoots = 16;
+    private sealed record Envelope(string Payload, string Signature);
+    private static string Data(HostSettings host) => OperatingSystem.IsWindows() ? Path.GetFullPath(host.DataDirectory).TrimEnd('\\', '/').ToUpperInvariant() : Path.GetFullPath(host.DataDirectory).TrimEnd('/');
+    public static string DirectoryPath(HostSettings host) => Path.Combine(Path.GetDirectoryName(Path.GetFullPath(host.DataDirectory).TrimEnd(Path.DirectorySeparatorChar))!,
+        ".authlens-source-policy-" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Data(host))))[..16]);
+    private static byte[] Sign(HostSettings host, string text) => HMACSHA256.HashData(Encoding.UTF8.GetBytes(host.AccessToken), Encoding.UTF8.GetBytes("AuthLens-source-authority-v1\0" + text));
+    private static void NoLinks(string path)
+    {
+        for (string? item = path; item is not null; item = Path.GetDirectoryName(item))
+            if ((File.GetAttributes(item) & FileAttributes.ReparsePoint) != 0) throw new SourcePolicyException();
+    }
+    private static Document Read(HostSettings host)
+    {
+        var directory = DirectoryPath(host);
+        try { NoLinks(directory); }
+        catch (DirectoryNotFoundException) { return new(1, Data(host), []); }
+        catch (FileNotFoundException) { return new(1, Data(host), []); }
+        var path = Path.Combine(directory, "authority.json");
+        try
+        {
+            NoLinks(path);
+            if (new FileInfo(path).Length > 32768) throw new SourcePolicyException();
+            var envelope = JsonSerializer.Deserialize<Envelope>(File.ReadAllText(path)) ?? throw new SourcePolicyException();
+            if (!CryptographicOperations.FixedTimeEquals(Sign(host, envelope.Payload), Convert.FromHexString(envelope.Signature))) throw new SourcePolicyException();
+            var doc = JsonSerializer.Deserialize<Document>(envelope.Payload) ?? throw new SourcePolicyException();
+            if (doc.Schema != 1 || doc.Data != Data(host) || doc.Files.Count > 4 || doc.Files.Any(p => !V1DataSources.Names.ContainsKey(p.Key)) || (doc.Roots?.Count ?? 0) > MaxRoots) throw new SourcePolicyException();
+            return doc;
+        }
+        catch (FileNotFoundException) { if (Directory.EnumerateFileSystemEntries(directory).Any()) throw new SourcePolicyException(); return new(1, Data(host), []); }
+        catch (Exception error) when (error is JsonException or FormatException) { throw new SourcePolicyException(); }
+    }
+    public static bool Allows(HostSettings host, string? source, string path)
+    {
+        if (source is null) return false;
+        lock (Gate) return Read(host).Files.TryGetValue(source, out var approved) && string.Equals(approved, path, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+    public static void Approve(HostSettings host, string source, string path)
+    {
+        if (!V1DataSources.Names.ContainsKey(source)) throw new SourcePolicyException();
+        path = ServerSourcePolicy.Canonical(path); // purely lexical: no network authentication before explicit approval
+        // Application internals are never web-authorized source locations. Managed CSV copies already have a separate trusted boundary.
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var root = Path.GetDirectoryName(Path.GetFullPath(host.DataDirectory).TrimEnd(Path.DirectorySeparatorChar))!;
+        if (path.StartsWith(Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar, comparison)) throw new SourcePolicyException();
+        CheckNetworkSyntax(path); // lexical UNC rules are enforced before anything is stored
+        lock (Gate)
+        {
+            var doc = Read(host);
+            doc.Files[source] = path;
+            Write(host, doc);
+        }
+    }
+    /// <summary>Folders approved for browsing (canonical, no trailing separator). Reads only the protected authority file.</summary>
+    public static IReadOnlyList<string> Roots(HostSettings host)
+    {
+        lock (Gate) return [.. Read(host).Roots ?? []];
+    }
+    /// <summary>Approves one folder for browsing and selecting source files below it (WP33). Lexical checks only: nothing is contacted. Refuses
+    /// volume and share roots, the AuthLens installation and data locations, and system locations; never widens NTFS permissions.</summary>
+    public static string ApproveRoot(HostSettings host, string path)
+    {
+        var folder = ServerSourcePolicy.CanonicalDirectory(path);
+        CheckNetworkSyntax(folder + Path.DirectorySeparatorChar + "x");
+        ServerSourcePolicy.AssertBrowsableRoot(host, folder);
+        lock (Gate)
+        {
+            var doc = Read(host);
+            var roots = doc.Roots ?? [];
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            if (!roots.Any(r => string.Equals(r, folder, comparison)))
+            {
+                if (roots.Count >= MaxRoots) throw new SourcePolicyException(SourcePolicyFailure.InvalidPath);
+                roots.Add(folder);
+            }
+            Write(host, doc with { Roots = roots });
+        }
+        return folder;
+    }
+    /// <summary>Removes an approved browse folder. Source paths below it then need exact authorization again; snapshots are untouched.</summary>
+    public static bool RevokeRoot(HostSettings host, string path)
+    {
+        var folder = ServerSourcePolicy.CanonicalDirectory(path);
+        lock (Gate)
+        {
+            var doc = Read(host);
+            var roots = doc.Roots ?? [];
+            var removed = roots.RemoveAll(r => string.Equals(r, folder, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) > 0;
+            if (removed) Write(host, doc with { Roots = roots });
+            return removed;
+        }
+    }
+    /// <summary>The exact authorized path for one source, or null. Reads only the protected authority file, never the source location.</summary>
+    public static string? Approved(HostSettings host, string source)
+    {
+        lock (Gate) return Read(host).Files.TryGetValue(source, out var approved) ? approved : null;
+    }
+    /// <summary>Removes one source's exact authority. Configured paths, modes and durable snapshots are untouched; later live reads fail closed.</summary>
+    public static bool Revoke(HostSettings host, string source)
+    {
+        if (!V1DataSources.Names.ContainsKey(source)) throw new SourcePolicyException();
+        lock (Gate)
+        {
+            var doc = Read(host);
+            if (!doc.Files.Remove(source)) return false;
+            Write(host, doc);
+            return true;
+        }
+    }
+    private static void Write(HostSettings host, Document doc)
+    {
+        var directory = DirectoryPath(host);
+        if (!Directory.Exists(directory))
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                var security = new DirectorySecurity(); security.SetAccessRuleProtection(true, false);
+                foreach (var sid in new[] { WindowsIdentity.GetCurrent().User!, new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null) })
+                    security.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+                // The installed service cannot create folders in the protected installation root; deployment provisions this one (D-007).
+                try { new DirectoryInfo(directory).Create(security); }
+                catch (UnauthorizedAccessException) { throw new SourceAuthorityUnavailableException(); }
+            }
+            else Directory.CreateDirectory(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        NoLinks(directory);
+        var payload = JsonSerializer.Serialize(doc);
+        var temporary = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            File.WriteAllText(temporary, JsonSerializer.Serialize(new Envelope(payload, Convert.ToHexStringLower(Sign(host, payload)))));
+            File.Move(temporary, Path.Combine(directory, "authority.json"), true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+    /// <summary>Lexical UNC rules only (no DNS, no SMB): server and share named, no administrative `$` share, no WebDAV `@` host.</summary>
+    public static void CheckNetworkSyntax(string path)
+    {
+        if (!OperatingSystem.IsWindows() || !path.StartsWith(@"\\", StringComparison.Ordinal)) return;
+        var parts = path[2..].Split('\\');
+        if (parts.Length < 3 || parts[0].Length == 0 || parts[1].Length == 0 || parts[1].EndsWith('$') || parts[0].Contains('@')) throw new SourcePolicyException();
+    }
+    public static void CheckNetworkTarget(string path)
+    {
+        if (!OperatingSystem.IsWindows() || !path.StartsWith(@"\\", StringComparison.Ordinal)) return;
+        CheckNetworkSyntax(path);
+        var parts = path[2..].Split('\\');
+        // No SMB request is issued to an unapproved/public target. Enterprise DNS and SMB signing/referral policy remain host responsibilities.
+        var addresses = Dns.GetHostAddresses(parts[0]);
+        if (addresses.Length == 0 || addresses.Any(a => !IPAddress.IsLoopback(a) && !NetworkPolicy.IsPrivate(a))) throw new SourcePolicyException();
+    }
+}

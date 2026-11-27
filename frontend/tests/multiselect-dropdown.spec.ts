@@ -10,7 +10,7 @@ let label = 'Review finding'
 async function open(page: Page) {
   label = 'Review finding'
   await page.goto('/#session=browser-test-session')
-  await page.goto('/#/user-access/account-review')
+  await page.goto('/#/reviews/account-review')
   await openFilters(page)
   const input = page.getByRole('combobox', { name: label, exact: true })
   await input.scrollIntoViewIfNeeded()
@@ -89,7 +89,7 @@ test('selections survive searching and every toggle keeps the list open', async 
 
 test('a server-searched SAP username filter stays attached across first and later searches', async ({ page }) => {
   await openSod(page, 'Reviews')
-  await page.getByRole('tab', { name: 'Remediation', exact: true }).click()
+  await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Remediation',exact:true}).click()
   await openFilters(page)
   label = 'SAP username'
   const input = page.getByRole('combobox', { name: label, exact: true })

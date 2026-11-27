@@ -71,13 +71,24 @@ somewhere else and verified.
 
 - **Status and fingerprint:** Settings > Backup & Restore > Overview, or `AuthLens.Api --data-dir <dir> --backup-key status`. The fingerprint
   identifies the key; the key itself is never shown or returned by any API.
+- **Status states:** `state` is `not_configured`, `usable` (with `escrow_pending` until a recovery copy is verified), `inaccessible` (a key
+  is configured but this process identity cannot read it, for example a key created by an administrator and not granted to the service
+  identity), `missing` (configured file absent: restore it from the recovery copy, never create a new key), `invalid`, `unsafe_permissions`
+  (non-Windows group/other bits) or `location_unreadable`. `configured` is true whenever a location is configured; only `usable` permits
+  encryption, and backup gates still require `escrow_verified`. The status carries an operator `action` text and never the key or its path.
+  Implemented and covered by `BackupCryptoTests.Key_status_distinguishes_configuration_states_without_exposing_material` (including a native
+  Windows ACL deny); actual service-identity provisioning remains Windows acceptance.
 - **Initial provisioning:** `--backup-key create <file>` (a new private key file, then used) or `--backup-key use <file>` (an existing key).
   An existing key is never replaced by these commands.
 - **Recovery copy:** `--backup-key export <file>` writes a new private file only; then **verify** it (Overview > verify recovery copy, or
   `--backup-key verify <file>`). Automatic backups stay disabled until a recovery copy has been verified.
 - **Windows Service Manager:** `backend\scripts\Service-Manager.ps1` (elevated) offers `Status`, `CreateKey`, `ExportKey`, `VerifyKey`,
-  `ActivationCode` and `RecoveryCode` against the packaged `AuthLens.Api.exe`, without restarting the service. Key values never appear in its output
-  or process arguments. Status: awaiting Windows acceptance.
+  `GrantKeyAccess`, `ActivationCode` and `RecoveryCode` against the packaged `AuthLens.Api.exe`, without restarting the service (it also offers
+  the [network configuration change](../deployment/WINDOWS_DEPLOYMENT.md#installed-network-configuration-change)). Without `-DataDirectory` it
+  uses the data directory of the installation Setup registered. Key values never
+  appear in its output or process arguments. `CreateKey` and `GrantKeyAccess` give the installed service identity one explicit read rule on the key
+  file only (least privilege; LocalSystem needs none; an unresolvable identity is refused); `Status` reports whether that identity can read it.
+  Status: ACL logic Pester-tested on synthetic files; awaiting Windows acceptance under SCM.
 
 ## Automatic backups (Scheduling tab)
 
@@ -128,3 +139,30 @@ and does **not** delete the migration backup. Deleting it is a further, separate
 
 Every managed Windows deployment takes and verifies an encrypted pre-deployment backup with the running release before it stops the service, and
 never restores an older database automatically ([Windows deployment](../deployment/WINDOWS_DEPLOYMENT.md#deployment-sequence)).
+
+## Independent recovery bundle and restore rehearsal (Windows Server)
+
+Status: implemented; the restore rehearsal passed natively on VM130 for RC3-VM130; the Service Manager actions (QA-028) and their packaged
+copies await Windows acceptance on RC6.
+
+| Tool | Purpose | Never does |
+| --- | --- | --- |
+| Service Manager group 4, **Create a recovery bundle** (`-Action CreateRecoveryBundle -Directory <root> -Yes`, elevated) | Verified encrypted online backup of the installed release plus copies of configuration, TLS certificate and password file, recovery key and the active program, in a new private folder (default suggestion `C:\AuthLens-Recovery`); the archive is verified again with the copied key | Stop or reconfigure the service, overwrite an earlier bundle, write inside the installation |
+| **Verify a recovery bundle** (`-Action VerifyRecoveryBundle -Path <bundle>`) | Inventory and archive hashes, private ACL and decryption with the bundle's copied key in a temporary probe | Restore or change anything |
+| `recovery\Test-AuthLensRestoreRehearsal.ps1 -Bundle <bundle> -Verifier <AuthLens.Api.exe>` | Isolated restore into an owned loopback process, fingerprints compared with the archive and after a restart | Touch the active service, configuration, key or archive |
+
+A verified bundle proves that the backup opens with the copied key; it is **not** a restore rehearsal. Keep an operator copy outside the host
+(external escrow). The same scripts ship in every Installer folder (`installer-tools-*\recovery`) and portable package (`Tools\recovery`). Details and report
+formats: [recovery bundle and rehearsal](../deployment/WINDOWS_DEPLOYMENT.md#recovery-bundle-restore-rehearsal-and-source-authority-wp22-wp23-after-rc4).
+
+## Storage preflight and artifact retention
+
+Setup and deployments check free storage per volume before changing anything and refuse with the deficit per volume; nothing is deleted to make
+room ([storage preflight](../deployment/WINDOWS_DEPLOYMENT.md#storage-preflight-and-installation-artifact-retention-wp34)). Superseded
+installation artifacts are listed read-only by `Deploy-AuthLens.ps1 -Action ArtifactInventory` (Service Manager: **Storage and artifact
+inventory**). `PruneArtifacts` deletes only after a `-DryRun` preview, explicit categories, the preview's `-ExpectedSelectionSha256` and `-Yes`;
+it always preserves the active release, the journal's releases, the newest previous release (rollback), protected setup stages, referenced runs
+and the newest backups, and refuses while a deployment or configuration change is pending. Application data, review evidence, in-app backups,
+recovery keys, configuration and TLS files are never eligible. The build host has its own read-only preview,
+`Invoke-AuthLensArtifactRetention.ps1` ([build-host retention](../deployment/WINDOWS_DEPLOYMENT.md#build-host-artifact-inventory-and-retention-wp34)).
+No retention runs automatically.

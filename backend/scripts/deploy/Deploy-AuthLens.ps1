@@ -19,11 +19,36 @@
     Health          Readiness and identity of the running server.
     Build           Build, test and verify a commit and publish it under releases\ (no service change).
     InstallService  Creates (or with -Reconfigure updates) the AuthLens service from the configuration. Needs -Yes.
+    ChangeNetwork   Validates (-DryRun returns the change summary), applies and verifies access mode, listener, port, hosts and trusted proxies with
+                    automatic restoration on failure; an installer-owned firewall rule needs -ApproveFirewall/-FirewallSources or -RemoveFirewall.
+    ReplaceCertificate  Validates (-DryRun stops here), imports and switches the installed service to a new PFX with pinned readiness;
+                    a failure restores the previous certificate. Needs -CertificateFile, -CertificatePasswordFile and -Yes. Reports the current and
+                    new certificate (thumbprints, issuer, expiry, missing identities) and what the change means for client trust.
+                    ChangeNetwork accepts the same two certificate options to change network settings and certificate in one transaction.
+    ExportCertificate   Writes the public certificate (.cer, DER) to -PublicCertificateFile for client trust distribution; never the PFX or password.
+    RestartService  Restarts the installed service on its unchanged configuration (downtime) and verifies listener ownership, readiness and the
+                    release identity; refused while a deployment or configuration change awaits recovery. -DryRun runs the checks. Needs -Yes.
+  Every recovery attempt is appended to <WorkRoot>\recovery-audit.jsonl (action, operator from the process token, runs, version, commit,
+  manifest and configuration hashes, outcome); simulations never write it.
     Rollback        Returns to the previous release (or -ToRelease), only when it can open the current data. Needs -Yes.
     Recover         Revalidates an owned fresh candidate or recovers an interrupted update. -RecoveryAction VerifyCandidate, Resume,
-                    Rollback or Cancel selects an explicit supported action; rollback needs verified prerequisites. Needs -Yes.
-    AuditAcl        Read-only NTFS audit (by well-known SID) of private state, releases and configuration; exit 2 when anything is unsafe.
+                    Rollback or Cancel selects an explicit supported action; rollback needs verified prerequisites. Needs -Yes. VerifyCandidate and
+                    Resume accept -CertificateFile/-CertificatePasswordFile to complete an interrupted first installation whose configured
+                    certificate blocks recovery (recorded certificate transaction with rollback).
+    ArtifactInventory  Read-only inventory of installation artifacts (setup stages, releases, interrupted publications, run logs, pre-deployment
+                    backups) with sizes, the reason each one is preserved or eligible, free storage per volume and a selection_sha256 (WP34).
+                    Application data, in-app backups, keys, configuration, TLS, the journal and audit logs are reported as protected only.
+    PruneArtifacts  Deletes exactly a previewed selection: -ArtifactCategory <categories> -DryRun shows it; then -ExpectedSelectionSha256 <hash>
+                    -Yes deletes it, reports the reclaimed storage and appends <WorkRoot>\artifact-retention.jsonl. Refused while any deployment,
+                    repair, uninstall, firewall or configuration change awaits recovery. Upgrades never delete artifacts.
+    AuditAcl        Read-only NTFS audit (by well-known SID) of private state, releases and configuration. Result status SAFE (exit 0),
+                    REVIEW_REQUIRED (exit 3: named accounts with unreviewed access) or UNSAFE (exit 2: broad access, missing required access,
+                    or an unauthorized named account that can write release binaries or configuration).
     ProtectAcl      Explicit remediation of what AuditAcl reports, after verified ACL inventories in -AclBackupRoot. Needs -Yes and -ApprovedAclRoot.
+                    -RemovePrincipal <account>[,...] also removes those named accounts (never automatic); preview with -DryRun.
+    AuthorizeAclPrincipal / RevokeAclPrincipal
+                    Records (or removes) an explicit, scoped authorization of a named account: -Principal <account or SID> -AclScope
+                    private|binaries|all -Reason <text>. Changes no ACL; AuditAcl then classifies that access as authorized. Needs -Yes.
     RestoreAcl      Restores the ACLs saved by ProtectAcl (-AclBackup <folder>). Needs -Yes and -ApprovedAclRoot.
 
   Services of earlier products (SAP Lens: sap-lens, SapLens, SapLens2) are never adopted, stopped or changed.
@@ -32,6 +57,12 @@
   Configuration: a JSON file that is not committed (-ConfigFile, $env:AUTHLENS_DEPLOY_CONFIG, or C:\ProgramData\AuthLens\config\deploy.json; template
   deploy.example.json). It holds paths, addresses and host names, never a secret. The last output line is 'AUTHLENS-RESULT: <json>'.
   Exit codes: 0 success, 1 failed (nothing changed, or rolled back and ready again), 2 refused before any change, 4 manual action required.
+
+  -DryRun is a simulation: Deploy, Recover, ReplaceCertificate, ChangeNetwork, ProtectAcl and PruneArtifacts evaluate their read-only checks and report what would
+  happen (result field simulation: true, changes_applied: false; Recover reports would_succeed/would_phase). It never replaces -Yes, takes no
+  deployment lock file and writes no run log, journal, configuration, service, registry, ACL, firewall, certificate, key or data change. Every
+  other changing action (Build, InstallService, Restore, Rollback, RestoreAcl) refuses -DryRun with exit 2. -DryRun together with -Yes is still
+  only a simulation. A simulation whose persistent installation state differs afterwards is reported as a failure (exit 4).
 
 .EXAMPLE
   .\Deploy-AuthLens.ps1 -Action Status
@@ -42,7 +73,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Status', 'Health', 'Build', 'Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'AuditAcl', 'ProtectAcl', 'RestoreAcl')]
+    [ValidateSet('Status', 'Health', 'Build', 'Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ReplaceCertificate', 'ChangeNetwork', 'ExportCertificate', 'RestartService', 'AuditAcl', 'ProtectAcl', 'RestoreAcl', 'AuthorizeAclPrincipal', 'RevokeAclPrincipal', 'ArtifactInventory', 'PruneArtifacts')]
     [string]$Action = 'Status',
     [string]$ConfigFile = '',
     [string]$Branch = '',
@@ -53,9 +84,35 @@ param(
     [string]$ToRelease = '',
     [string]$Backup = '',
     [string]$KeyFile = '',
+    [string]$CertificateFile = '',
+    [string]$CertificatePasswordFile = '',
+    # ExportCertificate: new .cer file for client trust distribution (public certificate only).
+    [string]$PublicCertificateFile = '',
+    # ChangeNetwork: only the settings given are changed.
+    [ValidateSet('', 'Local', 'Corporate', 'ReverseProxy')][string]$AccessMode = '',
+    [string]$ListenAddress = '',
+    [int]$Port = 0,
+    [string[]]$AllowedHosts,
+    [string[]]$ProxyHosts,
+    [string[]]$TrustedProxies,
+    [string]$FirewallSources = '',
+    [string]$FirewallProfiles = 'Domain',
+    [switch]$ApproveFirewall,
+    [switch]$RemoveFirewall,
     [string]$AclBackup = '',
     [string]$AclBackupRoot = '',
     [string[]]$ApprovedAclRoot = @(),
+    [string]$Principal = '',
+    [ValidateSet('', 'private', 'binaries', 'all')][string]$AclScope = '',
+    [string]$Reason = '',
+    [string[]]$RemovePrincipal = @(),
+    # ArtifactInventory / PruneArtifacts (WP34): categories to clean, the preview's selection hash and the retention minimums.
+    [ValidateSet('setup_stage', 'release', 'failed_publication', 'deployment_run', 'predeploy_backup', 'failed_backup')][string[]]$ArtifactCategory = @(),
+    [string]$ExpectedSelectionSha256 = '',
+    [int]$KeepPreviousReleases = 1,
+    [int]$KeepBackups = 2,
+    [int]$KeepRuns = 20,
+    [int]$KeepRunDays = 90,
     [switch]$DryRun,
     [switch]$FirstInstall,
     [switch]$Reconfigure,
@@ -66,8 +123,21 @@ param(
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AuthLens.Deploy.psm1') -Force
+$script:Simulation = $false; $script:SimulationBefore = $null; $script:SimulationConfig = $null
 
 function Write-Result($Value, [int]$Code) {
+    if ($script:Simulation) {
+        # A simulation must never report or cause a completed operation (D-006).
+        if ($null -eq $Value) { $Value = [pscustomobject]@{} }
+        $claims = @('recovered', 'replaced', 'changed', 'rolled_back', 'restarted') | Where-Object { $Value.PSObject.Properties[$_] -and $Value.$_ -eq $true }
+        if ($claims) { $Value = [pscustomobject]@{ error = "Simulation reported a completed operation ($($claims -join ', ')); treated as a defect. Review -Action Status." }; $Code = 4 }
+        if ($script:SimulationBefore) {
+            $changed = @(Compare-ALStateSnapshot $script:SimulationBefore (Get-ALStateSnapshot $script:SimulationConfig))
+            if ($changed.Count) { $Value = [pscustomobject]@{ error = "Persistent installation state changed during a simulation: $($changed -join ', '). Review -Action Status before any further operation."; state_changed = $changed }; $Code = 4 }
+        }
+        foreach ($pair in @(@('dry_run', $true), @('simulation', $true), @('changes_applied', $false))) { $Value | Add-Member -NotePropertyName $pair[0] -NotePropertyValue $pair[1] -Force }
+        Write-Host 'SIMULATION (-DryRun): no change was made to the installation.'
+    }
     $Value | ConvertTo-Json -Depth 8 | Write-Host
     Write-Host ('AUTHLENS-RESULT: ' + (@{ exit = $Code; result = $Value } | ConvertTo-Json -Depth 8 -Compress))
     exit $Code
@@ -81,18 +151,29 @@ function Test-Elevated {
 
 try {
     if($RecoveryAction -ne 'Auto' -and $Action -ne 'Recover'){Stop-AL 'RecoveryAction requires Action Recover.'}
-    $changing = $Action -in @('Deploy', 'InstallService', 'Restore', 'Rollback', 'Recover', 'ProtectAcl', 'RestoreAcl') -and -not $DryRun
-    if ($changing -and -not $Yes) { Stop-AL "$Action changes the service or its permissions; repeat with -Yes after reviewing -Action Status or -Action AuditAcl (or -DryRun)." }
+    # One policy for approval and simulation (D-006): -DryRun is honored only by actions that implement it, and never replaces -Yes.
+    $policy = Get-ALActionPolicy $Action -DryRun:$DryRun -Yes:$Yes
+    $changing = $policy.mode -eq 'execute' -and $policy.approval_required
     $config = Read-AuthLensSettings $ConfigFile
+    if ($policy.mode -eq 'simulate') { $script:Simulation = $true; $script:SimulationConfig = $config; $script:SimulationBefore = Get-ALStateSnapshot $config }
     # NTFS audit (read-only) of the installation's private state, releases and configuration. Exit code 0 when no broad principal can read private
     # state or write anywhere it matters, 2 otherwise.
+    $removeSids = @($RemovePrincipal | Where-Object { $_ } | ForEach-Object { try { if ($_ -match '^S-1-[0-9-]+$') { $_ } else { ([Security.Principal.NTAccount]::new($_)).Translate([Security.Principal.SecurityIdentifier]).Value } } catch { Stop-AL "The principal '$_' could not be resolved." } })
     if ($Action -eq 'AuditAcl' -or ($Action -eq 'ProtectAcl' -and $DryRun)) {
-        $report = Get-ALAclReport (Get-ALAclPlan $config)
-        Write-Result $report $(if ($report.safe) { 0 } else { 2 })
+        $report = Get-ALAclReport (Get-ALAclPlan $config) -ExpectedSids (Get-ALAclExpectedSids $config) -Authorizations (Get-ALAclAuthorizations $config)
+        if ($Action -eq 'ProtectAcl') {
+            # Preview (WP31): what ProtectAcl -Yes would change, including the named principals selected with -RemovePrincipal.
+            $report | Add-Member -NotePropertyName would_change -NotePropertyValue @($report.entries | Where-Object { $_.exists -and ($_.findings.Count -or -not $_.required_access_verified -or @($_.named_principals | Where-Object { $_.sid -in $removeSids -and $_.classification -ne 'authorized' }).Count) } | ForEach-Object path) -Force
+            $report | Add-Member -NotePropertyName would_remove_principals -NotePropertyValue @($removeSids) -Force
+            Write-Result $report $(if ($report.safe) { 0 } else { 2 })
+        }
+        Write-Result $report $(switch ($report.status) { 'SAFE' { 0 } 'REVIEW_REQUIRED' { 3 } default { 2 } })
     }
     if ($changing -and -not (Test-Elevated)) { Stop-AL "$Action needs an elevated session (an administrator account over SSH, or Run as administrator)." }
     switch ($Action) {
         'Status' { Write-Result (Get-ALStatus $config) 0 }
+        'ArtifactInventory' { Write-Result (Get-ALArtifactInventory $config $KeepPreviousReleases $KeepBackups $KeepRuns $KeepRunDays $ArtifactCategory) 0 }
+        'ExportCertificate' { Write-Result (Export-ALPublicCertificate $config $PublicCertificateFile) 0 }
         'Health' {
             $base = "https://$($config.ListenAddress):$($config.Port)"
             $ready = Invoke-ALConfiguredHttp $config '/health/ready'; $identity = Invoke-ALConfiguredHttp $config '/product-version.json'
@@ -101,9 +182,18 @@ try {
         }
     }
     # Install, update and restore create or fill the installation; recovery and ACL actions must work on an installation as it is.
-    if ($Action -in @('Build', 'Deploy', 'InstallService', 'Restore') -and -not $DryRun) { Initialize-ALInstallation $config }
-    Enter-ALLock $config
-    $null = New-ALRun $config $Action.ToLowerInvariant()
+    if ($Action -in @('Build', 'Deploy', 'InstallService', 'Restore') -and -not $script:Simulation) { Initialize-ALInstallation $config }
+    if ($script:Simulation) {
+        # Serialized with real operations through the host mutex only: no WorkRoot, lock file or run folder is created by a simulation.
+        Enter-ALLock $config -MutexOnly
+        if ($Action -eq 'Recover') {
+            $preview = Get-ALRecoveryPreview $config -RecoveryAction $RecoveryAction -CertificateFile $CertificateFile -CertificatePasswordFile $CertificatePasswordFile
+            Write-Result $preview $(if ($preview.would_succeed) { 0 } else { 2 })
+        }
+    } else {
+        Enter-ALLock $config
+        $null = New-ALRun $config $Action.ToLowerInvariant()
+    }
     switch ($Action) {
         'Build' {
             $sha = Resolve-ALCommit $config $Branch $Commit
@@ -139,13 +229,33 @@ try {
         'InstallService' { Install-ALService $config -Reconfigure:$Reconfigure; Write-Result (Get-ALStatus $config) 0 }
         'Restore' { Write-Result (Invoke-ALRestore $config $Backup $KeyFile) 0 }
         'Rollback' { Write-Result (Invoke-ALRollback $config $ToRelease) 0 }
-        'Recover' { Write-Result (Invoke-ALRecover $config -RecoveryAction $RecoveryAction) 0 }
+        'Recover' {
+            # An interrupted configuration change (network or certificate) is restored first; deployment journals are recovered as before.
+            $restored = Invoke-ALConfigurationRecover $config
+            if ($restored) { Write-Result $restored 0 }
+            Write-Result (Invoke-ALRecover $config -RecoveryAction $RecoveryAction -CertificateFile $CertificateFile -CertificatePasswordFile $CertificatePasswordFile) 0
+        }
+        'ReplaceCertificate' { Write-Result (Invoke-ALReplaceCertificate $config $CertificateFile $CertificatePasswordFile -DryRun:$DryRun) 0 }
+        'RestartService' { Write-Result (Invoke-ALServiceRestart $config -DryRun:$DryRun) 0 }
+        'PruneArtifacts' { Write-Result (Invoke-ALArtifactPrune $config $ArtifactCategory $ExpectedSelectionSha256 $KeepPreviousReleases $KeepBackups $KeepRuns $KeepRunDays -DryRun:$DryRun) 0 }
+        'ChangeNetwork' {
+            $requested = @{}
+            if ($AccessMode) { $requested.AccessMode = $AccessMode }
+            if ($ListenAddress) { $requested.ListenAddress = $ListenAddress }
+            if ($Port) { $requested.Port = $Port }
+            if ($PSBoundParameters.ContainsKey('AllowedHosts')) { $requested.AllowedHosts = $AllowedHosts }
+            if ($PSBoundParameters.ContainsKey('ProxyHosts')) { $requested.ProxyHosts = $ProxyHosts }
+            if ($PSBoundParameters.ContainsKey('TrustedProxies')) { $requested.TrustedProxies = $TrustedProxies }
+            Write-Result (Invoke-ALNetworkChange $config $requested $FirewallSources $FirewallProfiles -ApproveFirewall:$ApproveFirewall -RemoveFirewall:$RemoveFirewall -DryRun:$DryRun -CertificateFile $CertificateFile -CertificatePasswordFile $CertificatePasswordFile) 0
+        }
         'ProtectAcl' {
             if (-not $ConfigFile) { Stop-AL 'ProtectAcl requires an explicit -ConfigFile.' }
             $backupRoot = if ($AclBackupRoot) { $AclBackupRoot } else { Join-AL $config.WorkRoot 'acl-backups' }
-            $result = Invoke-ALProtectAcl $config $backupRoot $ApprovedAclRoot
+            $result = Invoke-ALProtectAcl $config $backupRoot $ApprovedAclRoot -RemoveSids $removeSids
             Write-Result $result $(if ($result.after.safe) { 0 } else { 2 })
         }
+        'AuthorizeAclPrincipal' { Write-Result (Set-ALAclAuthorization $config $Principal $AclScope $Reason -DryRun:$DryRun) 0 }
+        'RevokeAclPrincipal' { Write-Result (Set-ALAclAuthorization $config $Principal '' '' -Revoke -DryRun:$DryRun) 0 }
         'RestoreAcl' {
             if (-not $AclBackup) { Stop-AL 'RestoreAcl requires -AclBackup <WorkRoot\acl-backups\<UTC time>> written by ProtectAcl.' }
             Write-Result (Invoke-ALRestoreAcl $AclBackup $ApprovedAclRoot) 0

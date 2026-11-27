@@ -20,7 +20,7 @@ public sealed class ReviewService(WriteCoordinator writer, IDbContextFactory<Aut
         var fields = new Dictionary<string, object?>
         {
             ["previous"] = previous, ["subject_type"] = d.SubjectType, ["subject_key"] = d.SubjectKey, ["evidence_version"] = d.EvidenceVersion, ["decision"] = d.Decision,
-            ["reviewer"] = d.Reviewer, ["comment"] = d.Comment, ["dataset_id"] = d.DatasetId, ["decided_utc"] = d.DecidedUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffffff"),
+            ["reviewer"] = d.Reviewer, ["comment"] = d.Comment, ["dataset_id"] = d.DatasetId, ["decided_utc"] = d.DecidedUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffffff", System.Globalization.CultureInfo.InvariantCulture),
         };
         if (d.DetailsJson is not null) fields["details"] = d.DetailsJson; // decisions written before details existed keep their hashes
         return CanonicalJson.Sha256(fields);

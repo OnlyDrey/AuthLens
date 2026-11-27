@@ -131,14 +131,15 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 /* One control size/radius across existing forms as well as the shared editors. */
 .settings-workspace .icon-choice { min-height:76px; }
 
-.role-identifier { display: inline-flex; flex-wrap:wrap; align-items:center; gap:4px; max-width: 100%; min-width: 0; padding: 4px 6px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface2); color: var(--text); position: relative; vertical-align: middle; }
+.role-identifier { display: inline-flex; flex-wrap:nowrap; align-items:center; gap:4px; max-width: 100%; min-width: 0; padding: 4px 6px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface2); color: var(--text); position: relative; vertical-align: middle; }
 .role-identifier code { font-family:var(--font-code); font-size:var(--font-label); flex:0 0 auto; line-height:1.6; white-space: nowrap; min-width: 0; user-select: text; }
 .role-identifier button, .role-expand { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; min-height: 28px; border-radius: 5px; color: inherit; }
 .role-identifier button:hover, .role-expand:hover { background: var(--hover); }
 .role-identifier button:focus-visible, .role-expand:focus-visible { outline:var(--focus-width) solid var(--focus); outline-offset:var(--focus-offset); }
 .role-copy-feedback { color: var(--text); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
 .role-copy-feedback:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.role-identifier:not([data-copied="true"]) > .role-copy-feedback:not(:empty) { padding-top:2px; flex-basis:100%; font-size:12px; }
+/* BUG-09: a copy failure is shown over the identifier like the Copied feedback, never on a second line (the full text stays in the status). */
+.role-identifier:not([data-copied="true"]) > .role-copy-feedback:not(:empty) { position:absolute; inset:2px calc(var(--copy-hit-size) + 10px) 2px 6px; display:flex; align-items:center; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; border-radius:4px; background:var(--surface2); font-size:12px; }
 .role-identifier[data-copied="true"] > .role-copy-feedback { position:absolute; inset:4px calc(var(--copy-hit-size) + 10px) 4px 6px; display:flex; align-items:center; justify-content:center; border-radius:4px; background:var(--surface2); color:var(--text); font-size:12px; pointer-events:none; }
 .module-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 50%; background: var(--module-tint); color: var(--module-foreground); border: 1px solid transparent; }
 .module-icon-small { width: 24px; height: 24px; }
@@ -173,7 +174,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 .filter-grid input:not([type="checkbox"]), .filter-grid select { width:100%; min-height:var(--control-height); }
 .account-summary { display:grid; grid-template-columns:minmax(120px,180px) minmax(0,1fr); gap:10px 16px; padding:18px; border:1px solid var(--border); border-radius:var(--radius-card); background:var(--surface); font-size:var(--font-body); }
 .account-summary dt { color:var(--muted); }
-.account-summary dd { overflow-wrap:anywhere; }
+.account-summary dd { overflow-wrap:break-word; }
 .access-table td .role-identifier { margin-bottom:6px; }
 .access-table td:has(.role-identifier) { min-width:240px; }
 .access-table small { font-size:var(--font-label); }
@@ -298,7 +299,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 .single-role-transactions tbody tr:nth-child(even) { background:var(--surface); }
 .single-role-transactions tbody tr:last-child td { border-bottom:0; }
 .transaction-code { white-space:nowrap; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; color:var(--accent2); font-weight:700; }
-.transaction-description { width:100%; color:var(--text2); overflow-wrap:anywhere; }
+.transaction-description { width:100%; color:var(--text2); overflow-wrap:break-word; }
 .transaction-action { text-align:right; white-space:nowrap; }
 .transaction-investigate { min-height:34px; padding:6px 10px; font-size:12px; white-space:nowrap; }
 
@@ -317,7 +318,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 .user-export-button { margin-left:auto; }
 .role-transaction-search { display:flex; align-items:flex-end; flex-wrap:wrap; gap:var(--space-2); }
 .role-transaction-search input { min-height:var(--control-height); width:100%; }
-.role-metadata-title { overflow-wrap:anywhere; min-width:0; }
+.role-metadata-title { overflow-wrap:break-word; min-width:0; }
 .user-assignment-table td:has(.catalogue-match) { vertical-align:middle; }
 .transaction-table-scroll tr[data-transaction-match="true"] td { background:color-mix(in srgb,var(--accent2) 15%,var(--surface)); }
 .transaction-table-scroll tr[data-transaction-match="true"] .transaction-code { font-weight:800; text-decoration:underline; text-underline-offset:3px; }
@@ -349,7 +350,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 .catalogue-area-filter button:focus-visible { outline:var(--focus-width) solid var(--focus); outline-offset:var(--focus-offset); }
 .release-role-metadata { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:16px; }
 .release-role-metadata dt { font-size:var(--font-label); color:var(--text2); margin-bottom:4px; }
-.release-role-metadata dd { font-weight:600; overflow-wrap:anywhere; }
+.release-role-metadata dd { font-weight:600; overflow-wrap:break-word; }
 .access-table[tabindex]:focus-visible { outline:var(--focus-width) solid var(--focus); outline-offset:var(--focus-offset); }
 
 /* Optional sources and compact assignment controls share semantic theme tokens. */
@@ -387,7 +388,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 .notification-warning { color:var(--warning); }
 .notification-info { color:var(--info); }
 .notification-content { max-width:1536px; margin-inline:auto; padding:.5rem 1rem; display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; font-size:.8rem; }
-.notification-content > div { min-width:0; overflow-wrap:anywhere; }
+.notification-content > div { min-width:0; overflow-wrap:break-word; }
 .notification-close { padding:.25rem; flex:none; border-radius:.375rem; }
 .notification-close:hover { background:var(--hover); }
 @media(max-width:800px) { .catalogue-search-controls { gap:var(--space-2); } }
@@ -422,7 +423,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 .profile-fields { display:flex; flex-direction:column; gap:10px; font-size:var(--font-label); }
 .profile-fields > div { display:grid; grid-template-columns:minmax(70px,.7fr) minmax(0,1fr); gap:var(--space-2); align-items:start; }
 .profile-fields dt { color:var(--muted); font-size:12px; }
-.profile-fields dd { overflow-wrap:anywhere; min-width:0; }
+.profile-fields dd { overflow-wrap:break-word; min-width:0; }
 .profile-manager { margin-top:12px; padding-top:12px; border-top:1px solid var(--border); display:flex; flex-direction:column; align-items:start; gap:5px; font-size:var(--font-label); }
 .profile-manager h3 { font-size:12px; color:var(--muted); }
 .profile-manager button { min-height:34px; padding:6px 10px; }
@@ -449,7 +450,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 .coverage-summary progress { max-width:320px; flex:1 1 120px; accent-color:var(--accent); }
 .profile-identity-header { grid-column:1/-1; padding:14px 16px; border-bottom:1px solid var(--border); background:var(--surface2); }
 .profile-identity-header h2 { font-size:17px; font-weight:600; }
-.profile-identity-header p { font-size:var(--font-label); color:var(--muted); overflow-wrap:anywhere; }
+.profile-identity-header p { font-size:var(--font-label); color:var(--muted); overflow-wrap:break-word; }
 .user-profile .profile-group { border-left:0; }
 .profile-account-warning { grid-column:1/-1; padding:12px 16px; color:var(--warning); background:color-mix(in srgb,var(--warning) 10%,var(--surface)); font-size:var(--font-label); border-top:1px solid var(--border); }
 .manager-identity { display:flex; align-items:start; flex-direction:column; gap:5px; padding:10px; border:1px solid var(--border); border-radius:var(--radius-control); width:100%; text-align:left; font-weight:400; background:var(--surface2); }
@@ -510,10 +511,13 @@ button.manager-identity:focus-visible { outline:var(--focus-width) solid var(--f
 .comparison-identity-grid, .health-source-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
 .health-source-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .health-findings { display:flex; flex-wrap:wrap; gap:.5rem; }
-.comparison-table th, .comparison-table td { text-align:left; vertical-align:top; padding:.75rem; border-bottom:1px solid var(--border); overflow-wrap:anywhere; }
+.comparison-table th, .comparison-table td { text-align:left; vertical-align:top; padding:.75rem; border-bottom:1px solid var(--border); overflow-wrap:break-word; }
 .comparison-table { min-width:640px; }
 @media (max-width:700px) { .comparison-identity-grid,.health-source-grid { grid-template-columns:minmax(0,1fr); } .saved-filter-toolbar { align-items:stretch; } }
 .comparison-table th:nth-child(1) { min-width:180px; }
+/* COR-1: the subject column has a fixed content width; RoleEntry descriptions and identifiers truncate inside it, the table scrolls as a whole when the viewport is narrower. */
+.comparison-subject { width:22rem; max-width:22rem; min-width:0; }
+.comparison-subject .role-entry { min-width:0; max-width:100%; }
 .comparison-table th:nth-child(2) { min-width:115px; }
 .comparison-table th:nth-child(3), .comparison-table th:nth-child(4) { min-width:300px; }
 .feature-controls { display:flex; flex-direction:column; align-items:flex-end; gap:var(--space-2); }
@@ -540,9 +544,9 @@ button.manager-identity:focus-visible { outline:var(--focus-width) solid var(--f
 /* Functional Group on User Details: one compact summary line, wrapping with the available width. */
 .profile-functional-group .profile-group-header { margin-bottom:var(--space-2); }
 .fg-summary { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-1) var(--space-3); min-width:0; }
-.fg-name { font-size:var(--font-body); font-weight:600; overflow-wrap:anywhere; }
+.fg-name { font-size:var(--font-body); font-weight:600; overflow-wrap:break-word; }
 .fg-name:not([data-assigned]) { color:var(--muted); font-weight:500; }
-.fg-meta { font-size:var(--font-label); color:var(--muted); overflow-wrap:anywhere; margin:var(--space-1) 0 0; }
+.fg-meta { font-size:var(--font-label); color:var(--muted); overflow-wrap:break-word; margin:var(--space-1) 0 0; }
 .fg-summary .fg-meta { margin:0; }
 .profile-functional-group .ui-evidence-disclosure { margin-top:var(--space-2); }
 
@@ -550,7 +554,7 @@ button.manager-identity:focus-visible { outline:var(--focus-width) solid var(--f
 .group-picker { display:grid; gap:var(--space-2); min-width:0; }
 .group-picker-chips { display:flex; flex-wrap:wrap; gap:var(--space-1); margin:0; padding:0; list-style:none; }
 .group-picker-chip { display:inline-flex; align-items:center; gap:var(--space-1); max-width:100%; padding:2px var(--space-2); border:1px solid var(--border); border-radius:var(--radius-control); background:var(--surface2); font-size:var(--font-label); }
-.group-picker-chip span { overflow-wrap:anywhere; }
+.group-picker-chip span { overflow-wrap:break-word; }
 .group-picker-chip button { display:inline-flex; align-items:center; min-width:20px; min-height:20px; justify-content:center; border-radius:4px; color:var(--muted); }
 .group-picker-chip button:hover { background:var(--hover); color:var(--text); }
 .group-picker-chip button:focus-visible { outline:var(--focus-width) solid var(--focus); outline-offset:var(--focus-offset); }

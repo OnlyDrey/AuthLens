@@ -36,7 +36,7 @@ public static class V1Refresh
             if (path is null || path.Length is < 1 or > 4096)
                 return Results.Json(new { detail = new[] { new { type = "string_too_short", loc = new[] { "body", "data_csv_path" }, msg = "String should have at least 1 character" } } }, statusCode: 422);
             path = path.Trim();
-            try { path = ServerSourcePolicy.Resolve(host, path); }
+            try { path = ServerSourcePolicy.Resolve(host, path, "roles"); }
             catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException)
             { return Results.Json(new { detail = Category(error).Message }, statusCode: 400); }
             if (path.Length == 0 || path.Contains("://", StringComparison.Ordinal) || path.Contains('\0') || !Path.IsPathFullyQualified(path))
@@ -72,7 +72,7 @@ public static class V1Refresh
         {
             ["app"] = "sap-lens", ["version"] = V1Compatibility.Version, ["instance_id"] = V1Compatibility.Boot,
             ["status"] = last is null ? "needs_configuration" : "ok", ["cached_roles"] = snapshot.Catalogue.Roles.Count,
-            ["last_loaded"] = last?.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'"),
+            ["last_loaded"] = last?.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'", System.Globalization.CultureInfo.InvariantCulture),
         };
     }
 
@@ -137,7 +137,7 @@ public static class V1Refresh
             active.TryGetValue(source, out var current);
             try
             {
-                path = ServerSourcePolicy.Resolve(services.GetRequiredService<HostSettings>(), path);
+                path = ServerSourcePolicy.Resolve(services.GetRequiredService<HostSettings>(), path, source);
                 var profile = V1DataSources.ActiveProfile(settings, source) ?? throw new DomainValidationException("The source import profile is invalid. Review its column mapping and format.");
                 // Fast path: the file's records equal the active revision; nothing is staged.
                 var (rows, hash) = await Task.Run(() => Read(source, path, profile, ct), ct);
@@ -252,7 +252,12 @@ public static class V1Refresh
     {
         switch (error)
         {
+            case SourceChangedException: return ("source_changed", "The CSV changed since validation. Validate the source again; previous data is retained.");
+            case System.Net.Sockets.SocketException: return ("network_unavailable", "The network source name could not be resolved. Check enterprise DNS and connectivity; previous data is retained.");
+            case SourcePolicyException { Failure: SourcePolicyFailure.NotAFile }: return ("not_a_file", error.Message);
+            case SourcePolicyException { Failure: SourcePolicyFailure.InvalidPath or SourcePolicyFailure.UnsafePath }: return ("invalid_path", error.Message);
             case SourcePolicyException: return ("policy_prohibited", error.Message);
+            case EmptySourceException: return ("empty", error.Message);
             case FileNotFoundException or DirectoryNotFoundException: return ("missing", "The configured CSV is missing. Reconnect the share or choose an existing file.");
             case UnauthorizedAccessException: return ("access_denied", "The CSV could not be read. Check file and network-share permissions.");
             case IOException io when (io.HResult & 0xffff) is 53 or 64 or 67 or 121 or 1231:
@@ -261,6 +266,7 @@ public static class V1Refresh
             case CsvFormatException: return ("malformed_csv", "The CSV has malformed quoting or records. Correct the export and validate it again.");
             case DomainValidationException or ArgumentException or InvalidDataException:
                 var text = error.Message.PyLower();
+                if (text.Contains("no usable records")) return ("empty", "The CSV contains no usable records (empty or header only). Previous data is retained; use Clear source data to remove it intentionally.");
                 if (text.Contains("changed while being read")) return ("source_changed", "The CSV changed during validation. Wait for the external export to finish, then retry.");
                 if (text.Contains("row width") || text.Contains("malformed")) return ("malformed_csv", "CSV records do not match the expected structure. Review quoting, delimiters and row widths.");
                 if (new[] { "header", "mapped", "column" }.Any(text.Contains)) return ("headers", "Required headers or column mappings are invalid. Review this source’s CSV import format.");
@@ -353,7 +359,7 @@ public static partial class V1RefreshSchedule
         });
     }
 
-    internal static string Iso(DateTimeOffset value) => value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'");
+    internal static string Iso(DateTimeOffset value) => value.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>Scheduler.status: the saved definition, the last outcome, what the deployment needs, and the next runs (or why there are none).</summary>
     public static JsonObject Status(JsonObject settings, HostSettings host, RefreshScheduleState state, DateTimeOffset now, TimeZoneInfo? localZone = null)
@@ -377,6 +383,9 @@ public static partial class V1RefreshSchedule
             catch (ArgumentException error) { info["error"] = error.Message; }
         var runs = info["next_runs"]!.AsArray();
         info["next_run"] = schedule?.Enabled == true && runs.Count > 0 ? runs[0]!.DeepClone() : null;
+        // An enabled schedule without an upcoming run is never reported as healthy.
+        if (schedule?.Enabled == true && runs.Count == 0 && info["error"] is null) info["error"] = "The schedule has no upcoming run.";
+        info["scheduler_active"] = host.WorkerEnabled;
         return info;
     }
 }
@@ -398,7 +407,8 @@ public sealed class RefreshScheduleState(DatabaseOptions options)
             {
                 if (!File.Exists(FilePath)) return empty;
                 if (JsonNode.Parse(File.ReadAllText(FilePath)) is not JsonObject data) return empty;
-                var state = new JsonObject(Fields.Select(f => KeyValuePair.Create(f, data[f]?.DeepClone())));
+                // Earlier builds may have written regional time separators; repair them instead of discarding the whole state.
+                var state = new JsonObject(Fields.Select(f => KeyValuePair.Create(f, IsoTimestamp.Repair(data[f]))));
                 foreach (var key in new[] { "last_attempt", "last_success", "last_failure" })
                     if (state[key] is { } value && !DateTimeOffset.TryParse((string?)value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _)) return empty;
                 if ((string?)state["last_status"] is not (null or "succeeded" or "partial" or "failed" or "skipped")) return empty;
@@ -449,11 +459,12 @@ public sealed class RefreshScheduler(IServiceProvider services, RefreshScheduleS
         var saved = settings["refresh_schedule"] as JsonObject ?? [];
         var signature = saved.ToJsonString();
         if (signature != _signature) (_signature, _cursor) = (signature, now);   // a changed definition starts from now
-        var (schedule, _) = V1RefreshSchedule.Parse(saved.DeepClone().AsObject());
+        var (schedule, parseError) = V1RefreshSchedule.Parse(saved.DeepClone().AsObject());
+        if (schedule is null && (bool?)saved["enabled"] == true) Unusable(signature, parseError ?? "invalid schedule");
         if (schedule is null || !schedule.Enabled) { _cursor = now; return "idle"; }
         List<DateTimeOffset> due;
         try { due = CronSchedule.NextRuns(schedule.Expression, schedule.Timezone, _cursor, 1, clock.LocalTimeZone); }
-        catch (ArgumentException) { _cursor = now; return "idle"; }
+        catch (ArgumentException error) { Unusable(signature, error.Message); _cursor = now; return "idle"; }
         _cursor = now;   // slots missed while stopped or busy are skipped, never replayed in a burst
         if (due.Count == 0 || due[0] > now) return "idle";
         return await RunAsync(now, ct);
@@ -505,6 +516,16 @@ public sealed class RefreshScheduler(IServiceProvider services, RefreshScheduleS
         Save(current);
         logger.LogInformation("Scheduled refresh finished (status={Status}).", outcome);
         return outcome;
+    }
+
+    private string? _reported;
+    /// <summary>An enabled schedule that cannot be evaluated never runs; say so once per definition instead of idling silently (the status API
+    /// reports the same reason as `error`).</summary>
+    private void Unusable(string signature, string reason)
+    {
+        if (_reported == signature) return;
+        _reported = signature;
+        logger.LogWarning("Scheduled refresh is enabled but cannot be scheduled: {Reason}. No scheduled refresh will run until the schedule is corrected.", reason);
     }
 
     private void Save(JsonObject current)

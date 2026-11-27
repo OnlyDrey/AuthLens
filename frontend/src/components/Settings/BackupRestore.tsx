@@ -1,5 +1,5 @@
 import {BackupHistory,BackupScheduling} from './BackupPlanning'
-import {BackupEncryption,type KeyProvider} from './BackupEncryption'
+import {BackupEncryption,keyLabel,type KeyProvider} from './BackupEncryption'
 import {StorageUpgrade} from './StorageUpgrade'
 import {DataRetention} from './DataRetention'
 import {useRef,useState} from 'react'
@@ -60,7 +60,7 @@ export function BackupRestore(){
    <dl aria-label="Backup overview" className="grid gap-3 rounded-md border border-line bg-surface p-3 text-xs sm:grid-cols-2 xl:grid-cols-4">
     <div><dt className="text-muted">Last successful backup</dt><dd className="m-0 mt-1 font-medium">{history.isLoading?'Checking…':history.error?'Unavailable':formatTimestamp(lastBackup,'None yet')}</dd></div>
     <div><dt className="text-muted">Backup health</dt><dd className="m-0 mt-1"><StatusBadge tone={history.data?.items[0]?.verified?'success':'warning'}>{history.error?'History unavailable':history.data?.items[0]?.verified?'Verified archive':history.data?.items.length?'Latest archive unavailable':'No verified archive yet'}</StatusBadge></dd></div>
-    <div><dt className="text-muted">Recovery key</dt><dd className="m-0 mt-1 font-medium">{current?.key_provider?.escrow_verified?'Recovery copy verified':current?.key_provider?.configured?'Recovery copy needed':'Not configured'}</dd></div>
+    <div><dt className="text-muted">Recovery key</dt><dd className="m-0 mt-1 font-medium">{current?.key_provider?.escrow_verified?'Recovery copy verified':current?.key_provider?.state&&current.key_provider.state!=='usable'?keyLabel(current.key_provider):current?.key_provider?.configured?'Recovery copy needed':'Not configured'}</dd></div>
     <div><dt className="text-muted">Scheduling</dt><dd className="m-0 mt-1 font-medium">{schedule.isLoading?'Checking…':schedule.error?'Unavailable':schedule.data?.configuration_error?'Needs attention':schedule.data?.schedule.enabled?'Enabled':'Disabled'}</dd></div>
    </dl>
    <Card className="gap-2 p-3"><h3 className="ui-section-title flex items-center gap-2"><DatabaseBackup size={18} aria-hidden="true"/>Create application backup</h3><p className="ui-description">Create a verified encrypted archive while AuthLens keeps running. No restart is needed.</p>

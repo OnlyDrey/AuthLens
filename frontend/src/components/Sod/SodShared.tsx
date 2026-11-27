@@ -52,7 +52,7 @@ export function useSodContext(): [string, (value: string) => void] {
   return [value || 'current', set]
 }
 
-export interface SodSubject { user: string; risk?: string; activity?: string }
+export interface SodSubject { user: string; risk?: string; activity?: string; role?: string }
 /** Investigation target lives in view history: Back closes it, and it returns after visiting a role or user page. */
 export function useSodSubject(): [SodSubject | null, (value: SodSubject | null) => void] {
   const { view, change } = useViewHistory()
@@ -93,6 +93,14 @@ export function writeFilters(stored: Record<string, SodFilterState> | undefined,
   const local = Object.fromEntries(Object.entries(value).filter(([key]) => !SHARED_KEYS.includes(key))) as SodFilterState
   return { ...stored, shared, [name]: local }
 }
+const PAGE_ONLY_LABELS: Record<string, string> = { search: 'Search', role_suffix: 'Role suffix', validity: 'Assignment validity', multiple_risks: 'Risks per user', review_status: 'Review status',
+  activity_decision: 'Activity review', assignment_decision: 'Role assignment review', acceptance: 'Risk acceptance' }
+/** Labels of the active filters that belong to this page only (not shared dimensions). Another page does not apply them, so a link to it names them instead of silently broadening the population. */
+export function pageOnlyFilters(filters: Filters, fields: FilterField[]): string[] {
+  const active = (key: string) => { const value = filters[key]; return Array.isArray(value) ? value.length > 0 : value !== undefined && value !== '' && value !== false && value !== (emptyFilters[key] ?? '') }
+  return ['search', ...fields.filter(field => !SHARED_DIMENSIONS[field])].filter(key => PAGE_ONLY_LABELS[key] && (active(key) || (key === 'role_suffix' && active('role_suffixes')))).map(key => PAGE_ONLY_LABELS[key])
+}
+
 /** Does any slot, shared or local, hold a selection that differs from the empty filters? */
 export function hasStoredFilters(stored: Record<string, SodFilterState> | undefined) {
   return Object.values(stored ?? {}).some((slot) => Object.entries(slot).some(([key, value]) => (Array.isArray(value) ? value.length > 0 : value !== '' && value !== false && value !== (emptyFilters[key] ?? ''))))
@@ -229,9 +237,10 @@ function MultiOptionField({ field, listName, label, values, onChange, filters }:
 }
 
 /** Filters relevant to the page. The sidebar owns search and every filter; the toolbar keeps only sort, direction, actions and Reset. Hidden fields are cleared when a Saved Filter is applied so they cannot silently narrow results. */
-export function SodFilters({ view, filters, setFilters, fields, sorts, actions, children, defaults = emptyFilters, searchLabel = 'Search SoD data', extra, onReset }: {
+export function SodFilters({ view, filters, setFilters, fields, sorts, actions, children, defaults = emptyFilters, searchLabel = 'Search SoD data', extra, onReset, storageKey, defaultOpen }: {
   view: string; filters: Filters; setFilters: (value: Filters) => void; fields: FilterField[]; sorts?: { value: string; label: string }[]; actions?: ReactNode; children: ReactNode
   defaults?: Filters; searchLabel?: string; extra?: ReactNode; onReset?: () => void
+  /** A page's own remembered sidebar state (the Reviews Overview starts closed), see FilterLayout. */ storageKey?: string; defaultOpen?: boolean
 }) {
   const text = (name: string) => (typeof filters[name] === 'string' ? (filters[name] as string) : '')
   const update = (name: string, value: string | boolean) => setFilters({ ...filters, [name]: value })
@@ -336,7 +345,7 @@ export function SodFilters({ view, filters, setFilters, fields, sorts, actions, 
 
     </PageToolbar>
   )
-  return <FilterLayout activeCount={active} sidebar={sidebar} toolbar={toolbar} onClear={clear} clearLabel="Clear page filters" clearDisabled={!active && !text('search')}>{children}</FilterLayout>
+  return <FilterLayout activeCount={active} sidebar={sidebar} toolbar={toolbar} onClear={clear} clearLabel="Clear page filters" clearDisabled={!active && !text('search')} storageKey={storageKey} defaultOpen={defaultOpen}>{children}</FilterLayout>
 }
 
 export function AlertNote({ children }: { children: ReactNode }) {

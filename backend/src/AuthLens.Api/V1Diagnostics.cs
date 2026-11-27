@@ -14,7 +14,7 @@ public static class V1Diagnostics
     private static string Platform() =>
         RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "Windows" : RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "Darwin" : RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? "Linux" : "";
 
-    private static string? Iso(DateTime? value) => value is { } v ? DateTime.SpecifyKind(v, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'") : null;
+    private static string? Iso(DateTime? value) => value is { } v ? DateTime.SpecifyKind(v, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'", System.Globalization.CultureInfo.InvariantCulture) : null;
 
     public static async Task<JsonObject> SnapshotAsync(IServiceProvider services, bool @private, CancellationToken ct)
     {
@@ -37,21 +37,21 @@ public static class V1Diagnostics
 
         var result = new JsonObject
         {
-            ["application"] = "AuthLens", ["version"] = V1Compatibility.Version, ["generated_at"] = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'"),
+            ["application"] = "AuthLens", ["version"] = V1Compatibility.Version, ["generated_at"] = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'+00:00'", System.Globalization.CultureInfo.InvariantCulture),
             ["platform"] = Platform(), ["python_version"] = null, ["runtime"] = $".NET {Environment.Version}",
             ["configuration_schema"] = settings["schema_version"]?.DeepClone(), ["configuration_revision"] = settings["revision"]?.DeepClone(),
-            ["last_failed_load"] = lifecycle["last_failed_refresh"]?.DeepClone(),
+            ["last_failed_load"] = IsoTimestamp.Repair(lifecycle["last_failed_refresh"]),
             ["storage_available"] = Directory.Exists(host.DataDirectory),
             ["backend_status"] = busy ? "loading" : "running",
             ["data_source_configured"] = active.Any(d => d.Source is Sources.Roles or Sources.Users),
             ["cached_roles"] = snapshot.Catalogue.Roles.Count,
             ["last_successful_load"] = lastLoad == default ? null : Iso(lastLoad),
-            ["last_successful_refresh"] = lifecycle["last_successful_refresh"]?.DeepClone(),
+            ["last_successful_refresh"] = IsoTimestamp.Repair(lifecycle["last_successful_refresh"]),
             // Account Review continuity rests on the hash-chained decision store here: "ok" only while the chain verifies.
             // v1: the assignment lifecycle memory state (ok, corrupt, missing, stale); a broken decision hash chain also reads corrupt.
             ["review_continuity"] = lifecycleState != "ok" ? lifecycleState : chain.Ok && sodChain.Ok ? "ok" : "corrupt",
             ["deployment_mode"] = host.Mode == HostMode.Server ? "server" : "desktop",
-            // The refresh scheduler is not migrated: the configured schedule is reported, and no attempt has been made by this build.
+            // The configured schedule and the scheduler's recorded outcome (RefreshScheduler, MIG-008).
             ["scheduled_refresh"] = new JsonObject
             {
                 ["enabled"] = schedule["enabled"]?.DeepClone() ?? false, ["mode"] = schedule["mode"]?.DeepClone(), ["timezone"] = schedule["timezone"]?.DeepClone(),
@@ -78,9 +78,9 @@ public static class V1Diagnostics
             {
                 ["enabled"] = enabled, ["id"] = key, ["name"] = name, ["configured"] = path.Length > 0 || dataset is not null, ["loaded"] = dataset is not null,
                 ["records"] = records, ["assignments"] = assignments,
-                ["last_successful_load"] = reference?["imported_at"]?.DeepClone() ?? (dataset is null ? null : Iso(dataset.ActivatedUtc ?? dataset.CreatedUtc)),
+                ["last_successful_load"] = IsoTimestamp.Repair(reference?["imported_at"]) ?? (dataset is null ? null : Iso(dataset.ActivatedUtc ?? dataset.CreatedUtc)),
                 ["availability"] = dataset is not null ? "available_at_last_load" : "not_checked", ["error"] = null, ["loading"] = busy && path.Length > 0,
-                ["mode"] = modes[key]?.DeepClone(), ["snapshot_available"] = dataset is not null, ["last_checked"] = reference?["checked_at"]?.DeepClone(),
+                ["mode"] = modes[key]?.DeepClone(), ["snapshot_available"] = dataset is not null, ["last_checked"] = IsoTimestamp.Repair(reference?["checked_at"]),
             };
             if (@private) { source["configured_path"] = path; source["loaded_path"] = dataset is null ? "" : (string?)reference?["path"] ?? path; source["attempted_path"] = ""; }
             sources.Add(source);
@@ -101,7 +101,7 @@ public static class V1Diagnostics
             ["availability"] = directory.GetValueOrDefault("loaded") is true ? "available_at_last_load" : "not_checked", ["error"] = null,
             ["loading"] = busy && ((string?)settings["employee_csv_path"] ?? "").Length > 0,
             ["dependency"] = System.Text.Json.JsonSerializer.SerializeToNode(directory.GetValueOrDefault("operational_status")),
-            ["last_checked"] = employeeReference is not null && (string?)employeeReference["path"] == (string?)settings["employee_csv_path"] ? employeeReference["checked_at"]?.DeepClone() : null,
+            ["last_checked"] = employeeReference is not null && (string?)employeeReference["path"] == (string?)settings["employee_csv_path"] ? IsoTimestamp.Repair(employeeReference["checked_at"]) : null,
         };
         if (@private)
         {
@@ -116,7 +116,7 @@ public static class V1Diagnostics
             var attempt = recentReports.SelectMany(r => (JsonNode.Parse(r.Json)?["sources"] as JsonArray ?? []).OfType<JsonObject>())
                 .FirstOrDefault(r => (string?)r["source"] == (string?)source["id"] && (string?)r["status"] is "failed" or "updated" or "unchanged");
             if (attempt is null) continue;
-            source["last_attempted_check"] = attempt["checked_at"]?.DeepClone();
+            source["last_attempted_check"] = IsoTimestamp.Repair(attempt["checked_at"]);
             source["availability"] = (string?)attempt["status"] == "failed" ? (string?)attempt["category"] ?? "invalid" : "available_at_last_load";
             source["error"] = (string?)attempt["status"] == "failed" ? attempt["message"]?.DeepClone() : null;
         }

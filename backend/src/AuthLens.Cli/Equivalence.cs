@@ -57,7 +57,7 @@ public static class Equivalence
         var sod = LoadSod(Path.Combine(data, dataset, "sod.csv"));
         var output = new Dictionary<string, object?>
         {
-            ["implementation"] = "dotnet-v2", ["today"] = today.ToString("yyyy-MM-dd"),
+            ["implementation"] = "dotnet-v2", ["today"] = today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
             ["catalogue"] = CatalogueJson(catalogue, roleReport), ["users"] = UsersJson(users, userReport),
             ["sod_source"] = new Dictionary<string, object?> { ["content_hash"] = sod.ContentHash, ["warnings"] = sod.Warnings, ["risks"] = sod.Risks.Count },
             ["role_lookup"] = scenarios["role_lookup"]!.AsArray().Select(q => RoleLookup.Find(catalogue, RoleQuery(q!)).Select(RoleSummaryJson).ToList()).ToList(),

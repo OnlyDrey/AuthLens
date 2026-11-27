@@ -62,15 +62,16 @@ and unit tests alone do not prove success. See [backup/recovery](../operations/B
 
 ## Build and release folder
 
-From a checkout of the intended source commit, use .NET SDK 10 and Node.js 24 or 25:
+Build from a clean checkout of the intended source commit with the root `build.ps1` and the output root `C:\AuthLens`; prerequisites,
+parameters, the artifact layout and the optional portable package are in the [canonical Windows build](WINDOWS_DEPLOYMENT.md#canonical-windows-build):
 
 ```powershell
-.\build.ps1
+.\build.ps1 -OutputRoot C:\AuthLens              # add -ZipPackage for the portable deployment package
 ```
 
-The release script rebuilds the production frontend once, builds the solution and publishes self-contained Windows x64 executables. Use its
-`-TestFilter` for an explicitly scoped validation run; `-SkipTests` is appropriate only when matching validation has already passed and source has
-not changed. Never substitute a local dirty build for a verified release identity.
+The build rebuilds the production frontend once, builds the solution and publishes self-contained Windows x64 executables into
+`C:\AuthLens\Build\<version>\<build-id>`. Use `-TestFilter` for an explicitly scoped validation run; `-SkipTests` is appropriate only when
+matching validation has already passed and source has not changed. Never substitute a local dirty build for a verified release identity.
 
 A versioned release contains `server/AuthLens.Api.exe`, `desktop/AuthLens.exe`, required native dependencies, symbols, helper tools, instructions,
 `build-manifest.json` and `SHA256SUMS`. Existing release directories are never overwritten. Verify package scope and checksums after transfer.
@@ -84,11 +85,10 @@ Branding sources are [assets/branding](../../assets/branding/); Vite emits the l
 
 ## Installers
 
-The canonical command also builds installers from the same clean verified release and committed helper sources. Advanced installer-only invocation:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\backend\scripts\build-installers.ps1 -ReleasePath <release-directory> -Output C:\AuthLens-Build\installers
-```
+The canonical command also builds both installers from the same clean verified release and committed helper sources into
+`C:\AuthLens\Installer\<version>\<build-id>` (`AuthLens-<version>-Server-Setup.exe`, `AuthLens-<version>-Desktop-Setup.exe`). There is no
+supported installer-only build for candidates; transfer to another machine uses the
+[portable package](WINDOWS_DEPLOYMENT.md#production-package-transfer).
 
 Inno Setup 6 is required. Desktop setup is per user and never requires Server configuration. Server Setup derives its program directory from reviewed
 configuration (explicit absolute `/CONFIGFILE`, validated registered/managed discovery or the known default); ordinary upgrades need no `/DIR`.

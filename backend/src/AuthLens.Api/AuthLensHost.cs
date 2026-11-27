@@ -11,6 +11,7 @@ public static class AuthLensHost
 {
     public static WebApplication Build(HostSettings settings, string[]? args = null, Action<WebApplicationBuilder>? configure = null)
     {
+        UseInvariantCulture();
         settings.Validate();
         var icu = AuthLens.Domain.Text.PythonText.VerifyRuntime();    // Unicode text handling needs ICU; refuse to start without it
         DatabaseOptions.ValidateLocal(settings.DataDirectory);
@@ -92,7 +93,7 @@ public static class AuthLensHost
         if (settings.Certificate is { } cert)
         {
             startup.LogInformation("TLS certificate {Subject}, thumbprint {Thumbprint}, valid until {NotAfter:u}", cert.Subject, cert.Thumbprint, cert.NotAfter);
-            foreach (var warning in CertificatePolicy.Validate(cert, settings.AllowedHosts, DateTimeOffset.UtcNow).Warnings) startup.LogWarning("TLS certificate: {Warning}", warning);
+            foreach (var warning in CertificatePolicy.Validate(cert, CertificatePolicy.RequiredIdentities(settings), DateTimeOffset.UtcNow).Warnings) startup.LogWarning("TLS certificate: {Warning}", warning);
         }
         ProxyTrust.Use(app, settings);   // first: peer capture, then forwarded headers from trusted proxies only
         app.UseExceptionHandler();
@@ -106,6 +107,19 @@ public static class AuthLensHost
         V1Compatibility.Map(app);
         MapSession(app, settings);
         return app;
+    }
+
+    /// <summary>Stored and transmitted values (ISO timestamps, numbers, CSV, logs) must not depend on the Windows regional format of the account the
+    /// host runs as. A custom format's ':' is the culture's time separator, so a service account with, for example, da-DK or fi-FI formats wrote
+    /// "08.05.00" timestamps that browsers and the parsers refuse (scheduled refresh shown as "Not available", its state read as "Never"). Python v1
+    /// was culture-independent; the host now is too, for every thread, in Server and Desktop. The UI formats dates itself.</summary>
+    public static void UseInvariantCulture()
+    {
+        var invariant = System.Globalization.CultureInfo.InvariantCulture;
+        System.Globalization.CultureInfo.DefaultThreadCurrentCulture = invariant;
+        System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = invariant;
+        System.Globalization.CultureInfo.CurrentCulture = invariant;
+        System.Globalization.CultureInfo.CurrentUICulture = invariant;
     }
 
     /// <summary>Runtime data (database, token, accounts, logs) never lives in the application folder, which is replaced on every upgrade and readable by

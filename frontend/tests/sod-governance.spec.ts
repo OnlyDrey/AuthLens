@@ -208,8 +208,12 @@ test('work queue has one row per user, batch review lives in the workspace and t
   await page.keyboard.press('Escape')
   await expect(rowA).toContainText('2/9')
   await expect(rowA).toContainText('2/3')
-  const download = page.waitForEvent('download')
+  // The export dialog keeps the existing full review export as a preset (same file and schema).
   await page.getByRole('button', { name: 'Export CSV', exact: true }).click()
+  const exportDialog = page.getByRole('dialog', { name: 'Export review CSV', exact: true })
+  await exportDialog.getByRole('combobox', { name: 'Export preset', exact: true }).selectOption('full')
+  const download = page.waitForEvent('download')
+  await exportDialog.getByRole('button', { name: 'Export', exact: true }).click()
   expect((await download).suggestedFilename()).toMatch(/^authlens-sod-review-queue-\d{4}-\d{2}-\d{2}\.csv$/)
 })
 
@@ -232,7 +236,7 @@ test('remediation separates proposals from verification and keeps tracked action
   await expect(dialog).toHaveCount(0)
   await page.keyboard.press('Escape')
   await page.getByRole('link', { name: 'Reviews', exact: true }).click()
-  await page.getByRole('tab', { name: 'Remediation', exact: true }).click()
+  await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Remediation',exact:true}).click()
   const table = page.getByRole('table', { name: 'Access remediation rows' })
   await expect(table.locator('thead th')).toHaveText(['SAP user','SAP User Group','Role assignment','Validity','Review','Remediation','Actions'])
   await expect(table.getByRole('link',{name:`Open SAP user ${names.a}`,exact:true})).toHaveCount(1) // the SAP user column uses the shared identity action: one user, one link

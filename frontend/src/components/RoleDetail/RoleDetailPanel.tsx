@@ -1,3 +1,4 @@
+import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {matchingTransactions,transactionMatches} from '@/lib/searchMatching'
 import { Button } from '@/components/Shared/Button'
@@ -80,7 +81,7 @@ export function RoleDetailPanel({ roleName, onClose, onUsers, onTcodeUsers, pare
         <div className="role-detail-header flex items-start justify-between gap-3 px-4 py-3 flex-shrink-0"
           style={{ backgroundColor: 'var(--primary)', color:'var(--on-primary)', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
           <div className="role-detail-heading-content min-w-0 flex-1">
-            <nav aria-label="Breadcrumb" className="mb-2"><Button variant="ghost" size="compact" className="detail-back-action" onClick={onClose}><ArrowLeft size={16} aria-hidden="true"/>Back to {parent === 'User Access' ? 'users' : parent}</Button></nav>
+            <nav aria-label="Breadcrumb" className="mb-2"><Button variant="ghost" size="compact" className="detail-back-action" onClick={onClose}><ArrowLeft size={16} aria-hidden="true"/>Back to {parent === 'Users' ? 'users' : parent}</Button></nav>
             <div className="role-detail-description"><RoleMetadata code={role?.function_key} name={role?.module_name}/>
             <p className="text-base font-black text-current leading-snug break-words">
               {cleanTitle(role?.text ?? null)}
@@ -120,6 +121,7 @@ export function RoleDetailPanel({ roleName, onClose, onUsers, onTcodeUsers, pare
                   <div className="flex gap-3 rounded-lg p-2"
                     style={{ backgroundColor: 'var(--surface2)', border: '1px solid var(--border)' }}>
                     {onUsers&&<Button size="compact" onClick={()=>onUsers(role.agr_name)}><Users size={16} aria-hidden="true"/>Assigned users<ArrowRight size={16} aria-hidden="true"/></Button>}
+                    {onUsers&&<OpenInReviewsButton size="compact" scope={{ role: role.agr_name }} label="Review assigned users" />}
                     {/* Single roles â€” LEFT */}
                     <div className="flex-1 text-center">
                       <div className="flex items-center justify-center gap-1.5 mb-1">

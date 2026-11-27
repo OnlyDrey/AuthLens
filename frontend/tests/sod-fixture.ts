@@ -52,10 +52,20 @@ export async function cleanup(request: APIRequestContext, directory: string) {
   rmSync(directory, { recursive: true, force: true })
 }
 
+/** Review workflows moved from SoD to the Reviews workspace; the legacy SoD page names used by specs open the matching Reviews page. */
+const REVIEW_PAGES: Record<string, string> = { Reviews: 'Work Queue', 'Review Periods': 'Review Periods' }
 export async function openSod(page: Page, link = 'Overview') {
   await page.goto('/#session=browser-test-session')
+  if (link === 'Reports') return goTo(page, 'Review Reports') // NAV-4: SoD and review reports are in the Reports module
+  if (REVIEW_PAGES[link]) return openReviews(page, REVIEW_PAGES[link])
   await goTo(page, 'SoD')
   if (link !== 'Overview') await page.getByRole('link', { name: link, exact: true }).click()
+}
+export async function openReviews(page: Page, link = 'Overview') {
+  if (!page.url().includes('#')) await page.goto('/#session=browser-test-session')
+  if (link === 'Reports and Evidence') return goTo(page, 'Review Reports') // NAV-4: moved to the Reports module
+  await goTo(page, 'Reviews')
+  if (link !== 'Overview') await page.getByRole('navigation', { name: 'Review views', exact: true }).getByRole('link', { name: link, exact: true }).click()
 }
 
 export const cellButton = (page: Page, user: string, column: string) => page.getByRole('button', { name: new RegExp(`^${user}, (risk|activity) ${column}:`) })

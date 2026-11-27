@@ -2,13 +2,11 @@ import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, goTo, openFilters, postConfiguration } from './support'
+import { headers, goTo, openFilters, postConfiguration, selectSettingsSection } from './support'
 let directory: string
 async function library(page: Page) {
   await page.getByRole('button', { name: 'Open settings', exact: true }).click()
-  await page
-    .getByRole('tab', { name: 'Component Library', exact: true })
-    .click();await page.getByRole('tab',{name:'All components',exact:true}).click()
+  await selectSettingsSection(page,'Component Library');await page.getByRole('tab',{name:'All components',exact:true}).click()
   await expect(
     page.getByRole('heading', { name: 'Component Library', exact: true }),
   ).toBeVisible()
@@ -78,57 +76,67 @@ test('secondary navigation uses actual routes, preserves query strings and suppo
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   const secondary = page.getByRole('navigation', {
-    name: 'User Access view',
+    name: 'Users view',
     exact: true,
   })
   await secondary
-    .getByRole('link', { name: 'Account Review', exact: true })
+    .getByRole('link', { name: 'Compare Users', exact: true })
     .click()
-  await expect(page).toHaveURL(/#\/user-access\/account-review$/)
+  await expect(page).toHaveURL(/#\/users\/compare$/)
   await expect(
-    secondary.getByRole('link', { name: 'Account Review', exact: true }),
+    secondary.getByRole('link', { name: 'Compare Users', exact: true }),
   ).toHaveAttribute('aria-current', 'page')
   await page.reload()
   await expect(
-    page.getByRole('heading', { name: 'Account Review', exact: true }),
+    page.getByRole('heading', { name: 'Compare Users', exact: true }),
   ).toBeVisible()
   await secondary
-    .getByRole('link', { name: 'Compare users', exact: true })
+    .getByRole('link', { name: 'Release Access', exact: true })
     .click()
-  await expect(page).toHaveURL(/#\/user-access\/compare$/)
+  await expect(page).toHaveURL(/#\/users\/release-access$/)
+  await expect(
+    secondary.getByRole('link', { name: 'Release Access', exact: true }),
+  ).toHaveAttribute('aria-current', 'page')
   await page.goBack()
   await expect(
-    page.getByRole('heading', { name: 'Account Review', exact: true }),
+    page.getByRole('heading', { name: 'Compare Users', exact: true }),
   ).toBeVisible()
-  await page.goto('/#/user-access/compare?view=compact')
+  // NAV-3: Account Review is a Reviews page with its own module tab
+  await goTo(page, 'Account Review')
+  await expect(page).toHaveURL(/#\/reviews\/account-review$/)
   await expect(
-    page.getByRole('heading', { name: 'Compare users', exact: true }),
+    page.getByRole('navigation', { name: 'Review views', exact: true }).getByRole('link', { name: 'Account Review', exact: true }),
+  ).toHaveAttribute('aria-current', 'page')
+  await page.goBack()
+  await expect(
+    page.getByRole('heading', { name: 'Compare Users', exact: true }),
+  ).toBeVisible()
+  await page.goto('/#/users/compare?view=compact')
+  await expect(
+    page.getByRole('heading', { name: 'Compare Users', exact: true }),
   ).toBeVisible()
   await secondary
-    .getByRole('link', { name: 'User directory', exact: true })
+    .getByRole('link', { name: 'User Directory', exact: true })
     .click()
-  await expect(page).toHaveURL(/#\/user-access\?view=compact$/)
+  await expect(page).toHaveURL(/#\/users\?view=compact$/)
 })
 test('Account Review keeps investigation controls across secondary navigation and Back', async ({
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Account Review')
   const secondary = page.getByRole('navigation', {
-    name: 'User Access view',
+    name: 'Review views',
     exact: true,
   })
-  await secondary
-    .getByRole('link', { name: 'Account Review', exact: true })
-    .click()
   await page.getByLabel('Search account reviews', { exact: true }).fill('Alpha')
   await page
     .getByLabel('Sort account reviews', { exact: true })
     .selectOption('name')
   await secondary
-    .getByRole('link', { name: 'User directory', exact: true })
+    .getByRole('link', { name: 'Position Changes', exact: true })
     .click()
   await page.goBack()
   await expect(
@@ -159,7 +167,7 @@ test('role content tabs have keyboard semantics and associated assignment panel'
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await page.getByRole('link', { name: 'DEMO_A', exact: true }).click()
   const tabs = page.getByRole('tablist', {
     name: 'User role sections',
@@ -293,7 +301,7 @@ test('saved filters portal handles keyboard, outside dismissal and neutral clear
   page,
 }) => {
   await page.goto('/#session=browser-test-session')
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   const bar = page.locator(
       'div.saved-filter-toolbar[aria-label="users saved filters"]',
     ),
@@ -317,7 +325,7 @@ test('saved filters portal handles keyboard, outside dismissal and neutral clear
   await page.keyboard.press('Escape')
   await expect(trigger).toBeFocused()
   await trigger.click()
-  await page.getByRole('heading', { name: 'User Access', exact: true }).click()
+  await page.getByRole('heading', { name: 'Users', exact: true }).click()
   await expect(panel).toHaveCount(0)
   await trigger.click()
   const clear = panel.getByRole('button', {
@@ -377,10 +385,10 @@ for (const theme of ['light', 'dark'])
       await page
         .getByRole('button', { name: 'Back to AuthLens', exact: true })
         .click()
-      await goTo(page, 'User Access')
+      await goTo(page, 'Users')
       await page
-        .getByRole('navigation', { name: 'User Access view' })
-        .getByRole('link', { name: 'Compare users', exact: true })
+        .getByRole('navigation', { name: 'Users view' })
+        .getByRole('link', { name: 'Compare Users', exact: true })
         .click()
       await page
         .getByRole('combobox', { name: 'User A', exact: true })
@@ -456,12 +464,17 @@ for(const theme of ['light','dark']) for(const width of [375,800,1280])
   await page.setViewportSize({width,height:1000})
   await page.goto('/#session=browser-test-session')
   await page.getByRole('button',{name:'Open settings',exact:true}).click()
-  const tabs=page.getByRole('tab')
-  await expect(tabs.filter({hasText:'About AuthLens'})).toBeVisible() // the tab list renders after the dialog opens; read it once it is there
-  const names=await tabs.allTextContents()
+  // Below 768 px the Settings sections are links in the sections drawer (same order as the tab list); read the order from there
+  const narrow=width<768
+  if(narrow)await page.getByRole('button',{name:/^Settings sections:/}).click()
+  const drawer=page.getByRole('dialog',{name:'Settings sections',exact:true})
+  const tabs=narrow?drawer.getByRole('navigation',{name:'Settings pages',exact:true}).getByRole('button'):page.getByRole('tab')
+  await expect(tabs.filter({hasText:'About AuthLens'})).toBeVisible() // the list renders after the dialog opens; read it once it is there
+  const names=(await tabs.allTextContents()).map(name=>name.trim())
   expect(names).toContain('Component Library')
   expect(names.indexOf('Component Library')).toBeLessThan(names.indexOf('About AuthLens'))
-  await page.getByRole('tab',{name:'Data Sources',exact:true}).click()
+  if(narrow){await page.keyboard.press('Escape');await expect(drawer).toHaveCount(0)}
+  await selectSettingsSection(page,'Data Sources')
   for(const source of ['Role Catalogue','User Access','Employee Directory']){
    await page.getByRole('tab',{name:source,exact:true}).click()
    const manager=page.getByRole('region',{name:`${source} source management`,exact:true})
@@ -469,15 +482,14 @@ for(const theme of ['light','dark']) for(const width of [375,800,1280])
    await expect(upload).toHaveCount(1)
    await expect(upload).toBeVisible()
    await expect(manager.getByRole('button',{name:'Browse CSV',exact:true})).toHaveCount(0)
-   const advanced=manager.locator('details').filter({has:page.locator('summary',{hasText:'Advanced server source path'})}).first()
-   if(await advanced.getAttribute('open')===null)await advanced.locator('summary').click()
+   await expect(manager.locator('summary',{hasText:'Advanced server source path'})).toHaveCount(0) // WP33 (906f16e): the path field is shown directly, not in a collapsed section
    const location=manager.getByRole('textbox',{name:source==='Role Catalogue'?'CSV file location':source==='User Access'?'User CSV file location':'Employee Directory CSV location',exact:true})
    await location.scrollIntoViewIfNeeded();await expect(location).toBeVisible()
    expect((await location.boundingBox())!.width).toBeGreaterThan(width<1000?180:300)
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy()
    await page.screenshot({path:info.outputPath(`${source.toLowerCase().replaceAll(' ','-')}.png`),animations:'disabled'})
   }
-  await page.getByRole('tab',{name:'SAP Modules',exact:true}).click()
+  await selectSettingsSection(page,'SAP Modules')
   const search=page.getByRole('searchbox',{name:'Find SAP module or area',exact:true})
   await expect(search).toBeVisible()
   expect(await search.evaluate(el=>parseFloat(getComputedStyle(el).paddingLeft))).toBeGreaterThanOrEqual(36)
@@ -485,6 +497,8 @@ for(const theme of ['light','dark']) for(const width of [375,800,1280])
  })
 
 test('library matrix grid and side panel are isolated, keyboard operable and never rely on color alone', { tag: '@a11y' }, async ({ page, request }) => {
+  // Compared with this test's own start state: saved filters are shared server data that configuration reset keeps (order independence, TS-1)
+  const filtersBefore = (await (await request.get('/api/saved-filters', { headers })).json()).items
   await page.goto('/#session=browser-test-session')
   await library(page)
   const writes: string[] = []
@@ -509,5 +523,5 @@ test('library matrix grid and side panel are isolated, keyboard operable and nev
   await expect(panel).toHaveCount(0)
   await expect(trigger).toBeFocused()
   expect(writes).toEqual([])
-  expect((await (await request.get('/api/saved-filters', { headers })).json()).items).toEqual([])
+  expect((await (await request.get('/api/saved-filters', { headers })).json()).items).toEqual(filtersBefore) // the library writes nothing
 })

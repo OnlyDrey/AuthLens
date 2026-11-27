@@ -1,4 +1,6 @@
-# Release Roles
+# Release Access
+
+Release Access (formerly Release Roles) is a Users page: `#/users/release-access` (the earlier `#/release-roles` still opens it).
 
 ## Source and parsing
 
@@ -36,7 +38,16 @@ profile. Unparsed roles keep their complete source name and evidence.
 
 ## Matrix
 
-Rows are release groups, columns release strategies; PR and PO remain distinct.
+One matrix (per SAP User Group when comparing) with Release Groups as rows and one column per strategy key; the header shows the strategy key
+only (for example ND, NB, NP), with no PR/PO prefix and no grouped headers (NAV-6, as amended). PR and PO remain separate dimensions in the
+data, filters, drill-downs and exports; the existing PR/PO filter shows one release type. With PR and PO together, a strategy key used by
+both release types is one column, and its cell counts distinct users across both: a user holding the strategy under PR and PO counts once.
+That count, the **Users** column (distinct users of a Release Group across its strategies) and the **All Release Groups** row (per strategy and
+in total) are authoritative backend totals (`matrix_totals=true` on `GET /api/access/releases`, keyed by SAP User Group scope, release type
+or both, Release Group and strategy, counted by the SAP user identity) and never sums of cells. Opening a total or a shared cell lists the
+assignments it counts (`release-assignments` with `parsed=true` and the matrix filters); its distinct users equal the total. **n/a** marks a
+Release Group without a release role of that strategy (release roles are known only through assignments, so a valid combination without
+users cannot be told apart from one that does not exist). One column selector serves the matrix. Backend tests: `ReleaseAccessMatrixTests`.
 Cells count distinct normalized SAP usernames, not duplicate rows. Each cell has a Plus/Check
 toggle for the access package that adds or removes every distinct release role of that cell
 (Check when all of them are already in the package). Filter by SAP
@@ -52,7 +63,10 @@ for repeat investigations. Parsed names do not establish release authority or ef
 
 The matrix uses compact content-sized columns, prominent group/strategy headers,
 tabular counts and sticky headers inside a contained keyboard-focusable scroll
-region. Restrained background intensity is relative to counts on the displayed
+region. Every matrix (one, or one per SAP User Group when comparing) spans the whole content width beside the filter sidebar, and all of
+it when the sidebar is closed (MW-1); the columns keep their compact content-sized widths inside it, and the table scrolls horizontally
+inside its own region only when its columns (minimum 160 px for the Release Group column, 72 px for each strategy and the Users column) exceed it. Hidden
+columns (Columns) and opening or closing the sidebar recalculate the width; the page itself never scrolls horizontally (`release-matrix-width.spec.ts`). Restrained background intensity is relative to counts on the displayed
 matrix, not an authorization or risk score. Complete matrices use contained scrolling without pagination. If a response is
 incomplete, a dash represents missing supplied evidence rather than zero users. Group comparison remains in a stable secondary toolbar.
 

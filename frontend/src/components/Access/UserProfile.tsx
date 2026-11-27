@@ -8,6 +8,7 @@ import type { UserDetail } from '@/api/access'
 import { SAPUserLink } from '@/components/Shared/SAPUserLink'
 import { formatDate } from '@/lib/dateFormat'
 import { FunctionalGroupPanel } from './FunctionalGroupPanel'
+import { UserReviewProgress } from './UserReviewProgress'
 import { useEmployeeMatch, ManagerSummary, DirectoryMatchDetails, ReturnToPreviousUser } from './EmployeeEnrichment'
 export function UserProfile({ user }: { user: UserDetail }) {
   const match = useEmployeeMatch(user.username),
@@ -142,6 +143,7 @@ export function UserProfile({ user }: { user: UserDetail }) {
         )}
       </section>
       </div>
+      <UserReviewProgress username={user.username} />
       <FunctionalGroupPanel username={user.username} />
 
       {employee?.account_status === 'Disabled' &&

@@ -87,8 +87,8 @@ restore alone is staged for an explicit host restart. History supports download,
 Downloads accept standard Content-Disposition filenames, including UTF-8 filename*, and retain exact archive bytes. History rechecks recorded size/hash.
 
 Recovery key creation/export is local-only through the packaged Service Manager or server CLI: it needs no SDK, listener or service restart.
-Provision before installing a virtual-account service so installation grants that account read access; if already installed, use the exact reviewed
-configuration's explicit Reconfigure operation to apply grants. Never regenerate a configured key, change its cryptographic identifiers, overwrite a
+Service Manager `CreateKey` grants the installed service identity read access to the new key file only; for an existing key use Service Manager
+`GrantKeyAccess`. Deployment and restore re-apply the same read grant. Never regenerate a configured key, change its cryptographic identifiers, overwrite a
 recovery export, print key bytes or log administrator codes. Browser recovery-copy verification requires current-password reauthentication on a Server,
 a five-minute session-bound one-use proof, administrator permission and CSRF. The browser keeps entered secrets only in memory and clears them.
 
@@ -105,6 +105,6 @@ the UI never auto-confirms an activated migration and confirmation never deletes
 
 ## Storage cost
 
-The prototype stores canonical records as JSON rows. For the large synthetic set (97 k role rows, 101 k user rows, 1.8 k SoD rows) the
+Canonical records are stored as JSON rows (the design measured during the migration). For the large synthetic set (97 k role rows, 101 k user rows, 1.8 k SoD rows) the
 database holds every revision; retired revisions are kept as evidence. A product needs a retention policy for retired revisions or a
 content-addressed record store (many revisions share most rows). Not measured: database file growth over many revisions.

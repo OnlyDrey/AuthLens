@@ -1,7 +1,7 @@
 # Dashboard and shared notifications
 
 Dashboard is the default landing page, available from the main navigation and at
-`#/dashboard`. Explicit `#/role-lookup`, `#/user-access` and `#/release-roles` routes
+`#/dashboard`. Explicit `#/role-lookup`, `#/users` and `#/users/release-access` routes
 still work, and an existing detail history entry remains meaningful. No historical trends are inferred
 from a single import. Data stays on the configured AuthLens instance; desktop defaults to loopback.
 
@@ -19,13 +19,72 @@ Future assignment records are detected but not shown here.
 
 - **Access & Risk.** SAP users as the headline row (larger number), then AD disabled / SAP active, Role assignment records, Role/T-code mappings, Catalogue roles and Release roles as compact rows. Each row opens the matching view; AD disabled / SAP active opens Account Review with that finding.
 - **Review Progress.** The single Dashboard presentation of review completion: the percentage, reviewed of all imported accounts, one stacked bar (completed green, not yet reviewed neutral gray, outdated amber) and three rows that open Account Review with the Completed, Pending or Outdated filter. With no completed reviews no success color is shown. There is no separate Accounts requiring review or Review completion tile.
-- **Directory & Data Health.** The match percentage (matched SAP identities of all applicable SAP identities) with a progress bar colored by the central thresholds in `frontend/src/lib/health.ts` (green from 95%, amber from 85%, red below; 251 of 264 is green). The color describes directory matching quality only, never other sources or SAP authorization. Rows: Matched identities, Missing matches (SAP user without an email, or an email not in the directory), Ambiguous matches (duplicate directory email, or an SAP email shared by several users) and Position changes. Matched, missing and ambiguous partition the SAP users (the backend counts the existing match statuses, nothing is guessed); Position changes is an independent signal and never changes the percentage. Each row opens Account Review with the matching filter (`matched`, `directory_missing`, `directory_ambiguous`, `position_change`), shown as a removable chip.
+- **Directory & Data Health** (administrators only, NAV-5: the whole card is hidden for other roles, and `GET /api/dashboard` leaves its figures out for them). The match percentage (matched SAP identities of all applicable SAP identities) with a progress bar colored by the central thresholds in `frontend/src/lib/health.ts` (green from 95%, amber from 85%, red below; 251 of 264 is green). The color describes directory matching quality only, never other sources or SAP authorization. Rows: Matched identities, Missing matches (SAP user without an email, or an email not in the directory), Ambiguous matches (duplicate directory email, or an SAP email shared by several users) and Position changes. Matched, missing and ambiguous partition the SAP users (the backend counts the existing match statuses, nothing is guessed); Position changes is an independent signal and never changes the percentage. Each row opens Account Review with the matching filter (`matched`, `directory_missing`, `directory_ambiguous`, `position_change`), shown as a removable chip.
 - **Segregation of Duties.** Users with potential conflicts, user-risk findings, SoD reviews pending, open and overdue remediation actions, from the Dashboard's own request (no SoD page visit is needed). Hidden when SoD is disabled. The card distinguishes four states: *loading* ("Preparing SoD analysis…" while the application is still restoring data or the request has not answered; never a missing-data verdict), *failed* (the request failed; message and **Try again**), *unavailable* (a real cause: the backend names the missing inputs, for example "The SoD matrix is not loaded", or says that User-Role Mapping is disabled, with an **Open SoD source** button, a shared secondary button with an icon, that opens the matching source in Settings) and *ready*. Counts are never zero-filled.
 - **Role Distribution.** The five largest SAP areas with count and share; **Show all N areas** opens a dialog with every area (Escape closes it and returns focus). Each area keeps its drill-down; the card height never changes.
 - **Assignment Distribution.** Five non-overlapping ranges of distinct currently valid roles per SAP user: 0-5, 6-10, 11-20, 21-30 and 31+. The population is every applicable SAP user, users without a valid role included in the first range, each user counted once, so the five counts sum to the SAP user total. Duplicate assignment records of one role count once. All bars share one scale; tooltips carry the exact percentage. Each bar opens User Access with the range applied (the `assignment_band` filter, also available as **Currently valid roles** in the User Access filters and in saved filters; earlier ranges in saved filters stay valid).
 - **Data Sources & Configuration.** One compact card per relevant source (Role Catalogue, User-Role Mapping, Employee Directory, SoD Matrix; a source is shown when it is enabled or configured). Each card has an honest state computed from what the backend holds (Ready, Loading, Refreshing, Failed, Not loaded, Not configured, Disabled; never Ready just because it is enabled), the mode, source-specific records (composite roles, users and assignment records, directory records, matrix records) and the last import. Selecting a card opens that source in Settings.
 - **Explanations.** Technical notes sit in an info popover beside the card title.
 - No horizontal scroll from 375 px upward.
+
+## Global and filtered modes (WP30)
+
+One dashboard serves both modes. Without filters it is the **global overview** of the validated SAP data. The **Filters** button opens the
+shared filter sidebar used by User Access (BUG-014): integrated on the left of the cards from 1024 px wide (the cards reflow beside it; no
+overlay), the shared drawer on narrow screens. It is closed by default, remembers its own open state, and edits a draft: nothing changes until
+**Apply filters**; **Clear** in the sidebar header and **Reset filters** in the toolbar clear the draft and the applied filters. Showing or
+hiding the sidebar keeps the applied filters. The button shows the number of selected values, removable chips under
+the toolbar show every applied value, and a status line states whether the overview is global or filtered. Clearing the filters restores the
+global overview. Saved filters use the view `dashboard`; a loaded definition is validated value by value. Dashboard filters are temporary page
+filters: like every page (BUG-08), the dashboard opens in the global mode from the main navigation; a saved filter brings a population back.
+
+| Area | Dimension (query parameter) | Values and source |
+| --- | --- | --- |
+| Organization | Functional Group (`functional_groups`), Manager (`managers`), exact usernames (`usernames`) | Existing shared population filters |
+| Organization | Department (`departments`), Site (`sites`), Title (`titles`), Directory account status (`ad_states`) | Employee Directory, matched identities only; hidden when the directory is not available |
+| SAP account | User group (`user_groups`), User type (`user_types`) | User-Role Mapping account and assignment evidence |
+| SAP account | Account validity (`account_states`: `valid`, `future`, `expired`, `unknown`), Account status (`lock_states`: `locked`, `unlocked`, `unknown`) | Account intervals evaluated today; lock status as in Account Review |
+| Access | Assigned role (`roles`), Assigned transaction (`tcodes`), Role type (`role_types`: `business` ZC, `release` ZO, `other`), Organizational suffix (`org_suffixes`) | Currently valid assignments only; a suffix is a final business-role segment used under at least two role stems (the Access Package rule) |
+| Governance | SoD risk (`sod_risks`) | Current SoD findings (enabled SoD with a loaded matrix; otherwise 409 and no values) |
+| Governance | Review status (`review_states`: `completed`, `pending`, `outdated`) | Current Account Review state; outdated reviews are also pending |
+
+Values combine with **OR within a dimension and AND between dimensions** (at most 200 values per dimension; more is refused with 422).
+`GET /api/dashboard/filter-options` lists only values present in the current data, with user counts; nothing is invented. The filters are
+resolved by the shared server-side population resolver (`SubjectSelection`), which Account Review, User Access, Release Roles, Employee
+Directory and SoD governance use as well, so the same query parameters scope the SoD summary.
+
+**Access matching** (`access_scope`). *User population* (default): a user matches an access dimension when any current assignment matches it,
+so a role and a transaction may come from different assignments of the same user, and access metrics show the users' complete current access.
+*Matching access* (`access_scope=matching`): one current assignment must match every active access filter at once, and access metrics count only
+those assignments. In both modes SoD is evaluated over the selected users' complete access: a genuine conflict is never hidden because one
+conflicting role does not match an access filter. Reviews, SoD decisions, period snapshots and historical evidence are never reinterpreted
+through current directory or assignment data; governance dimensions read the current evaluation only.
+
+**Drill-down.** Opening a metric carries the population: organization filters travel as they are; when another dimension is active the
+response includes `population_usernames` (up to 500), and the target view opens with those exact usernames. Larger populations open with the
+organization filters only, which the status line states.
+
+### Metric scope matrix
+
+| Metric (id) | Without filters | With filters | Matching access |
+| --- | --- | --- | --- |
+| Catalogue roles (`roles`), Enabled SAP areas (`areas`), Role/T-code mappings (`mappings`) | Catalogue | **Global**, marked "Global" | Global |
+| SAP users (`users`) | All users | Users in the population | Same population (one assignment matches all access filters) |
+| Distinct assigned roles (`assigned_roles`), Transaction codes in use (`assigned_tcodes`), Role/T-code mappings in use (`assigned_mappings`) | All current business and release access | Complete current access of the population (shown on the card when filtered) | Only matching current assignments |
+| Role assignment records (`assignments`), Users with assignments (`assigned_users`), Release roles (`releases`), Expired/Future assignment records | All records | Records of the population | Records of the population that match the access filters |
+| Review progress (`reviewed`, `pending`, `outdated`, `account_review`), Position changes, AD disabled / SAP active | All accounts | Accounts in the population | Same population |
+| Directory matching (`email_matches`, `directory_missing`, `directory_ambiguous`, `unresolved`) | All SAP identities | Identities in the population | Same population |
+| Employee Directory records (`employees`) | Directory total | **Global**, marked "Global" | Global |
+| Segregation of Duties card (`/api/sod/overview`) | All users | Users in the population, complete access | Users in the population, complete access |
+| Role Distribution | Catalogue roles by area (`scope.role_distribution` `catalogue`) | Catalogue roles currently assigned to the population (`population`) | Only matching assignments |
+| Assignment Distribution | Every SAP user | Users in the population | Users in the population |
+| Data Sources & Configuration, freshness, lifecycle | Global | Global (system metadata) | Global |
+
+`scope.global_metrics` lists the metrics that stay global; `scope.access_semantics` is `user_population` or `matching_access`.
+
+Verification: .NET `DashboardAndSavedFiltersTests` (dimensions, both access modes, governance, SoD risk with a real matrix, options) and
+browser `dashboard-filters.spec.ts`, `filter-consistency.spec.ts`. Performance with large production datasets is not measured yet; the
+resolver evaluates the current snapshot in memory, and SoD and review dimensions load their current evaluations once per request.
 
 ## Segregation of Duties summary
 

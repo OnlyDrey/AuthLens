@@ -95,7 +95,7 @@ Primary actions use the derived accessible action foreground. Secondary/outline 
 
 ## Forms, tables and feedback
 
-`FormField` associates the actual control ID with its label and keeps help/error descriptions out of the accessible name. `Input`, `SearchInput`, `Select` and `Combobox` share dimensions. Select owns its chevron; callers must not add another. Searchable controls use the existing portal combobox, not native datalists. Multi-value transaction entry remains the existing `TransactionFilter` with shared chips and operator buttons; no redundant generic MultiSelect was introduced.
+`FormField` associates the actual control ID with its label and keeps help/error descriptions out of the accessible name. `Input`, `SearchInput`, `Select` and `Combobox` share dimensions. Select owns its chevron; callers must not add another. On touch input (`pointerType` `touch`) Select leaves the platform picker alone instead of opening its custom popup, so iOS Safari never shows two lists (BUG-011). Searchable controls use the existing portal combobox, not native datalists. Multi-value transaction entry remains the existing `TransactionFilter` with shared chips and operator buttons; no redundant generic MultiSelect was introduced.
 
 Date entry remains `NorwegianDateInput`, with Norwegian labels, Monday-first floating calendar, keyboard navigation and DD.MM.YYYY entry. ISO date-only comparison and SAP maximum-date semantics remain unchanged.
 
@@ -121,7 +121,7 @@ Connection and session problems are reported once, at application level, by `Ses
 | Keyboard focus | One ring from tokens (`--focus-width`, `--focus-offset`, `--focus-radius`): solid, 2 px, always rounded. Inset only where a container clips the ring (tab strips, table rows); tabs use the same ring instead of a bottom bar; plain elements with square corners get the shared radius while focused |
 | Detailed, comparable records | A table (zebra, hover and selected states) |
 | Compact status or classification | A badge or pill |
-| An exact technical identifier | A codeblock (`RoleIdentifier`): the complete name on one line, never wrapped, scrolled, truncated or ellipsized; the copy control stays beside it and copies the exact value. In a narrow layout the font scales down (not below 9 px) and layouts such as the role card grid adapt their column count; a name that still does not fit stays whole and its surrounding region, never the codeblock, scrolls |
+| An exact technical identifier | A codeblock (`RoleIdentifier`): the name on one line inside its box, never wrapped and never scrolled; the copy control stays beside it and copies the exact value. Layouts such as the role card grid adapt their column count; a name that still does not fit ends in an ellipsis and the full name stays in the tooltip and the accessible name. The font size is fixed, so the geometry never changes with hover, focus or a sidebar transition. Tables and matrices keep their own horizontal scrolling |
 
 Identifiers are never given soft-wrap opportunities. Module icons carry no hover ring; only real controls get hover and focus treatments. Expand and collapse controls use one glyph: right when collapsed, down when expanded (`DisclosureChevron`, and the same control for native `details`), with the 34 px compact hit area shared with icon buttons.
 
@@ -132,6 +132,15 @@ Every `details/summary` uses one compact chevron control (24 px box, its own hov
 ## Capitalization and terminology
 
 Product names stay in Title Case: main navigation, page and section titles, SoD workspace views and the decision names (Activity Review, Role Assignment Review, Risk Acceptance). Table headers, buttons, field labels, filter labels, helper text and chips use sentence case. Official SAP terms keep their SAP spelling, for example **SAP User Group**, **Release Group**, **Release Strategy**, T-code and Risk ID. Use the same label for the same concept on every page.
+
+## Text wrapping (BUG-10, after RC4)
+
+Labels (role categories and module names, KPI and chart labels, option names, group names, headings, metadata values) wrap at whole words with
+`overflow-wrap: break-word`: a label's minimum width is its longest word, so layouts cannot squeeze "Management" into "Managemen / t"; a single word
+longer than its box still breaks. Technical values (paths, hashes, transaction lists, raw CSV cells, technical details) keep
+`overflow-wrap: anywhere`. SAP identifiers are never wrapped or hyphenated (`RoleIdentifier` ends a name that does not fit in an ellipsis with the full value in the tooltip; the copy button writes the exact
+value). No automatic hyphenation is applied, so no arbitrary hyphens appear in Norwegian or English text. Sidebars do not hide overflow: their
+children are constrained to the sidebar width (BUG-09, reopened and fixed for identifiers; see the acceptance tracker).
 
 ## Responsive rules
 

@@ -261,7 +261,7 @@ main h1,.settings-content h1 { font-size:var(--font-title); font-weight:600; }
 .single-role-list .single-role-entry {border-radius:0;padding:0;background:var(--surface)}
 .single-role-list>div:nth-child(even) .single-role-entry,.single-role-list>.single-role-entry:nth-child(even) {background:var(--surface2)}
 .role-module-metadata {min-width:0}
-.role-metadata-title {min-width:0;overflow-wrap:anywhere;flex:1 1 150px}
+.role-metadata-title {min-width:0;overflow-wrap:break-word;flex:1 1 150px}
 .role-detail-heading-content {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--space-2);align-items:start}
 .role-detail-heading-content nav {grid-column:1/-1}
 .role-detail-heading-content .role-detail-identifier {grid-column:1/-1;grid-row:auto;margin:0;min-width:0;max-width:100%;justify-self:end;align-self:center}
@@ -278,6 +278,11 @@ main h1,.settings-content h1 { font-size:var(--font-title); font-weight:600; }
 .matrix-scroll .release-matrix th:first-child {min-width:160px;text-align:left}
 .matrix-scroll .release-matrix thead th {position:sticky;top:0;background:var(--surface2);z-index:2}
 .matrix-scroll .release-matrix tbody th {position:sticky;left:0;background:var(--surface2);z-index:1}
+/* NAV-6 Release Access matrix: one column per strategy key; totals and n/a are visually distinct; the tfoot label stays pinned like row headers. */
+.matrix-scroll .release-matrix tfoot th {position:sticky;left:0;background:var(--surface2);z-index:1}
+.release-matrix .release-total {background:var(--surface2)}
+.release-matrix tfoot th,.release-matrix tfoot td {border-top:2px solid var(--border)}
+.release-na {color:var(--muted);font-size:var(--font-label);font-weight:500}
 .matrix-scroll .release-matrix td[data-intensity="1"] {background:color-mix(in srgb,var(--accent) 5%,var(--surface))}
 .matrix-scroll .release-matrix td[data-intensity="2"] {background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
 .matrix-scroll .release-matrix td[data-intensity="3"] {background:color-mix(in srgb,var(--accent) 16%,var(--surface))}
@@ -326,7 +331,9 @@ main h1,.settings-content h1 { font-size:var(--font-title); font-weight:600; }
 .comparison-strip {display:grid;grid-auto-flow:column;grid-auto-columns:minmax(min(17rem,82vw),1fr);align-items:start;gap:var(--space-4);min-width:0;max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;padding:var(--space-1);scroll-padding-inline:var(--space-1)}
 .comparison-strip:focus-visible {outline:var(--focus-width) solid var(--focus);outline-offset:calc(-1 * var(--focus-width))}
 .comparison-strip-item {min-width:0}
-.release-matrices {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:var(--space-4);min-width:0}
+/* MW-1: one matrix per scope (NAV-6), its container across the whole content width; the earlier two-column grid held the separate PR and
+   PO matrices. The table keeps its compact content-sized columns inside the container and scrolls there only when they exceed it. */
+.release-matrices {display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:var(--space-4);min-width:0}
 .release-matrices>div {min-width:0;max-width:100%}
 .release-matrices>p {grid-column:1/-1}
 @media(min-width:1200px){
@@ -345,7 +352,6 @@ main h1,.settings-content h1 { font-size:var(--font-title); font-weight:600; }
 .review-metrics .compact-health {display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center}
 .review-metrics .compact-health>button {grid-column:1/-1;justify-self:start}
 @media(max-width:1099px){.review-metric-groups{grid-template-columns:minmax(0,1fr)}}
-@media(max-width:800px){.release-matrices{grid-template-columns:minmax(0,1fr)}}
 /* Bound intrinsic nowrap widths so long evidence cannot displace other columns. */
 .comparison-table {table-layout:fixed;min-width:1100px}
 .comparison-table th:nth-child(1) {width:26%}
@@ -381,7 +387,7 @@ button.status-pill:disabled {opacity:.55;cursor:not-allowed}
 .refresh-source-summary>.ui-card[data-changed=false] {background:var(--surface);border-color:var(--border)}
 .refresh-source-summary>.ui-card[data-changed=true] {border-color:var(--success);background:color-mix(in srgb,var(--success) 4%,var(--surface))}
 .refresh-source-summary>.ui-card[data-failed=true] {border-color:var(--error)}
-.change-record-name {display:block;font-size:var(--font-body);margin-bottom:var(--space-2);overflow-wrap:anywhere}
+.change-record-name {display:block;font-size:var(--font-body);margin-bottom:var(--space-2);overflow-wrap:break-word}
 .ui-dialog table td small {display:block;margin-top:var(--space-1);color:var(--muted)}
 .dashboard-distribution-link progress {accent-color:var(--accent2)}
 .coverage-summary>progress {accent-color:var(--info);width:100%}
@@ -429,7 +435,7 @@ progress::-moz-progress-bar { background:var(--progress-fill); }
 /* Compact detail navigation and source controls use the canonical interaction tokens. */
 .detail-back-action {min-height:0;padding:var(--space-1) 0;border:0;background:transparent;border-radius:0}
 .detail-back-action:hover {background:transparent;text-decoration:underline}
-.assignment-description {max-width:28rem;overflow-wrap:anywhere}
+.assignment-description {max-width:28rem;overflow-wrap:break-word}
 .ui-pagination { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; justify-content:center; gap:var(--space-3); width:100%; padding:var(--space-4) 0; font-size:var(--font-label); }
 .ui-pagination[data-sizable] { grid-template-columns:auto auto minmax(0,1fr) auto; }
 .ui-pagination > button { min-width:0; justify-content:center; }
@@ -504,7 +510,7 @@ progress::-moz-progress-bar { background:var(--progress-fill); }
 .ui-side-panel { position:fixed; inset:0 0 0 auto; z-index:90; display:flex; flex-direction:column; width:min(680px,100vw); background:var(--surface); color:var(--text); border-left:1px solid var(--border); box-shadow:var(--elevation); }
 .ui-side-panel:focus { outline:none; }
 .ui-side-panel > header { display:flex; align-items:flex-start; justify-content:space-between; gap:var(--space-3); padding:var(--space-4); border-bottom:1px solid var(--border); }
-.ui-side-panel > header h2 { font-size:16px; font-weight:650; overflow-wrap:anywhere; }
+.ui-side-panel > header h2 { font-size:16px; font-weight:650; overflow-wrap:break-word; }
 .ui-side-panel-body { flex:1; min-height:0; overflow:auto; display:grid; align-content:start; gap:var(--space-4); padding:var(--space-4); }
 .ui-side-panel > footer { padding:var(--space-3) var(--space-4); border-top:1px solid var(--border); }
 .sod-section { display:grid; gap:var(--space-2); min-width:0; padding-bottom:var(--space-3); border-bottom:1px solid var(--border); }
@@ -550,7 +556,8 @@ progress::-moz-progress-bar { background:var(--progress-fill); }
 .filter-sidebar > header h2 { margin-right:auto; }
 .filter-clear-all { white-space:nowrap; }
 .filter-sidebar > header h2 { font-size: 0.9rem; font-weight: 600; }
-.filter-sidebar-body { padding: 0.75rem; }
+.filter-sidebar-body { padding: 0.75rem; min-width: 0; }
+.filter-sidebar-body :where(.ui-field, .shared-select, .saved-filter-panel, [role="group"]) { min-width: 0; max-width: 100%; }
 .filter-layout[data-wide='true'] .filter-sidebar { position: sticky; top: 0.5rem; max-height: calc(100vh - 1rem); overflow: auto; }
 .filter-layout[data-wide='false'] .filter-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 80; width: min(20rem, 92vw); overflow: auto; border-radius: 0; }
 .filter-backdrop { position: fixed; inset: 0; z-index: 70; background: rgb(0 0 0 / 0.4); }
@@ -710,7 +717,7 @@ progress::-moz-progress-bar { background:var(--progress-fill); }
 
 .source-health-card { display:grid; align-content:start; gap:var(--space-3); min-width:0; }
 .source-health-header { display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); min-width:0; }
-.source-health-header h3 { display:flex; align-items:center; gap:var(--space-2); min-width:0; overflow-wrap:anywhere; }
+.source-health-header h3 { display:flex; align-items:center; gap:var(--space-2); min-width:0; overflow-wrap:break-word; }
 .source-health-header h3 svg { flex-shrink:0; color:var(--muted); }
 .source-health-header .evidence-badge { flex-shrink:0; margin-left:auto; }
 .source-essentials { display:grid; gap:var(--space-2); min-width:0; }
@@ -729,12 +736,14 @@ progress::-moz-progress-bar { background:var(--progress-fill); }
 .role-identifier { display:inline-flex; align-items:center; flex-wrap:nowrap; gap:var(--space-1); width:fit-content; max-width:100%; min-width:0; padding:2px 4px 2px 8px; vertical-align:middle; }
 /* SAP identifiers are never broken: one line, scrolling horizontally inside the codeblock when the container is narrower. The copied value is always the full identifier. */
 /* A SAP identifier is one complete line (no wrapping, scrolling, clipping or ellipsis); RoleIdentifier scales the font down in narrow layouts. */
-.role-identifier code { flex:0 0 auto; min-width:0; white-space:nowrap; overflow-wrap:normal; word-break:normal; overflow:visible; text-overflow:clip; line-height:1.4; font-size:var(--role-code-size,var(--font-label)); }
+/* BUG-09: the name shrinks and truncates inside its box (full value in the title and the copy action); icons never shrink. */
+.role-identifier code { flex:0 1 auto; min-width:0; white-space:nowrap; overflow-wrap:normal; word-break:normal; overflow:hidden; text-overflow:ellipsis; line-height:1.4; font-size:var(--font-label); }
 .role-identifier-link { min-width:0; max-width:100%; }
-.role-identifier-link code { flex:0 0 auto; }
+.role-identifier-link code { flex:0 1 auto; min-width:0; }
 /* the container of a role codeblock may shrink below the name so the name is fitted to it instead of pushing its neighbours out */
 *:has(> .role-identifier) { min-width:0; }
-.role-identifier > .role-identifier-link { flex:0 0 auto; }
+.role-identifier > .role-identifier-link { flex:0 1 auto; min-width:0; overflow:hidden; }
+.role-identifier > button, .role-identifier > a:not(.role-identifier-link) { flex:none; }
 
 /* Shared role presentation (RoleEntry). Line 1: module badge, description, counts and actions. Line 2: identifier. Line 3: supporting metadata. */
 .role-entry { display:flex; flex-direction:column; align-items:flex-start; gap:var(--space-2); flex:1; min-width:0; width:100%; }
@@ -743,7 +752,7 @@ progress::-moz-progress-bar { background:var(--progress-fill); }
 .role-entry-head { display:flex; align-items:center; flex-wrap:nowrap; gap:var(--space-2); width:100%; min-width:0; min-height:var(--control-compact); }
 .role-entry-head > .module-badge { flex:none; }
 .role-entry-title { margin:0; flex:1 1 0; min-width:0; font-size:var(--font-body); font-weight:700; line-height:1.4; color:var(--text); }
-.role-entry-title[data-empty] { overflow-wrap:anywhere; font-style:italic; color:var(--muted); font-weight:500; }
+.role-entry-title[data-empty] { overflow-wrap:break-word; font-style:italic; color:var(--muted); font-weight:500; }
 .role-entry-actions { display:flex; align-items:center; gap:var(--space-2); margin-left:auto; flex-shrink:0; }
 .role-entry[data-density="compact"] .role-entry-title { font-size:var(--font-label); font-weight:600; }
 .role-entry[data-density="detailed"] .role-entry-title { font-size:var(--font-title); font-weight:700; }
@@ -851,8 +860,8 @@ progress::-moz-progress-bar { background:var(--progress-fill); }
 .multi-option { justify-content:flex-start; align-items:flex-start; }
 .multi-option > .multi-check { margin-top:.2rem; }
 .multi-option-text { display:grid; gap:1px; min-width:0; flex:1 1 auto; }
-.multi-option-name { font-weight:600; overflow-wrap:anywhere; }
-.multi-option-desc { color:var(--muted); font-size:var(--font-meta); overflow-wrap:anywhere; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; overflow:hidden; }
+.multi-option-name { font-weight:600; overflow-wrap:break-word; }
+.multi-option-desc { color:var(--muted); font-size:var(--font-meta); overflow-wrap:break-word; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; overflow:hidden; }
 .multi-check { display:inline-flex; flex:none; align-items:center; justify-content:center; width:1rem; height:1rem; border:1.5px solid var(--border-strong,var(--muted)); border-radius:4px; background:var(--surface); color:var(--on-accent); }
 .multi-check[data-checked] { border-color:var(--accent); background:var(--accent); color:var(--on-accent); }
 
@@ -911,13 +920,13 @@ progress::-moz-progress-bar { background:var(--progress-fill); }
 /* SoD overview: review periods and evidence freshness as structured, scannable rows. */
 .overview-periods { display:grid; gap:var(--space-2); margin:0; padding:0; list-style:none; }
 .overview-periods li { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(5rem,9rem) auto; align-items:center; gap:var(--space-2) var(--space-3); padding:var(--space-2) 0; border-bottom:1px solid var(--border); }
-.overview-period-name { font-weight:600; overflow-wrap:anywhere; }
+.overview-period-name { font-weight:600; overflow-wrap:break-word; }
 .overview-period-count { font-size:var(--font-label); color:var(--text2); white-space:nowrap; }
 .overview-periods progress { width:100%; }
 .overview-facts { display:grid; gap:0; margin:0; }
 .overview-facts > div { display:grid; grid-template-columns:minmax(9rem,12rem) minmax(0,1fr); gap:var(--space-3); padding:var(--space-2) 0; border-bottom:1px solid var(--border); }
 .overview-facts dt { color:var(--muted); font-size:var(--font-label); }
-.overview-facts dd { margin:0; overflow-wrap:anywhere; }
+.overview-facts dd { margin:0; overflow-wrap:break-word; }
 @media(max-width:600px){ .overview-periods li,.overview-facts > div { grid-template-columns:minmax(0,1fr); } }
 
 /* SoD evidence dialog: a labelled trace up front, technical provenance behind a disclosure. */
@@ -1018,7 +1027,7 @@ progress::-moz-progress-bar { background:var(--progress-fill); }
 /* Shared KPI: one informational or interactive summary, compact (one line) or expanded (icon and label above the value). */
 .ui-kpi { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:var(--space-1) var(--space-3); min-width:0; min-height:var(--control-compact); padding:var(--space-1) var(--space-3); border:1px solid var(--border); border-radius:var(--radius-control); background:var(--surface); color:var(--text); font:inherit; text-align:left; }
 .ui-kpi[data-icon="true"] { grid-template-columns:auto minmax(0,1fr) auto auto; }
-.ui-kpi-label { font-size:var(--font-label); color:var(--text2); overflow-wrap:anywhere; }
+.ui-kpi-label { font-size:var(--font-label); color:var(--text2); overflow-wrap:break-word; }
 .ui-kpi-value { font-size:var(--font-section); font-weight:700; font-variant-numeric:tabular-nums; line-height:1.2; }
 .ui-kpi-icon { display:inline-flex; color:var(--text2); }
 .ui-kpi-arrow { color:var(--muted); }
@@ -1065,7 +1074,7 @@ details:not(.preview-cell)[open] > summary::before { transform:rotate(90deg); }
 .position-cell { display:grid; gap:var(--space-1); min-width:0; }
 .position-line { display:grid; grid-template-columns:4.75rem minmax(0,1fr); gap:var(--space-2); margin:0; font-size:var(--font-meta); }
 .position-label { color:var(--muted); }
-.position-value { overflow-wrap:anywhere; }
+.position-value { overflow-wrap:break-word; }
 .position-line[data-changed] .position-value { font-weight:700; }
 
 /* Account Review KPIs: the review queue (expanded) above the secondary account status (compact). */
@@ -1078,7 +1087,7 @@ details:not(.preview-cell)[open] > summary::before { transform:rotate(90deg); }
 .assigned-role { display:grid; gap:var(--space-1); min-width:0; }
 .assigned-role-head { display:flex; align-items:flex-start; gap:var(--space-2); min-width:0; }
 .assigned-role-head > * { flex:none; }
-.assigned-role-head > .assigned-role-description { flex:1 1 auto; min-width:0; font-weight:600; overflow-wrap:anywhere; }
+.assigned-role-head > .assigned-role-description { flex:1 1 auto; min-width:0; font-weight:600; overflow-wrap:break-word; }
 
 /* Release Roles: role actions and Export CSV share one compact toolbar; Export CSV stays at the right. */
 .release-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-2) var(--space-3); }
@@ -1113,7 +1122,7 @@ details:not(.preview-cell)[open] > summary::before { transform:rotate(90deg); }
 .info-list > li { min-width:0; border-bottom:1px solid var(--border); }
 .info-list > li:last-child { border-bottom:0; }
 .info-row { display:flex; align-items:center; gap:var(--space-2); width:100%; min-width:0; min-height:var(--control-compact); padding:var(--space-1) var(--space-2); border:0; border-radius:var(--radius-control); background:transparent; color:var(--text); font:inherit; font-size:var(--font-label); text-align:left; }
-.info-row-label { flex:1 1 auto; min-width:0; overflow-wrap:anywhere; }
+.info-row-label { flex:1 1 auto; min-width:0; overflow-wrap:break-word; }
 .info-row-label > small { display:block; color:var(--muted); font-size:var(--font-meta); }
 .info-row-icon { display:inline-flex; flex:none; color:var(--text2); }
 .info-row-value { flex:none; font-size:var(--font-section); font-weight:700; font-variant-numeric:tabular-nums; }
@@ -1140,7 +1149,7 @@ button.info-row:focus-visible { outline:var(--focus-width) solid var(--focus); o
 button.chart-row { cursor:pointer; }
 button.chart-row:hover { background:var(--hover); }
 button.chart-row:focus-visible { outline:var(--focus-width) solid var(--focus); outline-offset:calc(var(--focus-offset) * -1); }
-.chart-label { min-width:0; overflow-wrap:anywhere; }
+.chart-label { min-width:0; overflow-wrap:break-word; }
 .chart-track { display:block; height:.625rem; border-radius:999px; background:var(--surface2); box-shadow:inset 0 0 0 1px var(--border); overflow:hidden; }
 .chart-fill { display:block; height:100%; border-radius:inherit; background:var(--accent); }
 .chart-value { font-variant-numeric:tabular-nums; text-align:right; }
@@ -1195,10 +1204,10 @@ button.chart-row:focus-visible { outline:var(--focus-width) solid var(--focus); 
 .dashboard-source:hover { background:var(--hover); }
 .dashboard-source:focus-visible { outline:var(--focus-width) solid var(--focus); outline-offset:var(--focus-offset); }
 .dashboard-source-head { display:flex; align-items:center; gap:var(--space-2); min-width:0; }
-.dashboard-source-head > strong { flex:1 1 auto; min-width:0; overflow-wrap:anywhere; }
+.dashboard-source-head > strong { flex:1 1 auto; min-width:0; overflow-wrap:break-word; }
 .dashboard-source-arrow { flex:none; color:var(--muted); }
 .dashboard-source-badges { display:flex; flex-wrap:wrap; gap:var(--space-1); }
-.dashboard-source-meta { color:var(--text2); font-size:var(--font-meta); overflow-wrap:anywhere; }
+.dashboard-source-meta { color:var(--text2); font-size:var(--font-meta); overflow-wrap:break-word; }
 .dashboard-source-meta[data-tone="warning"] { color:var(--warning); }
 .dashboard-source-meta[data-tone="error"] { color:var(--error); }
 @media(max-width:1199px){ .dashboard-cards { grid-template-columns:repeat(2,minmax(0,1fr)); } }
@@ -1349,8 +1358,7 @@ progress::-webkit-progress-bar,.dashboard-workspace progress::-webkit-progress-b
 .matrix-grid .matrix-row-head { box-shadow:1px 0 0 var(--border); }
 
 /* A name too long even at the smallest readable size stays one complete line; the surrounding region (not the codeblock) scrolls to it. */
-*:has(> .role-identifier[data-fit="overflow"]) { min-width:0; max-width:100%; overflow-x:auto; overflow-y:hidden; scrollbar-gutter:stable; }
-*:has(> .role-identifier[data-fit="overflow"]) > .role-identifier { overflow:visible; }
+
 
 /* Review context: the evaluation information sits on the dropdown's row and is centered on the control, not on label plus control. */
 .sod-context-bar { align-items:flex-end; }
@@ -1391,7 +1399,7 @@ summary:focus-visible,div[tabindex="0"]:focus-visible,a.role-identifier-link:foc
 
 /* Review Periods: the name and its Active period badge sit 8 px apart on one line and wrap together on narrow cells. */
 .sod-period-title { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-1) var(--space-2); min-width:0; }
-.sod-period-title > strong { min-width:0; overflow-wrap:anywhere; }
+.sod-period-title > strong { min-width:0; overflow-wrap:break-word; }
 
 /* Account Review overview: progress (about 1/3) beside attention (about 2/3), stacked on narrow screens. Both panels share one height. */
 .review-overview { grid-template-columns:minmax(0,1fr); align-items:stretch; }
@@ -1439,7 +1447,7 @@ summary:focus-visible,div[tabindex="0"]:focus-visible,a.role-identifier-link:foc
 .sod-pill-origin { color:var(--muted); font-weight:400; }
 .sod-pill-alternate { display:block; margin-top:var(--space-1); color:var(--text2); font-size:var(--font-meta); }
 .sod-pill-details .ui-metadata-list > div { display:grid; grid-template-columns:minmax(0,1fr); gap:2px; text-align:left; }
-.sod-pill-details .ui-metadata-list dd { text-align:left; margin:0; overflow-wrap:anywhere; }
+.sod-pill-details .ui-metadata-list dd { text-align:left; margin:0; overflow-wrap:break-word; }
 .sod-pill-details .ui-metadata-list dt { color:var(--muted); font-size:var(--font-meta); }
 
 /* Queue widths belong to its eight review columns, rather than catalogue identity columns. */
@@ -1494,19 +1502,30 @@ summary:focus-visible,div[tabindex="0"]:focus-visible,a.role-identifier-link:foc
 .export-menu-item > span > span { color:var(--muted); font-size:var(--font-meta); }
 
 /* User Directory: scroll is confined to the table; selection and username stay pinned. */
-.user-directory-table { overflow-x:auto; overscroll-behavior-x:contain; }
+/* BUG-013: focus and scroll-into-view stop beside the two sticky columns (2.75rem + at least 9rem), never under them. */
+.user-directory-table { overflow-x:auto; overscroll-behavior-x:contain; scroll-padding-inline-start:calc(11.75rem + var(--space-2)); }
 .user-directory-table table { min-width:72rem; width:100%; }
 .user-directory-table th,.user-directory-table td { white-space:nowrap; }
 .user-directory-table tbody td { vertical-align:middle; }
 .user-directory-table .ud-cell { max-width:16rem; min-width:8rem; }
 .user-directory-table .ud-cell[data-col="email"] { min-width:12rem; max-width:20rem; }
-.user-directory-table .ud-cell[data-col="fg"] { min-width:18rem; max-width:20rem; padding-right:var(--space-5); vertical-align:middle; }
+.user-directory-table .ud-cell[data-col="fg"] { max-width:20rem; vertical-align:middle; }
 .user-directory-table .ud-ellipsis { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.fg-chips { display:inline-flex; align-items:center; gap:var(--space-2); width:17rem; max-width:100%; min-width:0; white-space:normal; }
-.fg-chip-stack { display:grid; flex:1; min-width:0; gap:var(--space-1); }
-.fg-chip { display:block; width:100%; height:1.75rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 var(--space-2); border:1px solid var(--border); border-radius:999px; background:var(--surface2); color:var(--text); font-size:var(--text-xs,0.75rem); line-height:calc(1.75rem - 2px); }
-.fg-group-action { flex:none; }
-.fg-group-action > .ui-button { width:5.5rem; min-height:1.75rem; height:1.75rem; padding:0 var(--space-1); white-space:nowrap; }
+/* BUG-013: one line per cell: the named pill shrinks and truncates, the +X pill keeps its full width; no fixed column width (BUG-06). */
+.fg-chips { display:inline-flex; flex-wrap:nowrap; align-items:center; gap:var(--space-1); max-width:100%; min-width:0; vertical-align:middle; white-space:nowrap; }
+.fg-chip-item { display:flex; flex:0 1 auto; min-width:0; }
+.fg-chip-item-more { flex:none; }
+.fg-chip { display:inline-flex; align-items:center; max-width:14rem; min-width:0; height:1.75rem; padding:0 var(--space-2); border:1px solid var(--border); border-radius:999px; background:var(--surface2); color:var(--text); font:inherit; font-size:var(--text-xs,0.75rem); line-height:1; white-space:nowrap; }
+.fg-chip-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+button.fg-chip { cursor:pointer; }
+button.fg-chip:hover { border-color:var(--accent); background:var(--hover); }
+button.fg-chip:focus-visible { outline:var(--focus-width) solid var(--focus); outline-offset:var(--focus-offset); }
+.fg-chip-more { flex:none; min-width:2rem; justify-content:center; font-variant-numeric:tabular-nums; }
+/* BUG-03: groups in the "Functional Groups of" dialog open their member list. */
+.fg-group-link { display:flex; width:100%; min-width:0; align-items:center; gap:var(--space-2); padding:var(--space-2); border-radius:var(--radius-control); text-align:left; color:var(--text); }
+.fg-group-link:hover { background:var(--hover); }
+.fg-group-link:focus-visible { outline:var(--focus-width) solid var(--focus); outline-offset:var(--focus-offset); }
+.fg-group-name { flex:1 1 auto; min-width:0; overflow-wrap:break-word; }
 .user-directory-table .ud-sticky-1,.user-directory-table .ud-sticky-2 { position:sticky; z-index:1; background:var(--surface); }
 .user-directory-table thead .ud-sticky-1,.user-directory-table thead .ud-sticky-2 { background:var(--surface2); z-index:2; }
 .user-directory-table .ud-sticky-1 { left:0; width:2.75rem; min-width:2.75rem; max-width:2.75rem; padding-left:var(--space-3); padding-right:var(--space-3); }
@@ -1522,7 +1541,7 @@ summary:focus-visible,div[tabindex="0"]:focus-visible,a.role-identifier-link:foc
 .ui-dialog[data-size="medium"] { width:min(720px,100%); }
 .ui-dialog[data-size="narrow"] { width:min(520px,100%); }
 .ui-dialog-heading { display:grid; gap:2px; min-width:0; }
-.ui-dialog-heading h2 { overflow-wrap:anywhere; }
+.ui-dialog-heading h2 { overflow-wrap:break-word; }
 /* Password field: the visibility toggle sits inside the control's right edge. */
 .ui-password { position:relative; display:block; }
 .ui-password > .ui-control { width:100%; padding-right:2.5rem; }
@@ -1555,7 +1574,7 @@ summary:focus-visible,div[tabindex="0"]:focus-visible,a.role-identifier-link:foc
 .user-admin-toolbar > .ui-search { flex:1 1 16rem; min-width:12rem; }
 .user-admin-toolbar > .ui-field { flex:0 1 11rem; min-width:9rem; }
 .user-admin-count { font-size:var(--font-meta); color:var(--muted); }
-.user-admin-table td.user-admin-name { max-width:18rem; overflow-wrap:anywhere; }
+.user-admin-table td.user-admin-name { max-width:18rem; overflow-wrap:break-word; }
 .user-admin-table td.col-actions, .user-admin-table th.col-actions { width:1%; white-space:nowrap; text-align:right; }
 .security-audit .access-table { max-height:22rem; }
 @media(max-width:640px){ .account-form-grid { grid-template-columns:minmax(0,1fr); } .user-admin-toolbar > .ui-field { flex:1 1 100%; } }
@@ -1575,7 +1594,7 @@ summary:focus-visible,div[tabindex="0"]:focus-visible,a.role-identifier-link:foc
  header[role="banner"] .app-header-row { flex-wrap:wrap; padding-block:var(--space-2); }
  .app-header-row .app-brand { flex:1 1 auto; gap:var(--space-2); }
  header[role=banner] .app-brand img { height:28px; max-width:48px; }
- .app-header-row .app-brand p { overflow-wrap:anywhere; }
+ .app-header-row .app-brand p { overflow-wrap:break-word; }
  .app-header-row .app-utilities .ui-button,.app-header-row>div:first-child .ui-button { min-width:44px; min-height:44px; }
 }
 @media(max-width:767px) {
@@ -1605,8 +1624,8 @@ summary:focus-visible,div[tabindex="0"]:focus-visible,a.role-identifier-link:foc
  .app-brand { flex:1 1 12rem; }
  .app-utilities { gap:var(--space-1); }
  .app-brand > div { min-width:0; }
- .app-brand > div > p:last-child { overflow-wrap:anywhere; }
- .startup-card h1 { overflow-wrap:anywhere; }
+ .app-brand > div > p:last-child { overflow-wrap:break-word; }
+ .startup-card h1 { overflow-wrap:break-word; }
  .startup-card input { min-width:0; width:100%; }
  .dashboard-source-meta { flex-wrap:wrap; }
 }
@@ -1617,7 +1636,78 @@ table[data-nowrap] [data-wrap="groups"] { white-space:normal; min-width:12rem; m
 .table-column-options { display:grid; gap:var(--space-1); padding:0; margin:var(--space-3) 0; list-style:none; }
 .table-column-options > li { display:flex; align-items:center; gap:var(--space-2); min-width:0; padding:var(--space-2); border:1px solid var(--border); border-radius:var(--radius-control); }
 .table-column-options label { display:flex; flex:1; align-items:center; gap:var(--space-2); min-width:0; min-height:44px; }
-.table-column-options label span { overflow-wrap:anywhere; }
+.table-column-options label span { overflow-wrap:break-word; }
 .table-column-options .ui-button { flex-shrink:0; }
 
 .mobile-navigation details.primary-nav-group > summary.primary-nav-button::before { display:none; }
+
+/* WP33 file location choice and host file picker (shared by every file-based source). Mobile: the picker stacks, the list scrolls inside the
+   dialog, touch targets stay at least 44px and long paths wrap at separators instead of widening the dialog. */
+.source-location { display:grid; grid-template-columns:repeat(auto-fit,minmax(14rem,1fr)); gap:var(--space-2); margin:0; padding:0; border:0; min-width:0; }
+.source-location legend { margin-bottom:var(--space-2); font-size:var(--font-label); font-weight:600; color:var(--text2); }
+.source-location label { display:flex; gap:var(--space-2); align-items:flex-start; min-height:44px; padding:var(--space-3); border:1px solid var(--border); border-radius:var(--radius-control); background:var(--surface); cursor:pointer; }
+.source-location label[data-checked] { border-color:var(--accent2); background:var(--hover); }
+.source-location label:focus-within { outline:var(--focus-width) solid var(--focus); outline-offset:var(--focus-offset); }
+.source-location input { margin-top:0.2rem; flex:none; }
+.source-location span { display:grid; gap:2px; min-width:0; }
+.source-location small { color:var(--muted); font-size:var(--font-meta); overflow-wrap:break-word; }
+.host-source-path { display:flex; flex-wrap:wrap; align-items:flex-end; gap:var(--space-2); min-width:0; }
+.host-source-path > :first-child { flex:1 1 18rem; min-width:0; }
+.host-file-picker { display:grid; grid-template-columns:minmax(12rem,16rem) minmax(0,1fr); gap:var(--space-4); min-width:0; min-height:min(60vh,32rem); }
+.host-file-locations { display:grid; align-content:start; gap:var(--space-2); min-width:0; }
+.host-file-locations ul { display:grid; gap:2px; margin:0; padding:0; list-style:none; }
+.host-file-host { display:flex; align-items:center; gap:var(--space-2); margin:0; overflow-wrap:anywhere; }
+.host-file-location { display:grid; grid-template-columns:auto minmax(0,1fr); column-gap:var(--space-2); align-items:center; width:100%; min-height:44px; padding:var(--space-2); border-radius:var(--radius-control); text-align:left; color:var(--text); }
+.host-file-location span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.host-file-location small { grid-column:2; color:var(--muted); font-size:var(--font-meta); }
+.host-file-location:hover, .host-file-entry:hover:not(:disabled), .host-file-breadcrumbs button:hover { background:var(--hover); }
+.host-file-location[aria-current] { background:var(--hover); color:var(--accent2); font-weight:600; }
+.host-file-location:focus-visible, .host-file-entry:focus-visible, .host-file-breadcrumbs button:focus-visible, .host-file-sort:focus-visible { outline:var(--focus-width) solid var(--focus); outline-offset:var(--focus-offset); }
+.host-file-main { display:grid; align-content:start; gap:var(--space-3); min-width:0; }
+.host-file-address { display:flex; flex-wrap:wrap; align-items:flex-end; gap:var(--space-2); min-width:0; }
+.host-file-address > .ui-field, .host-file-address > div:not(:first-child):not(:last-child) { flex:1 1 14rem; min-width:0; }
+.host-file-breadcrumbs { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-2); min-width:0; }
+.host-file-breadcrumbs ol { display:flex; flex-wrap:wrap; align-items:center; gap:2px; margin:0; padding:0; list-style:none; min-width:0; }
+.host-file-breadcrumbs li { display:flex; align-items:center; min-width:0; }
+.host-file-breadcrumbs button { min-height:32px; padding:0 var(--space-1); border-radius:var(--radius-control); color:var(--text2); overflow-wrap:anywhere; text-align:left; }
+.host-file-breadcrumbs button[aria-current] { color:var(--text); font-weight:600; }
+.host-file-list { max-height:min(50vh,26rem); overflow:auto; overscroll-behavior:contain; border:1px solid var(--border); border-radius:var(--radius-card); scroll-padding:12px; }
+.host-file-list table { width:100%; border-collapse:collapse; }
+.host-file-list th { position:sticky; top:0; z-index:1; background:var(--surface2); text-align:left; font-size:var(--font-label); }
+.host-file-list th, .host-file-list td { padding:var(--space-1) var(--space-2); border-bottom:1px solid var(--border); vertical-align:middle; }
+.host-file-list tr[data-selected] td { background:var(--hover); }
+.host-file-sort { min-height:32px; font-weight:600; color:var(--text2); }
+.host-file-entry { display:flex; align-items:center; gap:var(--space-2); width:100%; min-height:40px; padding:0 var(--space-1); border-radius:var(--radius-control); text-align:left; color:var(--text); }
+.host-file-entry:disabled { color:var(--muted); cursor:not-allowed; }
+.host-file-name { min-width:0; overflow-wrap:anywhere; }
+.host-file-size, .host-file-modified { white-space:nowrap; color:var(--text2); font-size:var(--font-meta); }
+.host-file-path { min-width:0; overflow-wrap:anywhere; font-family:var(--font-mono, ui-monospace, monospace); font-size:var(--font-meta); }
+.host-file-selected { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-2); margin:0; }
+.host-file-problem { display:grid; gap:var(--space-2); padding:var(--space-3); border:1px solid var(--border); border-radius:var(--radius-card); }
+@media (max-width: 720px) {
+  .host-file-picker { grid-template-columns:minmax(0,1fr); min-height:0; }
+  .host-file-locations ul { grid-auto-flow:column; grid-auto-columns:minmax(11rem,70%); overflow-x:auto; overscroll-behavior-x:contain; padding-bottom:var(--space-1); }
+  .host-file-modified { display:none; }
+  .host-file-list { max-height:none; }
+}
+/* BUG-012 (WP29): one compact header row on phones. The brand shrinks and ellipsizes instead of pushing the utilities onto a second row (the
+   header was 116px tall at 390px); actions keep 44px touch targets (WCAG 2.5.5); the header respects safe-area insets (notch, rounded corners) when the page is
+   shown edge to edge. Desktop is unchanged. */
+header[role="banner"] { padding-top:env(safe-area-inset-top,0px); padding-left:env(safe-area-inset-left,0px); padding-right:env(safe-area-inset-right,0px); }
+@media (max-width:767px) {
+  header[role="banner"] .app-header-row { flex-wrap:nowrap; min-height:3.25rem; padding-block:var(--space-1); gap:var(--space-1); }
+  .app-header-row .app-brand { flex:1 1 0; min-width:0; gap:var(--space-2); }
+  .app-header-row .app-brand > div { min-width:0; }
+  .app-header-row .app-brand p { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; overflow-wrap:normal; }
+  .app-header-row .app-utilities { display:flex; flex-shrink:0; gap:0; }
+  .app-header-row .app-utilities .ui-button, .app-header-row .app-utilities button, .app-header-row > button { flex-shrink:0; min-width:44px; min-height:44px; }
+  .settings-workspace .settings-actions { padding-bottom:max(12px, env(safe-area-inset-bottom,0px)); }
+}
+/* BUG-014: dashboard filters use the shared FilterLayout (integrated left sidebar on wide screens, the shared drawer on narrow ones). Cards
+   reflow by the width the workspace actually has, so an open sidebar never squeezes three columns or overflows the page. */
+.dashboard-scope { flex:1 1 18rem; min-width:0; }
+.dashboard-filter-apply { display:grid; }
+.dashboard-filter-apply > .ui-button { width:100%; justify-content:center; }
+.dashboard-workspace { container:dashboard-workspace / inline-size; }
+@container dashboard-workspace (max-width:1040px) { .dashboard-workspace > .dashboard-cards { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@container dashboard-workspace (max-width:640px) { .dashboard-workspace > .dashboard-cards { grid-template-columns:minmax(0,1fr); } }

@@ -13,7 +13,7 @@ public static class V1Access
 {
     private static readonly string[] Statuses = ["", "active", "expired", "future", "unknown"];
     private static readonly string[] Sorts = ["username", "group", "first_name", "last_name", "email", "account_status", "relevant_roles"];
-    private static readonly string[] Validities = ["active", "expired", "future", "unknown", "all"];
+    internal static readonly string[] Validities = ["active", "expired", "future", "unknown", "all"];
 
     internal static DateOnly Today() => DateOnly.FromDateTime(DateTime.Now);
     private static IResult Detail(int status, string detail) => Results.Json(new { detail }, statusCode: status);
@@ -35,6 +35,20 @@ public static class V1Access
 
     private static IEnumerable<Assignment> ExportAssignments(SapUser user, bool showExpired, string status, DateOnly today, HashSet<int>? roleScope) =>
         AuditAssignments(user, showExpired, status, today).Where(a => roleScope is null || roleScope.Contains(a.Id));
+
+    /// <summary>
+    /// Which assignments of the matching users a User Directory export contains (#35). The user population is always resolved with every active
+    /// filter; the scope only decides the rows per user. <c>matching</c> (the default, and the v1 behaviour when the parameter is absent): only
+    /// assignments within the role-filter scope. <c>all_assignments</c>: every visible assignment of each matching user (expired ones still follow
+    /// Show expired assignments). Without role filters both scopes are identical.
+    /// </summary>
+    private static (IResult? Error, HashSet<int>? RoleScope) ExportScope(IQueryCollection q, UserDirectory users, UserLookupQuery query) =>
+        (q["export_scope"].FirstOrDefault() ?? "matching") switch
+        {
+            "matching" => (null, ExportRoleScope(users, query)),
+            "all_assignments" => (null, null),
+            _ => (Detail(422, "export_scope must be matching or all_assignments."), null),
+        };
 
     /// <summary>routers/access.directory_filters: the shared filter set of the user listing, the selection and the export.</summary>
     private static (IResult? Error, (UserLookupQuery Query, bool ShowExpired, string Status) Value) Parse(HttpContext http)
@@ -88,7 +102,8 @@ public static class V1Access
                     },
                 });
             }
-            var roleScope = ExportRoleScope(snapshot.Users, query);
+            var (scopeError, roleScope) = ExportScope(q, snapshot.Users, query);
+            if (scopeError is not null) return scopeError;
             var exportAssignments = result.Sum(u => ExportAssignments(snapshot.Users.Users[u.UserKey], showExpired, status, today, roleScope).Count());
             var groups = snapshot.Users.Users.Values.SelectMany(u => u.Groups).Where(g => g.Length > 0).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
             return Results.Ok(new
@@ -96,7 +111,7 @@ public static class V1Access
                 items = pageItems.Select(Row).ToList(), total = result.Count, offset, limit, username_filter = org.Feedback(result),
                 loaded = snapshot.Ids.Users is not null, catalogue_loaded = snapshot.Catalogue.Roles.Count > 0,
                 report = await UsersReport(http, snapshot, ct),
-                as_of = today.ToString("yyyy-MM-dd"), data_revision = Revision(snapshot), groups, groups_total = snapshot.Users.GroupCount, export_assignments = exportAssignments,
+                as_of = today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), data_revision = Revision(snapshot), groups, groups_total = snapshot.Users.GroupCount, export_assignments = exportAssignments,
             });
         });
 
@@ -113,7 +128,7 @@ public static class V1Access
         });
 
         // GET retains all matching users; POST intersects them with an explicit selected-user list (up to the selection cap).
-        // Both use the same role scope and preserve the CSV contract and MATCHED_FILTER evidence flag.
+        // Both use the same export scope (export_scope, #35) and preserve the CSV contract and MATCHED_FILTER evidence flag.
         api.MapMethods("/access/exports/users", ["GET", "POST"], async (HttpContext http, SnapshotService snapshots, CancellationToken ct) =>
         {
             if (Parse(http) is { Error: { } error }) return error;
@@ -141,19 +156,34 @@ public static class V1Access
             var (found, evidence) = UserLookup.FindWithEvidence(snapshot.Users, snapshot.Catalogue.Roles.Count > 0, query, today, org.DirectoryFields);
             var result = org.Filter(found);
             if (selected is not null) result = result.Where(user => selected.Contains(user.UserKey)).ToList();
-            var roleScope = ExportRoleScope(snapshot.Users, query);
+            var (scopeError, roleScope) = ExportScope(http.Request.Query, snapshot.Users, query);
+            if (scopeError is not null) return scopeError;
             var rows = result.SelectMany(u => ExportAssignments(snapshot.Users.Users[u.UserKey], showExpired, status, today, roleScope)
                 .Select(a => (Assignment: a, Identity: u, Matched: evidence.TryGetValue(u.UserKey, out var hit) && hit.Any(e => e.Id == a.Id)))).ToList();
+            static string Local(string? value) => SapDates.Parse(value) is { } d ? $"{d.Day:00}.{d.Month:00}.{d.Year:0000}" : "";
+            // NAV-4: report options use the shared configurable writer (same rows and evidence flag); without them the v1 output is unchanged.
+            var (report, invalid) = ConfigurableCsv.Parse(http.Request.Query, V1Reports.AssignmentColumns, ';');
+            if (invalid is not null) return invalid;
+            if (report!.Requested)
+            {
+                http.Response.Headers["X-SAP-Lens-Data-Revision"] = Revision(snapshot);
+                return ConfigurableCsv.Render(http, $"authlens-user-directory-review-{today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}.csv", V1Reports.AssignmentColumns, report, [.. rows.Select(row =>
+                {
+                    var interval = SapDates.IntervalStatus(row.Assignment.ValidFrom, row.Assignment.ValidTo, today);
+                    return new string?[] { row.Assignment.Username, row.Identity.FirstName, row.Identity.LastName, row.Identity.Email, row.Assignment.UserGroup, row.Assignment.RoleName,
+                        Local(row.Assignment.ValidFrom), Local(row.Assignment.ValidTo), char.ToUpperInvariant(interval[0]) + interval[1..], row.Assignment.Release?.DocumentType,
+                        row.Assignment.Release?.ReleaseGroup, row.Assignment.Release?.ReleaseStrategy, row.Matched ? "Yes" : "No" };
+                })]);
+            }
             var csv = new System.Text.StringBuilder("\ufeff");
             V1Csv.Line(csv, AssignmentColumns, cells: false);
-            static string Local(string? value) => SapDates.Parse(value) is { } d ? $"{d.Day:00}.{d.Month:00}.{d.Year:0000}" : "";
             foreach (var (a, identity, matched) in rows)
             {
                 var status2 = SapDates.IntervalStatus(a.ValidFrom, a.ValidTo, today);
                 V1Csv.Line(csv, [a.Username, identity.FirstName, identity.LastName, identity.Email, a.UserGroup, a.RoleName, Local(a.ValidFrom), Local(a.ValidTo),
                     char.ToUpperInvariant(status2[0]) + status2[1..], a.Release?.DocumentType, a.Release?.ReleaseGroup, a.Release?.ReleaseStrategy, matched ? "Yes" : "No"], cells: true);
             }
-            var day = today.ToString("yyyy-MM-dd");
+            var day = today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
             http.Response.Headers["Content-Disposition"] = $"attachment; filename=\"authlens-user-directory-review-{day}.csv\"";
             http.Response.Headers["X-SAP-Lens-Data-Revision"] = Revision(snapshot);
             http.Response.Headers["X-SAP-Lens-As-Of"] = day;
@@ -215,7 +245,7 @@ public static class V1Access
                     status = SapDates.IntervalStatus(a.ValidFrom, a.ValidTo, today),
                 }).ToList(),
                 ["account_total"] = user.Accounts.Count, ["account_offset"] = accountOffset, ["retained_assignments"] = user.Assignments.Count,
-                ["as_of"] = today.ToString("yyyy-MM-dd"),
+                ["as_of"] = today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
             });
         });
 
@@ -273,7 +303,7 @@ public static class V1Access
                 }).ToList(),
                 summary = new { roles = Count(result.Roles, r => r.Difference), transactions = Count(result.Transactions, r => r.Difference) },
                 areas = result.Roles.SelectMany(r => r.Areas).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList(),
-                catalogue_available = snapshot.Catalogue.Roles.Count > 0, as_of = today.ToString("yyyy-MM-dd"), data_revision = Revision(snapshot),
+                catalogue_available = snapshot.Catalogue.Roles.Count > 0, as_of = today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), data_revision = Revision(snapshot),
             });
         });
 
@@ -306,7 +336,7 @@ public static class V1Access
             return Results.Ok(new
             {
                 items = items.Skip(offset).Take(limit).ToList(), total = items.Count, offset, limit, assignment_evidence = evidence, data_revision = Revision(snapshot),
-                as_of = Today().ToString("yyyy-MM-dd"),
+                as_of = Today().ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
             });
         });
     }

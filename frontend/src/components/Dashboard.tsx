@@ -1,6 +1,8 @@
 import {Fragment,useState,type ReactNode} from 'react'
-import {SubjectFilters,subjectFilterParams,type SubjectFiltersValue} from '@/components/Shared/OrganizationFilter'
+import {type SubjectFiltersValue} from '@/components/Shared/OrganizationFilter'
+import {DashboardFilterControls,DashboardFilterSummary,activeFilterCount,dashboardFilterParams,emptyDashboardFilters,usesDashboardOnlyDimensions,type DashboardFilterValue} from '@/components/DashboardFilters'
 import {Button} from '@/components/Shared/Button'
+import {FilterLayout,PageToolbar} from '@/components/Shared/FilterLayout'
 import {useModules} from '@/hooks/useModules'
 import {ModuleBadge} from '@/components/Modules/ModuleBadge'
 import {useSourceEvidence} from '@/components/Settings/SourceStatus'
@@ -32,6 +34,7 @@ import { MATCH_HEALTH_LEGEND, matchHealthTone } from '@/lib/health'
 import { ASSIGNMENT_BANDS } from '@/lib/assignmentBands'
 import { sourceState } from '@/lib/sourceState'
 import { fetchConfiguration } from '@/api/configuration'
+import { useAuthentication } from '@/components/Auth/Authentication'
 /** Cards below SAP Overview, in reading order. Reordering this list reorders the rendered elements. */
 export const DASHBOARD_CARDS = ['access-risk', 'review-progress', 'directory-health', 'sod', 'role-distribution', 'assignment-distribution'] as const
 type DashboardCard = (typeof DASHBOARD_CARDS)[number]
@@ -95,14 +98,15 @@ interface Source {
   last_checked?:string|null
 }
 export function Dashboard() {
+  const { canAdmin } = useAuthentication()
   const { view, change } = useViewHistory(),
     { loading } = useApplicationData()
-  const [subjectFilters,setSubjectFilters]=useState<SubjectFiltersValue>({functional_groups:[],managers:[],usernames:[]})
-  const subjectParameters=subjectFilterParams(subjectFilters).toString()
+  const [filters,setFilters]=useState<DashboardFilterValue>(emptyDashboardFilters)
+  const subjectParameters=dashboardFilterParams(filters).toString(),activeCount=activeFilterCount(filters),filtered=activeCount>0
   const sourceEvidence=useSourceEvidence('roles')
   const configuration=useQuery({queryKey:['configuration'],queryFn:fetchConfiguration})
   const sodEnabled=configuration.data?.settings.features?.sod===true
-  const sodSummary=useQuery({queryKey:['sod-overview',subjectParameters],enabled:sodEnabled,queryFn:()=>apiRequest<{governance:{available:boolean;reason?:string|null;missing?:string[];users_with_conflicts?:number;user_risk_findings?:number;activities?:Record<string,number>;acceptance?:Record<string,number>;review_coverage?:Record<string,{total:number;reviewed:number}>;remediation?:{open_actions:number;overdue:number}}}>('/api/sod/overview?'+subjectParameters)})
+  const sodSummary=useQuery({queryKey:['sod-overview',subjectParameters],enabled:sodEnabled,queryFn:()=>apiRequest<{governance:{available:boolean;reason?:string|null;missing?:string[];users_with_conflicts?:number;user_risk_findings?:number;activities?:Record<string,number>;acceptance?:Record<string,number>;review_coverage?:Record<string,{total:number;reviewed:number}>;remediation?:{open_actions:number;overdue:number}}}>('/api/sod/overview'+(subjectParameters?'?'+subjectParameters:''))})
   const openSod=(sodView:'overview'|'risk-matrix'|'activity-matrix'|'reviews')=>change({page:'sod',sodView,settings:false,detailRole:null,sodFilters:{...view.sodFilters,shared:{...view.sodFilters?.shared,...subjectFilters}}})
   const query = useQuery({
     queryKey: ['dashboard',subjectParameters],
@@ -113,18 +117,25 @@ export function Dashboard() {
         role_distribution?:Record<string,number>|null
         assignment_distribution?:Record<string,number>|null
         review_population?:number|null
+        scope?:{user_filters_applied:boolean;access_semantics?:string;role_distribution?:string;global_metrics?:string[]}
+        population_usernames?:string[]|null
         coverage_total?: number
         last_successful_refresh?: string | null
         source_warning?: string | null
         notice: string
-      }>('/api/dashboard?'+subjectParameters),
+      }>('/api/dashboard'+(subjectParameters?'?'+subjectParameters:'')),
   })
   type DashboardData = NonNullable<typeof query.data>
+  /** Drill-down context. Dimensions that only the dashboard knows are carried as the resolved usernames (up to 500); otherwise the organization filters travel as they are. */
+  const dashboardOnly=usesDashboardOnlyDimensions(filters),population=query.data?.population_usernames
+  const subjectFilters:SubjectFiltersValue=dashboardOnly&&population?{functional_groups:[],managers:[],usernames:population}:{functional_groups:filters.functional_groups,managers:filters.managers,usernames:filters.usernames}
+  const globalMetrics=filtered?query.data?.scope?.global_metrics??[]:[]
   const open = (metric: Metric, area='') =>
     metric.destination === 'review'
       ? change({
-          page: 'users',
-          accessMode: 'review',
+          page: 'reviews',
+          // Position changes have their own page (pending changes by default); the other review metrics filter Account Review (both in Reviews, NAV-3).
+          reviewsView: metric.id === 'position_changes' ? 'position-changes' : 'account-review',
           accountReviewFilters:{search:'',licenses:[],states:[],sort:'username',descending:false,groups:subjectFilters.functional_groups,managers:subjectFilters.managers,usernames:subjectFilters.usernames},
           kpiNavigation:{...view.kpiNavigation,users:(view.kpiNavigation?.users||0)+1},
           user: '',
@@ -171,7 +182,7 @@ export function Dashboard() {
     const Icon = iconFor(metric), { unavailable, value } = present(metric)
     return <InfoRow key={metric.id} primary={opts.primary} icon={<Icon size={opts.primary ? 18 : 16} aria-hidden="true" />} label={opts.label ?? metric.label} ariaLabel={opts.label ?? metric.label} title={metric.context} value={value} data={{ metric: metric.id }}
       tone={kpiTone(metric.id, metric.value)}
-      note={unavailable ? metric.unavailable_reason : undefined} onClick={() => open(metric)} navigates />
+      note={unavailable ? metric.unavailable_reason : globalMetrics.includes(metric.id) ? 'Global: not limited by the dashboard filters' : undefined} onClick={() => open(metric)} navigates />
   }
   const [allAreas,setAllAreas]=useState(false)
   const modules=useModules()
@@ -198,7 +209,7 @@ export function Dashboard() {
     return card('Access & Risk', <ShieldAlert size={18}/>, (
       <InfoList label="Access & Risk">
         {users && row(users, { primary: true })}
-        {list(d, ['ad_disabled_open', 'assignments', 'mappings', 'roles', 'releases']).map(m => row(m, m.id === 'ad_disabled_open' ? { label: 'AD disabled / SAP active' } : {}))}
+        {list(d, ['ad_disabled_open', 'assignments', ...(filtered ? ['assigned_roles', 'assigned_tcodes'] : []), 'mappings', 'roles', 'releases']).map(m => row(m, m.id === 'ad_disabled_open' ? { label: 'AD disabled / SAP active' } : {}))}
       </InfoList>
     ), { note: 'Counts describe source evidence, not effective SAP authorization.' })
   }
@@ -223,6 +234,8 @@ export function Dashboard() {
   }
   /** Directory & Data Health: match quality (matched share of SAP identities) first, then the status rows. Position changes are a separate signal. */
   const renderDirectory = (d: DashboardData) => {
+    // NAV-5: the whole card is administrator-only (the backend also leaves its figures out for other roles); no reduced version is shown.
+    if (!canAdmin) return null
     const matched = metricOf(d, 'email_matches'), total = d.coverage_total || 0
     const percent = matched?.value != null && total ? (matched.value / total) * 100 : null
     return card('Directory & Data Health', <HeartPulse size={18}/>, (
@@ -295,7 +308,7 @@ export function Dashboard() {
           <BarChart label="Catalogue roles by SAP area (all areas)" max={scale} data={entries.map(datum)} />
         </Dialog>}
       </>
-    ), { tip: <p>Distinct catalogue roles by canonical SAP area. Single-role relationships and release assignments are separate evidence.</p> })
+    ), { note: d.scope?.role_distribution === 'population' ? 'Roles currently assigned to the filtered user population.' : undefined, tip: <p>Distinct catalogue roles by canonical SAP area. Single-role relationships and release assignments are separate evidence. With dashboard filters, only roles currently assigned to the selected users are counted.</p> })
   }
   /** Assignment Distribution: five non-overlapping ranges that together cover every applicable SAP user (zero roles included). */
   const renderAssignmentDistribution = (d: DashboardData) => {
@@ -358,8 +371,13 @@ export function Dashboard() {
   return (
     <section aria-label="Dashboard" className="space-y-5">
       <PageHeader title="Dashboard" icon={<LayoutDashboard size={22} aria-hidden="true"/>}/>
-      <SubjectFilters value={subjectFilters} onChange={setSubjectFilters}/>
-      <p className="ui-description">User metrics use the selected current population. Catalogue, source integrity and total Employee Directory records remain global.</p>
+      <FilterLayout label="Filters" storageKey="authlens-dashboard-filter-sidebar" defaultOpen={false} activeCount={activeCount}
+        onClear={()=>setFilters(emptyDashboardFilters())} clearDisabled={!filtered} clearLabel="Reset dashboard filters"
+        toolbar={<PageToolbar lead={<p className="ui-description dashboard-scope" role="status" aria-label="Dashboard scope">{filtered
+          ? `Filtered overview: user metrics count the selected user population${dashboardOnly&&query.data&&!population?'; drill-down opens with the organization filters only because the population has more than 500 users':''}. Catalogue, source integrity and Employee Directory totals stay global and are marked.`
+          : 'Global overview: all users in the validated SAP data.'}</p>}>{filtered&&<Button size="compact" variant="ghost" onClick={()=>setFilters(emptyDashboardFilters())}>Reset filters</Button>}</PageToolbar>}
+        sidebar={<DashboardFilterControls value={filters} onApply={setFilters}/>}>
+      <DashboardFilterSummary value={filters} onChange={setFilters}/>
       <p className="ui-description">Current validated SAP data and available capabilities.</p>
       <DataLifecycleStatus state={lifecycle} validatedAt={query.data?.last_successful_refresh} warning={query.data?.source_warning} onConfigure={()=>change({settings:true,settingsTarget:'roles'})}/>
       {query.data && (
@@ -370,6 +388,7 @@ export function Dashboard() {
           </div>
         </div>
       )}
+      </FilterLayout>
     </section>
   )
 }

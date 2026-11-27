@@ -85,8 +85,10 @@ Describe 'Packaged installer helper integrity before import' {
         $run=Join-Path $TestDrive ([Guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $run | Out-Null
         Save-ALInstallerRecoveryTools $run
         $tools=Join-Path $run 'recovery-tools'; $proof=Get-Content (Join-Path $tools 'installer-tools.json') -Raw | ConvertFrom-Json
-        $proof.files.Count | Should -Be 7
-        @(Get-ChildItem $tools -Recurse -File).Count | Should -Be 8
+        # QA-028: seven deployment helpers plus the recovery bundle and rehearsal scripts and the acceptance module the rehearsal imports.
+        $proof.files.Count | Should -Be 10
+        @($proof.files.path) | Should -Contain 'recovery/New-AuthLensRecoveryBundle.ps1'
+        @(Get-ChildItem $tools -Recurse -File).Count | Should -Be 11
         [IO.File]::WriteAllText((Join-Path $tools 'deploy/AuthLens.Deploy.psm1'),"throw 'Changed helper was executed'")
         $root=Join-Path $run 'program'
         $result=Invoke-TestPowerShell @('-File',(Join-Path $tools 'Install-AuthLens.ps1'),'-Mode','Desktop','-Package',$run,'-InstallRoot',$root,'-DataDirectory',(Join-Path $run 'data'),'-Yes')

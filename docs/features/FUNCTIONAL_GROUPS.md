@@ -155,6 +155,16 @@ and never grants, removes or approves access, creates accepted risks or changes 
 `POST /api/functional-groups/bulk/preview` and `POST /api/functional-groups/bulk` (administrators, same mapping requirement as single classification) take stable usernames, never display names. The bulk write is one store write with history events and a repeated operation id is refused (409). Users already in the target group are `unchanged`; users in another group are only replaced with explicit confirmation (`replace_existing`); a classification that changed since the preview is a conflict; usernames outside the active dataset are rejected. Any skipped user makes the status `partial`, and the User Directory dialog retries only those. Imported SAP and AD data are never modified. The profile's *Assign group* uses the same classification model.
 
 
+## Navigating from a user's groups (BUG-03, after RC4)
+
+In User Access and Account Review a group cell is one line (BUG-013): the first group is a named pill that opens its member list directly, and a
+**+X** pill (X = the remaining groups) lists all of a user's Functional Groups; each group with a stable id is a button that opens its member
+list (`/api/functional-groups/<id>/members`, the existing members view with count, status and search). Administrators get the full member
+management; other roles get the same list read-only (no add, remove or selection). Groups are addressed by id, never by display name, and a
+group without an id stays informational. Several memberships of one user are all listed. Group cells size to their labels (BUG-06): no reserved
+fixed width, the named pill up to 14rem with an ellipsis and the full name in the tooltip and accessible name, the **+X** pill never truncated,
+one shared column width per table.
+
 ## Multiple memberships, suggestion rules and member management
 
 - **Format 2 migration:** format 1 data (one `group_id` per user) is migrated losslessly on first read: each assignment becomes one membership with its status, confirmation metadata and history preserved, and existing rules become `department_mode: equals`. A one-time `functional-groups.json.format1.bak` is kept. Format 2 is not downgraded; older backups (format 1) are accepted on restore and migrated.

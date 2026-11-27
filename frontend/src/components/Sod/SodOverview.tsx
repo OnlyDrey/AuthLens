@@ -9,7 +9,8 @@ import { InfoList, InfoRow } from '@/components/Shared/InfoList'
 import { Button } from '@/components/Shared/Button'
 import { formatDate, formatTimestamp } from '@/lib/dateFormat'
 import { kpiTone } from '@/lib/kpiTone'
-import { AlertNote, PAGE_FIELDS, readFilters, writeFilters, SodFilters, useSodFilters } from './SodShared'
+import { AlertNote, PAGE_FIELDS, pageOnlyFilters, readFilters, writeFilters, SodFilters, useSodFilters } from './SodShared'
+import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 
 interface Governance {
   available: boolean; reason?: string | null
@@ -47,9 +48,10 @@ export function SodOverview() {
   )
   const concentration = g.concentration
   const activities = g.activities || {}, acceptance = g.acceptance || {}
+  const pageOnly = pageOnlyFilters(filters, ['functional_group', 'manager', 'username']) // overview-only filters the Work Queue does not apply
   return (
     <section className="grid min-w-0 gap-4" aria-label="SoD overview">
-      <SodFilters view="sod_overview" filters={filters} setFilters={setFilters} fields={['functional_group','manager','username']} searchLabel="Search SAP users">
+      <SodFilters view="sod_overview" filters={filters} setFilters={setFilters} fields={['functional_group','manager','username']} searchLabel="Search SAP users" actions={<><OpenInReviewsButton label="Open Work Queue" />{pageOnly.length > 0 && <span className="ui-description" data-testid="work-queue-scope-note">Not applied in the Work Queue: {pageOnly.join(', ')}</span>}</>}>
       <p className="ui-description">User findings and review metrics follow the selected current population. Risk definitions, source quality, change detection and period history describe the complete evidence and remain global.</p>
       {!g.available && <Card><AlertNote>Conflict analysis is unavailable ({g.reason === 'sod_disabled' ? 'SoD is turned off in Features' : g.reason === 'mapping_disabled' ? 'User–Role Mapping is disabled' : 'a supported SoD matrix, validated role catalogue and User–Role Mapping data are required'}). Missing evidence is not proof that no conflict exists.</AlertNote>
         <Permission permission="admin"><Toolbar><Button onClick={() => change({ settings: true, settingsTarget: g.reason === 'mapping_disabled' || g.reason === 'sod_disabled' ? 'features' : 'sod' })}>Review configuration</Button></Toolbar></Permission></Card>}
@@ -79,7 +81,7 @@ export function SodOverview() {
           <section className="dashboard-section min-w-0 rounded-card bg-surface p-4" aria-label="Remediation">
             <SectionHeader title="Remediation" icon={<Wrench size={18} aria-hidden="true" />} />
             <InfoList>
-              <Tile icon={<UserMinus size={18} aria-hidden="true" />} label="Role assignments marked for removal" metric="assignments_removal" value={g.assignments_marked_remove} onOpen={() => go('reviews', undefined, {}, { sodReviews: 'remediation' })} />
+              <Tile icon={<UserMinus size={18} aria-hidden="true" />} label="Assignments marked for removal" title="Role assignments recommended for removal by access-review decisions." metric="assignments_removal" value={g.assignments_marked_remove} onOpen={() => go('reviews', undefined, {}, { sodReviews: 'remediation' })} />
               <Tile icon={<ListChecks size={18} aria-hidden="true" />} label="Open actions" metric="open_actions" value={g.remediation?.open_actions} onOpen={() => go('reviews', undefined, {}, { sodReviews: 'remediation' })} />
               <Tile icon={<AlertTriangle size={18} aria-hidden="true" />} label="Overdue actions" metric="overdue_actions" value={g.remediation?.overdue} onOpen={() => go('reviews', undefined, {}, { sodReviews: 'remediation' })} />
               <Tile icon={<Wrench size={18} aria-hidden="true" />} label="Remediation awaiting action" metric="remediation_awaiting" value={g.remediation?.removal_without_action} title="Role assignments recommended for removal that have no tracked remediation action yet."

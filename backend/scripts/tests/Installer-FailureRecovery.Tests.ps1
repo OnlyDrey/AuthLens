@@ -89,7 +89,7 @@ Describe 'Verified failure evidence is opt-in and never adopted by filename alon
         $journal=Get-ALJournalPath $resolved.Config
         $id=[guid]::NewGuid().ToString('N')
         @{schema=1;operation_id=$id;status='refused_or_failed';stage='Server installation preflight';exit_code=2;deployment_journal_exists=$false;deployment_journal_status='not_created_or_unavailable';deployment_journal_expected=$journal}|ConvertTo-Json|Set-Content (Join-Path $stage 'operation-result.json')
-        foreach($path in @('payload/pkg/build-manifest.json','setup-metadata.ini','transaction-diagnostic.txt','tools/installer-tools.json','tools/Install-AuthLens.ps1','tools/verify-release.ps1','tools/deploy/AuthLens.Deploy.psm1','tools/deploy/Deploy-AuthLens.ps1','tools/deploy/AuthLens.Paths.ps1','tools/deploy/AuthLens.Acl.ps1','tools/deploy/AuthLens.Installer.ps1')){
+        foreach($path in @('payload/pkg/build-manifest.json','setup-metadata.ini','transaction-diagnostic.txt','tools/installer-tools.json','tools/Install-AuthLens.ps1','tools/verify-release.ps1','tools/deploy/AuthLens.Deploy.psm1','tools/deploy/Deploy-AuthLens.ps1','tools/deploy/AuthLens.Paths.ps1','tools/deploy/AuthLens.Acl.ps1','tools/deploy/AuthLens.Installer.ps1','tools/recovery/New-AuthLensRecoveryBundle.ps1','tools/recovery/Test-AuthLensRestoreRehearsal.ps1','tools/acceptance/AuthLens.Acceptance.psm1')){
             $target=Join-Path $stage $path
             New-Item -ItemType Directory -Force (Split-Path $target)|Out-Null
             Set-Content $target ('synthetic '+$path)

@@ -12,7 +12,7 @@ import { useViewHistory, type SodView } from '@/hooks/useViewHistory'
 import { announceExport } from '@/lib/exportNotice'
 import { useLocalPreference } from '@/lib/localPreference'
 import { SodPill } from '@/lib/sodAppearance'
-import { PAGE_FIELDS, readFilters, useSodContext, writeFilters } from './SodShared'
+import { PAGE_FIELDS, readFilters, useSodContext, writeFilters, type FilterField } from './SodShared'
 
 type Kind = 'risk' | 'activity'
 type Heat = MatrixResult<RiskColumn | ActivityColumn, GroupCell>
@@ -22,6 +22,15 @@ export const HEATMAP_PREFERENCE = 'sap-lens-sod-heatmap'
 /** Pages that apply a group and risk/activity filter themselves, and the saved-filter slot each one reads. */
 const FILTERABLE: Partial<Record<SodView, string>> = { 'risk-matrix': 'riskMatrix', 'activity-matrix': 'activityMatrix', explorer: 'explorer', reviews: 'queue' }
 const list = (filters: Filters, key: string) => (Array.isArray(filters[key]) ? (filters[key] as string[]) : [])
+/** BUG-015: the heatmap follows its page's applied population. On the Overview that is the SubjectSelection population of /api/sod/overview
+ *  (population=overview); on matrix, Explorer and queue pages the page's own filters. The heatmap's own group and risk/activity selection, paging
+ *  and sorting are left out, so every group stays selectable. */
+const OVERVIEW_FIELDS: FilterField[] = ['functional_group', 'manager', 'username']
+const OVERVIEW_KEYS = ['search', 'functional_groups', 'managers', 'usernames', 'username']
+const OWN_KEYS = new Set(['group', 'groups', 'risk', 'risks', 'activity', 'activities', 'sort', 'descending', 'offset', 'limit', 'group_by', 'queue_sort'])
+const pick = (filters: Filters, keys: string[]): Filters => Object.fromEntries(keys.filter((key) => key in filters).map((key) => [key, filters[key]])) as Filters
+const withoutOwn = (filters: Filters): Filters => Object.fromEntries(Object.entries(filters).filter(([key]) => !OWN_KEYS.has(key))) as Filters
+const hasValue = (filters: Filters) => Object.values(filters).some((value) => (Array.isArray(value) ? value.length > 0 : typeof value === 'string' ? value !== '' : value === true))
 
 /**
  * Distinct users per SAP User Group and risk (or activity) for the active review context. One instance sits under the shared Review Context on every SoD page.
@@ -38,7 +47,10 @@ export function SodGroupHeatmap() {
   const risk = kind === 'risk', itemKey = risk ? 'risks' : 'activities', singleKey = risk ? 'risk' : 'activity'
   const groups = [...list(current, 'groups'), ...(typeof current.group === 'string' && current.group ? [current.group] : [])]
   const items = [...list(current, itemKey), ...(typeof current[singleKey] === 'string' && current[singleKey] ? [current[singleKey] as string] : [])]
-  const params = scopeParams(context, emptyFilters, { group_by: 'group', limit: 200 })
+  const onOverview = sodView === 'overview'
+  const population: Filters = onOverview ? pick(readFilters(stored, 'overview', OVERVIEW_FIELDS), OVERVIEW_KEYS) : slot ? withoutOwn(current) : emptyFilters
+  const filtered = hasValue(population), scope: Record<string, string> = onOverview && filtered ? { population: 'overview' } : {}
+  const params = scopeParams(context, population, { group_by: 'group', limit: 200, ...scope })
   const query = useQuery({ queryKey: ['sod-matrix', 'heatmap', kind, params.toString()], queryFn: () => sod<Heat>(`/api/sod/matrix/${kind}`, params), enabled: expanded })
   const data = query.data
   if (data && data.coverage.status !== 'available') return null // the page's own notice explains an unavailable analysis
@@ -61,7 +73,7 @@ export function SodGroupHeatmap() {
   const exportCsv = async () => {
     setBusy(true)
     try {
-      const name = await downloadFile(`/api/sod/matrix/${kind}/group-export`, { params: scopeParams(context, emptyFilters), namePattern: EXPORT_NAME })
+      const name = await downloadFile(`/api/sod/matrix/${kind}/group-export`, { params: scopeParams(context, population, scope), namePattern: EXPORT_NAME })
       announceExport(name ? { kind: 'success', message: `Exported ${name}.` } : { kind: 'info', message: 'Export cancelled.' })
     } catch (error) {
       announceExport({ kind: 'error', message: error instanceof Error ? error.message : 'Export failed.' })
@@ -127,6 +139,9 @@ export function SodGroupHeatmap() {
                 <tfoot><tr><th scope="row">Distinct users</th><td>{data.totals.users.toLocaleString()}</td>{columns.map((column) => <td key={idOf(column)}>{column.users.toLocaleString()}</td>)}</tr></tfoot>
               </ConfigurableTable>
             </div>
+            <p className="ui-description" role="status" aria-label="Heatmap population">{filtered
+              ? `Filtered: counts only the users selected by this page's filters${onOverview ? ' (the same population as the overview key figures)' : ''}; every conflict of those users is evaluated over their complete access.`
+              : 'Global: all users in the selected evidence.'}</p>
             <p className="ui-description">
               A user in several SAP User Groups counts in each group, so group counts can add up to more than the distinct total.
               {data.columns.length > MAX_COLUMNS ? ` Showing the ${MAX_COLUMNS} most affected of ${data.columns.length} ${risk ? 'risks' : 'activities'}.` : ''}

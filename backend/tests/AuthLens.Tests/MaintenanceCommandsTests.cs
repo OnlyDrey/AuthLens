@@ -48,6 +48,45 @@ public sealed class MaintenanceCommandsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Fingerprint_data_is_read_only_deterministic_free_of_account_content_and_detects_changes()
+    {
+        var data = Directory.CreateDirectory(Path.Combine(_root, "fingerprint")).FullName;
+        await using (var host = AuthLensHost.Build(new HostSettings { DataDirectory = data, Port = 0, AccessToken = HostSettings.NewToken(), JsonConsoleLogging = false, PrincipalName = "operator", Mode = HostMode.Desktop }))
+        { await host.StartAsync(); await host.StopAsync(); }
+        var activation = MaintenanceCommands.AdministratorCode(data, null);
+        var store = new AuthLens.Application.Accounts.AccountStore(AuthLens.Application.Accounts.AccountStore.For(data), TimeProvider.System);
+        await store.CompleteAsync((string)activation["code"]!, "fp.admin", "Synthetic fingerprint administrator", "Synthetic local password 123!", false);
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        static string Hash(string path) { using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete); return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(s)); }
+        var files = Directory.GetFiles(data, "*.sqlite3*", SearchOption.AllDirectories).Where(f => !f.EndsWith("-shm", StringComparison.Ordinal)).ToDictionary(f => f, Hash);
+
+        var first = MaintenanceCommands.FingerprintData(data);
+        var second = MaintenanceCommands.FingerprintData(data);
+        Assert.Equal(first.ToJsonString(), second.ToJsonString());
+        foreach (var file in files.Keys) Assert.Equal(files[file], Hash(file));              // originals never opened for writing
+        var application = first["stores"]!["authlens.sqlite3"]!;
+        Assert.Equal("ok", (string)application["integrity"]!);
+        Assert.Equal(0, (int)application["foreign_key_violations"]!);
+        var accounts = first["stores"]!["security/accounts.sqlite3"]!;
+        Assert.Equal(1, (long)accounts["users"]!);
+        var text = first.ToJsonString();
+        Assert.DoesNotContain("fp.admin", text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Synthetic", text, StringComparison.OrdinalIgnoreCase);
+
+        using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={new DatabaseOptions { DataDirectory = data }.DatabasePath};Pooling=False"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE __EFMigrationsHistory SET ProductVersion = ProductVersion || '-probe'";
+            Assert.True(command.ExecuteNonQuery() > 0);
+        }
+        var changed = MaintenanceCommands.FingerprintData(data);
+        Assert.NotEqual((string)application["tables"]!["__EFMigrationsHistory"]!["sha256"]!, (string)changed["stores"]!["authlens.sqlite3"]!["tables"]!["__EFMigrationsHistory"]!["sha256"]!);
+        Assert.Equal((string)accounts["tables"]!["users"]!["sha256"]!, (string)changed["stores"]!["security/accounts.sqlite3"]!["tables"]!["users"]!["sha256"]!);
+        Assert.Throws<InvalidOperationException>(() => MaintenanceCommands.FingerprintData(Path.Combine(_root, "missing-fingerprint")));
+    }
+
+    [Fact]
     public void Schema_info_reports_known_applied_and_newer_migrations_without_writing()
     {
         var missing = MaintenanceCommands.SchemaInfo(Path.Combine(_root, "nothing"));

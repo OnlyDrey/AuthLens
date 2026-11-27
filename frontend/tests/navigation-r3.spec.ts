@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { cleanup, headers, openSod, seedGovernance } from './sod-fixture'
-import { postConfiguration } from './support'
+import { postConfiguration, goTo } from './support'
 
 let directory = ''
 test.beforeEach(async ({ request }) => { directory = await seedGovernance(request, 'static') })
@@ -12,48 +12,56 @@ test('the main link opens the module page and a separate chevron opens its subme
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/#session=browser-test-session')
   // chevrons only where submenus exist
-  await expect(main(page).getByRole('button', { name: 'User Access pages' })).toBeVisible()
+  await expect(main(page).getByRole('button', { name: 'Users pages' })).toBeVisible()
   await expect(main(page).getByRole('button', { name: 'SoD pages' })).toBeVisible()
-  for (const name of ['Dashboard', 'Role Lookup', 'Release Roles']) await expect(main(page).getByRole('button', { name: `${name} pages` })).toHaveCount(0)
+  await expect(main(page).getByRole('button', { name: 'Reviews pages' })).toBeVisible()
+  for (const name of ['Dashboard', 'Role Lookup']) await expect(main(page).getByRole('button', { name: `${name} pages` })).toHaveCount(0)
   // opening the submenu does not navigate
   const url = page.url()
-  await main(page).getByRole('button', { name: 'User Access pages' }).click()
+  await main(page).getByRole('button', { name: 'Users pages' }).click()
   expect(page.url()).toBe(url)
-  const menu = page.getByRole('dialog', { name: 'User Access pages' })
-  await expect(menu.getByRole('link')).toHaveText(['User directory', 'Account Review', 'Compare users'])
+  const menu = page.getByRole('dialog', { name: 'Users pages' })
+  await expect(menu.getByRole('link')).toHaveText(['User Directory', 'Compare Users', 'Release Access'])
   for (const link of await menu.getByRole('link').all()) await expect(link.locator('svg')).toHaveCount(1)
-  await menu.getByRole('link', { name: 'Account Review' }).click()
-  await expect(page).toHaveURL(/#\/user-access\/account-review/)
+  await menu.getByRole('link', { name: 'Release Access' }).click()
+  await expect(page).toHaveURL(/#\/users\/release-access/)
   await expect(menu).toHaveCount(0)
   // the module stays highlighted and the active entry is marked
-  await expect(main(page).getByRole('link', { name: 'User Access', exact: true })).toHaveAttribute('aria-current', 'page')
-  await main(page).getByRole('button', { name: 'User Access pages' }).click()
-  await expect(page.getByRole('dialog', { name: 'User Access pages' }).getByRole('link', { name: 'Account Review' })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByRole('dialog', { name: 'User Access pages' }).getByRole('link', { name: 'User directory' })).not.toHaveAttribute('aria-current', 'page')
+  await expect(main(page).getByRole('link', { name: 'Users', exact: true })).toHaveAttribute('aria-current', 'page')
+  await main(page).getByRole('button', { name: 'Users pages' }).click()
+  await expect(page.getByRole('dialog', { name: 'Users pages' }).getByRole('link', { name: 'Release Access' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('dialog', { name: 'Users pages' }).getByRole('link', { name: 'User Directory' })).not.toHaveAttribute('aria-current', 'page')
   await page.keyboard.press('Escape')
-  await expect(main(page).getByRole('button', { name: 'User Access pages' })).toBeFocused()
+  await expect(main(page).getByRole('button', { name: 'Users pages' })).toBeFocused()
   // the main link goes to the module main page
-  await main(page).getByRole('link', { name: 'User Access', exact: true }).click()
-  await expect(page).toHaveURL(/#\/user-access$/)
+  await main(page).getByRole('link', { name: 'Users', exact: true }).click()
+  await expect(page).toHaveURL(/#\/users$/)
 })
 
-test('submenu and module links keep their real hrefs, and the SoD submenu lists every SoD page', async ({ page, context }) => {
+test('submenu and module links keep their real hrefs, and the SoD and Reviews submenus list their pages', async ({ page, context }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openSod(page)
   await main(page).getByRole('button', { name: 'SoD pages' }).click()
   const menu = page.getByRole('dialog', { name: 'SoD pages' })
-  await expect(menu.getByRole('link')).toHaveText(['Overview', 'Risk Matrix', 'Activity Matrix', 'Access Explorer', 'Reviews', 'Review Periods', 'Reports'])
+  await expect(menu.getByRole('link')).toHaveText(['Overview', 'Risk Matrix', 'Activity Matrix', 'Access Explorer'])
   await expect(menu.getByRole('link', { name: 'Risk Matrix' })).toHaveAttribute('href', '#/sod/risk-matrix')
   await expect(menu.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page')
   // a modified click opens a new tab and leaves this page where it is
   const before = page.url()
   const opened = context.waitForEvent('page', { timeout: 3000 }).catch(() => null)
-  await menu.getByRole('link', { name: 'Reports' }).click({ modifiers: ['Control'] })
+  await menu.getByRole('link', { name: 'Access Explorer' }).click({ modifiers: ['Control'] })
   expect(page.url()).toBe(before)
   void opened
-  await menu.getByRole('link', { name: 'Reviews' }).click()
-  await expect(page).toHaveURL(/#\/sod\/reviews/)
+  await menu.getByRole('link', { name: 'Access Explorer' }).click()
+  await expect(page).toHaveURL(/#\/sod\/explorer/)
   await expect(main(page).getByRole('link', { name: 'SoD', exact: true })).toHaveAttribute('aria-current', 'page')
+  await main(page).getByRole('button', { name: 'Reviews pages' }).click()
+  const reviews = page.getByRole('dialog', { name: 'Reviews pages' })
+  await expect(reviews.getByRole('link')).toHaveText(['Overview', 'Work Queue', 'Position Changes', 'Account Review', 'Bulk Review', 'Remediation', 'Review Periods'])
+  await expect(reviews.getByRole('link', { name: 'Review Periods' })).toHaveAttribute('href', '#/reviews/periods')
+  await reviews.getByRole('link', { name: 'Work Queue' }).click()
+  await expect(page).toHaveURL(/#\/reviews\/queue/)
+  await expect(main(page).getByRole('link', { name: 'Reviews', exact: true })).toHaveAttribute('aria-current', 'page')
 })
 
 test('the mobile drawer is keyboard operable and the nav stays usable at 375 px', { tag: '@a11y' }, async ({ page }) => {
@@ -62,19 +70,23 @@ test('the mobile drawer is keyboard operable and the nav stays usable at 375 px'
   const trigger = page.getByRole('button', { name: 'Open navigation',exact:true })
   await trigger.focus(); await page.keyboard.press('Enter')
   await expect(page.getByRole('dialog', { name: 'Navigation',exact:true })).toBeVisible()
-  await page.getByRole('dialog', { name: 'Navigation',exact:true }).getByRole('link', { name: 'Compare users' }).focus()
+  // inactive module groups start collapsed in the drawer (only the active module is expanded)
+  await page.getByRole('dialog', { name: 'Navigation',exact:true }).locator('summary').filter({ hasText: 'Users' }).click()
+  await page.getByRole('dialog', { name: 'Navigation',exact:true }).getByRole('link', { name: 'Compare Users' }).focus()
   await page.keyboard.press('Enter')
-  await expect(page).toHaveURL(/#\/user-access\/compare/)
+  await expect(page).toHaveURL(/#\/users\/compare/)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy()
 })
 
 test('secondary navigation, explorer and SoD settings actions carry icons and real buttons', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await openSod(page, 'Reviews')
-  for (const name of ['Work queue', 'Remediation']) await expect(page.getByRole('tab', { name, exact: true }).locator('svg')).toHaveCount(1)
-  await page.getByRole('link', { name: 'Reports', exact: true }).click()
+  const reviewViews = page.getByRole('navigation', { name: 'Review views', exact: true })
+  for (const name of ['Work Queue', 'Remediation']) await expect(reviewViews.getByRole('link', { name, exact: true }).locator('svg')).toHaveCount(1)
+  await goTo(page, 'Review Reports') // NAV-4
   for (const name of ['Formal review report', 'Access remediation report']) await expect(page.getByRole('tab', { name, exact: true }).locator('svg')).toHaveCount(1)
-  await page.getByRole('link', { name: 'Access Explorer', exact: true }).click()
+  await main(page).getByRole('link', { name: 'SoD', exact: true }).click()
+  await page.getByRole('navigation', { name: 'SoD views', exact: true }).getByRole('link', { name: 'Access Explorer', exact: true }).click()
   await page.getByRole('tab', { name: 'Roles', exact: true }).click()
   const evidence = page.getByRole('button', { name: 'Show evidence for ROLE_AB' })
   await expect(evidence).toHaveClass(/ui-button/); await expect(evidence.locator('svg')).toHaveCount(1)
@@ -101,6 +113,7 @@ for (const width of [375, 800, 1280]) for (const theme of ['light', 'dark']) tes
   if(width<1024){
     await page.getByRole('button',{name:'Open navigation',exact:true}).click()
     const drawer=page.getByRole('dialog',{name:'Navigation',exact:true})
+    await drawer.locator('summary').filter({hasText:'SoD'}).click()
     await expect(drawer.getByRole('link',{name:'Risk Matrix',exact:true})).toBeVisible()
     const box=(await drawer.boundingBox())!
     expect(box.x+box.width).toBeLessThanOrEqual(width)

@@ -9,6 +9,9 @@ begin
   Arguments := Arguments + InstallerArguments();
   Arguments := Arguments + InstallerMetadataArguments();
   Diagnostic := ExpandConstant('{app}\setup\{#PackageName}\transaction-diagnostic.txt');
+  // The transaction runs hidden and can take minutes (verified backup, service switch, readiness); say so instead of showing a frozen file name.
+  WizardForm.StatusLabel.Caption := 'Running the verified AuthLens transaction: backup, service update and HTTPS/database readiness checks. This can take several minutes; do not close Setup.';
+  WizardForm.FilenameLabel.Caption := 'Progress and sanitized diagnostics: ' + Diagnostic;
   Arguments := Arguments + ' -DiagnosticFile "' + Diagnostic + '" -ResultFile "' + ExpandConstant('{app}\setup\{#PackageName}\operation-result.json') + '"';
   if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Arguments, '', SW_HIDE, ewWaitUntilTerminated, Code) then Code := 4;
   if Code <> 0 then begin

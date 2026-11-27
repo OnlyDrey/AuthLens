@@ -3,7 +3,7 @@ import {SAPUserLink} from '@/components/Shared/SAPUserLink'
 import { Kpi } from '@/components/Shared/Kpi'
 import { useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { downloadFile, scopeParams, sod, EXPORT_NAME, type DecisionSummary,type AssignmentPick, type AssignmentSelection, type BulkAction, type ContextInfo, type Filters, type Lifecycle } from '@/api/sod'
+import { downloadFile, scopeParams, sod, EXPORT_NAME, type DecisionSummary,type AssignmentPick, type AssignmentSelection, type ContextInfo, type Filters, type Lifecycle } from '@/api/sod'
 import { useHistoryValue, useViewHistory, type SodExplorerTable } from '@/hooks/useViewHistory'
 import { ArrowUpRight, FileDown, Layers, ListChecks, ListTree, ScanSearch, ShieldAlert, Users, UsersRound } from 'lucide-react'
 import { Button } from '@/components/Shared/Button'
@@ -15,7 +15,6 @@ import { Select } from '@/components/Shared/Select'
 import { AssignmentStatus } from '@/components/Shared/InvestigationNavigation'
 import { PAGE_SIZES, Pagination } from '@/components/Access/Shared'
 import { BulkToolbar, PageCheckbox, RowCheckbox, useBulkSelection } from '@/components/Shared/BulkSelection'
-import { BulkReviewDialog } from './SodBulkReview'
 import { announceExport } from '@/lib/exportNotice'
 import { formatDate } from '@/lib/dateFormat'
 import { ConflictView } from './SodConflicts'
@@ -23,7 +22,8 @@ import { SodPill } from '@/lib/sodAppearance'
 import { UserGroupCell } from '@/components/Shared/UserGroup'
 import { RoleIdentifier } from '@/components/Shared/RoleIdentifier'
 import { kpiTone, stateTone } from '@/lib/kpiTone'
-import { type FilterField, keepWithinContext, useFilterChangeReset, reviewStatusParam, SodArea, RoleCodeList, CoverageNotice, SodFilters, writeFilters, useSodContext, useSodFilters, useSodSubject } from './SodShared'
+import { type FilterField, keepWithinContext, useFilterChangeReset, reviewStatusParam, SodArea, RoleCodeList, CoverageNotice, SodFilters, writeFilters, useSodContext, useSodFilters, useSodSubject, pageOnlyFilters } from './SodShared'
+import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 
 type TableName = Exclude<SodExplorerTable, 'roles'>
 interface Row {
@@ -156,11 +156,14 @@ function ExplorerTable({ table, onTable }: { table: TableName; onTable: (value: 
     [evidence, setEvidence] = useState<Evidence | null>(null),
     { view,change } = useViewHistory(),
     [pageSize, setPageSizeState] = useState(50),
-    [dialog, setDialog] = useState<BulkAction | null>(null),
     [gathering, setGathering] = useState(false),
     [gatherNote, setGatherNote] = useState('')
   const filters:Filters={...storedFilters,assignment_scope:table==='lookup'?'all':'conflicts'}
-  const openBulk=()=>change({sodView:'reviews',sodReviews:'bulk',sodSubject:null,bulkSelectMatching:true,sodFilters:writeFilters(view.sodFilters,'bulk',['group','username','role','risk','activity','tcode','category'],{...filters,role_match:filters.role_match||'search',assignment_scope:'all',review_status:'all'})})
+  const pageOnly = pageOnlyFilters(storedFilters, FIELDS[table])
+  const bulkFilters=()=>writeFilters(view.sodFilters,'bulk',['group','username','role','risk','activity','tcode','category'],{...filters,role_match:filters.role_match||'search',assignment_scope:'all',review_status:'all'})
+  const openBulk=()=>change({sodView:'reviews',sodReviews:'bulk',sodSubject:null,bulkSelectMatching:true,bulkPicks:undefined,sodFilters:bulkFilters()})
+  /** NAV-8: Bulk Review with exactly the selected assignments (never expanded); the review context and filters are carried, Bulk Review applies its safeguards. */
+  const reviewSelection=(picks:AssignmentPick[])=>change({sodView:'reviews',sodReviews:'bulk',sodSubject:null,bulkSelectMatching:false,bulkPicks:picks,sodFilters:bulkFilters()})
   const selection = useBulkSelection<AssignmentPick>(pickKey)
   const setPageSize = (value: number) => { setPageSizeState(value); setOffset(0) }
   useFilterChangeReset(filters, () => setOffset(0))
@@ -210,6 +213,8 @@ function ExplorerTable({ table, onTable }: { table: TableName; onTable: (value: 
         actions={<>
           {(table === 'user_risk' || table === 'user_activity') && <Select aria-label="Group users by" value={table} onChange={(event) => onTable(event.target.value as SodExplorerTable)}><option value="user_risk">Grouped by risk</option><option value="user_activity">Grouped by activity</option></Select>}
           {table==='lookup'&&<Button disabled={result.isFetching||!data?.reviewable} title="Reviews all active assignments matching these filters, including non-conflict roles and all pages." onClick={openBulk}>Review matching assignments</Button>}
+          <OpenInReviewsButton label="Open Work Queue" />
+          {pageOnly.length > 0 && <span className="ui-description" data-testid="work-queue-scope-note">Not applied in the Work Queue: {pageOnly.join(', ')}</span>}
           <ExportCSVButton loading={busy} disabled={!data?.total} onClick={() => void download(`/api/sod/explorer/${table}/export`, EXPORT_NAME)} title="Exports every filtered row across pages." />
           {table === 'user_risk' && context === 'current' && <Button disabled={busy || !data?.total} variant="outline" onClick={() => void download('/api/sod/analysis/export', /^authlens-sod-users-findings-\d{4}-\d{2}-\d{2}\.csv$/, { kind: 'users' })}><FileDown size={16} aria-hidden="true" />Export evidence CSV</Button>}
         </>}>
@@ -233,9 +238,8 @@ function ExplorerTable({ table, onTable }: { table: TableName; onTable: (value: 
               scope={`${pageSelected} on this page · ${picks.length - pageSelected} on other pages or outside the current filters · ${data.total.toLocaleString()} match the current filters`}>
               <Button size="compact" disabled={gathering || !data.total} onClick={() => void selectAllMatching()}>Select all {data.total.toLocaleString()} matching</Button>
               <Button size="compact" onClick={() => { selection.clear(); setGatherNote('') }}>Clear selection</Button>
-              <Button size="compact" disabled={!picks.length} onClick={() => setDialog('Investigate')}>Investigate</Button>
-              <Button size="compact" disabled={!picks.length} onClick={() => setDialog('Keep')}>Keep</Button>
-              <Button size="compact" variant="destructive" disabled={!picks.length} onClick={() => setDialog('Remove')}>Recommend removal</Button>
+              {/* NAV-8: decisions are recorded in Bulk Review, the one bulk workflow; it opens with exactly these assignments, this context and filters */}
+              <Button size="compact" variant="primary" disabled={!picks.length} onClick={() => reviewSelection(picks)}>Review in Bulk Review</Button>
             </BulkToolbar>
             : <p className="ui-description">Select assignments with the checkboxes, or <Button size="compact" variant="ghost" disabled={gathering || !data.total} onClick={() => void selectAllMatching()}>select all {data.total.toLocaleString()} matching</Button> to review them together. Reviews record decisions only; nothing changes in SAP.</p>}
           {gatherNote && <p role="status" className="ui-description">{gatherNote}</p>}
@@ -267,7 +271,6 @@ function ExplorerTable({ table, onTable }: { table: TableName; onTable: (value: 
         </DataTable> : <EmptyState>No rows match this scope. Results describe imported evidence only; incomplete source coverage cannot establish absence of access.</EmptyState>}
         <Pagination label="Explorer pages" offset={data.offset} total={data.total} limit={data.limit} onChange={setOffset} pageSizes={PAGE_SIZES} onPageSize={setPageSize} />
         {evidence && <ExplorerEvidence evidence={evidence} context={context} filters={filters} onClose={() => setEvidence(null)} onInvestigate={investigate} onUser={openUser} />}
-        {dialog && <BulkReviewDialog action={dialog} picks={picks} info={data} onClose={() => setDialog(null)} onApplied={(recorded) => { selection.remove(recorded); setGatherNote('') }} />}
       </>}
       </SodFilters>
     </section>

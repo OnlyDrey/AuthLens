@@ -62,7 +62,7 @@ test('theme preview, accessible validation, custom preset persistence, system ap
  await expect(page.locator('html')).toHaveClass(/dark/)
  await page.getByRole('button',{name:'Open settings'}).click()
  await page.getByRole('tab',{name:'Appearance & Branding'}).click()
- await page.getByRole('combobox',{name:'Theme',exact:true}).selectOption('system')
+ await page.getByRole('combobox',{name:'Application default theme',exact:true}).selectOption('system') // renamed in 0817d57 (personal themes)
  await page.getByRole('button',{name:'Apply settings',exact:true}).click()
  await page.emulateMedia({colorScheme:'light'})
  await expect(page.locator('html')).not.toHaveClass(/dark/)

@@ -30,15 +30,19 @@ export function PageHeader({
   children,
   icon,
   titleAction,
+  level = 1,
 }: {
   icon?: ReactNode
   titleAction?: ReactNode
   title: string
   children?: ReactNode
+  /** 2 for a page shown inside a module workspace that already carries the page's h1 (Account Review and Position Changes in Reviews). */
+  level?: 1 | 2
 }) {
+  const Heading = level === 2 ? 'h2' : 'h1'
   return (
     <header className="ui-page-header">
-      <div className="ui-page-title">{icon}<h1>{title}</h1>{titleAction}</div>
+      <div className="ui-page-title">{icon}<Heading>{title}</Heading>{titleAction}</div>
       {children}
     </header>
   )

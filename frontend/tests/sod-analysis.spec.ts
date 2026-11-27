@@ -3,7 +3,7 @@ import {mkdtempSync,writeFileSync,rmSync,readFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {enableSod} from './sod-fixture'
-import { headers, postConfiguration } from './support'
+import { goTo, headers, postConfiguration } from './support'
 import { layoutMatrix } from './matrix'
 let directory:string
 const matrix='RISK,CRITICITY,TYPE,TEXT,ACTVT1,ACTVT2,ACTIVITY_SLOT,ACTIVITY,TCODE,TTEXT\nUIR01,H,S,Synthetic review activities,CREATE,APPROVE,ACTVT1,CREATE,X001,Creation\nUIR01,H,S,Synthetic review activities,CREATE,APPROVE,ACTVT2,APPROVE,X002,Approval\n'
@@ -20,7 +20,7 @@ test.beforeEach(async({request})=>{
  await enableSod(request)
 })
 test.afterEach(async({request})=>{await request.post('/api/configuration/reset',{headers});rmSync(directory,{recursive:true,force:true})})
-async function userView(page:any){await page.goto('/#session=browser-test-session');await page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'SoD',exact:true}).click();await page.getByRole('link',{name:'Access Explorer',exact:true}).click()}
+async function userView(page:any){await page.goto('/#session=browser-test-session');await goTo(page,'SoD');await page.getByRole('link',{name:'Access Explorer',exact:true}).click()}
 test('SoD user investigation retains both activity sides, wildcard provenance, intervals and navigation context',async({page})=>{
  await userView(page);await expect(page).toHaveURL(/#\/sod\/explorer/);const table=page.getByRole('table',{name:'User risk table',exact:true});await expect(table.getByRole('row')).toHaveCount(2);await expect(table).not.toContainText('SYN_UI_ONE');await expect(table).not.toContainText('SYN_UI_EXPIRED')
  await page.getByRole('button',{name:'Investigate SYN_UI_A UIR01',exact:true}).click();const panel=page.getByRole('dialog',{name:'SYN_UI_A · UIR01',exact:true})

@@ -7,7 +7,7 @@ test.afterEach(async ({ request }) => { await cleanup(request, directory) })
 
 async function openUsers(page: Page) {
   await page.goto('/#session=browser-test-session')
-  await page.goto('/#/user-access')
+  await page.goto('/#/users')
   await expect(page.getByRole('row').filter({ hasText: names.a }).first()).toBeVisible()
 }
 /** The tooltip must be inside the viewport and actually painted on top at its centre (not clipped or covered). */

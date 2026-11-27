@@ -21,7 +21,7 @@ test('review period is gated, explicitly self-approved, then frozen; deletion is
  await expect(dialog.getByRole('button',{name:'Delete…',exact:true})).toHaveCount(1);const profile=(await(await request.get('/api/reviewer-profile',{headers})).json()).identity;await expect(dialog.getByText(`Approved by ${profile.display_name}, reviewed by ${profile.display_name}`,{exact:false})).toBeVisible();const approvedState=(await(await request.get(`/api/sod/periods/${id}`,{headers})).json()).period;expect(approvedState.history.at(-1).actor_identity.id).toBe(profile.id)
  const before=(await(await request.get(`/api/sod/periods/${id}`,{headers})).json()).checksum;expect((await request.post('/api/refresh',{headers})).ok()).toBeTruthy();expect((await(await request.get(`/api/sod/periods/${id}`,{headers})).json()).checksum).toBe(before)
  const impact=await(await request.get(`/api/sod/periods/${id}/deletion-impact`,{headers})).json();expect([impact.mode,impact.requires_reason,impact.requires_history_confirmation]).toEqual(['archive',true,true])
- await page.keyboard.press('Escape');await page.getByRole('link',{name:'Risk Matrix',exact:true}).click();await expect(page.getByRole('combobox',{name:'Review context',exact:true})).toBeVisible()
+ await page.keyboard.press('Escape');await page.getByRole('link',{name:'SoD',exact:true}).click();await page.getByRole('navigation',{name:'SoD views',exact:true}).getByRole('link',{name:'Risk Matrix',exact:true}).click();await expect(page.getByRole('combobox',{name:'Review context',exact:true})).toBeVisible()
 })
 
 test('period deletion requires the typed name; empty drafts are removed and worked periods are archived',async({page,request})=>{

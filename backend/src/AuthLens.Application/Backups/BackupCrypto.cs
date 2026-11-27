@@ -81,22 +81,63 @@ public static class BackupKeys
     /// <summary>The host key, or null when none is configured.</summary>
     public static byte[]? Host(string dataDirectory) => Location(dataDirectory) is { } path ? Read(path, dataDirectory) : null;
 
-    /// <summary>key_status: configured, fingerprint and whether a separately stored recovery copy was verified.</summary>
-    public static JsonObject Status(string dataDirectory)
+    /// <summary>Recovery-key states. Only `usable` permits encryption; every other configured state fails closed with an operator action.</summary>
+    public static readonly IReadOnlyDictionary<string, string> StateActions = new Dictionary<string, string>
     {
+        ["not_configured"] = "No protected host key is configured. Create or select one locally with Service Manager before creating backups.",
+        ["usable"] = "The host key is readable by this AuthLens process.",
+        ["inaccessible"] = "A host key is configured, but this AuthLens process identity cannot read it. Grant the service identity read access to the key file only; do not broaden permissions.",
+        ["missing"] = "A host key is configured, but the key file is missing. Restore the key file from its protected recovery copy; do not create a new key, or existing archives become unreadable.",
+        ["invalid"] = "The configured key file is not a valid AuthLens recovery key. Restore it from its protected recovery copy.",
+        ["unsafe_permissions"] = "The configured key file is readable by other users. Restrict it to the service identity and administrators.",
+        ["location_unreadable"] = "The host backup-key location record is unreadable or unsafe. Configure the location locally again with Service Manager.",
+    };
+
+    /// <summary>Classifies the configured key without revealing material: the key is read only to fingerprint it, and errors are mapped to states.</summary>
+    private static (string State, byte[]? Key) Probe(string dataDirectory)
+    {
+        string? path;
+        try { path = Location(dataDirectory); }
+        catch (BackupException) { return ("location_unreadable", null); }
+        if (path is null) return ("not_configured", null);
         try
         {
-            if (Host(dataDirectory) is not { } key) return new JsonObject { ["configured"] = false, ["escrow_verified"] = false };
+            if (!OperatingSystem.IsWindows() && (File.GetUnixFileMode(path) & (UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.OtherRead | UnixFileMode.OtherWrite)) != 0)
+                return ("unsafe_permissions", null);
+            if (new FileInfo(path).Length > 96) return ("invalid", null);
+            var raw = File.ReadAllBytes(path);
+            var key = Convert.FromBase64String(Encoding.ASCII.GetString(raw).Trim());
+            return key.Length == 32 ? ("usable", key) : ("invalid", null);
+        }
+        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException) { return ("missing", null); }
+        catch (Exception error) when (error is UnauthorizedAccessException or IOException) { return ("inaccessible", null); }
+        catch (FormatException) { return ("invalid", null); }
+    }
+
+    /// <summary>key_status: state (see <see cref="StateActions"/>), configured (a key location exists), usable, fingerprint when usable, and whether
+    /// a separately stored recovery copy was verified (`escrow_pending` when usable but unverified). Never contains key material or the key path.</summary>
+    public static JsonObject Status(string dataDirectory)
+    {
+        var (state, key) = Probe(dataDirectory);
+        var result = new JsonObject { ["state"] = state, ["configured"] = state != "not_configured", ["usable"] = key is not null, ["escrow_verified"] = false, ["action"] = StateActions[state] };
+        if (key is null) return result;
+        var verified = false;
+        try
+        {
             var marker = Path.Combine(dataDirectory, Confirmation);
-            var verified = false;
             if (File.Exists(marker) && !Linked(marker) && new FileInfo(marker).Length < 8192)
             {
                 var value = JsonNode.Parse(File.ReadAllText(marker));
                 verified = (int?)value?["schema"] == 1 && (string?)value!["fingerprint"] == Fingerprint(key);
             }
-            return new JsonObject { ["configured"] = true, ["fingerprint"] = Fingerprint(key), ["escrow_verified"] = verified };
         }
-        catch (Exception error) when (error is BackupException or JsonException or IOException) { return new JsonObject { ["configured"] = false, ["escrow_verified"] = false }; }
+        catch (Exception error) when (error is JsonException or IOException or UnauthorizedAccessException) { verified = false; }
+        result["fingerprint"] = Fingerprint(key);
+        result["escrow_verified"] = verified;
+        result["escrow_pending"] = !verified;
+        if (!verified) result["action"] = "The host key is usable. Export a recovery copy locally, store it separately, and verify it here before backups are enabled.";
+        CryptographicOperations.ZeroMemory(key);
+        return result;
     }
 
     /// <summary>verify_escrow: the offered recovery copy must equal the host key (constant time); records the fingerprint, never the key.</summary>

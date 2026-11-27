@@ -126,11 +126,12 @@ public sealed class ImportPreviewTests : IAsyncLifetime
         var (ok, report) = await Post("/api/import/preview", new JsonObject { ["data_csv_path"] = inside });
         Assert.True(ok == HttpStatusCode.OK, report?.ToJsonString());
         Assert.True((int)report!["unique_roles"]! > 0);
-        foreach (var path in new[] { outside, Path.Combine(_root, "data", "sources", "..", "cases", "roles_default.csv") })
+        // An unauthorized file is refused by policy; a traversal spelling is refused as an unsupported path form (both before any read).
+        foreach (var (path, reason) in new[] { (outside, "Server source paths prohibited by policy"), (Path.Combine(_root, "data", "sources", "..", "cases", "roles_default.csv"), "unsupported form") })
         {
             var (status, detail) = await Post("/api/import/headers", new JsonObject { ["data_csv_path"] = path });
             Assert.Equal(HttpStatusCode.BadRequest, status);
-            Assert.Contains("Server source paths prohibited by policy", (string)detail!["detail"]!);
+            Assert.Contains(reason, (string)detail!["detail"]!);
         }
         if (!OperatingSystem.IsWindows())
         {

@@ -17,6 +17,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        AuthLens.Api.AuthLensHost.UseInvariantCulture();   // stored timestamps never follow the user's regional format
         var selfCheck = args.Contains("--self-check", StringComparer.OrdinalIgnoreCase);
         var index = Array.FindIndex(args, a => string.Equals(a, "--data-dir", StringComparison.OrdinalIgnoreCase));
         if (index >= 0 && (index + 1 >= args.Length || string.IsNullOrWhiteSpace(args[index + 1]) || args[index + 1].StartsWith("--", StringComparison.Ordinal) || !Path.IsPathFullyQualified(args[index + 1])))

@@ -9,7 +9,7 @@ namespace AuthLens.Api;
 /// <summary>Port of routers/sod_governance.py read routes and routers/sod.py overview: review context, matrices and group heatmaps, filter options, Access
 /// Explorer tables and exports, the bulk selection, the review queue (items, users, export), remediation (list, exports) and the SoD overview. Every route
 /// works for the live context and for review periods (frozen periods read their own snapshot); nothing here changes evidence or decisions.</summary>
-public static class V1SodGovernance
+public static partial class V1SodGovernance
 {
     public const int MaxColumns = 500, MatrixPageMax = 5000, SelectionLimit = 5000;
     private static readonly StringComparer Ordinal = StringComparer.Ordinal;
@@ -63,10 +63,31 @@ public static class V1SodGovernance
 
     // ---- matrices
 
-    private static async Task<(SodScope.Scoped Scope, JsonObject Matrix)> BuiltAsync(HttpContext http, string kind, SodQuery q, CancellationToken ct)
+    private static async Task<(SodScope.Scoped Scope, JsonObject Matrix)> BuiltAsync(HttpContext http, string kind, SodQuery q, CancellationToken ct, HashSet<string>? population = null)
     {
         var scope = await SodScope.ScopedAsync(http.RequestServices, q, ct);
-        return (scope, kind == "risk" ? SodViews.RiskMatrix(scope.View, scope.State) : SodViews.ActivityMatrix(scope.View, scope.State));
+        // BUG-015: the population selects whole users after conflict evaluation, so a selected user keeps every conflict of their complete access.
+        IReadOnlyDictionary<string, SodUserEntry> view = population is null ? scope.View
+            : scope.View.Where(p => population.Contains(SubjectSelection.Key(p.Key))).ToDictionary(p => p.Key, p => p.Value, Ordinal);
+        return (scope, kind == "risk" ? SodViews.RiskMatrix(view, scope.State) : SodViews.ActivityMatrix(view, scope.State));
+    }
+
+    /// <summary>BUG-015: <c>population=overview</c> scopes a matrix (the SAP User Group heatmap and its CSV) to the SoD Overview's population,
+    /// resolved by the same <see cref="SubjectSelection"/> call as <c>/api/sod/overview</c> (Functional Group, Manager, exact usernames, search).
+    /// Those keys are then not interpreted a second time by the matrix filters, whose search matches more than users. Without the parameter the
+    /// request is unchanged.</summary>
+    private static readonly string[] OverviewPopulationKeys = ["functional_groups", "managers", "usernames", "search", "username", "population"];
+    private static async Task<(SodQuery? Query, HashSet<string>? Population, IResult? Error)> PopulationQueryAsync(HttpContext http, CancellationToken ct)
+    {
+        var mode = http.Request.Query["population"].FirstOrDefault() ?? "";
+        if (mode == "") { var (plain, plainError) = await QueryAsync(http, ct); return (plain, null, plainError); }
+        if (mode != "overview") return (null, null, Bad("population must be overview."));
+        var (names, selectionError) = await SubjectSelection.ResolveAsync(http.RequestServices, http.Request.Query, ct, includeSearch: true);
+        if (selectionError is not null) return (null, null, selectionError);
+        var rest = new QueryCollection(http.Request.Query.Where(p => !OverviewPopulationKeys.Contains(p.Key)).ToDictionary(p => p.Key, p => p.Value));
+        var (q, error) = SodScope.Parse(rest);
+        if (error is not null) return (null, null, error);
+        return (q, names, null);
     }
 
     /// <summary>Users by their first SAP User Group, then name; users without a group always last.</summary>
@@ -83,12 +104,12 @@ public static class V1SodGovernance
 
     private static async Task<IResult> MatrixAsync(HttpContext http, string kind, CancellationToken ct)
     {
-        var (q, error) = await QueryAsync(http, ct);
+        var (q, population, error) = await PopulationQueryAsync(http, ct);
         if (error is not null) return error;
         var groupBy = http.Request.Query["group_by"].FirstOrDefault() ?? "user";
         if (groupBy is not ("user" or "group" or "user_group")) return Bad("Choose user, group or user_group.");
         if (Paging(http.Request.Query, 50, MatrixPageMax) is not { } page) return Bad("Invalid paging.");
-        var (scope, matrix) = await BuiltAsync(http, kind, q!, ct);
+        var (scope, matrix) = await BuiltAsync(http, kind, q!, ct, population);
         var key = kind == "risk" ? "acceptance" : "decision";
         var statusCounts = new JsonObject();
         foreach (var row in matrix["rows"]!.AsArray())
@@ -125,14 +146,16 @@ public static class V1SodGovernance
         result["columns_truncated"] = matrix["columns"]!.AsArray().Count > MaxColumns; result["rows"] = pageRows; result["total_rows"] = rows.Count;
         result["offset"] = page.Offset; result["limit"] = page.Limit; result["status_counts"] = statusCounts; result["group_summaries"] = summaries;
         foreach (var (name, value) in matrix) if (name is not ("columns" or "rows")) result[name] = value?.DeepClone();
+        // Only requests that ask for a population report it, so the v1 matrix contract is unchanged.
+        if (http.Request.Query.ContainsKey("population")) result["population"] = population is null ? "global" : "overview";
         return Json(result);
     }
 
     private static async Task<IResult> GroupExportAsync(HttpContext http, string kind, CancellationToken ct)
     {
-        var (q, error) = await QueryAsync(http, ct);
+        var (q, population, error) = await PopulationQueryAsync(http, ct);
         if (error is not null) return error;
-        var (_, matrix) = await BuiltAsync(http, kind, q!, ct);
+        var (_, matrix) = await BuiltAsync(http, kind, q!, ct, population);
         var grouped = SodViews.AggregateByGroup(matrix);
         var rows = grouped["rows"]!.AsArray().SelectMany(r => r!["cells"]!.AsObject().Select(c => new[] { (string?)r["user"], c.Key, S(c.Value!["users"]), S(r["users"]) }));
         return Csv(http, ["SAP_USER_GROUP", kind == "risk" ? "RISK_ID" : "ACTIVITY", "USERS_WITH_ITEM", "USERS_IN_GROUP_WITH_ITEMS"], rows, $"group-{kind}-heatmap");
@@ -686,6 +709,8 @@ public static class V1SodGovernance
             return Json(result);
         }));
         api.MapGet("/sod/queue/users", (HttpContext http, CancellationToken ct) => Guard(() => QueueUsersAsync(http, ct)));
+        api.MapGet("/sod/reviews/overview", (HttpContext http, CancellationToken ct) => Guard(() => ReviewsOverviewAsync(http, ct)));
+        api.MapGet("/sod/queue/export/configured", (HttpContext http, CancellationToken ct) => Guard(() => ReviewExportAsync(http, ct)));   // /sod/reviews/export is the legacy review export
         api.MapGet("/sod/queue/export", (HttpContext http, CancellationToken ct) => Guard(async () =>
         {
             var (q, error) = await QueryAsync(http, ct);

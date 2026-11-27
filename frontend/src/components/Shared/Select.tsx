@@ -39,6 +39,9 @@ export function Select({ className = 'ui-control', onMouseDown, onKeyDown, onBlu
   const uid = useId(), listId = `${uid}-list`
   const select = useRef<HTMLSelectElement>(null), popup = useRef<HTMLDivElement>(null), typed = useRef({ text: '', at: 0 })
   const trigger = useRef<HTMLButtonElement>(null)
+  // BUG-011: a touch tap opens the platform picker (iOS Safari shows it before the synthesized mousedown arrives), so touch input never opens the
+  // custom list as well: exactly one surface. Mouse, pen and keyboard keep the custom list.
+  const pointer = useRef<string>('')
   const focusControl = () => (trigger.current ?? select.current)?.focus()
   const [open, setOpen] = useState(false), [choices, setChoices] = useState<Choice[]>([]), [index, setIndex] = useState(0), [positioned, setPositioned] = useState(false)
   const [position, setPosition] = useState({ left: 0, top: 0, width: 0, maxHeight: 280 })
@@ -125,7 +128,8 @@ export function Select({ className = 'ui-control', onMouseDown, onKeyDown, onBlu
         hidden={multiSelection ? true : props.hidden} aria-hidden={multiSelection ? true : props['aria-hidden']} tabIndex={multiSelection ? -1 : props.tabIndex}
         aria-haspopup={enhanced ? 'listbox' : undefined} aria-expanded={enhanced ? open : undefined} aria-controls={enhanced && open ? listId : undefined}
         aria-activedescendant={enhanced && open && choices[index] ? optionId(index) : undefined}
-        onMouseDown={event => { onMouseDown?.(event); if (enhanced && !event.defaultPrevented && event.button === 0 && !event.currentTarget.disabled) { event.preventDefault(); event.currentTarget.focus(); if (open) close(); else show() } }}
+        onPointerDown={event => { pointer.current = event.pointerType }}
+        onMouseDown={event => { onMouseDown?.(event); if (pointer.current === 'touch') { pointer.current = ''; close(); return } if (enhanced && !event.defaultPrevented && event.button === 0 && !event.currentTarget.disabled) { event.preventDefault(); event.currentTarget.focus(); if (open) close(); else show() } }}
         onKeyDown={keys}
         onBlur={event => { onBlur?.(event); if (!popup.current?.contains(event.relatedTarget as Node)) close() }}>
         {children}

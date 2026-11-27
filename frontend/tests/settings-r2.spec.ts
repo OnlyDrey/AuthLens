@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import { selectSettingsSection } from './support'
 
 const openHealth = async (page: Page, width = 1280) => {
   await page.setViewportSize({ width, height: 1000 })
@@ -50,7 +51,7 @@ test('Component Library: tab strip has room above and its scrollbar never overla
     await page.setViewportSize({ width, height: 1000 })
     await page.goto('/#session=browser-test-session')
     await page.getByRole('button', { name: 'Open settings', exact: true }).click()
-    await page.getByRole('tab', { name: 'Component Library', exact: true }).click()
+    await selectSettingsSection(page, 'Component Library')
     const strip = page.getByRole('tablist', { name: 'Component categories' })
     const tab = strip.getByRole('tab', { name: 'All components', exact: true })
     const [stripBox, tabBox, intro] = [await strip.boundingBox(), await tab.boundingBox(), await page.getByLabel('Component Library previews').locator('> p').first().boundingBox()]

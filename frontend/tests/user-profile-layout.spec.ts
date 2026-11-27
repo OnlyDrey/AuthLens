@@ -14,7 +14,7 @@ async function open(page: Page, width: number, theme = 'light') {
   await page.setViewportSize({ width, height: 900 })
   await page.goto('/#session=browser-test-session')
   await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme)
-  await goTo(page, 'User Access')
+  await goTo(page, 'Users')
   await page.getByRole('link', { name: 'PROFILE_ONE', exact: true }).click()
   return page.getByRole('region', { name: 'User profile', exact: true })
 }

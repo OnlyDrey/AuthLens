@@ -59,4 +59,40 @@ Describe 'Fresh deployment recovery revalidates candidate invariants' {
         {Invoke-ALRecover $config -RecoveryAction Cancel}|Should -Throw '*cancellation is unavailable*'
         {Assert-ALInstallerServerPreflight $config}|Should -Throw '*explicit recovery*'
     }
+
+    # G-007: an interrupted first installation whose configured certificate blocks recovery is completed with a replacement certificate in a
+    # recorded configuration transaction; failure restores the previous certificate and keeps manual_recovery_required.
+    It 'completes candidate recovery with a replacement certificate through the configuration transaction' {
+        $pfx = Join-Path $TestDrive "recovery-$([guid]::NewGuid().ToString('N')).pfx"; $password = "$pfx.password"
+        foreach ($file in $pfx, $password) { Set-Content $file 'synthetic' -Encoding ASCII }
+        $tls = Join-Path $root 'tls\renew-synthetic'
+        Mock -ModuleName AuthLens.Deploy Copy-ALServerTlsMaterial { [pscustomobject]@{ certificate = (Join-Path $tls 'server.pfx'); password_file = (Join-Path $tls 'cert-password'); public_certificate = (Join-Path $tls 'server.cer') } }.GetNewClosure()
+        Mock -ModuleName AuthLens.Deploy Invoke-ALConfigurationTransaction { [pscustomobject]@{ changed = $true; process_id = 77; identity = [pscustomobject]@{ version = '2.0.0'; source_sha = $sha } } }.GetNewClosure()
+        Mock -ModuleName AuthLens.Deploy Get-ALCertificateInfo { $null }
+        $preview = Get-ALRecoveryPreview $config -RecoveryAction VerifyCandidate -CertificateFile $pfx -CertificatePasswordFile $password
+        $preview.would_succeed | Should -BeTrue
+        $preview.would_replace_certificate | Should -BeTrue
+        Should -Invoke -ModuleName AuthLens.Deploy Invoke-ALConfigurationTransaction -Times 0
+        Should -Invoke -ModuleName AuthLens.Deploy Copy-ALServerTlsMaterial -Times 0
+        (Read-ALJournal $config).phase | Should -Be 'manual_recovery_required'
+        Should -Invoke -ModuleName AuthLens.Deploy Invoke-ALMaintenance -Times 1 -ParameterFilter { $Arguments[0] -eq '--server-preflight' -and ($Arguments -join ' ') -like "*$pfx*" }
+
+        $result = Invoke-ALRecover $config -RecoveryAction VerifyCandidate -CertificateFile $pfx -CertificatePasswordFile $password
+        $result.phase | Should -Be 'complete'
+        $result.certificate_replaced | Should -BeTrue
+        $result.trust_store_modified | Should -BeFalse
+        (Read-ALJournal $config).phase | Should -Be 'complete'
+        Should -Invoke -ModuleName AuthLens.Deploy Invoke-ALConfigurationTransaction -Times 1 -ParameterFilter { $Operation -eq 'recovery certificate replacement' -and $Settings.CertificatePath -eq (Join-Path $tls 'server.pfx') }
+    }
+    It 'keeps manual_recovery_required when the recovery certificate step fails and refuses it for other actions' {
+        $pfx = Join-Path $TestDrive "recovery-$([guid]::NewGuid().ToString('N')).pfx"; $password = "$pfx.password"
+        foreach ($file in $pfx, $password) { Set-Content $file 'synthetic' -Encoding ASCII }
+        Mock -ModuleName AuthLens.Deploy Copy-ALServerTlsMaterial { [pscustomobject]@{ certificate = 'C:\synthetic\server.pfx'; password_file = 'C:\synthetic\cert-password'; public_certificate = '' } }
+        Mock -ModuleName AuthLens.Deploy Invoke-ALConfigurationTransaction { throw 'recovery certificate replacement failed and the previous configuration was restored: synthetic' }
+        Mock -ModuleName AuthLens.Deploy Get-ALCertificateInfo { $null }
+        { Invoke-ALRecover $config -RecoveryAction VerifyCandidate -CertificateFile $pfx -CertificatePasswordFile $password } | Should -Throw '*previous configuration was restored*'
+        (Read-ALJournal $config).phase | Should -Be 'manual_recovery_required'
+        { Invoke-ALRecover $config -RecoveryAction Rollback -CertificateFile $pfx -CertificatePasswordFile $password } | Should -Throw '*applies only to candidate recovery*'
+        { Invoke-ALRecover $config -RecoveryAction VerifyCandidate -CertificateFile (Join-Path $TestDrive 'missing.pfx') -CertificatePasswordFile $password } | Should -Throw '*-CertificateFile <absolute .pfx file>*'
+    }
 }

@@ -102,8 +102,11 @@ export interface Page<T> {
   as_of?: string;
   groups?: string[];
 }
+/** NAV-6: backend distinct-user total of the matrix population; null type is PR and PO combined, null group the whole matrix. */
+export interface MatrixTotal { user_group: string; document_type: 'PR' | 'PO' | null; release_group: string | null; release_strategy?: string | null; distinct_users: number }
 export interface ReleasePage extends Page<ReleaseRow> {
   matrix: Cell[];
+  matrix_totals?: MatrixTotal[];
   matrix_total: number;
   matrix_offset: number;
 }

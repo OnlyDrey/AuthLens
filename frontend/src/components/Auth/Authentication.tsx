@@ -1,6 +1,7 @@
 import {createContext,useCallback,useContext,useEffect,useRef,useState,type ReactNode,type FormEvent} from 'react'
 import {useQueryClient} from '@tanstack/react-query'
-import {ApiError,apiRequest,setSessionRole} from '@/api/client'
+import {ApiError,apiRead,apiRequest,setSessionRole} from '@/api/client'
+import {SessionTimeout,SESSION_CHANNEL} from './SessionTimeout'
 import {Button} from '@/components/Shared/Button'
 import {FormField,Input,PasswordInput} from '@/components/Shared/Controls'
 import {ConfirmDialog} from '@/components/Shared/ConfirmDialog'
@@ -21,15 +22,16 @@ const deletionMessages:Record<string,string>={cannot_delete_self:'You cannot del
 export const authMessage=(error:unknown)=>error instanceof Error?(messages[error.message.split(' Reference:')[0]]||deletionMessages[error.message.split(' Reference:')[0]]||error.message):'The operation could not be completed.'
 
 export function AuthenticationGate({children}:{children:ReactNode}) {
- const qc=useQueryClient(),[ready,setReady]=useState(false),[session,setSession]=useState(false),[setup,setSetup]=useState(false),[user,setUser]=useState<Account|null>(null),[error,setError]=useState('')
+ const qc=useQueryClient(),[notice,setNotice]=useState(''),[ready,setReady]=useState(false),[session,setSession]=useState(false),[setup,setSetup]=useState(false),[user,setUser]=useState<Account|null>(null),[error,setError]=useState('')
  const requestSequence=useRef(0)
- const reload=useCallback(async()=>{
-  const sequence=++requestSequence.current,next=await apiRequest<Account>('/api/auth/me')
+ const reload=useCallback(async(passive=false)=>{
+  const sequence=++requestSequence.current,next=passive?await apiRead<Account>('/api/auth/me','passive'):await apiRequest<Account>('/api/auth/me')
   if(sequence===requestSequence.current){setSessionRole(next.role);setUser(next)}
  },[])
  useEffect(()=>{
   if(!session||!user)return
-  const refresh=()=>{void reload().catch(()=>undefined)}
+  // Background refreshes (theme and role changes made elsewhere) are passive: they never keep an abandoned session alive (BUG-04).
+  const refresh=()=>{void reload(true).catch(()=>undefined)}
   const timer=window.setInterval(refresh,30000)
   window.addEventListener('focus',refresh)
   return()=>{window.clearInterval(timer);window.removeEventListener('focus',refresh)}
@@ -50,17 +52,22 @@ export function AuthenticationGate({children}:{children:ReactNode}) {
    if(error instanceof ApiError&&error.kind==='session'){setReady(true);return}
    setError(authMessage(error))
   })
-  const expired=()=>{requestSequence.current++;void qc.cancelQueries();qc.clear();setUser(null);setSessionRole(null)}
+  const expired=(event:Event)=>{
+   const reason=(event as CustomEvent<{reason?:string}>).detail?.reason
+   setNotice(reason==='inactivity'?'You were signed out after a period of inactivity. Sign in again to continue; unsaved changes were not submitted.':reason==='absolute'?'Your session reached its maximum length. Sign in again to continue.':reason==='signed-out'?'You signed out in another window.':'Your session ended. Sign in again to continue.')
+   requestSequence.current++;void qc.cancelQueries();qc.clear();setUser(null);setSessionRole(null)}
   window.addEventListener('authlens-sign-in-required',expired)
   return()=>{mounted=false;window.removeEventListener('authlens-sign-in-required',expired)}
  },[qc,reload])
- const logout=async()=>{try{await apiRequest('/api/auth/logout','POST')}catch(error){if(!(error instanceof ApiError&&error.status===401))throw error}requestSequence.current++;void qc.cancelQueries();qc.clear();setUser(null);setSessionRole(null)}
+ const logout=async()=>{try{await apiRequest('/api/auth/logout','POST')}catch(error){if(!(error instanceof ApiError&&error.status===401))throw error}
+  try{const channel=new BroadcastChannel(SESSION_CHANNEL);channel.postMessage({type:'signed-out'});channel.close()}catch{/* other windows notice on their next request */}
+  requestSequence.current++;void qc.cancelQueries();qc.clear();setUser(null);setSessionRole(null);setNotice('')}
  if(!ready)return <div className="startup-screen"><div className="startup-card">{error?<><p role="alert">{error}</p><Button onClick={()=>location.reload()}>Retry connection</Button></>:<LoadingState/>}</div></div>
- if(session&&!user)return <Login setup={setup} onActivated={()=>setSetup(false)} onReady={async()=>{setSetup(false);await reload()}}/>
+ if(session&&!user)return <Login setup={setup} notice={notice} onActivated={()=>setSetup(false)} onReady={async()=>{setSetup(false);setNotice('');await reload()}}/>
  const can=(permission:string)=>!session||!!user?.permissions?.includes(permission)
- return <Context.Provider value={{user,session,canAdmin:can('admin'),canReview:can('review'),can,reload,logout}}>{children}</Context.Provider>
+ return <Context.Provider value={{user,session,canAdmin:can('admin'),canReview:can('review'),can,reload:()=>reload(),logout}}>{children}{session&&user&&<SessionTimeout onSignOut={logout}/>}</Context.Provider>
 }
-function Login({setup,onActivated,onReady}:{setup:boolean;onActivated:()=>void;onReady:()=>Promise<void>}){
+function Login({setup,notice='',onActivated,onReady}:{setup:boolean;notice?:string;onActivated:()=>void;onReady:()=>Promise<void>}){
  const [mode,setMode]=useState<'login'|'reset'|'recover'>(setup?'recover':'login'),[username,setUsername]=useState(''),[display,setDisplay]=useState(''),[password,setPassword]=useState(''),[code,setCode]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('')
  const submit=async(event:FormEvent)=>{
   event.preventDefault();if(busy)return;setBusy(true);setError('');setMessage('')
@@ -76,7 +83,7 @@ function Login({setup,onActivated,onReady}:{setup:boolean;onActivated:()=>void;o
  {setup&&<FormField label="Display name"><Input autoComplete="name" value={display} maxLength={120} required onChange={e=>setDisplay(e.target.value)}/></FormField>}
  {(setup||mode!=='login')&&<FormField label="One-time code" description={setup?'Generate a code in the local Service Manager or server administration command. Codes expire after 15 minutes.':'Use the code supplied by your administrator.'}><Input autoComplete="off" value={code} required onChange={e=>setCode(e.target.value)}/></FormField>}
  <FormField label={setup||mode!=='login'?'New password':'Password'}><PasswordInput autoComplete={setup||mode!=='login'?'new-password':'current-password'} minLength={setup||mode!=='login'?12:undefined} maxLength={1024} value={password} required onChange={e=>setPassword(e.target.value)}/></FormField>
- {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}
+ {notice&&!error&&!message&&<p role="status" className="text-sm text-secondary">{notice}</p>}{error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}
  <Button type="submit" variant="primary" loading={busy}>{!busy&&(setup?<ShieldCheck size={18} aria-hidden="true"/>:mode==='login'?<LogIn size={18} aria-hidden="true"/>:<KeyRound size={18} aria-hidden="true"/>)}{setup?'Create administrator':mode==='login'?'Sign in':'Set password'}</Button>
  {!setup&&<div className="flex flex-wrap justify-center gap-2"><Button disabled={busy} variant="ghost" onClick={()=>{setMode(mode==='login'?'reset':'login');setError('');setPassword('')}}>{mode==='login'?<KeyRound size={16} aria-hidden="true"/>:<LogIn size={16} aria-hidden="true"/>}{mode==='login'?'Use password reset code':'Back to sign in'}</Button>{mode==='reset'&&<Button variant="ghost" disabled={busy} onClick={()=>setMode('recover')}>Local administrator recovery</Button>}</div>}
  </form></section></main>

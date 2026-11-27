@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test'
 import {mkdtempSync,writeFileSync,rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import { headers, postConfiguration } from './support'
+import { headers, postConfiguration, goTo, selectSettingsSection } from './support'
 let directory:string
 const areas=['MM','FI','SD','BC','PP','QM','PM']
 test.beforeEach(async({request})=>{
@@ -29,17 +29,17 @@ for(const theme of ['light','dark'])for(const width of [375,800,1280,1600])test(
  for(const band of ['0–5','6–10','11–20','21–30','31+'])await expect(page.getByRole('button',{name:`Investigate users with ${band} currently valid roles`,exact:true})).toBeVisible()
  const last=await page.locator('.dashboard-cards > :last-child').getAttribute('aria-label');expect(last).toBe('Data Sources & Configuration')
  await page.screenshot({path:info.outputPath(`dashboard-${theme}-${width}.png`),fullPage:true})
- await page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'User Access',exact:true}).click()
- const link=page.getByRole('navigation',{name:'User Access view',exact:true}).getByRole('link',{name:'User directory',exact:true}),box=(await link.boundingBox())!
+ await goTo(page,'Users')
+ const link=page.getByRole('navigation',{name:'Users view',exact:true}).getByRole('link',{name:'User Directory',exact:true}),box=(await link.boundingBox())!
  await link.hover();await expect(link).toHaveCSS('text-decoration-line','none');await expect(link).toHaveCSS('border-top-width','0px');expect((await link.boundingBox())!.height).toBe(box.height)
- await page.getByRole('button',{name:'Open settings',exact:true}).click();await page.getByRole('tab',{name:'Organization & SAP System',exact:true}).click()
+ await page.getByRole('button',{name:'Open settings',exact:true}).click();await selectSettingsSection(page,'Organization & SAP System')
  await page.getByLabel('Organization name',{exact:true}).fill('Synthetic preview organization')
- await page.getByRole('tab',{name:'Appearance & Branding',exact:true}).click()
+ await selectSettingsSection(page,'Appearance & Branding')
  const preview=page.getByLabel('Theme live preview',{exact:true});await expect(preview).toContainText('Synthetic preview organization');await expect(preview.getByAltText('Header logo preview')).toBeVisible()
  const content=(await page.locator('.settings-content').boundingBox())!,previewBox=(await preview.boundingBox())!;expect(previewBox.width/content.width).toBeGreaterThan(.65)
  expect((await(await request.get('/api/configuration',{headers})).json()).settings.organization.name).not.toBe('Synthetic preview organization')
  await page.screenshot({path:info.outputPath(`appearance-${theme}-${width}.png`)})
- await page.getByRole('tab',{name:'Component Library',exact:true}).click()
+ await selectSettingsSection(page,'Component Library')
  const tabs=page.getByRole('tablist',{name:'Component categories',exact:true});await expect(tabs.getByRole('tab').first()).toHaveText('All components');await expect(tabs.getByRole('tab').first()).toHaveAttribute('aria-selected','true')
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy()
  const library=page.getByLabel('Component Library previews',{exact:true});expect(await library.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBeTruthy()

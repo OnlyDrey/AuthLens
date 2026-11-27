@@ -30,12 +30,13 @@ test('mobile routes retain all groups, active labels, keyboard navigation and cl
   await page.setViewportSize({width:360,height:800});await page.goto('/#session=browser-test-session')
   const trigger=page.getByRole('button',{name:'Open navigation',exact:true})
   await trigger.click();const drawer=page.getByRole('dialog',{name:'Navigation',exact:true})
-  await drawer.locator('summary').filter({hasText:'User Access'}).click();await drawer.locator('summary').filter({hasText:'SoD'}).click()
-  for(const label of ['Dashboard','Role Lookup','User directory','Release Roles','Overview','Account Review','Compare users','Risk Matrix','Review Periods'])await expect(drawer.getByRole('link',{name:label,exact:true})).toBeVisible()
+  await drawer.locator('summary').filter({hasText:'Users'}).click();await drawer.locator('summary').filter({hasText:'SoD'}).click();await drawer.locator('summary').filter({hasText:'Reviews'}).click()
+  for(const label of ['Dashboard','Role Lookup','User Directory','Release Access','Account Review','Position Changes','Compare Users','Risk Matrix','Work Queue','Review Periods'])await expect(drawer.getByRole('link',{name:label,exact:true})).toBeVisible()
+  await expect(drawer.getByRole('link',{name:'Overview',exact:true})).toHaveCount(2) // SoD and Reviews
   await expect(drawer.getByRole('link',{name:'Dashboard',exact:true})).toHaveAttribute('aria-current','page')
-  await drawer.getByRole('link',{name:'Compare users',exact:true}).focus();await page.keyboard.press('Enter')
-  await expect(page).toHaveURL(/#\/user-access\/compare/);await expect(drawer).toHaveCount(0)
-  await trigger.click();await expect(drawer.getByRole('link',{name:'Compare users',exact:true})).toHaveAttribute('aria-current','page')
+  await drawer.getByRole('link',{name:'Compare Users',exact:true}).focus();await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/#\/users\/compare/);await expect(drawer).toHaveCount(0)
+  await trigger.click();await expect(drawer.getByRole('link',{name:'Compare Users',exact:true})).toHaveAttribute('aria-current','page')
   await page.setViewportSize({width:1440,height:900});await expect(drawer).toHaveCount(0)
   await expect(page.getByRole('navigation',{name:'Main navigation',exact:true})).toBeVisible()
   await page.getByRole('link',{name:'Role Lookup',exact:true}).click();await expect(page.getByRole('heading',{name:'Role Lookup',exact:true})).toBeVisible()
@@ -82,9 +83,9 @@ for(const width of [360,375,390,768,800,1024,1280,1440,1600])test(`responsive ro
       const trigger=page.getByRole('button',{name:'Open navigation',exact:true})
       expect(await trigger.evaluate(element=>getComputedStyle(element).color)).toBe(await page.getByRole('button',{name:'Reviewer profile',exact:true}).evaluate(element=>getComputedStyle(element).color))
     }
-    for(const route of ['dashboard','role-lookup','user-access','user-access/compare','user-access/account-review','release-roles','sod','sod/risk-matrix','sod/activity-matrix','sod/reviews','sod/periods','sod/reports']){
+    for(const route of ['dashboard','role-lookup','users','users/compare','users/release-access','reviews/account-review','reviews/position-changes','sod','sod/risk-matrix','sod/activity-matrix','reviews','reviews/queue','reviews/periods','reports/review']){
       await page.evaluate(route=>{location.hash='/'+route},route)
-      const heading=route==='dashboard'?'Dashboard':route==='role-lookup'?'Role Lookup':route==='user-access'?'User Access':route.endsWith('/compare')?'Compare users':route.endsWith('/account-review')?'Account Review':route==='release-roles'?'Release Roles':'Segregation of Duties'
+      const heading=route==='dashboard'?'Dashboard':route==='role-lookup'?'Role Lookup':route==='users'?'Users':route.endsWith('/compare')?'Compare Users':route.endsWith('/release-access')?'Release Access':route.endsWith('/account-review')?'Account Review':route.endsWith('/position-changes')?'Position Changes':route.startsWith('reviews')?'Reviews':route.startsWith('reports')?'Reports':'Segregation of Duties'
       await expect(page.getByRole('heading',{name:heading,exact:true}).first()).toBeVisible()
       await expect(page.getByRole('status').filter({hasText:/^Loading local records/})).toHaveCount(0)
       if(route==='dashboard'){
@@ -92,6 +93,7 @@ for(const width of [360,375,390,768,800,1024,1280,1440,1600])test(`responsive ro
         await expect(page.locator('.dashboard-status[data-state="loading"],.dashboard-status[data-state="initial-load"]')).toHaveCount(0)
       }
       if(route.startsWith('sod/'))await expect(page.getByRole('navigation',{name:'SoD views',exact:true}).locator(`a[href="#/${route}"]`)).toHaveAttribute('aria-current','page')
+      if(route.startsWith('reviews/'))await expect(page.getByRole('navigation',{name:'Review views',exact:true}).locator(`a[href="#/${route}"]`)).toHaveAttribute('aria-current','page')
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`${route} ${theme}`).toBe(true)
       if([390,1440].includes(width)&&['dashboard','sod/risk-matrix'].includes(route)){
         mkdirSync(screenshots,{recursive:true});await page.screenshot({path:path.join(screenshots,`${route.replaceAll('/','-')}-${width}-${theme}.png`)})

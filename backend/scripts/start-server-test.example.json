@@ -3,9 +3,9 @@
   "Port": 18791,
   "AllowedHosts": ["lens.example.com", "192.0.2.10"],
   "TrustedProxies": [],
-  "DataDirectory": "C:\\AuthLens-Acceptance\\server-test",
-  "CertificatePath": "C:\\AuthLens-Acceptance\\tls\\server.pfx",
-  "CertificatePasswordFile": "C:\\AuthLens-Acceptance\\tls\\cert-password",
-  "BuildsRoot": "C:\\AuthLens-Acceptance\\builds",
-  "LogDirectory": "C:\\AuthLens-Acceptance\\logs"
+  "DataDirectory": "C:\\AuthLens\\server-test\\data",
+  "CertificatePath": "C:\\AuthLens\\server-test\\tls\\server.pfx",
+  "CertificatePasswordFile": "C:\\AuthLens\\server-test\\tls\\cert-password",
+  "BuildsRoot": "C:\\AuthLens",
+  "LogDirectory": "C:\\AuthLens\\server-test\\logs"
 }

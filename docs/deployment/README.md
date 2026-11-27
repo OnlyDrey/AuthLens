@@ -10,10 +10,11 @@
 ## Commands
 
 ```powershell
-# Canonical Windows workflow: build, package and verify both products; never installs
-.\build.ps1
-# Development packaging: skip backend tests, retain security and manifest checks
-.\build.ps1 -SkipTests -OutputRoot C:\AuthLens-Development
+# Canonical Windows workflow (mandatory output root C:\AuthLens): build, focused tests, package and verify both products; never installs
+Import-Module .\backend\scripts\deploy\AuthLens.Deploy.psm1 -Force
+.\build.ps1 -OutputRoot C:\AuthLens -TestFilter (Get-ALTestFilter focused)              # add -ZipPackage for the portable package
+# Package an existing verified build (RC6 and later) without rebuilding
+.\backend\scripts\New-AuthLensPackage.ps1 -Candidate C:\AuthLens\Build\<version>\<build-id>
 # Managed Windows service deployment on the host (or over SSH with backend/scripts/deploy/deploy-windows.sh)
 .\backend\scripts\deploy\Deploy-AuthLens.ps1 -Action Status
 ```
@@ -24,7 +25,8 @@ Manual installer updates use the existing backup/deployment engine. Desktop reta
 Server uses a reviewed explicit or validated discovered configuration, resolves its program directory before staging and preserves existing settings.
 Interactive Setup can author fresh path/network/proxy configuration, generate local self-signed TLS or import an existing PFX, and explicitly
 approve a restricted firewall rule. Certificate trust is never installed automatically. Upgrades preserve configuration. Installed-certificate
-renewal/replacement, custom credential provisioning and optional test-data removal remain incomplete. CLI offline repair can publish verified replacement components while retaining damaged payloads;
+replacement and network configuration changes are supported transactions (Service Manager and `Deploy-AuthLens.ps1`); custom credential
+provisioning and optional test-data removal remain incomplete. CLI offline repair can publish verified replacement components while retaining damaged payloads;
 owned-rule updates/removal/recovery now verify the native definition and preserve administrator changes. Server uninstall verifies recovery and removes owned service/rules while preserving all persistent data. Native lifecycle/recovery acceptance is still pending.
 Both refuse updates with pending schema changes and preserve recovery artifacts. See
 [installer transactions and acceptance limits](WINDOWS_DEPLOYMENT.md#manual-installer-transaction) before any installation.

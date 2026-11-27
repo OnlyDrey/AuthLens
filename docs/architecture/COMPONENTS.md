@@ -18,7 +18,7 @@ Paths below are relative to `frontend/src/components/`. The inventory covers reu
 | IconButton / Tooltip, same file | Navbar utilities, comparison user links, library | Required label; focus/hover tooltip, Escape, disabled/loading states. No hidden text-only dependency |
 | ButtonGroup, same file | Release Table/Matrix, transaction AND/OR, library | Native pressed buttons, named group; this is a presentation/filter control, not page navigation |
 | `Shared/Controls.tsx`: Input / SearchInput | Library and shared form contract; legacy Settings/Access inputs use `controlClass` | IDs/ARIA forwarded; search icon space, invalid/disabled states; optional `onClear`/`clearLabel` gives a keyboard-accessible action that respects disabled state and restores input focus; no copied theme color literals |
-| `Shared/FunctionalGroupPills.tsx` | User directory and Account Review | Two equal-width, 28 px badges in a bounded stack; single-line `+N more` or View groups action opens the full keyboard-accessible list. Full names stay in DOM/title and every membership remains in `data-export-value`; no classification/filter changes |
+| `Shared/FunctionalGroupPills.tsx` | User directory and Account Review | One line per cell (BUG-013): the first group (API order) as a 28 px named pill (button, ellipsis at 14rem, full name in title and accessible name) that opens that group's member list, then a `+X` pill (X = remaining groups, never shrinks) that opens the full keyboard-accessible list; no groups shows muted `Unassigned`. Full names stay in DOM/title and every membership remains in `data-export-value`; no classification/filter changes |
 | PasswordInput, same file | My Profile, sign-in and password reset, user creation | Password `<input>` with a visibility toggle: a real button after the input (`aria-pressed`, "Show password"/"Hide password"), above the input in the stacking order so it is clickable; the value never leaves the input. Use inside FormField |
 | `Shared/ActionMenu.tsx` | User Management row actions | Compact "more" menu on the shared Popover: trigger named for its row ("Actions for alice"), items with icon, description and optional destructive tone, arrow/Home/End keys, closes after a choice, Escape and outside click restore focus. Use for three or more row actions instead of a button wall |
 | FormField | Access Filter alias, Settings Field alias, SAP selector and library | Label/control association; optional description, retained described-by links. Replaces duplicate label wrappers |
@@ -31,7 +31,7 @@ Paths below are relative to `frontend/src/components/`. The inventory covers reu
 | `Shared/TransactionFilter.tsx` / useTransactionFilter | Role Lookup, User Directory/Details, library | Existing multi-code live/deferred state and AND/OR; operator group/chip reuse replaces repeated UI. This is the real multi-value selector showcased |
 | `Shared/MultiSelectFilter.tsx` | Release Area and Release Group, SoD SAP username and Role suffix, library | Searchable multi-select combobox whose list stays open while options are toggled (outside click, Escape, Tab or Close dismiss it); Select all acts on the listed options and states its scope, Clear selection and removable chips; below the chips a separate right-aligned ghost **Clear all (n)** action (with an `XCircle` icon and the live count) clears only that field and is hidden when nothing is selected; selections survive searching. While a server-backed search is pending (`loading`, including the caller's debounce), Enter toggles the highlighted value only when it matches the typed text, otherwise an exact match, never an unrelated earlier result. Values combine with OR, the caller combines filters with AND |
 | `Shared/BulkSelection.tsx` | SoD Access Explorer Assignments, library | `useBulkSelection` keeps an explicit snapshot keyed by stable identifiers; `RowCheckbox`, `PageCheckbox` (indeterminate) and the `BulkToolbar` with count and scope. DOM order equals reading order; the toolbar wraps |
-| `Shared/RoleEntry.tsx`, `RoleIdentifier.tsx`, `ConfirmDialog.tsx` | Role Lookup, Single Roles, Access Package, comparison, Release Roles, SoD lists, library | One role presentation (module badge, description, wrapping copyable identifier; compact, standard, detailed); confirmation dialog whose button names the action. The header is one centered line: pill, description (`Shared/TruncatedText`: ellipsis, and a button revealing the full text on hover, keyboard focus, click or tap only while it is cut off), actions that never shrink, one minimum header height |
+| `Shared/RoleEntry.tsx`, `RoleIdentifier.tsx`, `ConfirmDialog.tsx` | Role Lookup, Single Roles, Access Package, comparison, Release Roles, SoD lists, library | One role presentation (module badge, description, single-line copyable identifier; compact, standard, detailed); confirmation dialog whose button names the action. The header is one centered line: pill, description (`Shared/TruncatedText`: ellipsis, and a button revealing the full text on hover, keyboard focus, click or tap only while it is cut off), actions that never shrink, one minimum header height |
 | `Shared/PackageToggle.tsx`, `Shared/AccessPackageBar.tsx` | Role Lookup cards, Release Roles rows and Matrix cells, floating access package action | One round Plus/Check toggle and one floating package action for catalogue and release roles; the package store is shared and unlimited |
 | `Shared/WindowsIcon.tsx` | Windows Desktop settings heading, library | Generic four-pane inline mark in currentColor; no third-party artwork or dependency |
 | `Shared/FilterChip.tsx` | Transactions and assignment date filters | One removable-chip implementation, explicit removal label, existing focus restoration supplied by caller |
@@ -43,7 +43,9 @@ Paths below are relative to `frontend/src/components/`. The inventory covers reu
 | ContentTabs / ContentTabList, same file | User Details, Data Source tabs and library | Single roving-keyboard implementation, tab/panel IDs, arrows/Home/End, optional counts/icons; existing source IDs preserved |
 | `Shared/InvestigationNavigation.tsx`: DetailNavigation / DetailButton | User/role/release investigations | Existing breadcrumb/record position/focus and global filtered navigation. Routine buttons now canonical; domain routing preserved |
 | `Access/Shared.tsx`: Filter / Pagination / QueryState | Access, review, comparison and library | Filter aliases FormField; pagination uses compact Button; shared LoadingState and existing error semantics. Server pagination unchanged |
-| `Shared/Presentation.tsx`: Card / Toolbar / PageHeader | Comparison and library | Lightweight layout wrappers with explicit children/classes, no data responsibilities |
+| `Shared/Presentation.tsx`: Card / Toolbar / PageHeader | Comparison and library | Lightweight layout wrappers with explicit children/classes, no data responsibilities; `PageHeader level={2}` titles a page shown inside a workspace that carries the page h1 (Account Review and Position Changes in Reviews) |
+| `Access/UsersNavigation.tsx` | User Directory, Compare Users, Release Access | The Users module tabs (`Users view`) from `USERS_VIEWS`, the same items as the main-navigation dropdown; Release Access opens its list |
+| `Reports/ReportsWorkspace.tsx` | Reports module | Report pages from `/api/reports/availability`; a generic report form (parameters, columns, delimiter, preview, generate) over the existing endpoints, the existing SodReports generator and Work Queue export dialog, and the Evidence page |
 | DataTable, same file | Comparison and library; existing tables share CSS | Caption, focusable bounded overflow and shared column presentation; row data remains caller-owned |
 | StatusBadge / EmptyState / LoadingState, same file | Domain status wrappers, query state and library | Generic presentation only; labels and source interpretation remain in domain components |
 | EvidenceDisclosure, same file | Comparison and library | Discoverable information summary, keyboard-operable disclosure; evidence limitations retained |
@@ -159,8 +161,10 @@ single-role transaction count without changing source classification.
 ## Compact role evidence
 
 `Shared/RoleIdentifier.tsx` is the canonical exact role identifier and copy action.
-It stays on one line, with contained horizontal scrolling and Arrow Left/Right
-support when focused; the title and accessible name retain the complete value.
+It stays on one line inside its own box (BUG-09, reopened): it never wraps, never scrolls and never makes its
+container scroll; when the container is narrower than the name the name ends in an ellipsis, while the title,
+the accessible name and the copied value keep the complete identifier. The copy and open icons never shrink and
+the geometry is identical in every hover, focus and sidebar state (no font scaling).
 Optional `moduleId` colors use canonical backend module evidence.
 `Shared/RoleMetadata.tsx` never classifies from a description prefix: unknown single
 roles stay unclassified when the source has no independent module evidence.
@@ -276,7 +280,7 @@ components have isolated Component Library previews and are used by the SoD view
 
 ## SoD filter layout (Phase 2)
 
-- `Shared/FilterLayout`: `FilterLayout` (collapsible left sidebar from 1024 px, overlay drawer below; sidebar open state is a per-viewer convenience in `localStorage`, filter values stay in view history), `FilterSection`, `PageToolbar`, `SortControl`.
+- `Shared/FilterLayout`: `FilterLayout` (collapsible left sidebar from 1024 px, overlay drawer below; sidebar open state is a per-viewer convenience in `localStorage`, filter values stay in view history; `storageKey` and `defaultOpen` give a view its own remembered state, used by the Dashboard, which starts closed), `FilterSection`, `PageToolbar`, `SortControl`.
 - `Sod/SodShared.SodFilters` replaces the old `FilterBar`: each page passes only the filter fields it can act on. Saved Filters sit at the top of the sidebar; applying one clears values for fields the page does not show so hidden filters never narrow results. Search, sort, view options, CSV export and Reset share one toolbar.
 - `Shared/IdPill`: compact risk/activity identifier pill. The identifier text always carries the meaning; the optional `color` (validated `#rrggbb`) only tints it.
 
@@ -375,7 +379,8 @@ Displayed-row CSV defaults to visible columns in the chosen order, with an expli
 groups; page-level full-result/evidence exports remain separate. `lib/csv` centralizes unchanged formula/quote escaping and bounded UTF-8 CSV
 construction; mismatched row shapes or output above 32 MiB fail without a partial download. Raw HTML, hidden pages and credentials are not exported.
 
-`Shared/FunctionalGroupPills` accepts group IDs/names/status plus username, displays two bounded pills and a read-only expansion dialog. Its
+`Shared/FunctionalGroupPills` accepts group IDs/names/status plus username, displays one named pill and a `+X` pill on a single line (BUG-013)
+and a read-only expansion dialog; a group without an id stays a non-interactive pill. Its
 `data-export-value` exposes the full group list to table projection, including names truncated visually. It does not edit memberships or approvals.
 
 Mobile Filters and Settings navigation reuse the shared Dialog drawer. Desktop/tab navigation and per-page filter/permission state remain owned

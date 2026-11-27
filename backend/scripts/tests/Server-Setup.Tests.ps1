@@ -143,17 +143,66 @@ Describe 'Read-only Setup planning and guarded lifecycle operations' {
         (Get-ALServerSetupPlan $resolved $package Install).read_only|Should -BeTrue
         @(Get-ChildItem $resolved.Config.DataDirectory -Force).Count|Should -Be 0
     }
-    It 'includes populated upgrade data in the backup space requirement' {
+    It 'includes populated upgrade data in the backup space requirement (WP34 per-phase reservation with a 256 MB margin)' {
         $script:Kind='upgrade'
         New-Item -ItemType Directory $resolved.Config.DataDirectory|Out-Null
         [IO.File]::WriteAllBytes((Join-Path $resolved.Config.DataDirectory 'authlens.sqlite3'),(New-Object byte[] 123))
-        $script:exactBytes=192MB+2*(Get-ALInstallerFileBytes @(Get-ALTreeFiles $package))+4*123
+        # Single volume: staging + server publication (persistent) + archive (persistent from the backup write on) + the larger backup phase
+        # (work copies and payload.zip in the data volume, or unsealed payload and extraction in the temporary folder) + margin.
+        $payload=Get-ALInstallerFileBytes @(Get-ALTreeFiles $package)
+        $archive=123+2+1MB
+        $script:exactBytes=256MB+2*$payload+$archive+(123+$archive)
         Mock -ModuleName AuthLens.Deploy Get-ALInstallerFreeBytes {$script:exactBytes-1}
-        {Get-ALServerSetupPlan $resolved $package Upgrade}|Should -Throw '*Insufficient free storage*'
+        try{Get-ALServerSetupPlan $resolved $package Upgrade;throw 'Expected refusal'}
+        catch{
+            $_.Exception.Message|Should -BeLike '*Insufficient free storage*'
+            $storage=$_.Exception.Data['AuthLensStorage']
+            $storage.sufficient|Should -BeFalse
+            @($storage.volumes).Count|Should -Be 1
+            $storage.volumes[0].deficit_bytes|Should -Be 1
+            $storage.volumes[0].required_bytes|Should -Be $script:exactBytes
+            @($storage.volumes[0].items.category)|Should -Be @('setup_staging','release_publication','backup_work','backup_archive','verification_extract')
+            $storage.summary|Should -Match 'Volume .* available .* required .* deficit'
+            $storage.summary|Should -Match 'Review installation artifacts|eligible for reviewed cleanup'
+        }
         Mock -ModuleName AuthLens.Deploy Get-ALInstallerFreeBytes {$script:exactBytes}
-        (Get-ALServerSetupPlan $resolved $package Upgrade).read_only|Should -BeTrue
+        $plan=Get-ALServerSetupPlan $resolved $package Upgrade
+        $plan.read_only|Should -BeTrue
+        $plan.storage.sufficient|Should -BeTrue
+        $plan.storage_summary|Should -Match 'deficit 0.0 MB'
         Get-ALInstallerFileBytes @(Get-ALTreeFiles $resolved.Config.DataDirectory)|Should -Be 123
         (Get-Item (Join-Path $resolved.Config.DataDirectory 'authlens.sqlite3')).Length|Should -Be 123
+    }
+    It 'does not count the staged Setup payload twice, excludes in-app backups and reserves per volume (WP34)' {
+        $config=$resolved.Config
+        $name='AuthLens-2.0.0-20261125-144246-bbbbbbb-win-x64'
+        $staged=Join-Path $config.Root ("app\setup\$name\payload\$name")
+        foreach($relative in 'server\AuthLens.Api.exe','desktop\AuthLens.exe','symbols\server\AuthLens.Api.pdb'){$file=Join-Path $staged $relative;New-Item -ItemType Directory -Force (Split-Path $file)|Out-Null;[IO.File]::WriteAllBytes($file,(New-Object byte[] 1000))}
+        New-Item -ItemType Directory -Force (Join-Path $config.DataDirectory 'backups')|Out-Null
+        [IO.File]::WriteAllBytes((Join-Path $config.DataDirectory 'authlens.sqlite3'),(New-Object byte[] 500))
+        [IO.File]::WriteAllBytes((Join-Path $config.DataDirectory 'backups\manual.slbak'),(New-Object byte[] 70000))
+        Mock -ModuleName AuthLens.Deploy Get-ALInstallerFreeBytes {1TB}
+        $files=@(Get-ALTreeFiles $staged)
+        $plan=Get-ALInstallerStoragePlan $config $staged $files $script:PackageManifest 'Upgrade'
+        $items=@($plan.volumes[0].items)
+        ($items|Where-Object category -eq 'setup_staging').bytes|Should -Be 0
+        ($items|Where-Object category -eq 'release_publication').bytes|Should -Be 1000
+        $plan.backup_source_bytes|Should -Be 500
+        $plan.in_app_backup_bytes_excluded|Should -Be 70000
+        $plan.already_present|Should -Contain 'staged Setup payload'
+        $plan.summary|Should -Match 'Already present and not counted again'
+        # An identical published release is reused, not copied again (never for Repair).
+        $published=Join-Path $config.ReleasesRoot $name;New-Item -ItemType Directory -Force $published|Out-Null
+        $script:PackageManifest|ConvertTo-Json|Set-Content (Join-Path $published 'build-manifest.json')
+        ((Get-ALInstallerStoragePlan $config $staged $files $script:PackageManifest 'Upgrade').volumes[0].items|Where-Object category -eq 'release_publication').bytes|Should -Be 0
+        ((Get-ALInstallerStoragePlan $config $staged $files $script:PackageManifest 'Repair').volumes[0].items|Where-Object category -eq 'release_publication').bytes|Should -Be 1000
+        # A separate data volume gets its own reservation (previously not reserved at all).
+        Mock -ModuleName AuthLens.Deploy Get-ALInstallerFreeBytes {param($Drive) if($Drive -eq 'Q:\'){0}else{1TB}}
+        $config.DataDirectory='Q:\AuthLensData';$config.BackupRoot='Q:\AuthLensBackups'
+        $split=Get-ALInstallerStoragePlan $config $staged $files $script:PackageManifest 'Upgrade'
+        @($split.volumes.volume)|Should -Contain 'Q:\'
+        $split.sufficient|Should -BeFalse
+        ($split.volumes|Where-Object volume -eq 'Q:\').deficit_bytes|Should -BeGreaterThan 0
     }
     It 'omits an empty extra-host list in local HTTPS instead of emitting a valueless command option' {
         $resolved.Config.AllowedHosts=@()
@@ -267,7 +316,7 @@ Describe 'Read-only Setup planning and guarded lifecycle operations' {
         $id=[guid]::NewGuid().ToString('N')
         @{schema=1;operation_id=$id;status='refused_or_failed';stage='Server installation preflight';exit_code=2;deployment_journal_exists=$false;deployment_journal_status='not_created_or_unavailable';deployment_journal_expected=(Get-ALJournalPath $resolved.Config)}|ConvertTo-Json|Set-Content (Join-Path $stage 'operation-result.json')
         Set-Content (Join-Path $stage 'transaction-diagnostic.txt') 'sanitized synthetic diagnostic'
-        foreach($relative in @('installer-tools.json','Install-AuthLens.ps1','verify-release.ps1','deploy/AuthLens.Deploy.psm1','deploy/Deploy-AuthLens.ps1','deploy/AuthLens.Paths.ps1','deploy/AuthLens.Acl.ps1','deploy/AuthLens.Installer.ps1')){
+        foreach($relative in @('installer-tools.json','Install-AuthLens.ps1','verify-release.ps1','deploy/AuthLens.Deploy.psm1','deploy/Deploy-AuthLens.ps1','deploy/AuthLens.Paths.ps1','deploy/AuthLens.Acl.ps1','deploy/AuthLens.Installer.ps1','recovery/New-AuthLensRecoveryBundle.ps1','recovery/Test-AuthLensRestoreRehearsal.ps1','acceptance/AuthLens.Acceptance.psm1')){
             $target=Join-Path $stage ('tools/'+$relative)
             New-Item -ItemType Directory -Force (Split-Path $target)|Out-Null
             Set-Content $target ('synthetic '+$relative)

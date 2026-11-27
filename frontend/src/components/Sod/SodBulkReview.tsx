@@ -39,7 +39,7 @@ export function BulkReviewDialog({ action, picks: livePicks, info:liveInfo, atom
     setBusy(true); setError('')
     try {
       const response = await sodPost<BulkResult>('/api/sod/decisions/assignment/bulk', {
-        context: info.context, expected_revision: info.revision, expected_generation: info.generation, action, atomic, reviewer: effectiveReviewer.trim(), justification: rationale.trim(), replace_existing: replace, track_action: !atomic && action === 'Investigate' && track,
+        context: info.context, expected_revision: info.revision, expected_generation: info.generation, action, atomic, reviewer: effectiveReviewer.trim(), justification: rationale.trim(), replace_existing: replace, track_action: !atomic && action === 'Investigate' && track, atomic_actions: atomic && action === 'Investigate' && track,
         items: picks.map((pick) => ({ key: pick.key, user: pick.user, ref: pick.ref, evidence_version: pick.evidence_version })),
       })
       if(!reviewIdentity.authenticated)rememberReviewer(reviewer)
@@ -98,7 +98,7 @@ export function BulkReviewDialog({ action, picks: livePicks, info:liveInfo, atom
             <Checkbox checked={replace} onChange={(event) => setReplace(event.target.checked)}>Replace the existing decisions of these {reviewed.length} assignments</Checkbox>
           </section>
         )}
-        {action === 'Investigate' && !atomic && <Checkbox checked={track} onChange={(event) => setTrack(event.target.checked)}>Also track one investigation action per assignment (existing open actions are reused)</Checkbox>}
+        {action === 'Investigate' && <Checkbox checked={track} onChange={(event) => setTrack(event.target.checked)}>Also track one investigation action per assignment (existing open actions are reused{atomic ? '; saved together with the decisions, all or nothing' : ''})</Checkbox>}
         <div className="review-dialog-fields">
           <FormField label="Reviewer"><Input maxLength={120} value={effectiveReviewer} readOnly placeholder="Your name (self-declared)" onChange={(event) => setReviewer(event.target.value)} /></FormField>
           <FormField label="Rationale"><Input maxLength={2000} value={rationale} placeholder="Why this applies to the selected assignments" onChange={(event) => setRationale(event.target.value)} /></FormField>

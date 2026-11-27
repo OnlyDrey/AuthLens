@@ -21,7 +21,7 @@ const read = (locator: Locator) => locator.evaluate((element) => { const css = g
 
 async function openBulk(page: Page) {
   await openSod(page, 'Reviews')
-  await page.getByRole('tab', { name: 'Bulk Review', exact: true }).click()
+  await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Bulk Review',exact:true}).click()
   await expect(group(page)).toBeVisible()
 }
 
@@ -111,7 +111,7 @@ test('Bulk Review starts without a decision, needs an explicit choice to confirm
   for (const name of ['Investigate', 'Keep', 'Remove']) await expect(button(page, name)).toHaveAttribute('aria-pressed', 'false')
   // Leaving and reopening Bulk Review also starts without a decision.
   await button(page, 'Remove').click()
-  await page.getByRole('tab', { name: 'Work queue', exact: true }).click()
-  await page.getByRole('tab', { name: 'Bulk Review', exact: true }).click()
+  await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Work Queue',exact:true}).click()
+  await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Bulk Review',exact:true}).click()
   for (const name of ['Investigate', 'Keep', 'Remove']) await expect(button(page, name)).toHaveAttribute('aria-pressed', 'false')
 })

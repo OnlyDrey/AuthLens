@@ -11,8 +11,8 @@ namespace AuthLens.Api;
 /// <summary>MIG-009, port of configuration_routes.import_headers / preview_import / user_headers / user_preview: header inspection and a full parse
 /// of a CSV with an import profile, before the source is chosen. Nothing is imported or stored. The same CSV readers as the real import are used
 /// (CsvImport, CatalogueBuilder, UserDirectoryBuilder), so a preview reports exactly what an import would do.
-/// Paths: on the Desktop any absolute .csv path (v1); on a Server only files inside the server's own source folder (`data/sources`, where uploads are
-/// kept), never a path a browser names elsewhere (v1 confines Server paths to its configured source root and uploads).</summary>
+/// Paths: Desktop absolute CSV paths; Server managed copies, operator-approved roots or exact administrator-authorized source files.
+/// Preview uses the same source-specific authority and ancestor checks as activation and refresh.</summary>
 public static partial class V1ImportPreview
 {
     [GeneratedRegex("^[A-Za-z0-9_-]{1,40}$")]
@@ -52,7 +52,7 @@ public static partial class V1ImportPreview
         var failure = headers ? users ? UserHeadersFailed : RoleHeadersFailed : users ? UserPreviewFailed : RolePreviewFailed;
         try
         {
-            var import = new CsvImport(Confine(http, path!), csvProfile, spec);
+            var import = new CsvImport(Confine(http, path!, users ? "users" : "roles"), csvProfile, spec);
             if (headers)
             {
                 var inspection = import.InspectHeader();
@@ -157,8 +157,8 @@ public static partial class V1ImportPreview
     }
 
     /// <summary>All previews use the same operator-approved source policy as activation and refresh.</summary>
-    internal static string Confine(HttpContext http, string path)
+    internal static string Confine(HttpContext http, string path, string source = "sod")
     {
-        return ServerSourcePolicy.Resolve(http.RequestServices.GetRequiredService<HostSettings>(), path);
+        return ServerSourcePolicy.Resolve(http.RequestServices.GetRequiredService<HostSettings>(), path, source);
     }
 }

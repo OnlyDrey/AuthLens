@@ -2,7 +2,7 @@ import {expectReviewerProfile} from './reviewer-profile'
 import { test, expect, type APIRequestContext } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { headers, openSettings, seedSources, sessionUrl, type SeededSources, postConfiguration } from './support'
+import { headers, openSettings, seedSources, sessionUrl, type SeededSources, postConfiguration, goTo } from './support'
 const columns = 'Site;Name;SamAccountName;UserPrincipalName;Mail;Department;Title;Enabled;DistinguishedName;ManagerDN;ManagerName;ManagerSamAccountName;ManagerMail;ManagerDepartment;ManagerTitle;ManagerLookupStatus\n'
 const employee = (department: string, manager: string) => '\ufeff' + columns + `North;Demo Fg;demo_fg;;fg@example.test;${department};Buyer;true;;;${manager};;${manager.toLowerCase()}@example.test;;;Resolved\n`
 
@@ -167,7 +167,7 @@ test('User Details classifies a user explicitly and keeps it separate from impor
   const name = `Planning ${unique}`
   expect((await request.post('/api/functional-groups', { headers, data: { name, description: '' } })).ok()).toBeTruthy()
   await page.goto(sessionUrl + '')
-  await page.goto('/#/user-access/user/DEMO_FG')
+  await page.goto('/#/users/user/DEMO_FG')
   const panel = page.getByRole('region', { name: 'Functional Group', exact: true })
   await expect(panel).toContainText('Unassigned')
   await panel.getByRole('button', { name: 'Assign group' }).click()
@@ -215,7 +215,7 @@ test('a Department change requires explicit Functional Group reconfirmation in A
   expect(classification.ok()).toBeTruthy()
   expect((await classification.json()).classification.status).toBe('Needs review')
   await page.goto(sessionUrl)
-  await page.goto('/#/user-access/account-review')
+  await page.goto('/#/reviews/account-review')
   const row = page.getByRole('row').filter({ hasText: 'DEMO_FG' }).last() // the main table follows the position-change queue
   await expect(row).toContainText(name)
   await expect(row).toContainText('Needs review')
@@ -242,7 +242,7 @@ test('Account Review filters by Functional Group and Manager', async ({ page, re
   const group = (await (await request.post('/api/functional-groups', { headers, data: { name, description: '' } })).json()).id
   expect((await classify(request, group)).ok()).toBeTruthy()
   await page.goto(sessionUrl)
-  await page.goto('/#/user-access/account-review')
+  await page.goto('/#/reviews/account-review')
   await expect(page.getByRole('row').filter({ hasText: 'DEMO_FG' })).toBeVisible()
   await page.getByRole('combobox', { name: 'Functional Group', exact: true }).first().click()
   await page.getByRole('option', { name: 'Unassigned', exact: true }).click()
@@ -264,31 +264,35 @@ test('User Access shows Directory job title and department, group chips with ove
     expect((await request.post('/api/functional-groups/memberships', { headers, data: { username: 'DEMO_FG', group_id: id, rationale: 'test', reviewer: 'R', expected_revision: current } })).ok()).toBeTruthy()
   }
   await page.goto(sessionUrl)
-  await page.goto('/#/user-access')
+  await page.goto('/#/users')
   const table = page.getByRole('region', { name: 'User directory table', exact: true })
   const row = table.getByRole('row').filter({ hasText: 'DEMO_FG' })
   // Values come from the mapped Directory employee.
   await expect(table.getByRole('columnheader', { name: 'Job title', exact: true })).toBeVisible()
   await expect(row.locator('[data-col="title"]')).toHaveText('Buyer')
   await expect(row.locator('[data-col="department"]')).toHaveText('Finance')
-  // Two readable badges and a single-line "+2 more" action; full membership stays available in the dialog/export.
+  // BUG-013: one named pill (the first group) and a "+3" pill on one line; full membership stays available in the dialog/export.
   const chips = row.getByRole('list', { name: 'Functional Groups of DEMO_FG', exact: true })
-  await expect(chips.locator('.fg-chip:not(.fg-chip-more)')).toHaveCount(2)
+  await expect(chips.locator('.fg-chip:not(.fg-chip-more)')).toHaveCount(1)
+  await expect(chips.getByRole('button', { name: /^Show members of / })).toHaveCount(1)
   const more = chips.getByRole('button', { name: 'Show all 4 Functional Groups of DEMO_FG' })
-  await expect(more).toHaveText('+2 more')
+  await expect(more).toHaveText('+3')
   await more.click()
   const groupDialog=page.getByRole('dialog',{name:'Functional Groups of DEMO_FG',exact:true})
   for(const name of names)await expect(groupDialog).toContainText(name)
   await page.keyboard.press('Escape')
-  await page.getByRole('link',{name:'Account Review',exact:true}).click()
+  await page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'Reviews',exact:true}).click();await page.getByRole('navigation',{name:'Review views',exact:true}).getByRole('link',{name:'Account Review',exact:true}).click()
   const reviews=page.getByRole('region',{name:'Account review results',exact:true})
   await expect(reviews.getByRole('columnheader',{name:'Manager',exact:true})).toBeVisible()
   const groupIndex=await reviews.getByRole('columnheader',{name:'Functional Group',exact:true}).getAttribute('data-column-index')
   const reviewed=reviews.getByRole('row').filter({has:page.getByRole('link',{name:'DEMO_FG',exact:true})})
   const groupCell=reviewed.locator(`[data-column-index="${groupIndex}"]`)
-  await expect(groupCell.getByRole('list',{name:'Functional Groups of DEMO_FG',exact:true})).toBeVisible()
+  const reviewGroups=groupCell.getByRole('list',{name:'Functional Groups of DEMO_FG',exact:true})
+  await expect(reviewGroups).toBeVisible()
+  await expect(reviewGroups.locator('.fg-chip:not(.fg-chip-more)')).toHaveCount(1)
+  await expect(reviewGroups.getByRole('button',{name:'Show all 4 Functional Groups of DEMO_FG',exact:true})).toHaveText('+3')
   await expect(groupCell).not.toContainText('Manager:')
-  await page.getByRole('link',{name:'User directory',exact:true}).click()
+  await goTo(page,'User Directory') // NAV-2/3: Account Review is in Reviews; the directory is a Users page
   // Sorting by a Directory column is a server sort and keeps the user.
   await page.getByLabel('Sort users', { exact: true }).selectOption('job_title')
   await expect(row.locator('[data-col="title"]')).toHaveText('Buyer')
@@ -318,7 +322,7 @@ test('User Access filters users by Functional Group on the server and shows the 
   const group = (await (await request.post('/api/functional-groups', { headers, data: { name, description: '' } })).json()).id
   expect((await classify(request, group)).ok()).toBeTruthy()
   await page.goto(sessionUrl)
-  await page.goto('/#/user-access')
+  await page.goto('/#/users')
   await expect(page.getByRole('columnheader', { name: 'Functional Group', exact: true })).toBeVisible()
   await page.getByRole('combobox', { name: 'Functional Group', exact: true }).fill(name)
   await page.getByRole('option', { name: new RegExp(`^${name}`) }).click()
@@ -341,7 +345,7 @@ test('Access analysis is advisory, shows limitations for a small group and links
   await expect(dialog).toContainText('Advisory only')
   await expect(dialog).toContainText('at least 3')                       // too small to compare: a limitation, not a conclusion
   await expect(dialog.getByRole('link', { name: 'Open SAP user DEMO_FG' })).toBeVisible()
-  await expect(dialog.getByRole('link', { name: 'Compare users' })).toBeVisible()
+  await expect(dialog.getByRole('link', { name: 'Compare Users' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
 })
@@ -353,7 +357,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
     await page.setViewportSize({ width: 375, height: 760 })
     await page.goto(sessionUrl)
-    await page.goto('/#/user-access/user/DEMO_FG')
+    await page.goto('/#/users/user/DEMO_FG')
     const panel = page.getByRole('region', { name: 'Functional Group', exact: true })
     await expect(panel).toBeVisible()
     await panel.getByRole('button', { name: /Assign group|Add group/ }).click()

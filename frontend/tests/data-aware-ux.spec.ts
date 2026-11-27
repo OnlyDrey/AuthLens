@@ -3,9 +3,10 @@ import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { headers, backendFixture, recordClipboard, copiedText, postConfiguration } from './support'
+import { headers, backendFixture, recordClipboard, copiedText, postConfiguration, goTo } from './support'
 let directory = '', userSource = ''
-const navigate = (page: Page, name: string) => page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name, exact:true }).click()
+/** Main navigation through the shared helper, which opens the navigation drawer below 1024 px (bb3bceb). */
+const navigate = (page: Page, name: string) => goTo(page, name)
 test.beforeEach(async ({ request }) => {
   await request.post('/api/configuration/reset', { headers })
   directory = mkdtempSync(path.join(tmpdir(), 'authlens-data-aware-'))
@@ -23,7 +24,7 @@ test('Back and Forward preserve meaningful views and detail state without reload
   const documents:string[] = []
   page.on('request', request => { if (request.isNavigationRequest() && request.frame() === page.mainFrame()) documents.push(request.url()) })
   await page.goto('/#session=browser-test-session')
-  await navigate(page, 'User Access')
+  await navigate(page, 'Users')
   const routeBeforeSkip = page.url()
   await page.getByRole('link',{name:'Skip to main content',exact:true}).focus()
   await page.keyboard.press('Enter')
@@ -44,19 +45,19 @@ test('Back and Forward preserve meaningful views and detail state without reload
   await expect(page.getByRole('link', { name: 'DEMO_OTHER',exact:true})).toBeVisible()
   await page.goForward()
   await expect(detail).toBeVisible()
-  await navigate(page, 'Release Roles')
+  await navigate(page, 'Release Access')
   await page.goBack()
   await expect(detail).toBeVisible()
   await page.goForward()
-  await expect(page.getByRole('heading', {name:'Release Roles',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading', {name:'Release Access',exact:true})).toBeVisible()
   expect(documents).toHaveLength(1)
   await expect(page.locator('.startup-screen')).toHaveCount(0)
-  await page.goto('/#/user-access')
-  await expect(page.getByRole('heading', {name:'User Access',exact:true})).toBeVisible()
+  await page.goto('/#/users')
+  await expect(page.getByRole('heading', {name:'Users',exact:true})).toBeVisible()
 })
 
 test('release facets are data-driven, bounded, retain invalid choices and refresh', async ({ page, request }) => {
-  await page.goto('/#session=browser-test-session'); await navigate(page,'Release Roles');await page.getByRole('button',{name:'Table',exact:true}).click()
+  await page.goto('/#session=browser-test-session'); await navigate(page,'Release Access');await page.getByRole('button',{name:'Table',exact:true}).click()
   const select = async (label:string, value:string) => { await page.getByRole('combobox', {name:label,exact:true}).fill(value); await page.getByRole('option', {name:value,exact:true}).click() }
   await select('PR/PO','PR')
   await select('Release Group','SH')
@@ -87,7 +88,7 @@ test('release facets are data-driven, bounded, retain invalid choices and refres
 
 test('loading and reconnect stay contextual during Back and Forward', async ({ page }) => {
   await page.goto('/#session=browser-test-session')
-  await navigate(page,'User Access')
+  await navigate(page,'Users')
   let failed = false
   // While failed, the service stays unreachable until the person clicks Retry: the application's own poll (every 3 s) would
   // otherwise reconnect first on a slow machine and remove the button under the click, so the recovery is the click's doing.
@@ -100,8 +101,8 @@ test('loading and reconnect stay contextual during Back and Forward', async ({ p
   await page.getByRole('button',{name:'Refresh role data from CSV',exact:true}).click()
   await expect(page.getByRole('heading',{name:'Loading CSV data…',exact:true})).toBeVisible()
   await expect(page.getByText('Loading role data…',{exact:true})).toHaveCount(0)
-  await navigate(page,'Release Roles'); await page.goBack()
-  await expect(page.getByRole('heading',{name:'User Access',exact:true})).toBeVisible()
+  await navigate(page,'Release Access'); await page.goBack()
+  await expect(page.getByRole('heading',{name:'Users',exact:true})).toBeVisible()
   await expect(page.locator('.startup-screen')).toHaveCount(0)
   failed = true
   // The application-scoped poll detects service loss even while refresh is busy.
@@ -113,7 +114,7 @@ test('loading and reconnect stay contextual during Back and Forward', async ({ p
   }, { capture: true }))
   await page.getByRole('button',{name:'Retry connection',exact:true}).click()
   await expect(page.locator('.session-notice')).toHaveCount(0)
-  await expect(page.getByRole('heading',{name:'User Access',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Users',exact:true})).toBeVisible()
 })
 
 for (const theme of ['dark','light']) for (const width of [1280,800]) test(`data-aware visual QA ${theme} ${width}`, { tag: '@visual' }, async ({page,request}, info) => {
@@ -133,7 +134,7 @@ for (const theme of ['dark','light']) for (const width of [1280,800]) test(`data
     }
     await page.screenshot({path:info.outputPath(`${name}.png`),fullPage:true})
   }
-  await navigate(page,'User Access'); await page.getByRole('link', { name: 'DEMO_OTHER',exact:true}).click()
+  await navigate(page,'Users'); await page.getByRole('link', { name: 'DEMO_OTHER',exact:true}).click()
   await expect(page.getByRole('region',{name:'Account Status',exact:true})).toBeVisible()
   await shot('user-two-column')
   await page.getByRole('button',{name:'Open settings',exact:true}).click()
@@ -200,7 +201,12 @@ test('stale desktop session recovers through a trusted document without replayin
   const headers={...response.headers(),'content-security-policy':response.headers()['content-security-policy'].replace("script-src 'self'","script-src 'self' 'nonce-synthetic-recovery'")}
   await route.fulfill({response,headers,body})
  })
+ // Synchronize on the write itself: the page's earlier state already satisfies the checks below, so without this they could run before the
+ // refused POST was sent (TS-1: the intermittent posts=0 failure). A background read may start the recovery first; the write is still sent once.
+ const write=page.waitForRequest(request=>request.method()==='POST'&&new URL(request.url()).pathname.startsWith('/api/'))
  await page.getByRole('button',{name:'Refresh role data from CSV',exact:true}).click()
+ await write
+ await expect.poll(()=>newReads).toBeGreaterThan(0)
  // Nothing typed would be lost and no restore ran lately, so the session is re-established automatically through the guarded document; the manual
  // button (covered by session-recovery.spec.ts) is only offered when that is not safe. The failed write is never replayed.
  await expect(page.getByRole('heading',{name:'Role Lookup',exact:true})).toBeVisible()
@@ -214,18 +220,18 @@ test('stale desktop session recovers through a trusted document without replayin
 
 test('asset replacement offers an explicit bounded reload preserving the route',async({page})=>{
  await page.goto('/#session=browser-test-session')
- await navigate(page,'User Access')
+ await navigate(page,'Users')
  await page.evaluate(()=>window.dispatchEvent(new Event('vite:preloadError',{cancelable:true})))
  await expect(page.getByRole('heading',{name:'Application recovery',exact:true})).toBeVisible()
- await expect(page).toHaveURL(/#\/user-access/)
+ await expect(page).toHaveURL(/#\/users/)
  await page.getByRole('button',{name:'Reload application',exact:true}).click()
- await expect(page.getByRole('heading',{name:'User Access',exact:true})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Users',exact:true})).toBeVisible()
  await expect(page.getByRole('heading',{name:'Application recovery',exact:true})).toHaveCount(0)
 })
 
 test('a failed optional icon chunk does not replace the application, but any other failed chunk still offers recovery',async({page})=>{
  await page.goto('/#session=browser-test-session')
- await navigate(page,'User Access')
+ await navigate(page,'Users')
  const handled=await page.evaluate(()=>{const event=Object.assign(new Event('vite:preloadError',{cancelable:true}),{payload:new Error('Failed to fetch dynamically imported module: http://127.0.0.1/assets/IconCatalog-abc123.js')});window.dispatchEvent(event);return event.defaultPrevented})
  expect(handled).toBe(false) // left to the local fallback
  const picker=await page.evaluate(()=>{const event=Object.assign(new Event('vite:preloadError',{cancelable:true}),{payload:new Error('Failed to fetch dynamically imported module: http://127.0.0.1/assets/IconPicker-abc123.js')});window.dispatchEvent(event);return event.defaultPrevented})

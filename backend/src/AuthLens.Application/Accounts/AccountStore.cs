@@ -411,7 +411,9 @@ public sealed partial class AccountStore
         return result;
     }
 
-    public async Task<Principal> SessionAsync(string? token)
+    /// <summary>Resolves a session. Only a request that reflects user activity (<paramref name="touch"/>) moves the inactivity clock; background
+    /// reads (polling, focus refreshes) are passive and never keep an abandoned session alive (BUG-04). Expiry is decided here, on the server.</summary>
+    public async Task<Principal> SessionAsync(string? token, bool touch = true)
     {
         if (token is null || token.Length is < 20 or > 128) throw new AuthException("authentication_required", 401);
         var (key, now) = (Digest(token), Now);
@@ -419,8 +421,47 @@ public sealed partial class AccountStore
         if (row is null || L(row, "enabled") == 0 || L(row, "credential_version") != L(row, "actual_version")
             || Math.Min(D(row, "expires"), D(row, "created") + L(row, "absolute")) <= now || D(row, "seen") + L(row, "idle") <= now)
             throw new AuthException("authentication_required", 401);
-        if (now - D(row, "seen") >= 60) await Use(true, db => Update(db, "UPDATE sessions SET seen=$1 WHERE id=$2 AND seen<$3", now, key, now - 60));
+        if (touch && now - D(row, "seen") >= 60) await Use(true, db => Update(db, "UPDATE sessions SET seen=$1 WHERE id=$2 AND seen<$3", now, key, now - 60));
         return new Principal(S(row, "user_id"), S(row, "username"), S(row, "display_name"), S(row, "role"), key);
+    }
+
+    /// <summary>The warning shown before an inactivity expiry: a fifth of the idle lifetime, at least one and at most five minutes, never longer
+    /// than the idle lifetime itself (derived, so it always follows the configured policy).</summary>
+    public static long WarningSeconds(long idle) => Math.Min(idle, Math.Clamp(idle / 5, 60, 300));
+
+    /// <summary>When the current session ends: by inactivity (last activity + idle) or absolutely (creation + absolute, or the stored expiry),
+    /// whichever comes first. Reading it is passive. Times are Unix seconds from the server clock.</summary>
+    public Task<Dictionary<string, object?>> SessionTimingAsync(Principal actor) => Use(false, db =>
+    {
+        var row = Row(db, "SELECT s.seen,s.created,s.expires,p.idle,p.absolute FROM sessions s JOIN policy p ON p.id=1 WHERE s.id=$1", actor.SessionId)
+            ?? throw new AuthException("authentication_required", 401);
+        return Timing(row, Now);
+    });
+
+    /// <summary>Explicit continuation from the inactivity warning: records activity now, if the session is still valid (an expired session was
+    /// already refused by the request boundary and cannot be revived). The absolute lifetime is never extended.</summary>
+    public async Task<Dictionary<string, object?>> ContinueSessionAsync(Principal actor)
+    {
+        var now = Now;
+        return await Use(true, db =>
+        {
+            var row = Row(db, "SELECT s.seen,s.created,s.expires,p.idle,p.absolute FROM sessions s JOIN policy p ON p.id=1 WHERE s.id=$1", actor.SessionId)
+                ?? throw new AuthException("authentication_required", 401);
+            if (D(row, "seen") + L(row, "idle") <= now || Math.Min(D(row, "expires"), D(row, "created") + L(row, "absolute")) <= now) throw new AuthException("authentication_required", 401);
+            Update(db, "UPDATE sessions SET seen=$1 WHERE id=$2", now, actor.SessionId);
+            row["seen"] = now;
+            return Timing(row, now);
+        });
+    }
+
+    private static Dictionary<string, object?> Timing(Dictionary<string, object?> row, double now)
+    {
+        var idle = L(row, "idle");
+        var absoluteEnd = Math.Min(D(row, "expires"), D(row, "created") + L(row, "absolute"));
+        var idleEnd = D(row, "seen") + idle;
+        return new() { ["now"] = now, ["idle_seconds"] = idle, ["absolute_seconds"] = L(row, "absolute"), ["warning_seconds"] = WarningSeconds(idle),
+            ["idle_expires_at"] = idleEnd, ["absolute_expires_at"] = absoluteEnd, ["expires_at"] = Math.Min(idleEnd, absoluteEnd),
+            ["reason"] = idleEnd <= absoluteEnd ? "inactivity" : "absolute" };
     }
 
     /// <summary>Current-password authorization for one recovery-copy verification. The proof is session-bound,

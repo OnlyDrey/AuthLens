@@ -15,9 +15,9 @@ test('mobile header tools and independent settings drawer retain icons and keybo
   await expect(header.getByRole('button',{name:/Switch to (light|dark) mode/})).toBeVisible()
   await header.getByRole('button',{name:'Open navigation',exact:true}).click()
   const navigation=page.getByRole('dialog',{name:'Navigation',exact:true})
-  await expect(navigation.getByRole('link',{name:'Compare users',exact:true})).toBeHidden()
-  await navigation.locator('summary').filter({hasText:'User Access'}).click()
-  await expect(navigation.getByRole('link',{name:'Compare users',exact:true})).toBeVisible()
+  await expect(navigation.getByRole('link',{name:'Compare Users',exact:true})).toBeHidden()
+  await navigation.locator('summary').filter({hasText:'Users'}).click()
+  await expect(navigation.getByRole('link',{name:'Compare Users',exact:true})).toBeVisible()
   await page.keyboard.press('Escape');await header.getByRole('button',{name:'Open settings',exact:true}).click()
   const trigger=page.getByRole('button',{name:/^Settings sections:/});await trigger.click()
   const settings=page.getByRole('dialog',{name:'Settings sections',exact:true})
@@ -60,7 +60,7 @@ test('mobile role and exact-user searches belong to focus-isolated Filters',asyn
   await expect(filters.getByRole('searchbox',{name:'Search roles by name or description',exact:true})).toBeVisible()
   await expect(filters.getByRole('group',{name:'SAP areas',exact:true})).toBeVisible()
   await expect(page.locator('body')).toHaveCSS('overflow','hidden')
-  await page.keyboard.press('Escape');await page.goto('/#/user-access')
+  await page.keyboard.press('Escape');await page.goto('/#/users')
   await expect(page.getByRole('textbox',{name:'Search users',exact:true})).toBeHidden()
   await page.getByRole('button',{name:'Filters',exact:true}).click()
   await expect(filters.getByRole('textbox',{name:'Search users',exact:true})).toBeVisible()
@@ -88,7 +88,7 @@ for(const width of [375,800,1280,1600])test(`responsive surface screenshots at $
     await expect(page.getByRole('searchbox',{name:'Search roles by name or description',exact:true})).toBeVisible()
     await page.screenshot({animations:'disabled',path:path.join(output,`filters-${width}-${theme}.png`)})
     if(width<1024)await page.keyboard.press('Escape')
-    await page.goto('/#/user-access');const table=page.getByRole('region',{name:'User directory table',exact:true})
+    await page.goto('/#/users');const table=page.getByRole('region',{name:'User directory table',exact:true})
     await table.getByRole('button',{name:/^Columns for/}).click()
     const columns=page.getByRole('dialog',{name:/^Columns for/});await expect(columns).toBeVisible()
     await page.screenshot({animations:'disabled',path:path.join(output,`columns-${width}-${theme}.png`)});await columns.getByRole('button',{name:'Done',exact:true}).click()
@@ -101,7 +101,7 @@ for(const width of [375,800,1280,1600])test(`responsive surface screenshots at $
 })
 
 test('table columns persist, reorder reading order and export visible or all displayed-row fields',async({page})=>{
-  await page.setViewportSize({width:390,height:844});await page.goto('/#session=browser-test-session');await page.goto('/#/user-access')
+  await page.setViewportSize({width:390,height:844});await page.goto('/#session=browser-test-session');await page.goto('/#/users')
   const table=page.getByRole('region',{name:'User directory table',exact:true})
   await expect(table.getByRole('columnheader',{name:'Email',exact:true})).toBeVisible()
   await table.getByRole('button',{name:/^Columns for/}).click()
@@ -119,8 +119,9 @@ test('table columns persist, reorder reading order and export visible or all dis
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true)
 })
 
-test('SoD report heatmap keeps its corner heading opaque and visible after horizontal scrolling',async({page})=>{
-  await page.setViewportSize({width:390,height:844});await page.goto('/#session=browser-test-session');await page.goto('/#/sod/reports')
+// The heatmap is an SoD analysis visualization; it moved off the review pages (Reviews workspace) and is checked on SoD Overview.
+test('SoD heatmap keeps its corner heading opaque and visible after horizontal scrolling',async({page})=>{
+  await page.setViewportSize({width:390,height:844});await page.goto('/#session=browser-test-session');await page.goto('/#/sod')
   const region=page.getByRole('region',{name:'SAP User Group heatmap',exact:true})
   const scroll=region.locator('.sod-heatmap-scroll');await expect(scroll).toBeVisible()
   const corner=scroll.locator('thead th').first();const label=await corner.innerText()
@@ -131,7 +132,7 @@ test('SoD report heatmap keeps its corner heading opaque and visible after horiz
   expect(await corner.evaluate(element=>getComputedStyle(element).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true)
   const output=path.resolve('../build/test-artifacts/mobile-acceptance');mkdirSync(output,{recursive:true})
-  await page.screenshot({animations:'disabled',path:path.join(output,'sod-reports-390-scrolled.png')})
+  await page.screenshot({animations:'disabled',path:path.join(output,'sod-heatmap-390-scrolled.png')})
 })
 
 test('virtualized matrix column choices have a separate scoped export and persist',async({page})=>{
@@ -160,9 +161,9 @@ test('touch emulation keeps header targets usable and drawer interactions distin
       const bounds=(await page.getByRole('button',{name,exact:true}).boundingBox())!;expect(bounds.width).toBeGreaterThanOrEqual(44);expect(bounds.height).toBeGreaterThanOrEqual(44)
     }
     await page.getByRole('button',{name:'Open navigation',exact:true}).tap()
-    const navigation=page.getByRole('dialog',{name:'Navigation',exact:true});await navigation.locator('summary').filter({hasText:'User Access'}).tap()
-    await navigation.getByRole('link',{name:'User directory',exact:true}).tap();await expect(navigation).toHaveCount(0)
-    await expect(page.getByRole('heading',{name:'User Access',exact:true})).toBeVisible()
+    const navigation=page.getByRole('dialog',{name:'Navigation',exact:true});await navigation.locator('summary').filter({hasText:'Users'}).tap()
+    await navigation.getByRole('link',{name:'User Directory',exact:true}).tap();await expect(navigation).toHaveCount(0)
+    await expect(page.getByRole('heading',{name:'Users',exact:true})).toBeVisible()
     await page.getByRole('button',{name:'Filters',exact:true}).tap();await expect(page.getByRole('dialog',{name:'Filters',exact:true})).toBeVisible()
     await page.getByRole('button',{name:'Show results',exact:true}).tap()
     await page.getByRole('button',{name:'Open settings',exact:true}).tap();await page.getByRole('button',{name:/^Settings sections:/}).tap()

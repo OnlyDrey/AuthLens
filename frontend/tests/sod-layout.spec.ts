@@ -176,8 +176,10 @@ test('the Overview sections fill the row at 800px: two columns with the third se
   expect(c.width).toBeGreaterThan((a.width + b.width) * 0.95) // the third spans the row
 })
 
-test('one review context bar sits beneath the SoD navigation on every SoD page', async ({ page }) => {
+test('one review context bar sits beneath the module navigation on every SoD, Reviews and Reports page', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
+  // NAV-3/NAV-4: Work Queue and Review Periods are Reviews pages, the review reports a Reports page; each module has its own view navigation
+  const navigation: Record<string, string> = { Reviews: 'Review views', 'Review Periods': 'Review views', Reports: 'Report views' }
   for (const view of ['Overview', 'Risk Matrix', 'Activity Matrix', 'Access Explorer', 'Reviews', 'Review Periods', 'Reports']) {
     await openSod(page, view)
     const bar = page.locator('[aria-label="Review context"].ui-toolbar, div[aria-label="Review context"]').first()
@@ -185,7 +187,7 @@ test('one review context bar sits beneath the SoD navigation on every SoD page',
     await expect(bar.getByLabel('Review context')).toBeVisible()
     await expect(bar.getByRole('status')).toContainText('Evaluation date')
     await expect(bar.getByRole('status')).toContainText('live imported evidence')
-    const nav = (await page.getByRole('navigation', { name: 'SoD views' }).boundingBox())!, box = (await bar.boundingBox())!
+    const nav = (await page.getByRole('navigation', { name: navigation[view] ?? 'SoD views', exact: true }).boundingBox())!, box = (await bar.boundingBox())!
     expect(box.y, view).toBeGreaterThan(nav.y + nav.height - 1)
   }
 })

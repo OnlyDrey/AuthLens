@@ -19,12 +19,18 @@ test('SoD-only refresh updates open findings without changing the SAP revision a
 })
 for (const { theme, width } of layoutMatrix([375,800,1280,1600]))test(`SoD integration ${theme} ${width}`,{ tag: '@visual' }, async({page,request},info)=>{
  directory=await seedGovernance(request);await request.post('/api/configuration/theme',{headers,data:{theme}});await page.setViewportSize({width,height:950})
- for(const view of ['Overview','Risk Matrix','Activity Matrix','Access Explorer','Reviews','Review Periods','Reports']){await openSod(page,view);await expect(page.getByRole('heading',{name:'Segregation of Duties',level:1})).toBeVisible();await page.screenshot({path:info.outputPath(`${view.replaceAll(' ','-')}-${theme}-${width}.png`)});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${view} must not overflow the page`).toBeTruthy()}
+ const heading:Record<string,string>={Reviews:'Reviews','Review Periods':'Reviews',Reports:'Reports'} // NAV-3/NAV-4: the review pages and reports are their own modules
+ for(const view of ['Overview','Risk Matrix','Activity Matrix','Access Explorer','Reviews','Review Periods','Reports']){await openSod(page,view);await expect(page.getByRole('heading',{name:heading[view]??'Segregation of Duties',level:1,exact:true})).toBeVisible();await page.screenshot({path:info.outputPath(`${view.replaceAll(' ','-')}-${theme}-${width}.png`)});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${view} must not overflow the page`).toBeTruthy()}
  await openSod(page,'Risk Matrix');await cellButton(page,names.a,'R1').click();await expect(page.getByRole('dialog',{name:`${names.a} · R1`})).toBeVisible();await page.screenshot({path:info.outputPath(`panel-${theme}-${width}.png`)});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy()
 })
 
-for(const width of [375,414])test(`main navigation fits five items without clipped labels at ${width}`,{ tag: '@visual' }, async({page,request})=>{
- await enableSod(request);await page.setViewportSize({width,height:800});await page.goto('/#session=browser-test-session');const navigation=page.getByRole('navigation',{name:'Main navigation',exact:true});await expect(navigation.getByRole('link')).toHaveCount(5)
- const fit=await navigation.evaluate((nav)=>({scrolls:nav.scrollWidth>nav.clientWidth,clipped:[...nav.querySelectorAll('button')].filter((button)=>button.scrollWidth>button.clientWidth).length}))
+// Below 1024 px the main navigation is the navigation drawer (bb3bceb): with SoD on it offers the six approved destinations, none clipped
+for(const width of [375,414])test(`main navigation drawer offers the six destinations without clipped labels at ${width}`,{ tag: '@visual' }, async({page,request})=>{
+ await enableSod(request);await page.setViewportSize({width,height:800});await page.goto('/#session=browser-test-session')
+ await page.getByRole('button',{name:'Open navigation',exact:true}).click();const drawer=page.getByRole('dialog',{name:'Navigation',exact:true});await expect(drawer).toBeVisible()
+ for(const name of ['Dashboard','Role Lookup'])await expect(drawer.getByRole('link',{name,exact:true})).toBeVisible()
+ await expect(drawer.locator('summary')).toHaveText(['Users','SoD','Reviews','Reports']) // modules with pages open their page list
+ const fit=await drawer.evaluate((element)=>({scrolls:element.scrollWidth>element.clientWidth,clipped:[...element.querySelectorAll<HTMLElement>('a,summary,button')].filter((item)=>item.getClientRects().length>0&&item.scrollWidth>item.clientWidth).length}))
  expect(fit).toEqual({scrolls:false,clipped:0})
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy()
 })

@@ -73,7 +73,7 @@ const GROUPS = {
     const problems: string[] = []
     await page.goto('/#session=browser-test-session')
     problems.push(...await audit(page, tag('dashboard')))
-    for (const label of ['Role Lookup', 'User Access', 'Release Roles']) {
+    for (const label of ['Role Lookup', 'Users', 'Release Access']) {
       await goTo(page, label)
       problems.push(...await audit(page, tag(label)))
     }

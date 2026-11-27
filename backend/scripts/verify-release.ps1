@@ -66,6 +66,7 @@ if (-not $publish) { } else {
     if (-not (Text $publish.server_native_libraries)) { $problems.Add('publish.server_native_libraries is missing') }
 }
 $folder = Split-Path -Leaf $root
+$buildRecord = $folder -match '^\d{4}-\d{2}-\d{2}_\d{4}-[0-9a-f]{7}(-\d{2})?$'   # WP32 Build\<version>\<build-id>
 $named = $folder -like 'AuthLens-*' -or $folder -like 'SAP-Lens-*'   # SAP-Lens-* (and SAP-Lens-2-*): releases built before the rename to AuthLens
 if ($named -and $platform -and $folder -notlike "*-$platform") { $problems.Add("folder name $folder does not end with the platform $platform") }
 
@@ -102,6 +103,8 @@ foreach ($artifact in @($manifest.artifacts)) {
 foreach ($file in Get-ChildItem -LiteralPath $root -Recurse -File) {
     $relative = $file.FullName.Substring($root.Length + 1).Replace('\', '/')
     $own = @('build-manifest.json', 'SHA256SUMS') + $(if ($Scope -eq 'Server') { @('deployment-package.json') } else { @() })
+    # WP32: a Build\<version>\<build-id> directory also holds the build record beside the release; these top-level files are never release content.
+    if ($Scope -eq 'Full' -and $buildRecord) { $own += @('build-summary.json', 'build.log', '.build-claim', 'branding-verification.json') }
     if ($relative -notin $own -and -not $listed.ContainsKey($relative)) { $problems.Add("not in the manifest: $relative") }
 }
 if ($Scope -eq 'Full' -and $package) { $problems.Add("this is a server deployment package (deployment-package.json); verify it with -Scope Server") }

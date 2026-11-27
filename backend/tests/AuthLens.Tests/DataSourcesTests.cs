@@ -55,6 +55,127 @@ public sealed class DataSourcesTests : IAsyncLifetime
     private async Task<JsonObject> Configuration() => JsonNode.Parse(await _client.GetStringAsync("/api/configuration"))!.AsObject();
     private async Task<int> Revision() => (int)(await Configuration())["settings"]!["revision"]!;
 
+    [Theory]
+    [InlineData("roles", "static")]
+    [InlineData("roles", "dynamic")]
+    [InlineData("users", "static")]
+    [InlineData("users", "dynamic")]
+    [InlineData("sod", "static")]
+    [InlineData("sod", "dynamic")]
+    [InlineData("employees", "static")]
+    [InlineData("employees", "dynamic")]
+    public async Task Administrator_authorizes_validates_and_activates_exact_server_file(string source, string mode)
+    {
+        var external = Directory.CreateTempSubdirectory("authlens-enterprise-source-").FullName;
+        try
+        {
+            var settings = (await Configuration())["settings"]!.AsObject();
+            settings["features"]!["employee_directory"] = true; settings["features"]!["sod"] = true;
+            Assert.Equal(HttpStatusCode.OK, (await Send(new HttpRequestMessage(HttpMethod.Post, "/api/configuration") { Content = JsonContent.Create(settings) })).Item1);
+            var path = Path.Combine(external, "input.csv");
+            var csv = source switch
+            {
+                "roles" => Csv.Roles(3), "users" => Csv.Users([("SYNTHETIC", "ZC:SYN")]), "sod" => Csv.Sod(),
+                _ => string.Join(';', AuthLens.Domain.Directory.EmployeeDirectory.Headers) + "\n" + string.Join(';', "HQ", "Synthetic", "SYNTHETIC", "synthetic@example.invalid", "synthetic@example.invalid", "Finance", "Analyst", "True", "CN=Synthetic,OU=Staff", "", "", "", "", "", "", "Resolved") + "\n",
+            };
+            await File.WriteAllTextAsync(path, csv);
+            async Task<(HttpStatusCode Status, JsonNode Body)> Validate() => await Send(new HttpRequestMessage(HttpMethod.Post, $"/api/server/sources/{source}/validate") { Content = JsonContent.Create(new { path, revision = await Revision() }) });
+            Assert.Equal(HttpStatusCode.BadRequest, (await Validate()).Status);
+            var auth = await Send(new HttpRequestMessage(HttpMethod.Post, $"/api/server/sources/{source}/authorize") { Content = JsonContent.Create(new { path, approve_host_access = true }) });
+            Assert.True(auth.Status == HttpStatusCode.OK, auth.Body.ToJsonString());
+            var validated = await Validate(); Assert.True(validated.Status == HttpStatusCode.OK, validated.Body.ToJsonString());
+            Assert.False((bool)validated.Body["data_modified"]!);
+            var preview = JsonNode.Parse(await _client.GetStringAsync($"/api/data-sources/{source}/preview"))!;
+            Assert.False((bool)preview["loaded"]!);
+            var hash = (string)validated.Body["sha256"]!;
+            await File.AppendAllTextAsync(path, "\n");
+            var stale = await Send(new HttpRequestMessage(HttpMethod.Post, $"/api/data-sources/{source}/select") { Content = JsonContent.Create(new { path, revision = await Revision(), mode, validated_sha256 = hash }) });
+            Assert.Equal(HttpStatusCode.BadRequest, stale.Status); Assert.Contains("changed since validation", (string)stale.Body["detail"]!);
+            validated = await Validate(); Assert.Equal(HttpStatusCode.OK, validated.Status);
+            var selected = await Send(new HttpRequestMessage(HttpMethod.Post, $"/api/data-sources/{source}/select") { Content = JsonContent.Create(new { path, revision = await Revision(), mode, validated_sha256 = (string)validated.Body["sha256"]! }) });
+            Assert.True(selected.Status == HttpStatusCode.OK, selected.Body.ToJsonString());
+            var count = (int)selected.Body["records"]!;
+            await RestartAsync(HostMode.Server);
+            var descriptor = JsonNode.Parse(await _client.GetStringAsync($"/api/server/sources/{source}"))!;
+            Assert.Equal(path, (string)descriptor["path"]!); Assert.Equal(mode, (string)descriptor["mode"]!);
+            File.Delete(path);
+            var refresh = await Send(new HttpRequestMessage(HttpMethod.Post, "/api/refresh"));
+            var result = refresh.Body["refresh"]!["sources"]!.AsArray().Single(r => (string?)r!["source"] == source)!;
+            Assert.Equal(mode == "static" ? "skipped" : "failed", (string)result["status"]!);
+            preview = JsonNode.Parse(await _client.GetStringAsync($"/api/data-sources/{source}/preview"))!;
+            Assert.Equal(count, (int)preview["total"]!);
+        }
+        finally { Directory.Delete(external, true); }
+    }
+
+    [Fact]
+    public async Task Revoked_server_authority_fails_closed_and_preserves_configuration_and_snapshot()
+    {
+        var external = Directory.CreateTempSubdirectory("authlens-enterprise-revoke-").FullName;
+        try
+        {
+            var path = Path.Combine(external, "roles.csv");
+            await File.WriteAllTextAsync(path, Csv.Roles(3));
+            async Task<JsonNode> Describe() => JsonNode.Parse(await _client.GetStringAsync("/api/server/sources/roles"))!;
+            Assert.Equal(HttpStatusCode.OK, (await Send(new HttpRequestMessage(HttpMethod.Post, "/api/server/sources/roles/authorize") { Content = JsonContent.Create(new { path, approve_host_access = true }) })).Item1);
+            var validated = await Send(new HttpRequestMessage(HttpMethod.Post, "/api/server/sources/roles/validate") { Content = JsonContent.Create(new { path, revision = await Revision() }) });
+            Assert.Equal(HttpStatusCode.OK, validated.Item1);
+            var selected = await Send(new HttpRequestMessage(HttpMethod.Post, "/api/data-sources/roles/select") { Content = JsonContent.Create(new { path, revision = await Revision(), mode = "dynamic", validated_sha256 = (string)validated.Item2["sha256"]! }) });
+            Assert.True(selected.Item1 == HttpStatusCode.OK, selected.Item2.ToJsonString());
+            var count = (int)selected.Item2["records"]!;
+            Assert.Equal("exact", (string)(await Describe())["authorization"]!);
+            var revoked = await Send(new HttpRequestMessage(HttpMethod.Delete, "/api/server/sources/roles/authorize"));
+            Assert.Equal(HttpStatusCode.OK, revoked.Item1); Assert.True((bool)revoked.Item2["revoked"]!); Assert.False((bool)revoked.Item2["data_modified"]!);
+            var described = await Describe();
+            Assert.Equal("required", (string)described["authorization"]!); Assert.Equal(path, (string)described["path"]!); Assert.Equal("dynamic", (string)described["mode"]!);
+            await File.WriteAllTextAsync(path, Csv.Roles(5)); // a changed readable file must still not be read without authority
+            var refresh = await Send(new HttpRequestMessage(HttpMethod.Post, "/api/refresh"));
+            var result = refresh.Item2["refresh"]!["sources"]!.AsArray().Single(r => (string?)r!["source"] == "roles")!;
+            Assert.Equal("failed", (string)result["status"]!);
+            Assert.Equal(count, (int)JsonNode.Parse(await _client.GetStringAsync("/api/data-sources/roles/preview"))!["total"]!);
+            var stale = await Send(new HttpRequestMessage(HttpMethod.Post, "/api/server/sources/roles/validate") { Content = JsonContent.Create(new { path, revision = await Revision() }) });
+            Assert.Equal(HttpStatusCode.BadRequest, stale.Item1); Assert.Equal("policy_prohibited", (string)stale.Item2["category"]!);
+        }
+        finally { Directory.Delete(external, true); }
+    }
+
+    // Validate Source distinguishes the operator's situations from the running server process, without activating anything.
+    [Fact]
+    public async Task Source_validation_distinguishes_folder_invalid_path_authorization_missing_empty_and_valid()
+    {
+        await RestartAsync(HostMode.Server);
+        var external = Directory.CreateTempSubdirectory("authlens-validate-categories-").FullName;
+        try
+        {
+            async Task<(HttpStatusCode Status, JsonNode Body)> Validate(string path) =>
+                await Send(new HttpRequestMessage(HttpMethod.Post, "/api/server/sources/roles/validate") { Content = JsonContent.Create(new { path, revision = await Revision() }) });
+            async Task<(HttpStatusCode Status, JsonNode Body)> Authorize(string path) =>
+                await Send(new HttpRequestMessage(HttpMethod.Post, "/api/server/sources/roles/authorize") { Content = JsonContent.Create(new { path, approve_host_access = true }) });
+            var folder = await Validate(external);
+            Assert.Equal(("not_a_file", true), ((string)folder.Body["category"]!, (bool)folder.Body["previous_preserved"]!));
+            Assert.Contains("names a folder", (string)(await Authorize(external)).Body["detail"]!);
+            Assert.Equal("invalid_path", (string)(await Validate("relative.csv")).Body["category"]!);
+            Assert.Equal("invalid_path", (string)(await Validate(Path.Combine(external, "roles.txt"))).Body["category"]!);
+            Assert.Equal("invalid_path", (string)(await Validate(Path.Combine(external, "..", Path.GetFileName(external), "roles.csv"))).Body["category"]!);
+
+            var path = Path.Combine(external, "roles.csv");
+            await File.WriteAllTextAsync(path, Csv.Roles(3));
+            Assert.Equal("policy_prohibited", (string)(await Validate(path)).Body["category"]!); // not authorized yet
+            Assert.Equal(HttpStatusCode.OK, (await Authorize(path)).Status);
+            var valid = await Validate(path);
+            Assert.Equal(HttpStatusCode.OK, valid.Status);
+            Assert.Equal(("validated", false), ((string)valid.Body["status"]!, (bool)valid.Body["data_modified"]!)); Assert.True((int)valid.Body["records"]! > 0);
+
+            await File.WriteAllTextAsync(path, Csv.Roles(3).Split('\n')[0] + "\n"); // header only: an interrupted export
+            var empty = await Validate(path);
+            Assert.Equal(("empty", true), ((string)empty.Body["category"]!, (bool)empty.Body["previous_preserved"]!));
+            File.Delete(path);
+            Assert.Equal("missing", (string)(await Validate(path)).Body["category"]!);
+            Assert.Empty(JsonNode.Parse(await _client.GetStringAsync("/api/roles"))!.AsArray()); // validation never activated anything
+        }
+        finally { Directory.Delete(external, true); }
+    }
+
     private Task<(HttpStatusCode, JsonNode)> Upload(string source, string csv, int revision, bool confirm = false, string fileName = "export.csv", JsonObject? profile = null)
     {
         var form = new MultipartFormDataContent

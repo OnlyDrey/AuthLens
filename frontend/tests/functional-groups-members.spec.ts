@@ -64,7 +64,7 @@ test('a user holds several groups: add keeps the others, remove is per membershi
   await group(request, two)
   await join(request, 'FG_A', idOne)
   await page.goto(sessionUrl)
-  await page.goto('/#/user-access/user/FG_A')
+  await page.goto('/#/users/user/FG_A')
   const panel = page.getByRole('region', { name: 'Functional Group', exact: true })
   await expect(panel).toContainText(one)
   await panel.getByRole('button', { name: 'Add group' }).click()

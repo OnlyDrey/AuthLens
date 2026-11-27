@@ -21,7 +21,7 @@ public sealed record SodDecisionItem(string Key, string User, string Ref, string
 
 public sealed record SodRecordRequest(string Kind, string Context, IReadOnlyList<SodDecisionItem> Items, string Decision, string Reviewer, string Justification,
     int ExpectedRevision, string Approver = "", string Controls = "", string? Expires = null, IReadOnlyDictionary<string, string>? SourceVersions = null,
-    string BulkOperationId = "", JsonObject? ActorIdentity = null);
+    string BulkOperationId = "", JsonObject? ActorIdentity = null, IReadOnlyList<JsonObject>? NewActions = null);
 
 public sealed record SodRecordResult(IReadOnlyList<SodDecisionEvent> Events, int Revision);
 
@@ -139,6 +139,9 @@ public sealed partial class SodDecisionStore(WriteCoordinator writer, IDbContext
                 if (keys + newKeys > MaxKeys || contexts + (newContext ? 1 : 0) > MaxContexts)
                     throw new SodDecisionException(409, "SoD decision storage capacity or format is invalid. Existing history is retained.");
             }
+            // Remediation actions that belong to this decision (an atomic bulk Investigate with tracking) are created in the same transaction: the
+            // decisions and their actions are saved together or not at all, under the one store revision of this write.
+            if (request.NewActions is { Count: > 0 } newActions) await CreateActionsAsync(db, context, newActions, reviewer, request.ActorIdentity, now, ct);
             if (revisionRow is null) db.SodDocuments.Add(revisionRow = new SodDocument { Name = RevisionDocument, Json = "{}" });
             revisionRow.Revision = request.ExpectedRevision + 1;
             (revisionRow.UpdatedUtc, revisionRow.UpdatedBy) = (now.UtcDateTime, reviewer);
@@ -181,14 +184,49 @@ public sealed partial class SodDecisionStore(WriteCoordinator writer, IDbContext
         Check(Text("assignment_id").Length == 0 || Hex64().IsMatch(Text("assignment_id")), "Invalid assignment identity.");
     }
 
+    private static JsonObject CleanAction(JsonObject values)
+    {
+        var cleaned = new JsonObject();
+        foreach (var field in ActionValueFields)
+            cleaned[field] = field == "due_date" ? values[field]?.DeepClone() : Clean((string?)values[field] ?? "");
+        return cleaned;
+    }
+
+    private static JsonObject ActionEvent(string stamp, string by, JsonObject? identity, string note)
+    {
+        var e = new JsonObject();
+        if (identity is not null) e["actor_identity"] = identity.DeepClone();
+        (e["timestamp"], e["actor"], e["note"]) = (stamp, by, note);
+        return e;
+    }
+
+    private static JsonObject NewAction(string context, JsonObject cleaned, string by, JsonObject? identity, string stamp)
+    {
+        var entry = new JsonObject { ["id"] = Guid.NewGuid().ToString("N"), ["context"] = context };
+        foreach (var (k, v) in cleaned) entry[k] = v?.DeepClone();
+        (entry["created"], entry["modified"], entry["created_by"]) = (stamp, stamp, by);
+        entry["history"] = new JsonArray(ActionEvent(stamp, by, identity, "Created"));
+        ValidateAction(entry);
+        return entry;
+    }
+
+    /// <summary>Creates new remediation actions inside the caller's write transaction (validated like save_action; capacity checked for the whole set).</summary>
+    private static async Task CreateActionsAsync(AuthLensDb db, string context, IReadOnlyList<JsonObject> values, string actor, JsonObject? identity, DateTimeOffset now, CancellationToken ct)
+    {
+        var (row, actions) = await ActionsRowAsync(db, true, ct);
+        if (actions.Count + values.Count > MaxActions) throw new SodDecisionException(409, "Remediation action capacity is reached. Existing actions are retained.");
+        var (by, stamp) = (Clean(actor), Stamp(now));
+        foreach (var value in values) { var entry = NewAction(context, CleanAction(value), by, identity, stamp); actions[(string)entry["id"]!] = entry; }
+        if (row is null) db.SodDocuments.Add(row = new SodDocument { Name = ActionsDocument, Json = "{}" });
+        (row.Json, row.Revision, row.UpdatedUtc, row.UpdatedBy) = (actions.ToJsonString(), row.Revision + 1, now.UtcDateTime, by);
+    }
+
     /// <summary>save_action(): creates or updates a remediation action; every change is appended to its history. Shares the decision revision.</summary>
     public Task<(JsonObject Action, int Revision)> SaveActionAsync(string context, JsonObject values, string actor, JsonObject? identity, int expectedRevision, string actionId,
         Func<AuthLensDb, CancellationToken, Task>? alsoInTransaction, CancellationToken cancellation)
     {
         CheckContext(context);
-        var cleaned = new JsonObject();
-        foreach (var field in ActionValueFields)
-            cleaned[field] = field == "due_date" ? values[field]?.DeepClone() : Clean((string?)values[field] ?? "");
+        var cleaned = CleanAction(values);
         var by = Clean(actor);
         return writer.WriteAsync(async (db, ct) =>
         {
@@ -201,13 +239,7 @@ public sealed partial class SodDecisionStore(WriteCoordinator writer, IDbContext
             if (actionId.Length > 0 && previous is null) throw new SodDecisionException(404, "Remediation action not found.");
             if (previous is not null && (string?)previous["context"] != context) throw new SodDecisionException(422, "An action cannot move to another review context.");
             if (previous is null && actions.Count >= MaxActions) throw new SodDecisionException(409, "Remediation action capacity is reached. Existing actions are retained.");
-            JsonObject Event(string note)
-            {
-                var e = new JsonObject();
-                if (identity is not null) e["actor_identity"] = identity.DeepClone();
-                (e["timestamp"], e["actor"], e["note"]) = (stamp, by, note);
-                return e;
-            }
+            JsonObject Event(string note) => ActionEvent(stamp, by, identity, note);
             JsonObject entry;
             if (previous is not null)
             {
@@ -221,13 +253,7 @@ public sealed partial class SodDecisionStore(WriteCoordinator writer, IDbContext
                 if (history.Count >= 500) throw new SodDecisionException(422, "Action history capacity is reached.");
                 history.Add(Event(changes.Count > 0 ? string.Join("; ", changes) : "Reviewed"));
             }
-            else
-            {
-                entry = new JsonObject { ["id"] = Guid.NewGuid().ToString("N"), ["context"] = context };
-                foreach (var (k, v) in cleaned) entry[k] = v?.DeepClone();
-                (entry["created"], entry["modified"], entry["created_by"]) = (stamp, stamp, by);
-                entry["history"] = new JsonArray(Event("Created"));
-            }
+            else entry = NewAction(context, cleaned, by, identity, stamp);
             ValidateAction(entry);
             actions[(string)entry["id"]!] = entry;
             if (row is null) db.SodDocuments.Add(row = new SodDocument { Name = ActionsDocument, Json = "{}" });
