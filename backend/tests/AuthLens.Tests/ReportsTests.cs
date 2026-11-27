@@ -69,6 +69,8 @@ public sealed class ReportsTests : IAsyncLifetime
         Assert.Contains("Employee Directory", (string)reports["position_changes"]["reason"]!);
         Assert.Equal("username", (string)reports["account_review"]["columns"]![0]!["key"]!);
         Assert.True((bool)reports["account_review"]["columns"]![0]!["required"]!);
+        // The User Directory report offers the columns its endpoint validates (preview and the #35 export scope use the same rows)
+        Assert.Contains(reports["user_directory"]["columns"]!.AsArray(), c => (string)c!["key"]! == "matched");
     }
 
     [Fact]

@@ -126,6 +126,9 @@ export function UserAccess({
   const [selectionBusy, setSelectionBusy] = useState(false), [selectionNote, setSelectionNote] = useState('');
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [exportUserScope,setExportUserScope] = useState<'matching'|'selected'>('matching');
+  // #35: which assignments of the exported users the CSV contains. It never changes the listed population; it is sent only when it is not the default.
+  const [assignmentScope,setAssignmentScope] = useState<'matching'|'all_assignments'>('matching');
+  const scopeParams: Record<string,string> = assignmentScope==='all_assignments'?{export_scope:'all_assignments'}:{};
   useEffect(() => {
     const t = setTimeout(() => setTerm(search), 250);
     return () => clearTimeout(t);
@@ -168,7 +171,11 @@ export function UserAccess({
     const last = Math.max(0, Math.floor((result.data.total - 1) / limit) * limit);
     if (offset > last) setOffset(last);
   }, [result.data, result.isFetching, offset]);
-  const assignmentExport=useAssignmentCSVExport('users',filters,result.data?.data_revision,result.data?.as_of,exportUserScope==='selected'?[...picked].sort():undefined)
+  // The listing never depends on the assignment scope; the All assignments row count is read separately (one row, same filters) when chosen.
+  const allAssignments = useQuery({ queryKey: ['access-users-all-assignments', JSON.stringify(filters), result.data?.data_revision], enabled: assignmentScope==='all_assignments' && !!result.data,
+    queryFn: () => accessQuery<Page<UserRow>>('users', { ...filters, ...scopeParams, offset: 0, limit: 1 }) })
+  const exportRows = assignmentScope==='all_assignments' ? allAssignments.data?.export_assignments : result.data?.export_assignments
+  const assignmentExport=useAssignmentCSVExport('users',{...filters,...scopeParams},result.data?.data_revision,result.data?.as_of,exportUserScope==='selected'?[...picked].sort():undefined)
   const previousSelected = useRef(selected);
   useLayoutEffect(() => {
     if (!selected && previousSelected.current) restoreList.current = true;
@@ -308,7 +315,7 @@ export function UserAccess({
               {picked.size>0&&<Button variant="primary" onClick={()=>setAssignOpen(true)}><UsersRound size={16} aria-hidden="true"/>Assign group</Button>}
               {picked.size>0&&<Button variant="outline" onClick={()=>setPicked(new Set())}><X size={16} aria-hidden="true"/>Clear selection</Button>}
               <OpenInReviewsButton scope={{ functional_groups: functionalGroups, managers, usernames: parseUsernameList(usernames) }} />
-              <ExportCSVButton loading={assignmentExport.busy} disabled={dataLoading||result.isFetching||search!==term||directoryTransaction.settling||!result.data.export_assignments||(exportUserScope==='selected'&&!picked.size)} title="Export assignments for the chosen user scope, across pages. Active role filters restrict exported roles; MATCHED_FILTER marks filter evidence. See Export scope." onClick={()=>void assignmentExport.download()}/>
+              <ExportCSVButton loading={assignmentExport.busy} disabled={dataLoading||result.isFetching||search!==term||directoryTransaction.settling||!exportRows||(assignmentScope==='all_assignments'&&allAssignments.isFetching)||(exportUserScope==='selected'&&!picked.size)} title="Export assignments for the chosen users and assignment scope, across pages. MATCHED_FILTER marks filter evidence. See Export scope." onClick={()=>void assignmentExport.download()}/>
             </div>
           </div>
           <UsernameFeedback feedback={result.data.username_filter}/>
@@ -319,7 +326,11 @@ export function UserAccess({
               <option value="matching">All matching users ({result.data.total.toLocaleString()})</option>
               <option value="selected" disabled={!picked.size}>Selected users ({picked.size.toLocaleString()})</option>
             </Select></label>
-            <p className="ui-description">{roles.length?'Exports only assignments matching the selected role filters.':'No role filter is active: exports all imported assignments for the chosen users.'} {expired?'Expired assignments are included.':'Expired assignments are excluded while Show expired assignments is off.'} All active user filters still apply, including when exporting selected users. All matching users covers every page. MATCHED_FILTER identifies contributing evidence; it does not expand the exported role scope. Role-derived transactions do not prove effective SAP authorization.</p>
+            <label className="grid gap-1 text-sm">Assignment CSV rows<Select aria-label="Assignment CSV rows" value={assignmentScope} onChange={event=>setAssignmentScope(event.target.value as 'matching'|'all_assignments')}>
+              <option value="matching">Matching role assignments</option>
+              <option value="all_assignments">All assignments for matching users</option>
+            </Select></label>
+            <p className="ui-description">{!roles.length?'No role filter is active: exports all imported assignments for the chosen users.':assignmentScope==='matching'?'Exports only assignments matching the selected role filters.':'Exports every assignment of the chosen users, including roles outside the role filters; MATCHED_FILTER marks the matching ones.'} {exportRows===undefined?'Counting assignment rows…':`${exportRows.toLocaleString()} assignment rows for all matching users.`} {expired?'Expired assignments are included.':'Expired assignments are excluded while Show expired assignments is off.'} All active user filters still apply, including when exporting selected users. All matching users covers every page. MATCHED_FILTER identifies contributing evidence; it does not expand the exported role scope. Role-derived transactions do not prove effective SAP authorization.</p>
           </div></details>
 
           <div className="access-table user-directory-table" tabIndex={0} role="region" aria-label="User directory table">

@@ -43,6 +43,38 @@ test('directory CSV scopes selected roles and users independently without export
   expect(multiple.map(row=>row.ROLE_NAME).sort()).toEqual(['ZC:FI:B','ZC:MM:A','ZC:MM:A'])
 })
 
+// #35: the assignment scope decides the rows per exported user; it never changes the listed population or the user scope.
+test('directory CSV can export all assignments of the matching users without changing the population',async({page})=>{
+  await open(page)
+  await pickMulti(page,'Filter users by role','ZC:MM:A',page)
+  const rows=page.getByRole('region',{name:'User directory table',exact:true}).getByRole('row')
+  await expect(rows).toHaveCount(3)
+  await page.locator('details').filter({has:page.locator('summary').filter({hasText:'Export scope'})}).locator('summary').click()
+  const scope=page.getByLabel('Assignment CSV rows',{exact:true})
+  await expect(scope).toHaveValue('matching') // the default keeps the matching role assignments
+  await expect(page.getByText('2 assignment rows for all matching users.',{exact:false})).toBeVisible()
+  expect((await download(page)).map(row=>row.ROLE_NAME)).toEqual(['ZC:MM:A','ZC:MM:A'])
+  await scope.selectOption('all_assignments')
+  await expect(page.getByText('5 assignment rows for all matching users.',{exact:false})).toBeVisible() // the count follows the scope
+  await expect(rows).toHaveCount(3)
+  const all=await download(page)
+  expect(all.map(row=>[row.USERNAME,row.ROLE_NAME,row.MATCHED_FILTER].join('|')).sort()).toEqual([
+    'SYN_ALICE|ZC:FI:B|No','SYN_ALICE|ZC:MM:A|Yes','SYN_ALICE|ZC:SD:EXTRA|No','SYN_BOB|ZC:MM:A|Yes','SYN_BOB|ZC:SD:EXTRA|No']) // SYN_CAROL is outside the population
+  await page.getByRole('checkbox',{name:'Select SYN_BOB',exact:true}).check()
+  await page.getByLabel('Assignment CSV users',{exact:true}).selectOption('selected')
+  expect((await download(page)).map(row=>[row.USERNAME,row.ROLE_NAME].join('|')).sort()).toEqual(['SYN_BOB|ZC:MM:A','SYN_BOB|ZC:SD:EXTRA'])
+  await page.getByRole('button',{name:'Clear selection',exact:true}).click()
+  await page.getByLabel('Assignment CSV users',{exact:true}).selectOption('matching')
+  await pickMulti(page,'Filter users by role','ZC:FI:B',page) // two role filters: users with either role, every assignment of each
+  await expect(rows).toHaveCount(3)
+  const disclosure=page.locator('details').filter({has:page.locator('summary').filter({hasText:'Export scope'})})
+  if(await disclosure.getAttribute('open')===null)await disclosure.locator('summary').click() // the results section re-renders on a filter change
+  await expect(scope).toHaveValue('all_assignments') // the chosen scope survives filter changes
+  expect((await download(page)).length).toBe(5)
+  await scope.selectOption('matching')
+  expect((await download(page)).map(row=>row.ROLE_NAME).sort()).toEqual(['ZC:FI:B','ZC:MM:A','ZC:MM:A'])
+})
+
 test('catalogue wildcard role exports concrete assignments; no role filter retains full access',async({page})=>{
   await open(page)
   expect((await download(page)).length).toBe(7)

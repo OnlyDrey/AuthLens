@@ -42,6 +42,8 @@ const RUNNERS: Record<string, Runner> = {
   user_directory: { endpoint: '/api/access/exports/users', params: [
     { key: 'search', label: 'SAP user search', kind: 'text' }, { key: 'role', label: 'Role', kind: 'text' }, { key: 'tcodes', label: 'Transaction code', kind: 'text' },
     { key: 'status', label: 'Assignment validity', kind: 'select', initial: 'active', options: STATUS },
+    { key: 'export_scope', label: 'Assignment rows', kind: 'select', initial: 'matching', options: [['matching', 'Matching role assignments'], ['all_assignments', 'All assignments for matching users']],
+      description: 'Matching: only assignments within the role filter. All: every assignment of the users the filters match.' },
   ] },
   compare_users: { endpoint: '/api/user-comparison/export', params: [
     { key: 'user_a', label: 'User A', kind: 'text', required: true }, { key: 'user_b', label: 'User B', kind: 'text', required: true },

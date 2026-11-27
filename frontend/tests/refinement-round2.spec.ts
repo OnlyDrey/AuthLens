@@ -4,7 +4,7 @@ import {mkdtempSync,writeFileSync,readFileSync,rmSync} from 'node:fs'
 import {randomUUID} from 'node:crypto'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
-import { headers, goTo, parseDelimited, postConfiguration } from './support'
+import { headers, goTo, parseDelimited, postConfiguration, selectSettingsSection } from './support'
 import { layoutMatrix } from './matrix'
 test.setTimeout(45_000)
 const columns='Site;Name;SamAccountName;UserPrincipalName;Mail;Department;Title;Enabled;DistinguishedName;ManagerDN;ManagerName;ManagerSamAccountName;ManagerMail;ManagerDepartment;ManagerTitle;ManagerLookupStatus'
@@ -46,10 +46,10 @@ test('tasks 17–18: directory evidence opens in a labeled modal and restores fo
  await page.keyboard.press('Escape');await expect(dialog).toBeHidden();await expect(trigger).toBeFocused();await expect(detail.locator('.profile-group, .profile-functional-group')).toHaveCount(4)
 })
 test('tasks 19–21: shared source evidence, interactive feature pill and technical modal',async({page,request})=>{
- await page.goto('/#session=browser-test-session');await page.getByRole('button',{name:'Open settings',exact:true}).click();await page.getByRole('tab',{name:'Features',exact:true}).click()
+ await page.goto('/#session=browser-test-session');await page.getByRole('button',{name:'Open settings',exact:true}).click();await selectSettingsSection(page,'Features')
  const toggle=page.getByRole('switch',{name:'Employee Directory feature',exact:true});await expect(toggle).toHaveClass(/status-pill/);await toggle.click();await expect(page.getByRole('region',{name:'Employee Directory feature settings',exact:true}).getByText('Operational',{exact:true})).toBeVisible();await expect(page.getByText('Pending change — choose Apply settings to save.',{exact:true})).toBeVisible();expect((await settings(request)).features.employee_directory).toBe(true)
  await page.getByRole('button',{name:'Apply settings',exact:true}).click();await expect(page.getByRole('status').filter({ hasText: 'Settings saved successfully.' })).toBeVisible();expect((await settings(request)).features.employee_directory).toBe(false)
- await page.getByRole('button',{name:'Open settings',exact:true}).click();await page.getByRole('tab',{name:'Health & Diagnostics',exact:true}).click()
+ await page.getByRole('button',{name:'Open settings',exact:true}).click();await selectSettingsSection(page,'Health & Diagnostics')
  for(const name of ['Role Catalogue CSV','User Access CSV','Employee Directory CSV']){
   const card=page.getByRole('region',{name,exact:true});await expect(card.locator('.source-essentials .ui-metadata-list>div')).toHaveCount(2);await card.getByRole('button',{name:'Technical details',exact:true}).click();await expect(card.locator('.source-health-technical .ui-metadata-list>div')).toHaveCount(4);await expect(card.getByRole('button',{name:'Review source',exact:true})).toBeVisible();{const [a,b]=[await card.getByRole('button',{name:'Technical details',exact:true}).boundingBox(),await card.getByRole('button',{name:'Review source',exact:true}).boundingBox()];expect(Math.abs(a!.y-b!.y)).toBeLessThan(2);expect(Math.abs(a!.height-b!.height)).toBeLessThan(1)}
   const trigger=card.getByRole('button',{name:'Locations and diagnostics',exact:true});await trigger.click();const dialog=page.getByRole('dialog',{name:`${name} technical details`,exact:true});await expect(dialog.getByText('Configured file',{exact:true})).toBeVisible();await page.keyboard.press('Escape');await expect(trigger).toBeFocused()
@@ -84,7 +84,7 @@ for (const { theme, width } of layoutMatrix([375,800,1280,1600]))test(`round 2 v
  await page.screenshot({path:info.outputPath('dashboard.png'),fullPage:true});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy()
  const risk=(await page.getByRole('region',{name:'Access & Risk',exact:true}).boundingBox())!,health=(await page.getByRole('region',{name:'Review Progress',exact:true}).boundingBox())!;if(width>=800){expect(Math.abs(risk.y-health.y)).toBeLessThan(2);expect(health.x).toBeGreaterThan(risk.x)}else expect(health.y).toBeGreaterThan(risk.y)
  const detail=await openUser(page);await detail.getByRole('button',{name:'Directory matching details · Matched',exact:true}).click();await page.getByRole('dialog',{name:'Directory matching details',exact:true}).screenshot({path:info.outputPath('directory-match.png')});await page.keyboard.press('Escape')
- await page.getByRole('button',{name:'Open settings',exact:true}).click();await page.getByRole('tab',{name:'Health & Diagnostics',exact:true}).click();await page.getByRole('region',{name:'Role Catalogue CSV',exact:true}).getByText('Technical details',{exact:true}).click();await page.getByRole('region',{name:'Role Catalogue CSV',exact:true}).getByRole('button',{name:'Locations and diagnostics',exact:true}).click();await page.getByRole('dialog',{name:'Role Catalogue CSV technical details',exact:true}).screenshot({path:info.outputPath('source-details.png')});await page.keyboard.press('Escape');await page.getByRole('tab',{name:'Features',exact:true}).click();await page.screenshot({path:info.outputPath('feature-pills.png')});await page.getByRole('button',{name:'Back to AuthLens',exact:true}).click()
+ await page.getByRole('button',{name:'Open settings',exact:true}).click();await selectSettingsSection(page,'Health & Diagnostics');await page.getByRole('region',{name:'Role Catalogue CSV',exact:true}).getByText('Technical details',{exact:true}).click();await page.getByRole('region',{name:'Role Catalogue CSV',exact:true}).getByRole('button',{name:'Locations and diagnostics',exact:true}).click();await page.getByRole('dialog',{name:'Role Catalogue CSV technical details',exact:true}).screenshot({path:info.outputPath('source-details.png')});await page.keyboard.press('Escape');await selectSettingsSection(page,'Features');await page.screenshot({path:info.outputPath('feature-pills.png')});await page.getByRole('button',{name:'Back to AuthLens',exact:true}).click()
  await goTo(page,'Users');const back=page.getByRole('button',{name:'Back to users',exact:true});if(await back.count())await back.click();await mode(page,'Account Review');const row=page.getByRole('row').filter({has:page.getByRole('link',{name:userA,exact:true})});await row.getByRole('button',{name:'Needs review',exact:true}).click();const modal=page.getByRole('dialog',{name:`Review account · ${userA}`,exact:true});const box=(await modal.boundingBox())!;expect(box.width).toBeLessThanOrEqual(width-16);expect(box.y).toBeGreaterThanOrEqual(7);expect(box.y+box.height).toBeLessThanOrEqual(993);await page.screenshot({path:info.outputPath('review-dialog.png')})
 })
 
@@ -111,7 +111,7 @@ for (const { theme, width } of layoutMatrix([375,800,1280,1600]))test(`task 30 f
 })
 
 test('task 30 shared dropdown and calendar follow anchor layout changes',async({page})=>{
- await page.goto('/#session=browser-test-session');await page.getByRole('button',{name:'Open settings',exact:true}).click();await page.getByRole('tab',{name:'Component Library',exact:true}).click();await page.getByRole('tab',{name:'All components',exact:true}).click()
+ await page.goto('/#session=browser-test-session');await page.getByRole('button',{name:'Open settings',exact:true}).click();await selectSettingsSection(page,'Component Library');await page.getByRole('tab',{name:'All components',exact:true}).click()
  const combo=page.getByRole('combobox',{name:'Demo searchable role',exact:true});await combo.scrollIntoViewIfNeeded();await combo.click()
  await combo.evaluate(el=>{const spacer=document.createElement('div');spacer.id='synthetic-layout-shift';spacer.style.height='70px';el.closest('.ui-field')!.before(spacer)})
  const adjacent=async(anchor:any,panel:any)=>{const a=(await anchor.boundingBox())!,p=(await panel.boundingBox())!;return Math.min(Math.abs(p.y-a.y-a.height),Math.abs(a.y-p.y-p.height))<10}
@@ -139,7 +139,11 @@ test('task 31 directory exports all assignments for filtered users with explicit
  const group=page.getByRole('combobox',{name:'SAP User Group',exact:true});await group.click();await group.fill('SYN_GROUP');await page.getByRole('option',{name:'SYN_GROUP',exact:true}).click();await group.press('Escape')
  const role=page.getByRole('combobox',{name:'Filter users by role',exact:true});await role.click();await role.fill('ZC:SYN:B');await page.getByRole('option').filter({hasText:'ZC:SYN:B'}).first().click();await role.press('Escape')
  await page.getByRole('textbox',{name:'Filter users by transaction',exact:true}).fill('MIGO')
- await expect(page.getByRole('button',{name:'Export CSV',exact:true})).toBeEnabled();const file=await downloadAssignments(page)
+ await expect(page.getByRole('button',{name:'Export CSV',exact:true})).toBeEnabled()
+ // #35: the default exports only the matching role assignment; Task 31's every-assignment export is the explicit All assignments scope
+ const matching=await downloadAssignments(page);expect(matching.rows).toHaveLength(1);expect(matching.rows[0].ROLE_NAME).toBe('ZC:SYN:B');expect(matching.rows[0].MATCHED_FILTER).toBe('Yes')
+ await page.locator('details').filter({has:page.locator('summary').filter({hasText:'Export scope'})}).locator('summary').click();await page.getByLabel('Assignment CSV rows',{exact:true}).selectOption('all_assignments')
+ const file=await downloadAssignments(page)
  expect(file.rows).toHaveLength(5);expect(file.rows.some(row=>row.ASSIGNMENT_STATUS==='Expired')).toBe(false);expect(new Set(file.rows.map(row=>row.USERNAME))).toEqual(new Set([userA]));expect(file.rows.filter(row=>row.MATCHED_FILTER==='Yes')).toHaveLength(1)
   expect(file.rows.find(row=>row.ROLE_NAME.includes('PO_REL'))?.MATCHED_FILTER).toBe('No')
  await page.getByLabel('Show expired assignments',{exact:true}).check();const expired=await downloadAssignments(page);expect(expired.rows).toHaveLength(7);expect(expired.rows.filter(row=>row.MATCHED_FILTER==='Yes')).toHaveLength(2)

@@ -115,6 +115,59 @@ public sealed class UserRoleExportScopeTests : IAsyncLifetime
         var selected = await Export("roles=ZC:MM:A", ["BOB"]); Assert.Single(selected); Assert.Equal("BOB", selected[0][0]);
         Assert.Empty(await Export("roles=ZC:MM:A", ["CHARLIE", "MISSING"]));
     }
+    // #35 export scope: matching (default) keeps the role-filter rows; all_assignments exports every assignment of the same user population.
+    private static string[] Keys(List<string[]> rows) => [.. rows.Select(row => $"{row[0]}|{row[5]}|{row[4]}").Order(StringComparer.Ordinal)];
+    [Fact]
+    public async Task All_assignments_exports_every_assignment_of_matching_users_and_only_of_them()
+    {
+        var matching = await Export("roles=ZC:MM:A");
+        var all = await Export("roles=ZC:MM:A&export_scope=all_assignments");
+        Assert.Equal(Keys(matching), Keys(await Export("roles=ZC:MM:A&export_scope=matching"))); // explicit matching = absent parameter
+        Assert.Equal(new[] { "ALICE", "BOB", "DAN" }, all.Select(row => row[0]).Distinct().Order().ToArray()); // same population; CHARLIE stays out
+        Assert.Equal(8, all.Count); // ALICE 5 (matching and non-matching), BOB 2, DAN 1
+        Assert.Equal(5, all.Count(row => row[0] == "ALICE"));
+        Assert.Contains(all, row => row[0] == "ALICE" && row[5] == "ZC:SD:EXTRA" && row[12] == "No"); // non-matching rows are marked by MATCHED_FILTER
+        Assert.All(all.Where(row => row[5] == "ZC:MM:A"), row => Assert.Equal("Yes", row[12]));
+        Assert.Equal(Keys(all).Length, Keys(all).Distinct().Count()); // no duplicate rows
+        Assert.Subset(Keys(all).ToHashSet(), Keys(matching).ToHashSet());
+    }
+    [Theory]
+    [InlineData("and", 1, 5)]
+    [InlineData("or", 4, 10)]
+    public async Task All_assignments_keeps_AND_OR_user_matching(string mode, int users, int count)
+    {
+        var rows = await Export($"roles=ZC:MM:A&roles=ZC:FI:B&tcodes=T01&tcodes=T02&transaction_mode={mode}&export_scope=all_assignments");
+        Assert.Equal(users, rows.Select(row => row[0]).Distinct().Count()); Assert.Equal(count, rows.Count);
+        var matching = await Export($"roles=ZC:MM:A&roles=ZC:FI:B&tcodes=T01&tcodes=T02&transaction_mode={mode}");
+        Assert.Equal(matching.Select(row => row[0]).Distinct().Order(), rows.Select(row => row[0]).Distinct().Order());
+    }
+    [Fact]
+    public async Task All_assignments_with_user_filters_without_role_filters_empty_results_and_selection()
+    {
+        var combined = await Export("roles=ZC:MM:A&groups=G1&search=ALICE&export_scope=all_assignments");
+        Assert.Equal(5, combined.Count); Assert.All(combined, row => Assert.Equal("ALICE", row[0]));
+        Assert.Equal(Keys(await Export()), Keys(await Export("export_scope=all_assignments"))); // no role filter: both scopes export everything
+        Assert.Equal(Keys(await Export("groups=G1")), Keys(await Export("groups=G1&export_scope=all_assignments")));
+        Assert.Empty(await Export("roles=ZC:MM:A&search=NOBODY&export_scope=all_assignments"));
+        var selected = await Export("roles=ZC:MM:A&export_scope=all_assignments", ["BOB"]);
+        Assert.Equal(2, selected.Count); Assert.All(selected, row => Assert.Equal("BOB", row[0]));
+        Assert.Empty(await Export("roles=ZC:MM:A&export_scope=all_assignments", ["CHARLIE"])); // a selection never widens the population
+    }
+    [Fact]
+    public async Task Export_scope_reconciles_listing_count_and_report_preview_and_rejects_unknown_values()
+    {
+        foreach (var scope in new[] { "", "&export_scope=matching", "&export_scope=all_assignments" })
+        {
+            var rows = await Export("roles=ZC:MM:A" + scope);
+            var page = JsonNode.Parse(await _client.GetStringAsync("/api/access/users?roles=ZC:MM:A" + scope))!;
+            Assert.Equal(rows.Count, (int)page["export_assignments"]!);
+            Assert.Equal(3, (int)page["total"]!); // the displayed population does not depend on the scope
+            var preview = JsonNode.Parse(await _client.GetStringAsync("/api/access/exports/users?roles=ZC:MM:A&preview=true" + scope))!;
+            Assert.Equal(rows.Count, (int)preview["total_rows"]!);
+        }
+        foreach (var url in new[] { "/api/access/exports/users?export_scope=everything", "/api/access/users?export_scope=ALL_ASSIGNMENTS" })
+            Assert.Equal((HttpStatusCode)422, (await _client.GetAsync(url)).StatusCode);
+    }
     [Fact]
     public async Task Selected_export_validates_body_and_uses_existing_authenticated_export_permission()
     {

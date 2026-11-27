@@ -36,6 +36,20 @@ public static class V1Access
     private static IEnumerable<Assignment> ExportAssignments(SapUser user, bool showExpired, string status, DateOnly today, HashSet<int>? roleScope) =>
         AuditAssignments(user, showExpired, status, today).Where(a => roleScope is null || roleScope.Contains(a.Id));
 
+    /// <summary>
+    /// Which assignments of the matching users a User Directory export contains (#35). The user population is always resolved with every active
+    /// filter; the scope only decides the rows per user. <c>matching</c> (the default, and the v1 behaviour when the parameter is absent): only
+    /// assignments within the role-filter scope. <c>all_assignments</c>: every visible assignment of each matching user (expired ones still follow
+    /// Show expired assignments). Without role filters both scopes are identical.
+    /// </summary>
+    private static (IResult? Error, HashSet<int>? RoleScope) ExportScope(IQueryCollection q, UserDirectory users, UserLookupQuery query) =>
+        (q["export_scope"].FirstOrDefault() ?? "matching") switch
+        {
+            "matching" => (null, ExportRoleScope(users, query)),
+            "all_assignments" => (null, null),
+            _ => (Detail(422, "export_scope must be matching or all_assignments."), null),
+        };
+
     /// <summary>routers/access.directory_filters: the shared filter set of the user listing, the selection and the export.</summary>
     private static (IResult? Error, (UserLookupQuery Query, bool ShowExpired, string Status) Value) Parse(HttpContext http)
     {
@@ -88,7 +102,8 @@ public static class V1Access
                     },
                 });
             }
-            var roleScope = ExportRoleScope(snapshot.Users, query);
+            var (scopeError, roleScope) = ExportScope(q, snapshot.Users, query);
+            if (scopeError is not null) return scopeError;
             var exportAssignments = result.Sum(u => ExportAssignments(snapshot.Users.Users[u.UserKey], showExpired, status, today, roleScope).Count());
             var groups = snapshot.Users.Users.Values.SelectMany(u => u.Groups).Where(g => g.Length > 0).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
             return Results.Ok(new
@@ -113,7 +128,7 @@ public static class V1Access
         });
 
         // GET retains all matching users; POST intersects them with an explicit selected-user list (up to the selection cap).
-        // Both use the same role scope and preserve the CSV contract and MATCHED_FILTER evidence flag.
+        // Both use the same export scope (export_scope, #35) and preserve the CSV contract and MATCHED_FILTER evidence flag.
         api.MapMethods("/access/exports/users", ["GET", "POST"], async (HttpContext http, SnapshotService snapshots, CancellationToken ct) =>
         {
             if (Parse(http) is { Error: { } error }) return error;
@@ -141,7 +156,8 @@ public static class V1Access
             var (found, evidence) = UserLookup.FindWithEvidence(snapshot.Users, snapshot.Catalogue.Roles.Count > 0, query, today, org.DirectoryFields);
             var result = org.Filter(found);
             if (selected is not null) result = result.Where(user => selected.Contains(user.UserKey)).ToList();
-            var roleScope = ExportRoleScope(snapshot.Users, query);
+            var (scopeError, roleScope) = ExportScope(http.Request.Query, snapshot.Users, query);
+            if (scopeError is not null) return scopeError;
             var rows = result.SelectMany(u => ExportAssignments(snapshot.Users.Users[u.UserKey], showExpired, status, today, roleScope)
                 .Select(a => (Assignment: a, Identity: u, Matched: evidence.TryGetValue(u.UserKey, out var hit) && hit.Any(e => e.Id == a.Id)))).ToList();
             static string Local(string? value) => SapDates.Parse(value) is { } d ? $"{d.Day:00}.{d.Month:00}.{d.Year:0000}" : "";

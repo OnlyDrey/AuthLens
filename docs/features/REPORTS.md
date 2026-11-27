@@ -30,7 +30,7 @@ one available report. It is built from the existing permissions (`read` and `exp
 | Review Reports | Follow-up actions | CSV | Current | `/api/sod/reviews/actions/export` |
 | Review Reports | Account Review | CSV | Current data | `/api/account-review/export` (moved from the browser) |
 | Review Reports | Position Changes | CSV | Current data | `/api/account-review/positions/export` (new) |
-| Access Reports | User Directory | CSV | Current data | `/api/access/exports/users` |
+| Access Reports | User Directory | CSV | Current data | `/api/access/exports/users`; *Assignment rows*: matching role assignments (default) or all assignments for matching users (`export_scope`, #35, see [User Access](USER_ACCESS.md#directory-assignment-csv-export)) |
 | Access Reports | Compare Users | CSV | Current data | `/api/user-comparison/export` (moved from the browser) |
 | Access Reports | Release role list | CSV | Current data | `/api/access/exports/release-roles` |
 | Access Reports | Release assignments | CSV | Current data | `/api/access/exports/releases` |

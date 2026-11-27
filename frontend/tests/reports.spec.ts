@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 import { goTo, headers, mainNavigation, seedSources, type SeededSources } from './support'
 
 /** NAV-4: the Reports module. Availability comes from the backend per report; SoD off still offers the account and access reports. */
@@ -47,6 +48,30 @@ test('Reports opens its first available page and generates configurable reports 
   // A page the account may not use resolves to an available one.
   await page.goto('/#/reports/sod')
   await expect(page).toHaveURL(/#\/reports\/review$/)
+})
+
+// #35: Access Reports offers the same export scope as the User Directory, on the same endpoint; preview and file agree.
+test('User Directory report exports matching role assignments or all assignments of the matching users', { tag: '@workflow' }, async ({ page, request }) => {
+  await seeded.cleanup()
+  seeded = await seedSources(request, { roles: `${roles}FI,ZC:FI:B,Beta,ZS:B,FI - Accounting,FB03,Display document\n`, users: `${users}SYN_REP_A,ZC:FI:B,G1,20200101,99991231\nSYN_REP_C,ZC:FI:B,G1,20200101,99991231\n` })
+  await page.goto('/#session=browser-test-session')
+  await goTo(page, 'Access Reports')
+  const report = page.getByRole('region', { name: 'User Directory report', exact: true })
+  await report.getByRole('textbox', { name: 'Role', exact: true }).fill('ZC:MM:BUY:ENP')
+  const scope = report.getByLabel('Assignment rows', { exact: true })
+  await expect(scope).toHaveValue('matching')
+  await report.getByRole('button', { name: 'Preview', exact: true }).click()
+  await expect(report.getByRole('status')).toContainText('2 rows match') // SYN_REP_A and SYN_REP_B, the role only
+  await scope.selectOption('all_assignments')
+  await report.getByRole('button', { name: 'Preview', exact: true }).click()
+  await expect(report.getByRole('status')).toContainText('3 rows match') // plus SYN_REP_A's other role; SYN_REP_C is outside the population
+  const download = page.waitForEvent('download')
+  await report.getByRole('button', { name: 'Generate CSV', exact: true }).click()
+  const file = await download
+  const lines = readFileSync((await file.path())!, 'utf8').replace(new RegExp(`^${String.fromCharCode(0xfeff)}`), '').trim().split(/\r?\n/).slice(1)
+  expect(lines).toHaveLength(3)
+  expect(lines.some(line => line.includes('SYN_REP_C'))).toBe(false)
+  expect(lines.filter(line => line.includes('ZC:FI:B'))).toHaveLength(1)
 })
 
 test('legacy report routes open Review Reports and Goto opens the first available page', async ({ page }) => {
