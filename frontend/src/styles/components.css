@@ -1074,7 +1074,7 @@ details:not(.preview-cell)[open] > summary::before { transform:rotate(90deg); }
 .position-cell { display:grid; gap:var(--space-1); min-width:0; }
 .position-line { display:grid; grid-template-columns:4.75rem minmax(0,1fr); gap:var(--space-2); margin:0; font-size:var(--font-meta); }
 .position-label { color:var(--muted); }
-.position-value { overflow-wrap:break-word; }
+.position-value { min-width:0; overflow-wrap:anywhere; }
 .position-line[data-changed] .position-value { font-weight:700; }
 
 /* Account Review KPIs: the review queue (expanded) above the secondary account status (compact). */
@@ -1633,6 +1633,10 @@ button.fg-chip:focus-visible { outline:var(--focus-width) solid var(--focus); ou
 .access-table table[data-nowrap],table.sod-heatmap[data-nowrap] { table-layout:auto; }
 table[data-nowrap] > thead > tr > th,table[data-nowrap] > tbody > tr > td,table[data-nowrap] > tbody > tr > th { white-space:nowrap; overflow-wrap:normal; word-break:normal; }
 table[data-nowrap] [data-wrap="groups"] { white-space:normal; min-width:12rem; max-width:20rem; }
+/* TBL-01: long-text columns (header data-wrap="text") keep a readable minimum width and wrap inside it, with or without one-line values, so
+   their content can never be laid out narrower than it is and overflow into the next column; the table scrolls horizontally instead. */
+table [data-wrap="text"] { min-width:15rem; max-width:24rem; }
+table[data-nowrap] [data-wrap="text"] { white-space:normal; overflow-wrap:anywhere; }
 .table-column-options { display:grid; gap:var(--space-1); padding:0; margin:var(--space-3) 0; list-style:none; }
 .table-column-options > li { display:flex; align-items:center; gap:var(--space-2); min-width:0; padding:var(--space-2); border:1px solid var(--border); border-radius:var(--radius-control); }
 .table-column-options label { display:flex; flex:1; align-items:center; gap:var(--space-2); min-width:0; min-height:44px; }

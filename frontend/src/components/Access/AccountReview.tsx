@@ -462,7 +462,7 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
             : <>
               <div className="access-table" role="region" aria-label="Position change review queue" tabIndex={0}>
                 <ConfigurableTable aria-label="Position changes">
-                  <thead><tr><th>SAP username</th><th>Employee</th><th>Change type</th><th>Previous position</th><th>Current position</th><th>Priority</th><th>Review status</th><th><span className="sr-only">Review action</span></th></tr></thead>
+                  <thead><tr><th>SAP username</th><th>Employee</th><th>Change type</th><th data-wrap="text">Previous position</th><th data-wrap="text">Current position</th><th>Priority</th><th>Review status</th><th><span className="sr-only">Review action</span></th></tr></thead>
                   <tbody>
                     {data.items.map((row) => {
                       const change = row.position_change as PositionChange

@@ -117,3 +117,41 @@ test('the Position Changes page is a Reviews navigation item and opens directly 
   // Directory history survives the configuration reset, so an earlier test may leave a change: the page shows its table or the empty state.
   await expect(page.getByRole('region', { name: 'Position change review queue' }).or(page.getByText('No position change is waiting for review.'))).toBeVisible()
 })
+
+// TBL-01 (RC7 manual acceptance): the position columns kept a zero minimum width (grid minmax(0,1fr) under the table's one-line values), so long
+// departments and job titles overflowed into Priority and Review status. Geometry: every value stays inside its own cell, the position columns
+// keep their readable minimum, the changed value stays emphasised, and only the table region (never the page) scrolls horizontally.
+const longDepartment = 'International Procurement and Operational Risk Coordination for Northern Regions'
+const longTitle = 'Senior Regional Procurement Operations and Compliance Coordinator'
+for (const width of [375, 800, 1024, 1280, 1600]) for (const theme of ['light', 'dark'] as const)
+  test(`TBL-01 position values stay inside their columns with long text at ${width} ${theme}`, { tag: '@visual' }, async ({ page, request }) => {
+    writeFileSync(csv, employees(longDepartment, longTitle))
+    await importDirectory(request)
+    expect((await request.post('/api/configuration/theme', { headers, data: { theme } })).ok()).toBeTruthy()
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/#session=browser-test-session'); await goTo(page, 'Position Changes')
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+    const queue = page.getByRole('region', { name: 'Position change review queue' })
+    const row = queue.getByRole('row').filter({ hasText: 'DEMO_MOVER' })
+    await expect(row).toContainText(longDepartment)
+    const geometry = await row.evaluate(element => {
+      const cells = [...element.querySelectorAll<HTMLElement>('td')]
+      const outside = cells.flatMap((cell, index) => {
+        const box = cell.getBoundingClientRect()
+        return [...cell.querySelectorAll<HTMLElement>('.position-line, .position-label, .position-value, .evidence-badge')]
+          .filter(item => { const r = item.getBoundingClientRect(); return r.left < box.left - 1 || r.right > box.right + 1 || item.scrollWidth > item.clientWidth + 1 }).map(item => `${index}:${item.className}`)
+      })
+      const position = cells.filter(cell => cell.querySelector('.position-cell')).map(cell => Math.round(cell.getBoundingClientRect().width))
+      const changed = [...element.querySelectorAll<HTMLElement>('.position-line[data-changed] .position-value')].map(value => getComputedStyle(value).fontWeight)
+      const labels = [...element.querySelectorAll('.position-label')].map(label => label.textContent)
+      const region = element.closest<HTMLElement>('[role="region"]')!
+      return { outside, position, changed, labels, regionScrolls: region.scrollWidth > region.clientWidth, pageOverflow: document.documentElement.scrollWidth > innerWidth + 1 }
+    })
+    expect(geometry.outside).toEqual([]) // no value overflows into a neighbouring column
+    for (const columnWidth of geometry.position) expect(columnWidth).toBeGreaterThanOrEqual(239) // 15rem readable minimum
+    expect(geometry.labels).toEqual(['Department', 'Job title', 'Department', 'Job title'])
+    expect(geometry.changed.length).toBeGreaterThan(0); for (const weight of geometry.changed) expect(Number(weight)).toBeGreaterThanOrEqual(700)
+    expect(geometry.pageOverflow).toBe(false)
+    if (width < 1280) expect(geometry.regionScrolls).toBe(true) // the table scrolls inside its region instead of squeezing the columns
+    await expect(row.getByRole('button', { name: 'Review position change for DEMO_MOVER', exact: true })).toBeVisible()
+  })

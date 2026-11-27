@@ -53,7 +53,8 @@ export function ConfigurableTable({ children, ...props }: HTMLAttributes<HTMLTab
           if (cells.length !== columns.length || cells.some(cell => (cell.props.colSpan || 1) > 1)) return child
           return cloneElement(node, {}, order.map(index => cloneElement(cells[index] as ReactElement<Record<string, unknown>>, {
             key: index, hidden: simple && hidden.includes(index), 'data-column-index': index,
-            'data-wrap': /functional group/i.test(columns[index].label) ? 'groups' : undefined,
+            // A column may declare its wrapping contract on its header (`data-wrap="text"`: long text such as positions wraps inside a bounded width)
+            'data-wrap': (headings[index].props as Record<string, unknown>)['data-wrap'] ?? (/functional group/i.test(columns[index].label) ? 'groups' : undefined),
           })))
         }
         return ['thead', 'tbody', 'tfoot'].includes(String(node.type)) || node.type === Fragment ? cloneElement(node, {}, visit(node.props.children)) : child

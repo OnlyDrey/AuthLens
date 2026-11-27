@@ -152,7 +152,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,su
 .status-disabled { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
 
 /* Local investigation tables share the application theme and keyboard tokens. */
-.access-table { overflow:auto; max-width:100%; border:1px solid var(--border); border-radius:var(--radius-card); }
+/* position:relative makes the scroll region the containing block of absolutely positioned content (sr-only labels), so it is clipped and
+   scrolled with the table instead of widening the page when the table is wider than the region (TBL-01). */
+.access-table { position:relative; overflow:auto; max-width:100%; border:1px solid var(--border); border-radius:var(--radius-card); }
 .access-table tr:last-child td { border-bottom:0; }
 
 /* Shared investigation surfaces; all colors follow the persisted theme. */
