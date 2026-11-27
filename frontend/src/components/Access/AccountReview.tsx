@@ -1,3 +1,4 @@
+import { TableRegion } from '@/components/Shared/TableRegion'
 import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 import {FunctionalGroupPills} from '@/components/Shared/FunctionalGroupPills'
 import {ExactUsernameFilter} from '@/components/Shared/ExactUsernameFilter'
@@ -460,7 +461,7 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
           {result.isError ? <p role="alert">Position changes could not be loaded.</p> : !data ? <p role="status">Loading position changes…</p> : !data.items.length
             ? <p role="status" className="ui-description">{positionStatus === 'pending' && !positionType && !active ? 'No position change is waiting for review.' : 'No position changes match the selected filters.'}</p>
             : <>
-              <div className="access-table" role="region" aria-label="Position change review queue" tabIndex={0}>
+              <TableRegion className="access-table" role="region" aria-label="Position change review queue" tabIndex={0}>
                 <ConfigurableTable aria-label="Position changes">
                   <thead><tr><th>SAP username</th><th>Employee</th><th>Change type</th><th data-wrap="text">Previous position</th><th data-wrap="text">Current position</th><th>Priority</th><th>Review status</th><th><span className="sr-only">Review action</span></th></tr></thead>
                   <tbody>
@@ -481,7 +482,7 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
                     })}
                   </tbody>
                 </ConfigurableTable>
-              </div>
+              </TableRegion>
               <Pagination offset={offset} total={data.total} limit={25} onChange={setOffset} label="Position change pages" />
             </>}
         </FilterLayout>
@@ -570,7 +571,7 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
       )}
       {data?.loaded && (
         <>
-          <div
+          <TableRegion
             className="access-table review-table"
             tabIndex={0}
             role="region"
@@ -670,7 +671,7 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
                 ))}
               </tbody>
             </ConfigurableTable>
-          </div>
+          </TableRegion>
           {!data.items.length && <p>No accounts match these review filters.</p>}
           <Pagination
             offset={offset}

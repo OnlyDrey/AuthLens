@@ -1,3 +1,4 @@
+import { TableRegion } from '@/components/Shared/TableRegion'
 import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 import {FunctionalGroupPills} from '@/components/Shared/FunctionalGroupPills'
 import {parseUsernameList,looksLikeUsernameList} from '@/lib/usernameList'
@@ -333,7 +334,7 @@ export function UserAccess({
             <p className="ui-description">{!roles.length?'No role filter is active: exports all imported assignments for the chosen users.':assignmentScope==='matching'?'Exports only assignments matching the selected role filters.':'Exports every assignment of the chosen users, including roles outside the role filters; MATCHED_FILTER marks the matching ones.'} {exportRows===undefined?'Counting assignment rows…':`${exportRows.toLocaleString()} assignment rows for all matching users.`} {expired?'Expired assignments are included.':'Expired assignments are excluded while Show expired assignments is off.'} All active user filters still apply, including when exporting selected users. All matching users covers every page. MATCHED_FILTER identifies contributing evidence; it does not expand the exported role scope. Role-derived transactions do not prove effective SAP authorization.</p>
           </div></details>
 
-          <div className="access-table user-directory-table" tabIndex={0} role="region" aria-label="User directory table">
+          <TableRegion className="access-table user-directory-table" tabIndex={0} role="region" aria-label="User directory table">
             <ConfigurableTable aria-label="User directory">
               <thead>
                 <tr>
@@ -375,7 +376,7 @@ export function UserAccess({
                 })}
               </tbody>
             </ConfigurableTable>
-          </div>
+          </TableRegion>
           {result.data.total === 0 && result.data.loaded && (
             <p>No users match these filters.</p>
           )}
@@ -469,9 +470,9 @@ export function UserDetails({
           <UserProfile user={user}/>
           {user.account_total > 1 && <details className="settings-advanced"><summary>User validity and account evidence · {user.account_total} source records</summary>
             <p className="text-sm text-[var(--muted)]">Distinct source records are retained below; a summary does not override conflicting validity or lock evidence.</p>
-            <div className="access-table"><ConfigurableTable aria-label="Account source observations"><thead><tr><th>User group</th><th>User validity</th><th>Account status</th><th>Lock status</th><th>User type</th></tr></thead><tbody>
+            <TableRegion className="access-table"><ConfigurableTable aria-label="Account source observations"><thead><tr><th>User group</th><th>User validity</th><th>Account status</th><th>Lock status</th><th>User type</th></tr></thead><tbody>
               {user.accounts.map((a, i) => <tr key={i}><td>{a.user_group || 'Unknown'}</td><td>{dates(a.valid_from, a.valid_to)}</td><td><AccountStatus value={a.status}/></td><td><LockStatus value={a.locked == null ? 'Unknown' : a.locked ? 'Locked' : 'Unlocked'}/></td><td>{a.user_type || 'Unknown'}</td></tr>)}
-            </tbody></ConfigurableTable></div>
+            </tbody></ConfigurableTable></TableRegion>
             <Pagination offset={accountOffset} total={user.account_total} onChange={setAccountOffset} label="Account evidence pages"/>
           </details>}
           {user.names_total > 100 && (
@@ -535,7 +536,7 @@ export function UserDetails({
           </form>
           <div className="assignment-results-summary"><strong>{user.total.toLocaleString()} matching assignments</strong><span className="ui-description">Validity evaluated on {formatDate(user.as_of)}.</span></div>
           {transactionCodes.length > 0 && (!user.mapping_available || Boolean(user.unmapped_assignments)) && <details className="compact-evidence-warning"><summary>Catalogue coverage may be incomplete</summary><p>{user.mapping_available ? `${user.unmapped_assignments} assignment records have unresolved or unavailable catalogue mappings.` : 'No role catalogue is loaded.'} Transaction coverage is role-derived evidence, not effective SAP authorization.</p></details>}
-          <div className="access-table user-assignment-table" role="region" aria-label="User role assignments" tabIndex={0}>
+          <TableRegion className="access-table user-assignment-table" role="region" aria-label="User role assignments" tabIndex={0}>
             <ConfigurableTable aria-label="User assignments">
               <thead>
                 <tr>
@@ -560,7 +561,7 @@ export function UserDetails({
                 ))}
               </tbody>
             </ConfigurableTable>
-          </div>
+          </TableRegion>
           {!user.items.length && (
             <p>
               {transactionCodes.length ? "No matching roles for this transaction in the selected role view and validity filters." : "No assignments in this section for the selected validity filters."}

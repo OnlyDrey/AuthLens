@@ -1,3 +1,4 @@
+import { TableRegion } from './TableRegion'
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {ApiError} from '@/api/client'
 import type { HTMLAttributes, ReactNode } from 'react'
@@ -115,7 +116,7 @@ export function DataTable({
   density?: 'standard' | 'compact'
 }) {
   return (
-    <div
+    <TableRegion
       className="access-table"
       tabIndex={0}
       role="region"
@@ -127,7 +128,7 @@ export function DataTable({
         <caption className="sr-only">{caption}</caption>
         {children}
       </ConfigurableTable>
-    </div>
+    </TableRegion>
   )
 }
 

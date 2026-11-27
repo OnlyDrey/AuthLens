@@ -1,3 +1,4 @@
+import { TableRegion } from './TableRegion'
 import {ColumnOptions,ColumnActions} from './ColumnOptions'
 import {Dialog} from './Dialog'
 import {Button} from './Button'
@@ -168,9 +169,9 @@ export function MatrixGrid({ caption, rowLabel, columns: sourceColumns, rows, ce
             </tr>
   )
   return (<>
-    <div className="table-presentation-controls"><Button size="compact" onClick={()=>setColumnsOpen(true)} aria-label={`Columns for ${caption}`}><Columns3 size={16}/>Columns</Button></div>
     {columnsOpen&&<Dialog title={`Columns for ${caption}`} size="medium" onClose={()=>setColumnsOpen(false)} footer={<ColumnActions onExport={exportView} onDone={()=>setColumnsOpen(false)} error={exportError}/>}><p className="ui-description">Choose matrix columns and export order. These exports contain loaded rows in expanded groups; full-result reports remain separate.</p><ColumnOptions items={columnOrder.map(id=>({id,label:sourceColumns.find(column=>column.id===id)!.label,checked:!preference.hidden.includes(id)}))} onToggle={id=>saveColumns({order:columnOrder,hidden:preference.hidden.includes(id)?preference.hidden.filter(value=>value!==id):[...preference.hidden,id]})} onMove={(id,direction)=>{const next=[...columnOrder],position=next.indexOf(id);[next[position],next[position+direction]]=[next[position+direction],next[position]];saveColumns({order:next,hidden:preference.hidden})}}/><Button size="compact" onClick={()=>saveColumns({order:[],hidden:[]})}><RotateCcw size={16} aria-hidden="true"/>Reset columns</Button></Dialog>}
-    <div className="matrix-scroll" ref={scroller} role="region" aria-label={`Scrollable ${caption}`} onKeyDown={move}>
+    <TableRegion className="matrix-scroll" scrollRef={scroller} role="region" aria-label={`Scrollable ${caption}`} onKeyDown={move}
+      toolbar={<div className="table-presentation-controls"><Button size="compact" onClick={()=>setColumnsOpen(true)} aria-label={`Columns for ${caption}`}><Columns3 size={16}/>Columns</Button></div>}>
       <ConfigurableTable className="matrix-grid" data-group-column={groupColumn || undefined} style={{ width: pinned + columns.length * CELL, ['--matrix-head' as string]: `${HEAD}px` }}>
         <caption className="sr-only">{caption}. Use arrow keys to move between detected cells; Enter opens the investigation.</caption>
         <colgroup>
@@ -210,6 +211,6 @@ export function MatrixGrid({ caption, rowLabel, columns: sourceColumns, rows, ce
           })}
         </tbody>
       </ConfigurableTable>
-    </div></>
+    </TableRegion></>
   )
 }

@@ -1629,6 +1629,20 @@ button.fg-chip:focus-visible { outline:var(--focus-width) solid var(--focus); ou
  .startup-card input { min-width:0; width:100%; }
  .dashboard-source-meta { flex-wrap:wrap; }
 }
+/* TBL-02 table frame: the head (table toolbar, then the horizontal scrollbar) is sticky beneath the application header while the table is
+   in view; the top scrollbar replaces the region's own horizontal scrollbar, which is hidden while the top one is shown. The vertical
+   scrollbar of a height-limited region stays. Engines without ::-webkit-scrollbar (Firefox) keep the bottom scrollbar of a region that also
+   scrolls vertically, because hiding it there would hide the vertical scrollbar as well. */
+.table-frame { display:grid; min-width:0; max-width:100%; }
+.table-frame-head { position:sticky; top:var(--app-header-height,0px); z-index:6; display:grid; min-width:0; background:var(--bg); }
+.table-frame-toolbar:empty { display:none; }
+.table-frame-toolbar .table-presentation-controls { position:static; padding-inline:0; background:transparent; }
+.table-top-scroll { overflow-x:auto; overflow-y:hidden; height:calc(var(--scrollbar-size, 10px) + 2px); min-width:0; border-radius:var(--radius-control); background:var(--scrollbar-track); }
+.table-top-scroll[hidden] { display:none; }
+.table-top-scroll-content { height:1px; }
+.table-top-scroll::-webkit-scrollbar { height:var(--scrollbar-size, 10px); }
+[data-top-scroll]::-webkit-scrollbar { height:0; }
+@supports not selector(::-webkit-scrollbar) { [data-top-scroll]:not([data-vertical-scroll]) { scrollbar-width:none; } }
 .table-presentation-controls { position:sticky; left:0; display:flex; flex-wrap:wrap; gap:var(--space-2); width:fit-content; max-width:100%; padding:var(--space-2); background:var(--surface); z-index:6; }
 .access-table table[data-nowrap],table.sod-heatmap[data-nowrap] { table-layout:auto; }
 table[data-nowrap] > thead > tr > th,table[data-nowrap] > tbody > tr > td,table[data-nowrap] > tbody > tr > th { white-space:nowrap; overflow-wrap:normal; word-break:normal; }

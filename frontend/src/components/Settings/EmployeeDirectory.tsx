@@ -1,3 +1,4 @@
+import { TableRegion } from '@/components/Shared/TableRegion'
 import { OpenInReviewsButton } from '@/components/Reviews/OpenInReviewsButton'
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {SubjectFilters,subjectFilterParams,type SubjectFiltersValue} from '@/components/Shared/OrganizationFilter'
@@ -458,7 +459,7 @@ export function EmployeeBrowser() {
       )}
       {query.data && (
         <>
-          <div className="access-table">
+          <TableRegion className="access-table">
             <ConfigurableTable>
               <thead>
                 <tr>
@@ -493,7 +494,7 @@ export function EmployeeBrowser() {
                 ))}
               </tbody>
             </ConfigurableTable>
-          </div>
+          </TableRegion>
           {!query.data.total && <p>No employees match this search.</p>}
           <div className="employee-pagination flex flex-wrap gap-3 items-center">
             <button

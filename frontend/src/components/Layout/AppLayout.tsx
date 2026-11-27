@@ -1,3 +1,4 @@
+import { useHeaderHeight } from '@/components/Shared/TableRegion'
 import {LocalReviewerProfile} from '@/components/Auth/LocalReviewerProfile'
 import {useAuthentication,MyProfile} from '@/components/Auth/Authentication'
 import { ApplicationFooter } from '@/components/Shared/ApplicationFooter'
@@ -78,6 +79,8 @@ export function AppLayout({
   const [err, setErr] = useState<string | null>(null)
 
   const refreshLock=useRef(false)
+  const [headerNode,setHeaderNode]=useState<HTMLElement|null>(null)
+  useHeaderHeight(headerNode) // sticky table heads (TBL-02) sit directly beneath the sticky header
   const handleRefresh = async () => {
     if(refreshLock.current||busy)return
     refreshLock.current=true
@@ -93,6 +96,7 @@ export function AppLayout({
     <div className={`${settingsOpen ? 'h-dvh overflow-hidden' : 'min-h-screen'} flex min-w-0 flex-col bg-[var(--bg)] transition-colors duration-300`}>
       {/* â”€â”€ Header â”€â”€ */}
       <header
+        ref={setHeaderNode}
         className=" sticky top-0 z-30 shrink-0"
         style={{
           backgroundColor: 'var(--primary)',

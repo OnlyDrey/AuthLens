@@ -27,7 +27,7 @@ const measure = (page: Page) => page.evaluate((): Geometry => ({
   pageOverflow: document.documentElement.scrollWidth > innerWidth + 1,
   matrices: [...document.querySelectorAll<HTMLElement>('[role="region"][aria-label$="release matrix scroll area"]')].map(scroll => {
     const main = scroll.closest<HTMLElement>('.filter-layout-main')!, style = getComputedStyle(main)
-    const table = scroll.querySelector('table')!, toolbar = scroll.querySelector('.table-presentation-controls'), box = scroll.getBoundingClientRect()
+    const table = scroll.querySelector('table')!, toolbar = scroll.closest('.table-frame')?.querySelector('.table-presentation-controls') ?? null // TBL-02: in the table frame's toolbar, box = scroll.getBoundingClientRect()
     return {
       label: scroll.getAttribute('aria-label')!, main: main.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight), scroll: box.width, left: box.left,
       clientWidth: scroll.clientWidth, scrollWidth: scroll.scrollWidth, table: table.getBoundingClientRect().width,

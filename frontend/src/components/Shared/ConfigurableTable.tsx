@@ -1,5 +1,7 @@
 import {ColumnOptions,ColumnActions} from './ColumnOptions'
-import { Children, Fragment, cloneElement, isValidElement, useRef, useState, type HTMLAttributes, type ReactElement, type ReactNode } from 'react'
+import { Children, Fragment, cloneElement, isValidElement, useLayoutEffect, useRef, useState, type HTMLAttributes, type ReactElement, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { useTableFrame } from './TableRegion'
 import { Columns3, RotateCcw } from 'lucide-react'
 import { Button } from './Button'
 import { Dialog } from './Dialog'
@@ -75,8 +77,13 @@ export function ConfigurableTable({ children, ...props }: HTMLAttributes<HTMLTab
       const link = document.createElement('a'); link.href = url; link.download = 'AuthLens-table.csv'; link.click(); URL.revokeObjectURL(url)
     } catch(error) { setExportError(error instanceof Error?error.message:'Export failed.') }
   }
+  // TBL-02: inside a TableRegion the Columns control is in the table toolbar above the sticky horizontal scrollbar; the check against the
+  // DOM keeps a table rendered in a dialog opened from inside a table from using the outer table's toolbar.
+  const frame = useTableFrame(), [framed, setFramed] = useState(false)
+  useLayoutEffect(() => { setFramed(!!frame?.toolbar && table.current?.closest('.table-frame') === frame.toolbar.closest('.table-frame')) }, [frame?.toolbar])
+  const controls = simple ? <div className="table-presentation-controls"><Button size="compact" aria-label={`Columns for ${caption}`} onClick={() => setOpen(true)}><Columns3 size={16} aria-hidden="true"/>Columns</Button></div> : null
   return <>
-    {simple && <div className="table-presentation-controls"><Button size="compact" aria-label={`Columns for ${caption}`} onClick={() => setOpen(true)}><Columns3 size={16} aria-hidden="true"/>Columns</Button></div>}
+    {controls && (framed && frame?.toolbar ? createPortal(controls, frame.toolbar) : controls)}
     <table {...props} ref={table} data-nowrap={nowrap || undefined}>{rendered}</table>
     {simple && open && <Dialog title={`Columns for ${caption}`} size="medium" onClose={() => setOpen(false)} footer={<ColumnActions onExport={exportCSV} onDone={()=>setOpen(false)} error={exportError}/>}>
       <p className="ui-description">Choose visible columns and their reading/export order. Exports contain only rows currently displayed, not other pages. Existing full-result and evidence exports remain separate.</p>

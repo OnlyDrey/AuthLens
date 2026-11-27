@@ -1,3 +1,4 @@
+import { TableRegion } from '@/components/Shared/TableRegion'
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {SubjectFilters,type SubjectFiltersValue} from '@/components/Shared/OrganizationFilter'
 import {SAPUserLink} from '@/components/Shared/SAPUserLink'
@@ -282,7 +283,7 @@ export function ReleaseRoles({
           </>
         ) : (
           <>
-            <div className="access-table release-directory-table" role="region" aria-label="Release role results" tabIndex={0} data-density="compact">
+            <TableRegion className="access-table release-directory-table" role="region" aria-label="Release role results" tabIndex={0} data-density="compact">
               <ConfigurableTable>
                 <thead>
                   <tr>
@@ -325,7 +326,7 @@ export function ReleaseRoles({
                   ))}
                 </tbody>
               </ConfigurableTable>
-            </div>
+            </TableRegion>
             <Pagination label="Release role pages" offset={offset} total={result.data.total} limit={pageSize} onChange={setOffset} pageSizes={PAGE_SIZES} onPageSize={setPageSize} />
             {result.data.total === 0 && (
               <p>
@@ -405,7 +406,7 @@ function ReleaseMatrix({
         return (
           <div key={scope || "all"}>
             <h2 className="font-semibold">{compare ? `${scope || "Unknown group"} · ` : ""}{typeLabel} · distinct users</h2>
-            <div className="access-table matrix-scroll" role="region" aria-label={`${name}release matrix scroll area`} tabIndex={0}>
+            <TableRegion className="access-table matrix-scroll" role="region" aria-label={`${name}release matrix scroll area`} tabIndex={0}>
               <ConfigurableTable className="release-matrix" aria-label={`${name}release matrix`}>
                 <thead>
                   <tr>
@@ -446,7 +447,7 @@ function ReleaseMatrix({
                   </tr>
                 </tfoot>}
               </ConfigurableTable>
-            </div>
+            </TableRegion>
           </div>
         );
       })}
@@ -576,7 +577,7 @@ function ReleaseDetail({
               ? 'Counts reflect matching assignment records.'
               : `${result.data.distinct_users} distinct users · ${result.data.total} assignment records in the current filters`}
           </p>
-          <div
+          <TableRegion
             className="access-table"
             role="region"
             aria-label="Release role user assignments"
@@ -627,7 +628,7 @@ function ReleaseDetail({
                 ))}
               </tbody>
             </ConfigurableTable>
-          </div>
+          </TableRegion>
           {!result.data.items.length && !dataLoading && (
             <p>No assignments match these assignment filters.</p>
           )}
@@ -670,7 +671,7 @@ function ReleaseRoleUsersPanel({ role, filters, status, dates, onUser, onClose }
       <QueryState loading={result.isLoading} error={result.error} />
       {data && <>
         <p role="status" className="ui-description">{data.distinct_users} {data.distinct_users === 1 ? 'user' : 'users'} · {data.total} assignment {data.total === 1 ? 'record' : 'records'} in the current validity scope</p>
-        <div className="access-table" role="region" aria-label="Users with this release role" tabIndex={0} data-density="compact">
+        <TableRegion className="access-table" role="region" aria-label="Users with this release role" tabIndex={0} data-density="compact">
           <ConfigurableTable>
             <thead><tr><th>SAP username</th><th>Name</th><th>SAP User Group</th><th>Assignment</th><th className="col-actions"><span className="sr-only">Details</span></th></tr></thead>
             <tbody>{data.items.map((a) => (
@@ -682,7 +683,7 @@ function ReleaseRoleUsersPanel({ role, filters, status, dates, onUser, onClose }
                 <td className="col-actions"><DetailButton onClick={() => onUser(a.username)} aria-label={`View user details ${a.username}`}>Details</DetailButton></td>
               </tr>))}</tbody>
           </ConfigurableTable>
-        </div>
+        </TableRegion>
         {!data.items.length && <p>No assignments match the current validity scope.</p>}
         <Pagination offset={offset} total={data.total} onChange={setOffset} label="Release role user pages" />
       </>}

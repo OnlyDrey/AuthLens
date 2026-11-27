@@ -1,3 +1,4 @@
+import { TableRegion } from '@/components/Shared/TableRegion'
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
 import {SAPUserLink} from '@/components/Shared/SAPUserLink'
 import { useState } from 'react'
@@ -55,12 +56,12 @@ export function ComponentLibraryPatterns() {
         </section>
         <section aria-label="Table states" className="grid gap-2">
           <h3>Table zebra, hover and selection</h3>
-          <div className="access-table" role="region" aria-label="Demo table states" tabIndex={0} data-density="compact">
+          <TableRegion className="access-table" role="region" aria-label="Demo table states" tabIndex={0} data-density="compact">
             <ConfigurableTable>
               <thead><tr><th>SAP user</th><th>Group</th></tr></thead>
               <tbody>{['SYN_A', 'SYN_B', 'SYN_C'].map((user) => <tr key={user} data-selected={row === user || undefined} onClick={() => setRow(user)}><td>{user}</td><td>FIN</td></tr>)}</tbody>
             </ConfigurableTable>
-          </div>
+          </TableRegion>
         </section>
         <section aria-label="Codeblock" className="grid gap-2">
           <h3>Codeblock</h3>
