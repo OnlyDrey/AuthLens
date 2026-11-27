@@ -107,7 +107,7 @@ not confirmed effective release authorization.
 
 ## Matrix, Table and pagination
 
-The Matrix keeps counts, filters and drill-down but offers no Add to access package control; the Table keeps the package action column. The Table is paged server side with 10, 20, 50 or 100 rows (default 20); changing a filter or the page size returns to the first page. Release Area values show only the letter. Area and Group stay multi-selects with OR within a filter and AND between filters. The assignment CSV export and the role-list export keep their separate scopes.
+The Matrix keeps counts, filters and drill-down but offers no Add to access package control; the Table keeps the package action column. The Table is paged server side with the standard 10, 25, 50, 100 or 250 rows (default 25, remembered per browser; TBL-03, earlier 10, 20, 50 or 100 with 20), chosen in the table toolbar; changing a filter or the page size returns to the first page. The filter panel leads with Release classification (PR/PO, Release SAP user group, Release area, Release group, Release strategy; expanded), then Assignment and the collapsed Population group (FLT-01, FLT-02). Release area values show only the letter. Area and Group stay multi-selects with OR within a filter and AND between filters. The assignment CSV export and the role-list export keep their separate scopes.
 
 ## Users of a release role
 

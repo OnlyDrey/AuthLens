@@ -385,3 +385,58 @@ and a read-only expansion dialog; a group without an id stays a non-interactive 
 
 Mobile Filters and Settings navigation reuse the shared Dialog drawer. Desktop/tab navigation and per-page filter/permission state remain owned
 by their existing callers. Do not implement another focus trap or reorder the DOM using CSS.
+
+## Tables and filter panels (TBL and FLT)
+
+Shared standards from the RC7 manual acceptance (2026-11-27); behaviour and validation are recorded in the
+[acceptance tracker](../validation/ACCEPTANCE_TRACKER.md#rc7-table-and-filter-standardization-2026-11-27).
+
+**Table frame (`Shared/TableRegion`, TBL-02).** A table's scroll region (`access-table`, or `matrix-scroll` for matrices) sits in a frame whose
+head holds the table toolbar (the Columns control, which `ConfigurableTable` places there, and table controls passed as `toolbar`) and a
+horizontal scrollbar directly above the table header. The head is sticky beneath the application header (`--app-header-height`, kept by
+`AppLayout`) while the table is in view; inside a scrolling dialog or panel it sticks to that container's top. The top scrollbar mirrors the
+region's horizontal scroll in both directions, appears only while the region overflows (ResizeObserver on the region and its content, so
+filters, columns, viewport and content changes are followed) and replaces the region's own horizontal scrollbar, which is hidden meanwhile;
+the region stays focusable and keyboard, wheel, trackpad and touch scrolling are unchanged. A height-limited region keeps its vertical
+scrollbar; Firefox keeps the bottom scrollbar of a region that also scrolls vertically (hiding it there would hide the vertical one).
+`DataTable`, every `access-table` region, the Release Access matrix and the SoD `MatrixGrid` use it. `.access-table` is `position:relative`,
+so absolutely positioned content (sr-only labels) scrolls with a table wider than its region instead of widening the page (TBL-01).
+
+**Column contracts (`ConfigurableTable`).** A header may declare `data-wrap="text"` for long text (positions): a 15rem minimum, at most 24rem,
+wrapping inside it with or without one-line values, so content never overflows into the next column (TBL-01). `data-column-key` keeps a
+renamed header's earlier text as the stable key of the column preference and the client CSV (TBL-04). The first visible column is frozen
+(`data-sticky-column`, TBL-05) when its label is the canonical *SAP username*: opaque theme backgrounds, a hairline and soft shadow, above
+scrolled cells and below the sticky header row; hiding or moving the column moves the rule with it; matrices keep their own pinned headers and
+the User Directory keeps its frozen selection and username columns.
+
+**Results per page (`lib/pageSize`, `PageSizeControl`, TBL-03).** 10, 25, 50, 100 or 250 rows, default 25, remembered per browser and table;
+the selector sits in the table toolbar, the `Pagination` below the table keeps the range and Previous/Next (`alwaysShow` on paged tables); a new
+size or a filter change starts at the first page; the server pages up to 250 rows (`V1Access.TablePageMax`). Used by the User Directory,
+Account Review, Position Changes, Release Access (table and assignment drill-down), Compare Users, Data Health, SoD Access Explorer and
+Remediation. Not paged by this control, by design: the Release Access and SoD matrices (whole matrices, or the SoD matrix's own *Users per
+page*), Reports previews (first ten rows), the Employee Directory import preview, the refresh change report (v1 query model, pages of up to 100),
+and evidence lists inside panels and dialogs (user profile evidence, comparison evidence, group members, suggestion matches, SoD conflict
+evidence).
+
+**Filter panels (`Shared/FilterLayout`, FLT-01 to FLT-03).** `FilterLayout` takes a `workspace` key; its sidebar (and the mobile drawer) starts
+with a sticky *Find a filter...* field and *Expand all* / *Collapse all* (accessible names *Expand all filter groups* / *Collapse all filter groups*). `FilterSection` is a collapsible group: an `h3` with a button
+(`aria-expanded`, `aria-controls`), a chevron and the active-filter count (chips, filled text fields and `data-filter-active` controls, or
+the `active` prop). Expansion is remembered per workspace (`authlens.filter-sections.<workspace>`), `defaultOpen` sets the first state, a
+section holding active filters on first render or receiving them while collapsed (a loaded saved filter, a contextual link) opens, and
+collapsing never clears a value. Filter discovery matches field labels, section names and terminology aliases ([terminology](TERMINOLOGY.md)),
+shows matching fields, keeps fields with active filters visible, never changes a value and issues no request; clearing it restores the saved
+expansion. Outside a `FilterLayout`, `FilterSection` is the plain fieldset it was.
+
+| Workspace (`workspace`) | Groups in order | Collapsed by default |
+| --- | --- | --- |
+| User Directory (`user-directory`) | Saved Filters, Search, Population (exact usernames, SAP user group), Organization, Access (roles, missing roles, transactions), Assignments | Assignments |
+| Account Review (`account-review`) | Saved Filters, Search, Population, Organization, Review | — |
+| Position Changes (`position-changes`) | Search, Population, Organization, Change | — |
+| Release Access (`release-access`) | Saved Filters, Release classification (PR/PO, Release SAP user group, Release area, Release group, Release strategy), Assignment, Population | Population |
+| SoD and Reviews pages (`workspace` = the page's filter view) | Saved Filters, Search, Population, Organization, Access, Risk and activity, Review status, Shared SoD filters (only the fields the page offers) | — |
+| Compare Users (`compare-users`) | Saved Filters, Search, Comparison | — |
+| Dashboard (`dashboard`) | Population, Organization, Access, Access matching, Governance | Access matching, Governance |
+| Role Lookup (`role-lookup`) | Saved Filters, Search, Access (transactions), Role categories | — |
+
+Saved Filters is the panel's utility at the top, not a filter group. Release Access leads with its release classification (the documented
+exception). Shared SoD and Reviews filter values stay shared; the expansion preference is per page.

@@ -7,7 +7,7 @@ AuthLens is a local-first SAP investigation and access-review application, with 
 | Features | [Feature guide](features/README.md), [Dashboard](features/DASHBOARD.md), [Role Lookup](features/ROLE_LOOKUP.md), [Users](features/USER_ACCESS.md), [SoD](features/SOD.md), [Reviews](features/REVIEWS.md), [Reports](features/REPORTS.md) |
 | Data | [Data and CSV formats](data/README.md), [imports and refresh](data/IMPORT_AND_REFRESH.md), [Employee Directory](data/EMPLOYEE_DIRECTORY.md) |
 | Architecture | [Architecture index](architecture/README.md), [database](architecture/DATABASE_DESIGN.md), [UI integration](architecture/UI_INTEGRATION.md) |
-| UI design | [Design system](architecture/DESIGN_SYSTEM.md), [components](architecture/COMPONENTS.md), [navigation](architecture/NAVIGATION.md) |
+| UI design | [Design system](architecture/DESIGN_SYSTEM.md), [components](architecture/COMPONENTS.md), [navigation](architecture/NAVIGATION.md), [field terminology](architecture/TERMINOLOGY.md) |
 | Build and deployment | [Deployment index](deployment/README.md), [Desktop and Server](deployment/DESKTOP_SERVER_DEPLOYMENT.md), [Windows service and installers](deployment/WINDOWS_DEPLOYMENT.md) |
 | Security and network | [HTTPS, authentication, Origin, CSRF and proxies](deployment/SERVER_NETWORK_ACCESS.md) |
 | Recovery | [Backup and recovery](operations/BACKUP_AND_RECOVERY.md) |

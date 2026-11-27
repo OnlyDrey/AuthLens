@@ -175,6 +175,24 @@ never deleted; every certificate change is a recorded transaction with rollback 
 
 Native acceptance for the next candidate: runbook scenarios C11 to C13, B11 and B12 ([runbook](WINDOWS_VM_ACCEPTANCE.md#c-security-and-administration-from-s1-snapshot-s2-admin-after-c4)).
 
+## Fourteenth round: shared table and filter standards from RC7 manual acceptance (TBL-01 to TBL-05, FLT-01 to FLT-03, 2026-11-27)
+
+Status: implemented in source; targeted validation below; FULL regression, release build and Windows acceptance not run (not authorized).
+Version 2.0.0 unchanged; RC7 artifacts and evidence untouched. Details and root causes: [acceptance tracker](ACCEPTANCE_TRACKER.md#rc7-table-and-filter-standardization-2026-11-27).
+
+| Package | Status | Implemented | Tests |
+| --- | --- | --- | --- |
+| TBL-01 | Implemented | Long-text column contract; table regions contain absolutely positioned content | `position-changes.spec.ts` (TBL-01, 375-1600 px, both themes) |
+| TBL-02 | Implemented | `TableRegion` sticky head with mirrored top scrollbar | `table-top-scrollbar.spec.ts`, `release-matrix-width.spec.ts`, `sod-evidence-modals.spec.ts` |
+| TBL-03 | Implemented | Standard page sizes, per-table preference, 250-row server pages | `table-page-size.spec.ts`, `release-roles.spec.ts`, `AccessTests` |
+| TBL-04 | Implemented | Canonical labels, stable column keys, unchanged CSV headers | `table-standards.spec.ts` and the specs whose labels changed |
+| TBL-05 | Implemented | Frozen SAP username column | `table-standards.spec.ts` (375-1600 px, both themes) |
+| FLT-01 | Implemented | Filter group order; Release Access exception | `filter-panels.spec.ts` |
+| FLT-02 | Implemented | Collapsible, persisted, counted sections | `filter-panels.spec.ts` |
+| FLT-03 | Implemented | Filter discovery | `filter-panels.spec.ts` |
+
+Validation: Level 1 per package: TBL-01 `position-changes.spec.ts` 13/13; TBL-02 `table-top-scrollbar.spec.ts` 13/13; TBL-04/05 `table-standards.spec.ts` 13/13; TBL-03 `table-page-size.spec.ts` 2/2 and the Release Access pagination test; MW-1 `release-matrix-width.spec.ts` 20/20 after the table frame; FLT `filter-panels.spec.ts` 6/6. Backend (page cap): `AccessTests`, `AccountReviewTests`, `ReportsTests`, `SodPeriodsTests`, `SodAnalysisTests`, `FunctionalGroupTests`, `PositionChangeTests` and the other classes that page tables, 99/99. Level 2, 65 affected spec files in one process: 564 passed, 18 failed (1.6 h); the 18 were test contracts made obsolete by the new standards (collapsed secondary groups, the 25-row default where a test assumed 50, the rows-per-page selector now in the table toolbar, the canonical labels, *Expand all* names shared with page controls, the keyboard order with group headers), corrected without weakening assertions, plus one measurement race. Rerun of the 12 affected files: 110 passed, 2 failed, both then corrected (3/3); Level 3 `refinement-27.spec.ts` `--repeat-each 3`: 48/48. Static: type check, ESLint of `src` and `tests`, frontend unit tests, `check-docs`, `check-secrets`, `check-structure`, `git diff --check`: passed. FULL not run.
+
 ## Thirteenth round: FULL regression corrections (FULL-FIX-01) and Release Access matrix width (MW-1, 2026-11-27)
 
 FULL regression of `de71c0b`: **failed** (20 of 21 stages; .NET 581/0, Pester 640/0/12 skipped, Playwright 938 passed and 23 failed of
