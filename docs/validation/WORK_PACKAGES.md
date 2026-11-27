@@ -175,6 +175,18 @@ never deleted; every certificate change is a recorded transaction with rollback 
 
 Native acceptance for the next candidate: runbook scenarios C11 to C13, B11 and B12 ([runbook](WINDOWS_VM_ACCEPTANCE.md#c-security-and-administration-from-s1-snapshot-s2-admin-after-c4)).
 
+## Twelfth round: pre-release test stabilization (TS-1) and User Directory export scope (#35, 2026-11-27)
+
+Status: implemented in source on `experiment/dotnet-backend`; Level 1 and Level 2 validation of the affected specs and backend classes passed
+(below); FULL regression, release build and Windows acceptance not run (not authorized). Version 2.0.0 unchanged.
+
+| Package | Status | Implemented | Tests |
+| --- | --- | --- | --- |
+| TS-1 | Implemented | The 36 pre-existing browser failures and the two flaky tests resolved one by one ([TS-1 resolution](ACCEPTANCE_TRACKER.md#ts-1-resolution-2026-11-27)): obsolete expectations rewritten with the shared navigation and Settings helpers, order assertions re-measured, positional and stale locators replaced, the stale-session race and the saved-filter isolation fixed; no assertion weakened | The affected spec files (Level 2) |
+| #35 | Implemented | User Directory CSV export scope `export_scope=matching\|all_assignments` (default matching; absent = unchanged v1 behaviour) on `/api/access/exports/users` and the `export_assignments` count of `/api/access/users`; *Assignment CSV rows* under Export scope and *Assignment rows* in Reports → Access Reports; the User Directory report now offers its columns and preview ([User Access](../features/USER_ACCESS.md#directory-assignment-csv-export)) | `UserRoleExportScopeTests`, `ReportsTests`, `user-directory-scope.spec.ts`, `reports.spec.ts`, `refinement-round2.spec.ts` (Task 31) |
+
+Validation: Level 2 browser, the 14 affected spec files in one process (`navigation-a11y`, `stabilization`, `ui-consistency`, `user-role-export`, `design-system`, `investigation-tools`, `refinement-27`, `refinement-round2`, `bulk-group-assignment`, `loading-consolidation`, `status-consistency-r6`, `reports`, `user-directory-scope`, `data-aware-ux`): 166 passed, 0 failed (21.5 min); Level 3 `data-aware-ux.spec.ts:186` `--repeat-each 5`: 5 of 5. Backend: `UserRoleExportScopeTests`, `AccessExportTests`, `AccessTests`, `ReportsTests`, `AccountsTests`, `DataSourcesTests`, `FunctionalGroupTests`, `PositionChangeTests`, `UnicodeTests`, `V1DataMigrationTests`: all passed. Type check, ESLint of the changed files, `check-docs`, `check-secrets`, `check-structure`, `git diff --check`: passed. FULL regression not run.
+
 ## Eleventh round: navigation and information architecture (NAV-1 to NAV-8, COR-1, COR-2, COR-T, 2026-11-27)
 
 Status: implemented in source on `experiment/dotnet-backend`; focused backend and browser validation passed (below); FULL regression and Windows
