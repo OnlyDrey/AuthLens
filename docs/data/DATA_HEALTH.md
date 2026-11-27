@@ -1,6 +1,6 @@
 # Data Health & Coverage
 
-Open **Settings → Data Sources** and expand **Data Health & Coverage**. No new primary navigation. Source-detail actions focus the existing Role Catalogue, User Access or Employee Directory import tab. Detailed technical failures/recovery remain in Health & Diagnostics.
+Open **Settings → Data Sources** and expand **Data Health & Coverage**. No new primary navigation. Data Health is administrator-only (NAV-5): Settings is an administrator workspace, `GET /api/data-health` is an administrator read, and the Dashboard *Directory & Data Health* card is shown to administrators only. Source-detail actions focus the existing Role Catalogue, User Access or Employee Directory import tab. Detailed technical failures/recovery remain in Health & Diagnostics.
 
 Source cards distinguish enabled preference, configured path, validated data availability, record count, last successful publication and snapshot type. Role and SAP user datasets are memory publications reloaded from their configured CSV at startup; only Employee Directory has an explicit durable snapshot. “Available” means validated published data, not a promise that the original CSV is still accessible. Employee Directory details contain original-file availability and durable recovery. A disabled optional source is neutral, not an application failure.
 

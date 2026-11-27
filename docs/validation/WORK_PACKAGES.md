@@ -175,11 +175,36 @@ never deleted; every certificate change is a recorded transaction with rollback 
 
 Native acceptance for the next candidate: runbook scenarios C11 to C13, B11 and B12 ([runbook](WINDOWS_VM_ACCEPTANCE.md#c-security-and-administration-from-s1-snapshot-s2-admin-after-c4)).
 
-## Planned: navigation and information architecture (decisions approved 2026-11-26, implementation awaiting approval)
+## Eleventh round: navigation and information architecture (NAV-1 to NAV-8, COR-1, COR-2, COR-T, 2026-11-27)
 
-Status: the architectural decisions below are **approved requirements**; the implementation is **not approved and not started**. Nothing in
-this section is implemented. Implementation waits for approval of the SoD structure and of NAV-1 to NAV-7. Current behavior is described in
-[navigation](../architecture/NAVIGATION.md) and [Reviews](../features/REVIEWS.md). Versioning, packaging and release procedures are unchanged.
+Status: implemented in source on `experiment/dotnet-backend`; focused backend and browser validation passed (below); FULL regression and Windows
+acceptance not run (not authorized). Version 2.0.0, packaging and release procedures are unchanged. Implementation approval of 2026-11-26
+superseded the assessment where they differ: the SoD Overview keeps its Conflicts, Reviews and Remediation sections, period card and evidence
+freshness card (the compact *Review status* row was rejected), Reports gets dedicated report generation, the Account Review and Compare Users
+CSV exports moved to the backend, and NAV-8 was added. NAV-6 was amended on 2026-11-27: one column per strategy key with the key only as
+header, PR/PO through the existing filter, no grouped headers.
+
+| Package | Status | Implemented | Tests |
+| --- | --- | --- | --- |
+| COR-T | Implemented | Obsolete navigation, Settings and count expectations corrected with the shared drawer and Settings helpers; brittle counts made behavioural; the *Saved filters* failure was a stale locator (filters are a drawer dialog below 1024 px), not order dependence | The corrected specs |
+| COR-1 | Implemented | Compare Users subject column has a fixed content width; long descriptions and identifiers truncate with the full value in the tooltip and copy (BUG-09 contract) | `refinement-completion` compact evidence, `role-codeblocks` Compare Users at 375 and 1280 px |
+| COR-2 | Implemented | Root cause: the shared population resolver has a `review_states` dimension (pending/completed), and Account Review forwarded its own decision filter of the same name, emptying the population; the decision filter is no longer forwarded | `AccountReviewTests`, `account-review-completed`, `account-review-refinement` |
+| NAV-1 | Implemented | Canonical routes and legacy redirects with query and history; main-navigation links always open the module's default landing page fresh (BUG-08 boundary, also within a module); dropdown items and tabs open their pages directly; the Release Roles contextual-return conflict is resolved in favour of the landing page, with Back for the earlier entry | `navigation-routes.spec.ts`, navigation and route specs |
+| NAV-2 | Implemented | Users (User Directory, Compare Users, Release Access) with shared `UsersNavigation` tabs; Release Roles renamed Release Access under Users | Users, Release Access and navigation specs |
+| NAV-3 | Implemented | Reviews: Overview, Work Queue, Position Changes, Account Review, Bulk Review, Remediation, Review Periods; the account pages on their shared implementation, independent of the SoD switch, with user details inside Reviews | `reviews-workspace`, `position-changes`, Account Review specs |
+| NAV-4 | Implemented | Reports module with per-report availability (`/api/reports/availability`), report forms on existing endpoints, shared configurable CSV writer, server-side Account Review and Compare Users exports, new Position Changes CSV, Evidence page ([Reports](../features/REPORTS.md)) | `ReportsTests`, `reports.spec.ts` |
+| NAV-5 | Implemented | `/api/data-health` administrator read; Dashboard card and its figures administrator-only | `AccountReviewTests.Data_health_and_the_dashboard_directory_figures_are_administrator_only`, `navigation-routes` (viewer) |
+| NAV-6 | Implemented (amended) | One Release Access matrix with one column per strategy key; shared PR/PO strategies are one column with backend distinct users; `matrix_totals` per Release Group, strategy, type and in total; drill-downs reconcile (`parsed=true` with the matrix filters) | `ReleaseAccessMatrixTests`, `release-roles`, `refinement-completion` matrix tests |
+| NAV-7 | Implemented | Shared navigation components for all multi-page modules, landing pages, active states, drawer; documentation and the tracker updated | Navigation specs at 375, 800, 1280 and 1600 px |
+| NAV-8 | Implemented | Access Explorer *Review in Bulk Review* hands the exact selection, context and filters to the one bulk workflow (atomic); investigation action tracking is preserved and created in the decisions' transaction | `SodBulkReviewTests.An_atomic_investigation_tracks_its_actions_in_the_same_transaction`, `sod-bulk-review`, `consolidated-refinement` |
+
+Decisions made without explicit guidance: Release Access keeps its internal page key and saved-filter view key; the account pages render
+their title as a section heading under the Reviews page title; Bulk Review stays atomic and keeps investigation action tracking by creating the actions in the
+decisions' own transaction (`atomic_actions`; the v1 refusal of `atomic` + `track_action` is unchanged); Account Review and Compare Users keep their earlier formula guard on every field,
+identifiers included; SoD CSV exports keep their fixed columns; n/a marks a Release Group without a release role of a strategy (a valid
+combination without users is not knowable from assignment data).
+
+The assessment that preceded the implementation follows unchanged for traceability.
 
 ### Approved decisions
 

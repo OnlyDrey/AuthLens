@@ -4,8 +4,8 @@
 
 | Pattern | Purpose | AuthLens implementation |
 | --- | --- | --- |
-| Main navigation | Major application destinations | Dashboard, Role Lookup, User Access, Release Roles, SoD, Reviews; Settings is a compact utility opening the existing workspace |
-| Secondary navigation | Related pages within a major area | User directory, Account Review, Position Changes, Compare users; real anchor destinations and bottom-border current-page indicator |
+| Main navigation | Major application destinations | Dashboard, Role Lookup, Users, SoD, Reviews, Reports (NAV-1); Settings is a compact utility opening the existing workspace |
+| Secondary navigation | Related pages within a major area | Module tabs (`Users view`, `SoD views`, `Review views`, `Report views`) with the same items, labels, icons and order as the main-navigation dropdown (`lib/navigationItems.tsx`); real anchor destinations and bottom-border current-page indicator |
 | Content tabs | Associated content in one investigation | User Details role sections and Settings import sources; roving focus and an associated tabpanel |
 | Actions / filter controls | Perform an operation or constrain results | Canonical buttons, neutral Clear filters, pressed button groups for Table/Matrix and AND/OR |
 
@@ -13,19 +13,33 @@ Do not make secondary routes look like primary operation buttons. Do not label a
 
 ## Routing contract
 
-The existing `useViewHistory` hash/history architecture is extended, not replaced:
+The existing `useViewHistory` hash/history architecture is extended, not replaced. Canonical routes (NAV-1):
 
-- `#/dashboard`
-- `#/role-lookup`
-- `#/user-access` (directory)
-- `#/user-access/account-review`
-- `#/user-access/position-changes`
-- `#/user-access/compare`
-- `#/release-roles`
-- `#/sod`, `#/sod/risk-matrix`, `#/sod/activity-matrix`, `#/sod/explorer`
-- `#/reviews`, `#/reviews/queue`, `#/reviews/bulk`, `#/reviews/remediation`, `#/reviews/periods`, `#/reviews/reports`
+| Module | Pages and canonical routes |
+| --- | --- |
+| Dashboard | `#/dashboard` |
+| Role Lookup | `#/role-lookup` (Role Lookup, role details, comparison, Role Cart and Access Packages stay one page) |
+| Users | User Directory `#/users`, a user `#/users/user/<name>`, Compare Users `#/users/compare`, Release Access `#/users/release-access` |
+| SoD | Overview `#/sod`, Risk Matrix `#/sod/risk-matrix`, Activity Matrix `#/sod/activity-matrix`, Access Explorer `#/sod/explorer` (`#/sod/users`, `#/sod/roles` select its tabs) |
+| Reviews | Overview `#/reviews`, Work Queue `/queue`, Position Changes `/position-changes`, Account Review `/account-review`, Bulk Review `/bulk`, Remediation `/remediation`, Review Periods `/periods` |
+| Reports | `#/reports` (the first report page the account may use), Review Reports `#/reports/review`, Access Reports `/access`, SoD Reports `/sod`, Evidence `/evidence` |
 
-Legacy `#/sod/reviews[/bulk|/remediation]`, `#/sod/periods` and `#/sod/reports` redirect to the matching Reviews route ([Reviews](../features/REVIEWS.md#routes-and-compatibility)).
+Legacy routes resolve to their canonical destination on load, reload, typed or bookmarked hashes, Back/Forward and in-app callers
+(`normalize`, `readView`, `legacyPaths`); the hash query is kept and the address shows the canonical route (`replaceState`, no extra history entry):
+
+| Legacy route | Canonical route |
+| --- | --- |
+| `#/user-access` | `#/users` |
+| `#/user-access/user/<name>` | `#/users/user/<name>` |
+| `#/user-access/compare` | `#/users/compare` |
+| `#/release-roles` | `#/users/release-access` |
+| `#/user-access/account-review`, `#/user-access/position-changes` | `#/reviews/account-review`, `#/reviews/position-changes` |
+| `#/reviews/reports`, `#/sod/reports` | `#/reports/review` |
+| `#/sod/reviews[/bulk\|/remediation]`, `#/sod/periods` | `#/reviews/queue` (`/bulk`, `/remediation`), `#/reviews/periods` |
+
+Internal page keys, saved-filter view keys (`users`, `release`, `review`, `sod_*`, ...) and local preference keys are unchanged, so stored
+filters and preferences stay valid. Browser spec `navigation-routes.spec.ts` covers the redirects with their query, Back, default landing
+pages and the Users and Reviews structure.
 
 Legacy primary paths continue to work. Secondary links preserve hash query parameters. Normal primary clicks use application history; modified secondary clicks keep native anchor behavior. Direct secondary URLs and page reload restore the correct view. Back/Forward use the same state reader and bootstrap boundary; startup screens do not reappear as investigation history.
 
@@ -33,8 +47,8 @@ Existing identities, record navigation, role comparison, selected transaction co
 
 ## Filter lifecycle at page boundaries (BUG-08, after RC4)
 
-Main navigation to another module is a page boundary: every such visit opens the page fresh. Views of one module (the User Access pages) and the review workspace (SoD and Reviews, which share filters, subject and review context by design, see [Reviews](../features/REVIEWS.md#context-preservation)) keep their shared filters while you move between them. Pages that stay mounted
-(Role Lookup, User Access, Release Roles) remount, so search fields, temporary filters, selections and open records reset, and the page's
+Main navigation is a page boundary: every visit through a main-navigation link opens the module's default landing page (User Directory, SoD Overview, Reviews Overview, the first available report page) fresh, also from another page of the same module (NAV-1); the review workspace (SoD and Reviews) keeps its shared filters, subject and review context, as below. Views of one module reached through its dropdown or tabs (the Users pages including Release Access) and the review workspace (SoD and Reviews, which share filters, subject and review context by design, see [Reviews](../features/REVIEWS.md#context-preservation)) keep their shared filters while you move between them. Pages that stay mounted
+(Role Lookup, Users, Release Access) remount, so search fields, temporary filters, selections and open records reset, and the page's
 temporary filter state in the view history (`catalogueArea`, `accessSubjectFilters`, `accountReviewFilters`, `userComparison`,
 `reviewFindings`, `assignmentBand`, `release`, `sodFilters`, `sodExplorer`, `bulkSelectMatching`) is cleared. Exceptions, by design:
 
@@ -65,11 +79,7 @@ Role sections retain the actual existing ZC/ZO investigation scopes; these namin
 
 ## Main navigation submenus
 
-A restructured information architecture (Dashboard, Role Lookup, Users, SoD, Reviews, Reports) has approved decisions; its
-implementation is awaiting approval and nothing of it is implemented
-([decisions and plan](../validation/WORK_PACKAGES.md#planned-navigation-and-information-architecture-decisions-approved-2026-11-26-implementation-awaiting-approval)).
-
-On desktop, modules with pages (User Access: User directory, Account Review, Position Changes, Compare users; SoD: Overview, Risk Matrix, Activity Matrix, Access Explorer; Reviews: Overview, Work Queue, Bulk Review, Remediation, Review Periods, Reports and Evidence) are `MainNavigationGroup`s: the module link and a separate chevron button (`<Module> pages`). The link opens the module (returning to where it was left when coming from another module, and its main page when the module is already open); the chevron opens a submenu of direct page links with the module's icons (`lib/navigationItems.tsx`, shared with the secondary navigation). The group stays highlighted while a child page is open, the active entry is marked `aria-current="page"`, modified clicks open a new tab, Escape closes the menu and returns focus to the chevron. Modules without pages (Dashboard, Role Lookup, Release Roles) show no chevron. After following a manager link the way back is **Return to previous user** inside the Organization section next to the manager relationship (the trail keeps every previous SAP username), not in the top navigation. The submenu is the shared `Popover` with the `ui-popover-menu` variant: it overlays the page, sizes to its items, never scrolls and never changes the navbar size. The current page uses the shared primary tint (no left border on hover, focus or the current entry); Escape, outside click and keyboard behavior come from `Popover`. The main navigation strip is not a scroll container (it wraps when its items exceed the header): a scroll container shows classic scrollbars as soon as the SoD chevron group makes the strip wider than the header, which is what produced the scrollbar when opening a submenu at narrow widths; secondary strips and tabs remain horizontal scroll strips.
+On desktop, modules with pages (Users: User Directory, Compare Users, Release Access; SoD: Overview, Risk Matrix, Activity Matrix, Access Explorer; Reviews: Overview, Work Queue, Position Changes, Account Review, Bulk Review, Remediation, Review Periods; Reports: Review Reports, Access Reports, SoD Reports, Evidence, as far as the account may use them) are `MainNavigationGroup`s: the module link and a separate chevron button (`<Module> pages`). The link always opens the module's default landing page (NAV-1; if it is not available, the first authorized page); the chevron opens a submenu of direct page links with the module's icons (`lib/navigationItems.tsx`, shared with the secondary navigation). The group stays highlighted while a child page is open, the active entry is marked `aria-current="page"`, modified clicks open a new tab, Escape closes the menu and returns focus to the chevron. Modules without pages (Dashboard, Role Lookup) show no chevron. Reports is shown only when the account may use at least one report (report availability endpoint). After following a manager link the way back is **Return to previous user** inside the Organization section next to the manager relationship (the trail keeps every previous SAP username), not in the top navigation. The submenu is the shared `Popover` with the `ui-popover-menu` variant: it overlays the page, sizes to its items, never scrolls and never changes the navbar size. The current page uses the shared primary tint (no left border on hover, focus or the current entry); Escape, outside click and keyboard behavior come from `Popover`. The main navigation strip is not a scroll container (it wraps when its items exceed the header): a scroll container shows classic scrollbars as soon as the SoD chevron group makes the strip wider than the header, which is what produced the scrollbar when opening a submenu at narrow widths; secondary strips and tabs remain horizontal scroll strips.
 
 ## Compact navbar and metadata
 

@@ -181,6 +181,17 @@ RC3 tools (D-006).
   reports that it was not captured. Check 375, 800 and 1280 px, light and dark, keyboard focus on every metric.
 - **R7-B13/B14** Functional Group pills (one line, `+X`) and the dashboard's integrated left filter sidebar.
 - **R7-B15** SoD Overview filtered by a Functional Group: the heatmap's distinct total equals *Users with potential conflicts*; CSV matches.
+- **R7-NAV Navigation (NAV-1 to NAV-3, NAV-7).** Top level Dashboard, Role Lookup, Users, SoD, Reviews, Reports; each main link opens its first
+  page; dropdowns and tabs open their pages; a bookmark of `#/user-access/account-review`, `#/release-roles` and `#/reviews/reports` opens the
+  canonical page (query kept); Account Review and Position Changes work with SoD turned off; drawer at 375 and 800 px.
+- **R7-REP Reports (NAV-4).** Review Reports is the default; preview and generate the Account Review, Position Changes, Compare Users and
+  release reports with chosen columns; the files open in Excel with their identifiers intact; Evidence shows frozen periods with checksums;
+  a viewer account sees only the reports its permissions allow; with SoD off no SoD report is offered.
+- **R7-RA Release Access (NAV-6).** One matrix with strategy-key columns; with PR and PO a user holding a shared strategy under both counts
+  once; a total opens an assignment list whose distinct users equal it; the PR/PO filter shows one type.
+- **R7-DH Data Health (NAV-5).** A viewer sees no Directory & Data Health card and gets 403 from `/api/data-health`; an administrator sees both.
+- **R7-BR Bulk Review (NAV-8).** Select assignments in Access Explorer, *Review in Bulk Review*: exactly those assignments, the same review
+  context; confirm a Keep and verify the decisions.
 - **R7-SR** Scheduled refresh procedure in the [acceptance tracker](ACCEPTANCE_TRACKER.md#rc6-scheduled-refresh-and-source-timestamps-no-identifier-assigned-target-200).
 
 ### RC6 scenarios (WP29 to WP31, WP33; run only on a candidate whose build record lists them)

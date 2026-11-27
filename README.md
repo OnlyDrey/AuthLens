@@ -36,8 +36,8 @@ production** and has not been published as a stable release; see [current status
 ## Key features
 
 - **Dashboard** with a global overview and a filtered analytical view (organization, SAP and governance dimensions, saved filters, drill-down).
-- **Role Lookup**, Role Comparison and proposed access packages; **User Access** and **Compare Users** investigations.
-- **Account Review** and the **Reviews** workspace with persistent, immutable decisions and evidence.
+- **Role Lookup**, Role Comparison and proposed access packages; **Users** with User Directory, Compare Users and Release Access.
+- The **Reviews** workspace (Work Queue, Position Changes, Account Review, Bulk Review, Remediation, Review Periods) with persistent, immutable decisions and evidence, and **Reports** for review, access and SoD reports and frozen evidence.
 - **Segregation of Duties**: risk and activity matrices, Access Explorer, review rules, frozen periods and DOCX/PDF reports.
 - **Unified file sources**: upload from the browser or select a file on the host (local or UNC, within approved roots), static or dynamic update
   mode, validation before import and a retained last valid dataset.

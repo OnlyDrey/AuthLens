@@ -1,4 +1,7 @@
-# User Access
+# Users
+
+The Users module (formerly User Access) has three pages: User Directory (`#/users`), Compare Users (`#/users/compare`) and Release Access
+(`#/users/release-access`). Account Review and Position Changes are Reviews pages ([Account Review](ACCOUNT_REVIEW.md)).
 
 ## Directory and profiles
 
@@ -8,7 +11,7 @@ open a user for SAP identity, Account Status and Organization. SAP CSV is author
 for SAP name/email. Optional [Employee Directory](../data/EMPLOYEE_DIRECTORY.md)
 enriches title, department, AD status and an unambiguously resolved manager link.
 Manager navigation uses exact normalized email, not AD username or name guesses.
-A SAP user has a shareable route, `#/user-access/user/<username>`; manager links keep a trail and
+A SAP user has a shareable route, `#/users/user/<username>` (the earlier `#/user-access/user/<username>` still opens it); manager links keep a trail and
 User Details offers **Back to previous user**. The directory match status reads
 "Directory match" followed by a status badge.
 

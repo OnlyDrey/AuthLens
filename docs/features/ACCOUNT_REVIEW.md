@@ -1,6 +1,6 @@
 # SAP Account Review
 
-Open **User Access → Account Review**. This is local investigation, not a SAP
+Open **Reviews → Account Review** (`#/reviews/account-review`; the earlier `#/user-access/account-review` still opens it). This is local investigation, not a SAP
 administration connection. No account is disabled, no role is removed, and no
 license savings or actual license entitlement is inferred.
 
@@ -72,7 +72,7 @@ These never count as a change: manager-only differences, spacing or capitalizati
 
 An open position change raises that account's **priority** to High and shows it as **Needs review**.
 
-**Position Changes page** (User Access > Position Changes, `#/user-access/position-changes`). The dedicated page replaces the former
+**Position Changes page** (Reviews > Position Changes, `#/reviews/position-changes`; NAV-3 moved both pages from User Access to Reviews on their shared implementation). The dedicated page replaces the former
 *Position changes · priority review* table in Account Review. It reuses the same rows, detection, priority, permissions, review dialog,
 decision and history; there are no separate review records. Key figures for the selected population: **Position changes** (every detected
 change, pending or reviewed), **Department changes** and **Job title changes** (they overlap when both changed; the page states how many
@@ -137,11 +137,12 @@ retain prior annotations. Storage is bounded to 20 MiB; large tables remain pagi
 ## CSV export and privacy
 
 **Export review CSV** exports the complete filtered/sorted result, including review
-annotations. Export checks a generation covering SAP publication, directory,
-classification policy, review annotations and evaluation date across all pages and
-again before saving. Changed filters/evidence cancel export. Output is UTF-8/BOM,
-spreadsheet-formula-safe, bounded to 32 MiB, and is a browser download (Desktop
-included).
+annotations. Since NAV-4 the backend builds it (`GET /api/account-review/export`) from the
+same server query as the list across all pages, with the earlier columns and comma format
+by default; Reports uses the same endpoint with column selection, delimiter and preview
+([Reports](REPORTS.md#configurable-columns)). The Position Changes page exports its own
+report (`GET /api/account-review/positions/export`). Output is UTF-8/BOM and
+spreadsheet-formula-safe; the file name carries the date.
 CSV export contains identity data by design; diagnostic export remains redacted.
 
 No source CSV, employee snapshot or review annotation is sent to GitHub, bundled

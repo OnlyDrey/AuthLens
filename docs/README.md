@@ -4,7 +4,7 @@ AuthLens is a local-first SAP investigation and access-review application, with 
 
 | Topic | Guides |
 | --- | --- |
-| Features | [Feature guide](features/README.md), [Dashboard](features/DASHBOARD.md), [Role Lookup](features/ROLE_LOOKUP.md), [User Access](features/USER_ACCESS.md), [SoD](features/SOD.md), [Reviews](features/REVIEWS.md) |
+| Features | [Feature guide](features/README.md), [Dashboard](features/DASHBOARD.md), [Role Lookup](features/ROLE_LOOKUP.md), [Users](features/USER_ACCESS.md), [SoD](features/SOD.md), [Reviews](features/REVIEWS.md), [Reports](features/REPORTS.md) |
 | Data | [Data and CSV formats](data/README.md), [imports and refresh](data/IMPORT_AND_REFRESH.md), [Employee Directory](data/EMPLOYEE_DIRECTORY.md) |
 | Architecture | [Architecture index](architecture/README.md), [database](architecture/DATABASE_DESIGN.md), [UI integration](architecture/UI_INTEGRATION.md) |
 | UI design | [Design system](architecture/DESIGN_SYSTEM.md), [components](architecture/COMPONENTS.md), [navigation](architecture/NAVIGATION.md) |

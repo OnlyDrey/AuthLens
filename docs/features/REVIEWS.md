@@ -8,24 +8,27 @@ the Reviews Overview. There is no second review engine, no new API and no databa
 
 ## Information architecture
 
+Implemented with NAV-1 to NAV-3 (source; Windows acceptance pending). Navigation and routes: [navigation](../architecture/NAVIGATION.md#routing-contract).
+
 | Area | Purpose | Pages |
 | --- | --- | --- |
-| User Access | Account and access analysis | User directory, Account Review, Position Changes, Compare users |
+| Users | Account and access analysis | User Directory, Compare Users, Release Access |
 | SoD | Risk and activity analysis | Overview, Risk Matrix, Activity Matrix, Access Explorer (heatmap stays here) |
-| Reviews | Access governance: SoD access reviews and the entry to Account Review | Overview, Work Queue, Bulk Review, Remediation, Review Periods, Reports and Evidence |
+| Reviews | Access governance: SoD access reviews and the account reviews | Overview, Work Queue, Position Changes, Account Review, Bulk Review, Remediation, Review Periods |
+| Reports | Report generation and frozen evidence | Review Reports, Access Reports, SoD Reports, Evidence ([Reports](REPORTS.md)) |
 
-Decisions made without explicit product guidance (documented for product-owner review):
-
-- **Account Review stays in User Access and is discoverable from Reviews.** It records account/license review findings, a different governance
-  concept from role, activity and risk access-review decisions. The Reviews Overview has a separate **Account reviews** card (its own counters
-  and **Open Account Review**, which opens the unchanged `#/user-access/account-review` route). Decisions and counters are never merged.
-- **SoD reports moved with Reviews.** The existing report generator produces the formal review report and the access remediation report from
-  one frozen period model; both are review evidence. No SoD-only report exists separately today.
-- **Reviews is independent of the SoD feature switch; SoD access reviews are not.** Reviews stays in the main navigation for every signed-in
-  account (all roles hold `read`, which Account Review requires). With SoD turned off, only the Overview is offered: the SoD access-review part
-  shows a "turned off" notice (Open Features for administrators) and the Account reviews card stays. A bookmarked Work Queue, Bulk Review,
-  Remediation, Review Periods or Reports page shows the same notice instead of data; decisions, periods, snapshots and reports are kept. The
-  review context bar is hidden while SoD is off. Backend authorization and the SoD API gating are unchanged.
+- **Position Changes and Account Review are Reviews pages** on their one shared implementation (`AccountReview`, `mode="positions"`): the same
+  rows, detection, decisions, history, filters and authorization. They are separate pages and never depend on the SoD switch; their decisions
+  are never merged with SoD access-review decisions. An account opened from either page shows its details inside Reviews; *Back to Account
+  Review* (or *Position Changes*) returns to the list. The Reviews Overview keeps its separate **Account reviews** card.
+- **Work Queue and Bulk Review stay separate pages.** Access Explorer hands an explicit selection to Bulk Review (NAV-8, [SoD](SOD.md)).
+- **Reports moved to the Reports module (NAV-4).** The formal review report and the access removal report are Review Reports; `#/reviews/reports`
+  and `#/sod/reports` open Review Reports.
+- **Reviews is independent of the SoD feature switch; SoD access reviews are not.** With SoD turned off, Reviews offers Overview, Position
+  Changes and Account Review; the SoD access-review part of the Overview shows a "turned off" notice (Open Features for administrators). A
+  bookmarked Work Queue, Bulk Review, Remediation or Review Periods page shows the same notice instead of data; decisions, periods and snapshots
+  are kept. The review context bar is hidden while SoD is off and on the account pages. Backend authorization and the SoD API gating are
+  unchanged.
 - **The SAP User Group heatmap remains in SoD.** Reviews shows no large visualization above the Work Queue.
 
 ## Routes and compatibility
@@ -33,11 +36,12 @@ Decisions made without explicit product guidance (documented for product-owner r
 | Route | Page |
 | --- | --- |
 | `#/reviews` | Overview |
-| `#/reviews/queue`, `/bulk`, `/remediation` | Work Queue, Bulk Review, Remediation |
-| `#/reviews/periods`, `#/reviews/reports` | Review Periods, Reports and Evidence |
+| `#/reviews/queue`, `/position-changes`, `/account-review` | Work Queue, Position Changes, Account Review |
+| `#/reviews/bulk`, `/remediation`, `/periods` | Bulk Review, Remediation, Review Periods |
 
-Legacy routes and in-app callers keep working: `#/sod/reviews`, `#/sod/reviews/bulk`, `#/sod/reviews/remediation`, `#/sod/periods` and
-`#/sod/reports` are normalized to the Reviews route on load, reload, Back/Forward and in-app navigation (`useViewHistory` `normalize`). Stored
+Legacy routes and in-app callers keep working: `#/sod/reviews`, `#/sod/reviews/bulk`, `#/sod/reviews/remediation` and `#/sod/periods` are
+normalized to the Reviews route, `#/user-access/account-review` and `#/user-access/position-changes` to the Reviews account pages, and
+`#/reviews/reports` and `#/sod/reports` to Review Reports, on load, reload, Back/Forward and in-app navigation (`useViewHistory` `normalize`). Stored
 history entries with the old SoD views are normalized the same way. The legacy `sodReviews` state still selects the work page, so existing
 links such as "Bulk review" from Access Explorer, Dashboard review KPIs, SoD Overview remediation tiles and period "View work queue" open the
 correct Reviews page.
