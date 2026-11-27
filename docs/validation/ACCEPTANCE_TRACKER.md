@@ -426,6 +426,54 @@ assignment columns; the report catalogue now lists them (`ReportsTests`).
 
 Validation: Level 2 browser, the 14 affected spec files in one process (`navigation-a11y`, `stabilization`, `ui-consistency`, `user-role-export`, `design-system`, `investigation-tools`, `refinement-27`, `refinement-round2`, `bulk-group-assignment`, `loading-consolidation`, `status-consistency-r6`, `reports`, `user-directory-scope`, `data-aware-ux`): 166 passed, 0 failed (21.5 min); Level 3 `data-aware-ux.spec.ts:186` `--repeat-each 5`: 5 of 5. Backend: `UserRoleExportScopeTests`, `AccessExportTests`, `AccessTests`, `ReportsTests`, `AccountsTests`, `DataSourcesTests`, `FunctionalGroupTests`, `PositionChangeTests`, `UnicodeTests`, `V1DataMigrationTests`: all passed. Type check, ESLint of the changed files, `check-docs`, `check-secrets`, `check-structure`, `git diff --check`: passed. FULL regression not run.
 
+### FULL regression of `de71c0b` and FULL-FIX-01 (2026-11-27)
+
+**FULL result: FAILED** (recorded as run; not changed by the later targeted results). Windows FULL validation of `de71c0b` on
+`experiment/dotnet-backend`, evidence `C:\AuthLens\Validation\2.0.0\20261127-081117-de71c0b` (`summary.json`, `21-browser-full.log`,
+`browser-results`): 20 of 21 stages passed; .NET 581 passed, 0 failed; Pester 640 passed, 0 failed, 12 skipped; Playwright 938 passed,
+23 failed of 961 (2 h 37 min). The evidence was read, not modified.
+
+FULL-FIX-01 resolved the 23 browser failures. Each was checked against the failure detail, the page snapshot and the git history before an
+assertion changed; no timeout, sleep, retry, skip or weaker assertion was added. No application defect caused any of them.
+
+| # | Test | Class | Root cause | Correction |
+| --- | --- | --- | --- | --- |
+| 1 | `enterprise.spec.ts:9` identity, logo storage, persisted theme, backup/restore | Obsolete test contract | The *Theme* control is *Application default theme* since `0817d57` (personal themes) | Selector renamed; the persisted theme, logo storage and backup/restore assertions pass unchanged |
+| 2 | `refinement-r2.spec.ts:240` Data Sources records | Environment / localization | The application renders counts with `toLocaleString()` in the browser's locale; the FULL host groups thousands with a non-breaking space (`5 120`), the test hard-coded `5,120` | Expected text formatted by the page (`localeNumber` in `support.ts`); passes under nb-NO, en-US and de-CH |
+| 3 | `release-roles.spec.ts:239` SAP User Group multi-select | Test synchronization defect | The first table read ran before the first response (0 roles) | Waits for the loaded table and reads settled results (`settledRoles`); fixture, PR/PO filter and strategy-key matrix unchanged |
+| 4 | `settings-r2.spec.ts:48` Component Library tab strip (375 px) | Obsolete test contract | Settings sections are a drawer below 768 px (`61c4830`) | `selectSettingsSection` |
+| 5 | `settings-runtime-theme.spec.ts:12` feature cards at 375 px | Obsolete test contract | Same (local helper) | `selectSettingsSection` in the helper |
+| 6 | `sod-analysis.spec.ts:42` conflict preview light 375 | Obsolete test contract | Main navigation is a drawer below 1024 px (`bb3bceb`) | `goTo` |
+| 7-8 | `sod-catalogue.spec.ts:72`, `:163` light 375 | Obsolete test contract | Settings drawer below 768 px | `selectSettingsSection` in the local helper |
+| 9-13 | `sod-integration.spec.ts:20` light 375/800/1280/1600, dark 1280 | Obsolete test contract | Work Queue and Review Periods are Reviews pages (heading *Reviews*, NAV-3), the review reports a Reports page (NAV-4); the test expected the SoD heading everywhere | Heading per module; the screenshot and no-overflow checks of every view stay. No secondary screenshot or artifact-path error was found |
+| 14-15 | `sod-integration.spec.ts:26` main navigation at 375 and 414 px | Obsolete test contract | Below 1024 px the main navigation is the drawer; with SoD on there are six destinations, not five links | The drawer must offer Dashboard, Role Lookup and the Users, SoD, Reviews and Reports groups, with no clipped label, no drawer scroll and no page overflow |
+| 16 | `sod-layout.spec.ts:179` review context bar | Obsolete test contract | Each module has its own view navigation (SoD views, Review views, Report views) | The context bar must sit beneath the navigation of its module on every SoD, Reviews and Reports page |
+| 17 | `sod-metadata.spec.ts:285` SoD configuration at 375 px | Obsolete test contract | Settings drawer below 768 px | `selectSettingsSection` |
+| 18 | `sod-periods-dialogs.spec.ts:64` Compare periods toolbar | Obsolete test contract | Review Periods is a Reviews page (`e457ab6`) | `goTo(page, 'Review Periods')` |
+| 19 | `sod-risk-config-r6.spec.ts:15` new risk badge at 375 px | Obsolete test contract | Settings drawer below 768 px | `selectSettingsSection` |
+| 20 | `sod-shared-filters.spec.ts:18` shared selections | Obsolete test contract | The SoD *Reviews* page is the Reviews *Work Queue* (NAV-3); the Reviews Overview has no filter sidebar | The selections are checked on Activity Matrix, Access Explorer and the Work Queue and again on the SoD Overview: shared selections survive SoD to Reviews and back; all persistence assertions kept |
+| 21 | `sod-shared-filters.spec.ts:111` review context across pages | Obsolete test contract | After the Reviews pages the test looked for the SoD view links on a Reviews page | SoD views are reached through SoD, Reviews pages through Reviews; the context must stay selected on every page and page filters stay independent |
+| 22 | `storage-upgrade.spec.ts:8` migration backup | Environment / localization | As #2 (`48 000` rows) | `localeNumber` |
+| 23 | `ux.spec.ts:33` theme preview, presets, system appearance, cancel | Obsolete test contract | As #1 | Selector renamed; system appearance, custom preset persistence and cancel assertions pass unchanged |
+
+Audit of the remaining suite: direct Settings tab clicks and main-navigation link clicks remain in about 40 other spec files, all of which
+passed this FULL run because those calls run only at widths where the tabs and links exist (768 px and above for Settings, 1024 px and above
+for the main navigation), where the shared helpers do the same; they are not obsolete and were not rewritten (no unrelated refactoring).
+Hard-coded grouped numbers: only #2 and #22. Theme selector: only #1 and #23.
+
+MW-1 (application defect, Release Access): the matrix used about half of the content width (1280 px: 464 of 944 px), because
+`.release-matrices` was still the two-column grid of the earlier separate PR and PO matrices and the table did not fill its container.
+Fix scoped to Release Access in `components.css` (one column, so the matrix container spans the content width; the table keeps its
+compact content-sized columns, which `refinement-completion.spec.ts:79` requires, and scrolls inside the container only when they exceed
+it); shared table components are unchanged (`ConfigurableTable` was not a cause). A first variant that stretched the table to the container
+width broke that compact-column contract in Level 2 and was replaced. Reproduced on `de71c0b` by the new
+`release-matrix-width.spec.ts` before the fix.
+
+Validation: Level 1, the 23 failed tests with every width and theme variant (15 spec files, one process): 35 passed, 0 failed. Level 3 locale, `refinement-r2.spec.ts:240` and `storage-upgrade.spec.ts:8` under nb-NO, en-US and de-CH: 2 of 2 each. MW-1: `release-matrix-width.spec.ts` failed on `de71c0b` (reproduction), 20 of 20 after the fix. Level 2, the 15 affected spec files plus the Release Access matrix specs (`access-investigation`, `investigation-filter-refinement`, `investigation-ux`, `refinement-completion`, `refinement-27`, `refinement-round2`, `stabilization`): 237 passed, 1 failed (`refinement-completion.spec.ts:79`, the compact-column contract broken by the first MW-1 variant); after the corrected MW-1, the nine matrix spec files (with `release-roles` and `release-matrix-width`): 137 passed, 0 failed, 0 skipped. No backend or script changed, so no .NET or Pester run. Static: ESLint of the changed specs, `check-docs`, `check-secrets`, `check-structure`, `git diff --check` passed. FULL not rerun.
+
+Next checkpoint recommended: the 15 corrected spec files and the Release Access matrix specs already passed at Level 2; before a merge,
+one FULL browser run (the .NET and Pester FULL stages of `de71c0b` passed and no backend or script changed), subject to approval.
+
 ### RC7 build preparation (Windows release build of `7e5a6e7`)
 
 | Item | Root cause | Resolution | Tests | Status |

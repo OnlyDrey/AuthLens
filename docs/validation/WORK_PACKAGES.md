@@ -175,6 +175,19 @@ never deleted; every certificate change is a recorded transaction with rollback 
 
 Native acceptance for the next candidate: runbook scenarios C11 to C13, B11 and B12 ([runbook](WINDOWS_VM_ACCEPTANCE.md#c-security-and-administration-from-s1-snapshot-s2-admin-after-c4)).
 
+## Thirteenth round: FULL regression corrections (FULL-FIX-01) and Release Access matrix width (MW-1, 2026-11-27)
+
+FULL regression of `de71c0b`: **failed** (20 of 21 stages; .NET 581/0, Pester 640/0/12 skipped, Playwright 938 passed and 23 failed of
+961), evidence `C:\AuthLens\Validation\2.0.0\20261127-081117-de71c0b`. Status of the corrections: implemented in source; targeted
+validation below; no new FULL run (not authorized). Version 2.0.0 unchanged.
+
+| Package | Status | Implemented | Tests |
+| --- | --- | --- | --- |
+| FULL-FIX-01 | Implemented | The 23 failures: 20 obsolete test contracts (navigation and Settings drawers, NAV-3/NAV-4 module structure, renamed theme control), 2 locale-dependent number expectations, 1 test synchronization defect; no application defect ([disposition](ACCEPTANCE_TRACKER.md#full-regression-of-de71c0b-and-full-fix-01-2026-11-27)) | The 15 affected spec files (Level 2), locale Level 3 |
+| MW-1 | Implemented | Release Access matrix spans the whole content width with the filter sidebar open or closed, one matrix per SAP User Group when comparing; internal horizontal scroll only when its columns exceed the width ([Release Access](../features/RELEASE_ROLES.md#matrix)) | `release-matrix-width.spec.ts` (20), the matrix specs (Level 2) |
+
+Validation: Level 1, the 23 failed tests with every width and theme variant (15 spec files, one process): 35 passed, 0 failed. Level 3 locale, `refinement-r2.spec.ts:240` and `storage-upgrade.spec.ts:8` under nb-NO, en-US and de-CH: 2 of 2 each. MW-1: `release-matrix-width.spec.ts` failed on `de71c0b` (reproduction), 20 of 20 after the fix. Level 2, the 15 affected spec files plus the Release Access matrix specs (`access-investigation`, `investigation-filter-refinement`, `investigation-ux`, `refinement-completion`, `refinement-27`, `refinement-round2`, `stabilization`): 237 passed, 1 failed (`refinement-completion.spec.ts:79`, the compact-column contract broken by the first MW-1 variant); after the corrected MW-1, the nine matrix spec files (with `release-roles` and `release-matrix-width`): 137 passed, 0 failed, 0 skipped. No backend or script changed, so no .NET or Pester run. Static: ESLint of the changed specs, `check-docs`, `check-secrets`, `check-structure`, `git diff --check` passed. FULL not rerun.
+
 ## Twelfth round: pre-release test stabilization (TS-1) and User Directory export scope (#35, 2026-11-27)
 
 Status: implemented in source on `experiment/dotnet-backend`; Level 1 and Level 2 validation of the affected specs and backend classes passed
