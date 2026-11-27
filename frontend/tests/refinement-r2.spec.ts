@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { goTo, seedSources, type SeededSources, recordClipboard, copiedText } from './support'
+import { goTo, localeNumber, seedSources, type SeededSources, recordClipboard, copiedText } from './support'
 
 const LONG = 'ZC:SYN:A_VERY_LONG_ROLE_IDENTIFIER_FOR_LAYOUT_STRESS_TESTING:ABCDEFGHIJKLMNOP:0123456789:QRSTUV'
 const roles = `FUNCTION_KEY,AGR_NAME,TEXT,CHILD_AGR,CHILD_AGR_TEXT,TCODE,TTEXT
@@ -261,7 +261,7 @@ test('Data Sources section shows only relevant sources with honest, source-speci
   Object.assign(sources, { sod: { enabled: true, configured: true, loaded: true, loading: false, error: null, records: 40 }, users: { loaded: true, loading: false, error: null, records: 264, assignments: 5120 } })
   await page.reload()
   await expect(area.getByRole('button', { name: /^SoD Matrix: Ready/ })).toContainText('40 matrix records')
-  await expect(area.getByRole('button', { name: /^User–Role Mapping: Ready/ })).toContainText('264 users · 5,120 assignment records') // users and assignment records are different counts
+  await expect(area.getByRole('button', { name: /^User–Role Mapping: Ready/ })).toContainText(`264 users · ${await localeNumber(page, 5120)} assignment records`) // users and assignment records are different counts; grouping follows the locale
   await expect(area.getByRole('listitem')).toHaveCount(4)
 })
 

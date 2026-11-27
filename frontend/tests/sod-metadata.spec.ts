@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { cleanup, enableSod, headers, openSod, seedGovernance } from './sod-fixture'
-import { openSettings } from './support'
+import { openSettings, selectSettingsSection } from './support'
 
 // Synthetic SoD reference workbooks (tests/fixtures/sod-reference): Risks and Activities sheets with exact IDs, generated once and versioned.
 const fixture = (name: string) => readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'sod-reference', name))
@@ -291,7 +291,7 @@ test('SoD configuration is compact with bundled defaults and advanced custom imp
     await page.setViewportSize({width,height:900})
     await page.goto('/#session=browser-test-session');await page.reload()
     await page.getByRole('button',{name:'Open settings',exact:true}).click()
-    await page.getByRole('tab',{name:'SoD Risk Configuration',exact:true}).click()
+    await selectSettingsSection(page,'SoD Risk Configuration')
     const library=page.getByRole('region',{name:'SoD reference library'})
     await expect(library).toContainText('Default library');await expect(library).toContainText('1.0.1')
     await expect(library.getByRole('button',{name:'Reset defaults',exact:true})).toBeVisible()

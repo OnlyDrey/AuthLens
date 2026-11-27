@@ -1,12 +1,12 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
-import { headers } from './support'
+import { headers, selectSettingsSection } from './support'
 const config = async (request: APIRequestContext) => (await (await request.get('/api/configuration', { headers })).json()).settings
 test.beforeEach(async ({ request }) => { await request.post('/api/configuration/reset', { headers }) })
 test.afterEach(async ({ request }) => { await request.post('/api/configuration/reset', { headers }) })
 async function open(page: Page, tab: string) {
   await page.goto('/#session=browser-test-session')
   await page.getByRole('button', { name: 'Open settings', exact: true }).click()
-  await page.getByRole('tab', { name: tab, exact: true }).click()
+  await selectSettingsSection(page, tab)
 }
 
 for (const width of [375, 1280]) test(`feature cards put the Enabled switch above Configure at ${width}`, { tag: '@visual' }, async ({ page }) => {

@@ -24,7 +24,7 @@ test('system identity, private logo storage, persisted theme and portable backup
     await expect(page.getByRole('banner').getByText('Example Test Organization',{exact:true})).toBeVisible()
     await page.getByRole('button',{name:'Open settings'}).click()
     await page.getByRole('tab',{name:'Appearance & Branding'}).click()
-    await page.getByRole('combobox',{name:'Theme',exact:true}).selectOption('dark')
+    await page.getByRole('combobox',{name:'Application default theme',exact:true}).selectOption('dark') // renamed in 0817d57 (personal themes)
     await page.getByLabel('Logo file location',{exact:true}).fill(logoPath)
     await page.getByRole('button',{name:'Preview logo'}).click()
     await expect(page.getByRole('img',{name:'Header logo preview',exact:true})).toHaveAttribute('src',/^data:image\/png;base64,/)

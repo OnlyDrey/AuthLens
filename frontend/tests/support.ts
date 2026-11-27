@@ -193,6 +193,9 @@ export async function recordClipboard(page: Page) {
 }
 export const copiedText = (page: Page) => page.evaluate(() => (window as Window & { __authLensCopied?: string[] }).__authLensCopied?.at(-1) ?? null)
 
+/** A number as the application renders it (`toLocaleString()` in the page's locale): grouping may be a comma, a full stop, a space or a
+ *  non-breaking space depending on the machine's locale, so expectations are formatted by the page instead of hard-coding one locale. */
+export const localeNumber = (page: Page, value: number) => page.evaluate(number => number.toLocaleString(), value)
 export async function selectSettingsSection(page: Page, label: string) {
   if((page.viewportSize()?.width??1280)<768){
     await page.getByRole('button',{name:/^Settings sections:/}).click()

@@ -1,6 +1,7 @@
 import {expectReviewerProfile} from './reviewer-profile'
 import { test, expect, type Page } from '@playwright/test'
 import { cleanup, createPeriod, openSod, seedGovernance, uniqueName } from './sod-fixture'
+import { goTo } from './support'
 
 let directory = ''
 test.beforeEach(async ({ request }) => { directory = await seedGovernance(request, 'static') })
@@ -83,8 +84,7 @@ test('the toolbar explains a disabled Compare periods through a tooltip and show
   await page.unrouteAll({ behavior: 'wait' })
   await createPeriod(request, 'Period one'); await createPeriod(request, 'Period two')
   await page.reload()
-  await page.getByRole('navigation', { name: 'Main navigation', exact: true }).getByRole('link', { name: 'SoD', exact: true }).click()
-  await page.getByRole('link', { name: 'Review Periods', exact: true }).click()
+  await goTo(page, 'Review Periods') // a Reviews page (NAV-3)
   await expect(page.getByRole('button', { name: 'Compare periods', exact: true })).toBeEnabled() // available once two eligible periods exist
 })
 
