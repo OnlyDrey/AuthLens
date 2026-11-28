@@ -1,7 +1,8 @@
 import { usePageSize } from '@/lib/pageSize'
 import { TableRegion } from '@/components/Shared/TableRegion'
 import {ConfigurableTable} from '@/components/Shared/ConfigurableTable'
-import {SubjectFilters,type SubjectFiltersValue} from '@/components/Shared/OrganizationFilter'
+import { OrganizationFilter, type SubjectFiltersValue } from '@/components/Shared/OrganizationFilter'
+import { ExactUsernameFilter } from '@/components/Shared/ExactUsernameFilter'
 import {SAPUserLink} from '@/components/Shared/SAPUserLink'
 import {ExportCSVButton} from '@/components/Shared/ExportCSVButton'
 import {useAssignmentCSVExport} from '@/hooks/useAssignmentCSVExport'
@@ -212,25 +213,23 @@ export function ReleaseRoles({
       </p>
       <EvidenceNote />
       <FilterLayout workspace="release-access" label="Filters" activeCount={activeFilterCount} onClear={clearAll} clearDisabled={!activeFilterCount}
+        utility={<SavedFilters showClear={false} view="release" state={{...subjectFilters,userGroups,kind,releaseAreas,releaseGroups,strategies,username,role,status,sort,descending,...assignmentDates}}
+          apply={s=>{setSubjectFilters({functional_groups:Array.isArray(s.functional_groups)?textList(s.functional_groups):[],managers:Array.isArray(s.managers)?textList(s.managers):[],usernames:Array.isArray(s.usernames)?s.usernames:[]});
+            // Filters saved before multi-select stored one SAP user group string.
+            setUserGroups(Array.isArray(s.userGroups)?textList(s.userGroups):typeof s.group==='string'&&s.group?[s.group]:[]);if(typeof s.kind==='string')setKind(s.kind);if(Array.isArray(s.strategies))setStrategies(s.strategies.filter((v:unknown):v is string=>typeof v==='string'));else if(typeof s.strategy==='string'&&s.strategy)setStrategies([s.strategy]);
+            if(typeof s.username==='string')setUsername(s.username);if(typeof s.role==='string')setRole(s.role);
+            setReleaseAreas(textList(s.releaseAreas).map(value=>value.toUpperCase()));
+            // Filters saved before multi-select stored one Release Group string.
+            setReleaseGroups(Array.isArray(s.releaseGroups)?textList(s.releaseGroups):typeof s.releaseGroup==='string'&&s.releaseGroup?[s.releaseGroup]:[]);
+            if(['active','expired','future','unknown','all'].includes(String(s.status)))setStatus(String(s.status));
+            if(RELEASE_SORTS.some(option=>option.value===s.sort))setSort(String(s.sort));if(typeof s.descending==='boolean')setDescending(s.descending);
+            setAssignmentDates(previous=>Object.fromEntries(Object.entries(previous).map(([k,v])=>[k,typeof s[k]===typeof v?s[k]:v])) as typeof previous)}}
+          clear={clearAll}/>}
         toolbar={<PageToolbar lead={<ButtonGroup label="Release results view" value={matrix?'matrix':'table'} onChange={value=>setMatrix(value==='matrix')} options={[{value:'matrix',label:'Matrix',icon:<Grid3X3 size={16} aria-hidden="true"/>},{value:'table',label:'Table',icon:<List size={16} aria-hidden="true"/>}]}/>}>
           <SortControl label="Sort release roles" value={sort} options={RELEASE_SORTS} descending={descending} onChange={setSort} onDescending={setDescending} />
         </PageToolbar>}
         sidebar={<div className="grid min-w-0 gap-3" role="search" aria-label="Release role filters">
-          <FilterSection title="Saved Filters">
-            <SavedFilters showClear={false} view="release" state={{...subjectFilters,userGroups,kind,releaseAreas,releaseGroups,strategies,username,role,status,sort,descending,...assignmentDates}}
-              apply={s=>{setSubjectFilters({functional_groups:Array.isArray(s.functional_groups)?textList(s.functional_groups):[],managers:Array.isArray(s.managers)?textList(s.managers):[],usernames:Array.isArray(s.usernames)?s.usernames:[]});
-                // Filters saved before multi-select stored one SAP user group string.
-                setUserGroups(Array.isArray(s.userGroups)?textList(s.userGroups):typeof s.group==='string'&&s.group?[s.group]:[]);if(typeof s.kind==='string')setKind(s.kind);if(Array.isArray(s.strategies))setStrategies(s.strategies.filter((v:unknown):v is string=>typeof v==='string'));else if(typeof s.strategy==='string'&&s.strategy)setStrategies([s.strategy]);
-                if(typeof s.username==='string')setUsername(s.username);if(typeof s.role==='string')setRole(s.role);
-                setReleaseAreas(textList(s.releaseAreas).map(value=>value.toUpperCase()));
-                // Filters saved before multi-select stored one Release Group string.
-                setReleaseGroups(Array.isArray(s.releaseGroups)?textList(s.releaseGroups):typeof s.releaseGroup==='string'&&s.releaseGroup?[s.releaseGroup]:[]);
-                if(['active','expired','future','unknown','all'].includes(String(s.status)))setStatus(String(s.status));
-                if(RELEASE_SORTS.some(option=>option.value===s.sort))setSort(String(s.sort));if(typeof s.descending==='boolean')setDescending(s.descending);
-                setAssignmentDates(previous=>Object.fromEntries(Object.entries(previous).map(([k,v])=>[k,typeof s[k]===typeof v?s[k]:v])) as typeof previous)}}
-              clear={clearAll}/>
-          </FilterSection>
-          <FilterSection title="Release classification">
+          <FilterSection title="Release Classification">
             <ReleaseFilter field="document_type" label="PR/PO" value={kind} onChange={setKind} context={{ ...context, user_groups:userGroups }}/>
             <ReleaseMultiFilter field="group" label="Release SAP user group" values={userGroups} onChange={setUserGroups} context={context}/>
             <ReleaseMultiFilter field="release_area" label="Release area" values={releaseAreas} onChange={changeAreas} context={{ ...context, user_groups:userGroups, document_type:kind }}/>
@@ -238,8 +237,6 @@ export function ReleaseRoles({
             <ReleaseMultiFilter field="strategy" label="Release strategy" values={strategies} onChange={setStrategies} context={{ ...context, user_groups:userGroups, document_type:kind, release_areas:releaseAreas, release_groups:releaseGroups }}/>
           </FilterSection>
           <FilterSection title="Assignment">
-            <ReleaseFilter field="username" label="Release username" placeholder="All · separate several with commas" value={username} onChange={setUsername} context={{ ...context, user_groups:userGroups, document_type:kind, release_areas:releaseAreas, release_groups:releaseGroups, strategies }}/>
-            <ReleaseFilter field="role" label="Release role name" placeholder="All · separate several with commas" value={role} onChange={setRole} context={{ ...context, user_groups:userGroups, document_type:kind, release_areas:releaseAreas, release_groups:releaseGroups, strategies }}/>
             <Filter label="Release assignment status">
               <Select className={inputClass} value={status} onChange={(e) => setStatus(e.target.value)}>
                 {STATUS_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -247,7 +244,17 @@ export function ReleaseRoles({
             </Filter>
             <AssignmentDateFilters value={assignmentDates} onChange={setAssignmentDates}/>
           </FilterSection>
-          <FilterSection title="Population" defaultOpen={false}><SubjectFilters value={subjectFilters} onChange={setSubjectFilters} compact/></FilterSection>
+          <FilterSection title="Search">
+            <ReleaseFilter field="username" label="Release username" placeholder="All · separate several with commas" value={username} onChange={setUsername} context={{ ...context, user_groups:userGroups, document_type:kind, release_areas:releaseAreas, release_groups:releaseGroups, strategies }}/>
+            <ReleaseFilter field="role" label="Release role name" placeholder="All · separate several with commas" value={role} onChange={setRole} context={{ ...context, user_groups:userGroups, document_type:kind, release_areas:releaseAreas, release_groups:releaseGroups, strategies }}/>
+          </FilterSection>
+          <FilterSection title="Population" defaultOpen={false}>
+            <ExactUsernameFilter values={subjectFilters.usernames} onChange={usernames => setSubjectFilters({ ...subjectFilters, usernames })} max={500} />
+          </FilterSection>
+          <FilterSection title="Organization" defaultOpen={false}>
+            <Filter label="Functional Group"><OrganizationFilter kind="functional_group" values={subjectFilters.functional_groups} onChange={functional_groups => setSubjectFilters({ ...subjectFilters, functional_groups })} /></Filter>
+            <Filter label="Manager"><OrganizationFilter kind="manager" values={subjectFilters.managers} onChange={managers => setSubjectFilters({ ...subjectFilters, managers })} /></Filter>
+          </FilterSection>
         </div>}>
       <div className="grid min-w-0 gap-4">
       <div className="results-toolbar release-toolbar">

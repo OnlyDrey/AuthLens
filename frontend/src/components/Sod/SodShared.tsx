@@ -238,8 +238,8 @@ function MultiOptionField({ field, listName, label, values, onChange, filters }:
 }
 
 /** Filters relevant to the page. The sidebar owns search and every filter; the toolbar keeps only sort, direction, actions and Reset. Hidden fields are cleared when a Saved Filter is applied so they cannot silently narrow results. */
-export function SodFilters({ view, filters, setFilters, fields, sorts, actions, children, defaults = emptyFilters, searchLabel = 'Search SoD data', extra, onReset, storageKey, defaultOpen }: {
-  view: string; filters: Filters; setFilters: (value: Filters) => void; fields: FilterField[]; sorts?: { value: string; label: string }[]; actions?: ReactNode; children: ReactNode
+export function SodFilters({ view, workspace, filters, setFilters, fields, sorts, actions, children, defaults = emptyFilters, searchLabel = 'Search SoD data', extra, onReset, storageKey, defaultOpen }: {
+  view: string; /** Isolated workspace key for section expansion preferences when several pages share one Saved Filters view. */ workspace?: string; filters: Filters; setFilters: (value: Filters) => void; fields: FilterField[]; sorts?: { value: string; label: string }[]; actions?: ReactNode; children: ReactNode
   defaults?: Filters; searchLabel?: string; extra?: ReactNode; onReset?: () => void
   /** A page's own remembered sidebar state (the Reviews Overview starts closed), see FilterLayout. */ storageKey?: string; defaultOpen?: boolean
 }) {
@@ -321,9 +321,6 @@ export function SodFilters({ view, filters, setFilters, fields, sorts, actions, 
   }
   const sidebar = (
     <div className="grid min-w-0 gap-3" role="search" aria-label="SoD filters">
-      <FilterSection title="Saved Filters">
-        <SavedFilters view={view} state={filters as Record<string, string | boolean | number | string[]>} apply={apply} clear={clear} showClear={false} />
-      </FilterSection>
       <FilterSection title="Search">
         <SearchInput aria-label={searchLabel} placeholder="Search" value={text('search')} onChange={(event) => update('search', event.target.value)} onClear={() => update('search', '')} />
       </FilterSection>
@@ -346,7 +343,8 @@ export function SodFilters({ view, filters, setFilters, fields, sorts, actions, 
 
     </PageToolbar>
   )
-  return <FilterLayout workspace={view} activeCount={active} sidebar={sidebar} toolbar={toolbar} onClear={clear} clearLabel="Clear page filters" clearDisabled={!active && !text('search')} storageKey={storageKey} defaultOpen={defaultOpen}>{children}</FilterLayout>
+  const utility = <SavedFilters view={view} state={filters as Record<string, string | boolean | number | string[]>} apply={apply} clear={clear} showClear={false} />
+  return <FilterLayout workspace={workspace ?? view} activeCount={active} utility={utility} sidebar={sidebar} toolbar={toolbar} onClear={clear} clearLabel="Clear page filters" clearDisabled={!active && !text('search')} storageKey={storageKey} defaultOpen={defaultOpen}>{children}</FilterLayout>
 }
 
 export function AlertNote({ children }: { children: ReactNode }) {

@@ -47,11 +47,15 @@
 .saved-filter-panel { display:grid; gap:var(--space-3); }
 .saved-filter-panel .shared-select { width:100%; }
 .clear-filter-button:hover:not(:disabled) { color:var(--text); border-color:var(--border); background:var(--hover); }
+/* Shared table cell spacing contract (TBL-06): design-system spacing tokens on both sides of table cells
+   guarantee visible separation between adjacent columns and identical header/body alignment while keeping
+   compact matrices (.release-matrix, .matrix-grid) on their own sizing contracts. */
+:root { --table-cell-pad-y:var(--space-3); --table-cell-pad-x:var(--space-4); --table-cell-compact-pad-y:var(--space-2); --table-cell-compact-pad-x:var(--space-4); }
 .access-table table,.comparison-table,.ui-data-table { width:100%; border-collapse:collapse; text-align:left; font-size:var(--font-body); }
-.access-table th,.access-table td,.comparison-table th,.comparison-table td { text-align:left; padding:var(--space-3); border-bottom:1px solid var(--border); vertical-align:top; overflow-wrap:anywhere; line-height:1.5; }
-.access-table th,.comparison-table th { overflow-wrap:normal; font-size:var(--font-label); background:var(--surface2); font-weight:600; }
-.access-table td { background:var(--surface); }
-.access-table tbody tr:hover td,.comparison-table tbody tr:hover td { background:var(--hover); }
+.access-table th,.access-table td,.comparison-table th,.comparison-table td,.ui-data-table th,.ui-data-table td { box-sizing:border-box; text-align:left; padding:var(--table-cell-pad-y) var(--table-cell-pad-x); border-bottom:1px solid var(--border); vertical-align:top; overflow-wrap:anywhere; line-height:1.5; }
+.access-table th,.comparison-table th,.ui-data-table th { overflow-wrap:normal; font-size:var(--font-label); background:var(--surface2); font-weight:600; }
+.access-table td,.ui-data-table td { background:var(--surface); }
+.access-table tbody tr:hover td,.comparison-table tbody tr:hover td,.ui-data-table tbody tr:hover td { background:var(--hover); }
 .ui-evidence-disclosure { font-size:var(--font-meta); color:var(--text2); }
 .ui-evidence-disclosure summary { display:flex; gap:var(--space-2); align-items:center; cursor:pointer; width:fit-content; min-height:var(--control-compact); }
 .ui-evidence-disclosure>div { max-width:80ch; margin-top:var(--space-2); }
@@ -573,8 +577,9 @@ progress::-moz-progress-bar { background:var(--progress-fill); }
 .filter-section-title { flex:1 1 auto; min-width:0; }
 .filter-section-count { text-transform:none; letter-spacing:0; }
 .filter-section-body { display:grid; min-width:0; gap:0.5rem; }
-.filter-discovery { position:sticky; top:0; z-index:2; display:grid; gap:var(--space-1); padding-bottom:var(--space-2); background:var(--surface); }
+.filter-discovery { position:sticky; top:0; z-index:2; display:grid; gap:var(--space-1); padding-top:var(--space-1); padding-bottom:var(--space-2); margin-bottom:var(--space-2); border-bottom:1px solid var(--border); background:var(--surface); }
 .filter-discovery-actions { display:flex; flex-wrap:wrap; gap:var(--space-1); }
+.filter-utility { display:grid; gap:var(--space-2); margin-bottom:var(--space-3); min-width:0; }
 .sod-sort { display: inline-flex; flex-flow: row nowrap; align-items: center; gap: 0.25rem; }
 
 /* Risk and activity identifier pills: text carries the meaning, tint is supplementary. */
@@ -786,7 +791,7 @@ progress::-moz-progress-bar { background:var(--progress-fill); }
 .access-table th { border-bottom:2px solid var(--border); white-space:nowrap; vertical-align:bottom; }
 .access-table tbody tr:nth-child(even) td { background:color-mix(in srgb,var(--surface2) 55%,var(--surface)); }
 .access-table tbody tr:hover td { background:var(--hover); }
-.access-table[data-density="compact"] th,.access-table[data-density="compact"] td { padding:var(--space-2) var(--space-3); }
+.access-table[data-density="compact"] th,.access-table[data-density="compact"] td { padding:var(--table-cell-compact-pad-y) var(--table-cell-compact-pad-x); }
 .access-table[data-sticky] { max-height:min(70vh,46rem); }
 .access-table[data-sticky] thead th { position:sticky; top:0; z-index:2; }
 .access-table th[data-align="end"],.access-table td[data-align="end"] { text-align:right; font-variant-numeric:tabular-nums; }
@@ -1082,11 +1087,11 @@ details:not(.preview-cell)[open] > summary::before { transform:rotate(90deg); }
 .dashboard-detail-metrics { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(11.5rem,100%),1fr)); gap:var(--space-2); }
 .dashboard-detail-metrics .ui-kpi[data-metric="assignments"],.dashboard-detail-metrics .ui-kpi[data-metric="assigned_users"] { min-height:var(--control-compact); }
 
-/* Position changes table: department and job title stacked and labelled, no horizontal congestion. */
-.position-cell { display:grid; gap:var(--space-1); min-width:0; }
-.position-line { display:grid; grid-template-columns:4.75rem minmax(0,1fr); gap:var(--space-2); margin:0; font-size:var(--font-meta); }
-.position-label { color:var(--muted); }
-.position-value { min-width:0; overflow-wrap:anywhere; }
+/* Position changes table: department and job title stacked and labelled, contained inside the shared cell content box. */
+.position-cell { display:grid; gap:var(--space-2); width:100%; max-width:24rem; min-width:0; }
+.position-line { display:grid; grid-template-columns:5.25rem minmax(0,1fr); gap:var(--space-2); align-items:baseline; margin:0; font-size:var(--font-meta); min-width:0; }
+.position-label { color:var(--muted); white-space:nowrap; }
+.position-value { min-width:0; max-width:100%; overflow-wrap:anywhere; word-break:normal; }
 .position-line[data-changed] .position-value { font-weight:700; }
 
 /* Account Review KPIs: the review queue (expanded) above the secondary account status (compact). */
@@ -1669,10 +1674,12 @@ table tbody tr:hover > [data-sticky-column="start"][data-column-index] { backgro
 .access-table table[data-nowrap],table.sod-heatmap[data-nowrap] { table-layout:auto; }
 table[data-nowrap] > thead > tr > th,table[data-nowrap] > tbody > tr > td,table[data-nowrap] > tbody > tr > th { white-space:nowrap; overflow-wrap:normal; word-break:normal; }
 table[data-nowrap] [data-wrap="groups"] { white-space:normal; min-width:12rem; max-width:20rem; }
-/* TBL-01: long-text columns (header data-wrap="text") keep a readable minimum width and wrap inside it, with or without one-line values, so
-   their content can never be laid out narrower than it is and overflow into the next column; the table scrolls horizontally instead. */
-table [data-wrap="text"] { min-width:15rem; max-width:24rem; }
-table[data-nowrap] [data-wrap="text"] { white-space:normal; overflow-wrap:anywhere; }
+/* TBL-01 / TBL-06: long-text columns (header data-wrap="text") keep a readable bounded width and wrap naturally inside
+   the cell's padding box, with or without one-line table values, so nested grid/flex layouts respect the available
+   content width and never bleed into adjacent columns; the table scrolls horizontally instead. */
+table [data-wrap="text"] { min-width:18rem; max-width:26rem; }
+table td[data-wrap="text"],table[data-nowrap] td[data-wrap="text"],.review-table td[data-wrap="text"] { white-space:normal; overflow-wrap:anywhere; word-break:normal; }
+table [data-wrap="text"] > * { max-width:100%; min-width:0; }
 .table-column-options { display:grid; gap:var(--space-1); padding:0; margin:var(--space-3) 0; list-style:none; }
 .table-column-options > li { display:flex; align-items:center; gap:var(--space-2); min-width:0; padding:var(--space-2); border:1px solid var(--border); border-radius:var(--radius-control); }
 .table-column-options label { display:flex; flex:1; align-items:center; gap:var(--space-2); min-width:0; min-height:44px; }

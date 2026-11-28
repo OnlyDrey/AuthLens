@@ -431,6 +431,7 @@ export function UserComparison({
       </div>
       <FilterLayout workspace="compare-users" label="Filters" activeCount={[validity !== 'active', kind !== 'roles', search, areas.length > 0, difference].filter(Boolean).length} onClear={clear}
         clearDisabled={validity === 'active' && kind === 'roles' && !search && !areas.length && !difference && sort === 'identifier' && !descending}
+        utility={<SavedFilters showClear={false} view="comparison" state={state} apply={apply} clear={clear} />}
         toolbar={<PageToolbar>
           <SortControl label="Sort comparison" value={sort} descending={descending} onChange={setSort} onDescending={setDescending}
             options={[{ value: 'identifier', label: 'Role / transaction' }, { value: 'difference', label: 'Difference' }, { value: 'a', label: 'User A evidence count' }, { value: 'b', label: 'User B evidence count' }]} />
@@ -440,9 +441,6 @@ export function UserComparison({
           </Button>
         </PageToolbar>}
         sidebar={<div className="grid min-w-0 gap-3" role="search" aria-label="Comparison filters">
-          <FilterSection title="Saved Filters">
-            <SavedFilters showClear={false} view="comparison" state={state} apply={apply} clear={clear} />
-          </FilterSection>
           <FilterSection title="Search">
             <SearchInput className={inputClass} aria-label={kind === 'roles' ? 'Search comparison roles' : 'Search comparison transactions'} placeholder="Search" value={search} maxLength={256} onChange={(e) => setSearch(e.target.value)} onClear={() => setSearch('')} />
           </FilterSection>

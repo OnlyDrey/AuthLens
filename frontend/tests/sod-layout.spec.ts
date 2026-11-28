@@ -13,7 +13,8 @@ test('wide screens show a collapsible filter sidebar that keeps filter state and
   await openSod(page, 'Risk Matrix')
   const sidebar = page.getByRole('complementary', { name: 'Filters', exact: true })
   await expect(sidebar).toBeVisible()
-  await expect(sidebar.locator('.filter-section-title').first()).toHaveText('Saved Filters') // FLT-02 section heading
+  await expect(sidebar.locator('[data-filter-utility]').getByRole('button', { name: /Saved filters/ })).toBeVisible()
+  await expect(sidebar.locator('.filter-section-title').first()).toHaveText('Search') // FLT-04: Saved Filters is utility above Search
   await pickMulti(sidebar, 'Risk ID', 'R1', page)
   await page.getByRole('button', { name: /^Hide filters/ }).click()
   await expect(sidebar).toBeHidden()
@@ -22,6 +23,25 @@ test('wide screens show a collapsible filter sidebar that keeps filter state and
   await expect(page.getByRole('button', { name: /^Hide filters/ })).toContainText('1')
   await sidebar.getByRole('button', { name: 'Clear page filters', exact: true }).click()
   await expect(sidebar.getByRole('button', { name: 'Remove Risk ID R1', exact: true })).toHaveCount(0)
+})
+
+test('FLT-04 Reviews pages persist filter section expansion independently while keeping shared filter values', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openSod(page, 'Reviews')
+  const sidebar = page.getByRole('complementary', { name: 'Filters', exact: true })
+  const org = sidebar.getByRole('button', { name: /^Organization( \d+ active)?$/ })
+  await expect(org).toHaveAttribute('aria-expanded', 'true')
+  await org.click()
+  await expect(org).toHaveAttribute('aria-expanded', 'false')
+  // Remediation and Bulk Review have distinct workspace keys even though they share Saved Filters view "sod_queue"
+  await page.getByRole('navigation', { name: 'Review views', exact: true }).getByRole('link', { name: 'Remediation', exact: true }).click()
+  await expect(sidebar.getByRole('button', { name: /^Organization( \d+ active)?$/ })).toHaveAttribute('aria-expanded', 'true')
+  await page.getByRole('navigation', { name: 'Review views', exact: true }).getByRole('link', { name: 'Bulk Review', exact: true }).click()
+  await expect(sidebar.getByRole('button', { name: /^Organization( \d+ active)?$/ })).toHaveAttribute('aria-expanded', 'true')
+  await expect(sidebar.getByRole('button', { name: /^Advanced role matching( \d+ active)?$/ })).toHaveAttribute('aria-expanded', 'false')
+  // Returning to Work Queue preserves the collapsed Organization section
+  await page.getByRole('navigation', { name: 'Review views', exact: true }).getByRole('link', { name: 'Work Queue', exact: true }).click()
+  await expect(sidebar.getByRole('button', { name: /^Organization( \d+ active)?$/ })).toHaveAttribute('aria-expanded', 'false')
 })
 
 test('every SoD page has the same toolbar and only the filters it needs', async ({ page }) => {

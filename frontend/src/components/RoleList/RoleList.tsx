@@ -264,10 +264,8 @@ export function RoleList({
       <PageHeader title="Role Lookup" icon={<PageIcon size={22} aria-hidden="true"/>}/>
       {packageOpen&&<AccessPackagePanel onClose={()=>setPackageOpen(false)}/>}
       <FilterLayout workspace="role-lookup" label="Filters" onClear={clearAll} clearDisabled={!isFiltering && sortBy === 'name-asc'} activeCount={[transaction.codes.length, excludeTransaction.codes.length,search.trim().length,activeModules.length].filter(Boolean).length}
+        utility={<SavedFilters showClear={false} view="roles" state={{search,activeModules,transactionMode,tcodes:transaction.codes,excludeTcodes:excludeTransaction.codes,excludeMode,sortBy}} apply={s=>{if(typeof s.search==='string')setSearch(s.search);if(Array.isArray(s.activeModules))setActiveModules(s.activeModules);if(s.transactionMode==='and'||s.transactionMode==='or')setTransactionMode(s.transactionMode);if(Array.isArray(s.tcodes)){transaction.setInput('');transaction.setChips(s.tcodes)};if(Array.isArray(s.excludeTcodes)){excludeTransaction.setInput('');excludeTransaction.setChips(s.excludeTcodes)}else excludeTransaction.clear();setExcludeMode(s.excludeMode==='all'?'all':'any');if(SORT_OPTIONS.some(o=>o.key===s.sortBy))setSortBy(s.sortBy as SortKey)}} clear={clearAll}/>}
         sidebar={<div className="grid min-w-0 gap-3" role="search" aria-label="Role filters">
-<FilterSection title="Saved Filters">
-  <SavedFilters showClear={false} view="roles" state={{search,activeModules,transactionMode,tcodes:transaction.codes,excludeTcodes:excludeTransaction.codes,excludeMode,sortBy}} apply={s=>{if(typeof s.search==='string')setSearch(s.search);if(Array.isArray(s.activeModules))setActiveModules(s.activeModules);if(s.transactionMode==='and'||s.transactionMode==='or')setTransactionMode(s.transactionMode);if(Array.isArray(s.tcodes)){transaction.setInput('');transaction.setChips(s.tcodes)};if(Array.isArray(s.excludeTcodes)){excludeTransaction.setInput('');excludeTransaction.setChips(s.excludeTcodes)}else excludeTransaction.clear();setExcludeMode(s.excludeMode==='all'?'all':'any');if(SORT_OPTIONS.some(o=>o.key===s.sortBy))setSortBy(s.sortBy as SortKey)}} clear={clearAll}/>
-          </FilterSection>
       <div className="catalogue-search-controls min-w-0">
         {exactTransactions.isError && transaction.codes.length > 0 && <p role="alert">Transaction filtering failed. {exactTransactions.error.message}</p>}
         <div className="catalogue-role-search min-w-0">
@@ -284,7 +282,7 @@ export function RoleList({
             <TransactionFilterGroups subject="roles" groups={transactionGroups} includeLabel="Filter catalogue by transaction" excludeLabel="Exclude roles by transaction" />
           </FilterSection>
         {!isLoading && !isError && (
-          <FilterSection title="Role categories">
+          <FilterSection title="Role categories" active={activeModules.length}>
             <div className="catalogue-area-filter min-w-0" role="group" aria-label="SAP areas">
               <Select aria-label="Role categories" value={activeModules[0] ?? ''} onChange={()=>{}}
                 multiSelection={{values:activeModules.length ? activeModules : [''],

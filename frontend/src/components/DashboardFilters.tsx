@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Check } from 'lucide-react'
 import { dashboardFilterOptionsKey, fetchDashboardFilterOptions, type DashboardFilterOptions } from '@/api/dashboard'
-import { SubjectFilters, subjectFilterParams, useOrganizationLabel, type SubjectFiltersValue } from '@/components/Shared/OrganizationFilter'
+import { OrganizationFilter, subjectFilterParams, useOrganizationLabel, type SubjectFiltersValue } from '@/components/Shared/OrganizationFilter'
+import { ExactUsernameFilter } from '@/components/Shared/ExactUsernameFilter'
 import { MultiSelectFilter } from '@/components/Shared/MultiSelectFilter'
 import { FormField } from '@/components/Shared/Controls'
 import { Button } from '@/components/Shared/Button'
@@ -88,7 +89,11 @@ export function DashboardFilterControls({ value, onApply }: { value: DashboardFi
   const changed = JSON.stringify(draft) !== JSON.stringify(value)
   const section = (area: string, title: string, note?: string, defaultOpen = true) => <FilterSection title={title} defaultOpen={defaultOpen}>
     {note && <p className="ui-description">{note}</p>}
-    {area === 'organization' && <SubjectFilters compact value={draft} onChange={subject => setDraft({ ...draft, ...subject })} />}
+    {area === 'sap' && <ExactUsernameFilter values={draft.usernames} onChange={usernames => setDraft({ ...draft, usernames })} max={500} />}
+    {area === 'organization' && <>
+      <FormField label="Functional Group"><OrganizationFilter kind="functional_group" values={draft.functional_groups} onChange={functional_groups => setDraft({ ...draft, functional_groups })} /></FormField>
+      <FormField label="Manager"><OrganizationFilter kind="manager" values={draft.managers} onChange={managers => setDraft({ ...draft, managers })} /></FormField>
+    </>}
     {DIMENSIONS.filter(d => d.area === area && (area !== 'organization' || directory || draft[d.key].length)).map(d => <Dimension key={d.key} dimension={d} value={draft} onChange={setDraft} options={options.data} loading={loading} />)}
   </FilterSection>
   const apply = <div className="dashboard-filter-apply"><Button variant="primary" disabled={!changed} onClick={() => onApply(draft)}><Check size={14} aria-hidden="true" />Apply filters</Button></div>

@@ -154,7 +154,7 @@ function AccessReviewsOverview() {
       : groupBy === 'manager' ? { manager: '', managers: [row.key] } : null   // department and site have no Work Queue filter
   return (
     <section className="grid min-w-0 gap-4" aria-label="SoD access reviews">
-      <SodFilters view="sod_queue" filters={filters} setFilters={setFilters} storageKey="authlens-reviews-overview-filter-sidebar" defaultOpen={false}
+      <SodFilters view="sod_queue" workspace="reviews-overview" filters={filters} setFilters={setFilters} storageKey="authlens-reviews-overview-filter-sidebar" defaultOpen={false}
         fields={['group', 'username', 'risk', 'activity', 'role', 'role_suffix', 'tcode', 'category', 'validity']}
         actions={<Button variant="primary" onClick={() => openQueue('')}>Open Work Queue</Button>}>
         <CoverageNotice info={data} />

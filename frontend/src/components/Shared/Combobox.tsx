@@ -46,7 +46,7 @@ export function Combobox({ value, options, onChange, label, placeholder = 'All',
     window.addEventListener('popstate', dismiss)
     return () => window.removeEventListener('popstate', dismiss)
   }, [])
-  return <div className="combobox-anchor" ref={anchor}>
+  return <div className="combobox-anchor" ref={anchor} data-filter-active={value ? 'true' : undefined}>
     <Search size={15} aria-hidden="true" className="combobox-search"/>
     <input id={id} ref={input} role="combobox" aria-label={label} aria-expanded={open} aria-controls={open ? listId : undefined}
       aria-autocomplete="list" aria-activedescendant={open && choices[index] !== undefined ? `${uid}-option-${index}` : undefined}

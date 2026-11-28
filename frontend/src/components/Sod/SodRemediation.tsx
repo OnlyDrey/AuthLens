@@ -141,7 +141,7 @@ export function RemediationView() {
   return (
     <section className="grid min-w-0 gap-4" aria-label="SoD remediation">
       <CoverageNotice info={data} />
-      <SodFilters view="sod_queue" filters={filters} setFilters={(value) => { setOffset(0); setFiltersState(value) }}
+      <SodFilters view="sod_queue" workspace="sod-remediation" filters={filters} setFilters={(value) => { setOffset(0); setFiltersState(value) }}
         fields={['group', 'username', 'risk', 'activity', 'role', 'role_suffix', 'tcode', 'category', 'validity']}
         actions={<ExportMenu busy={busy} disabled={!data?.total || verifiedOnly} title={verifiedOnly ? 'Verified removals are tracked actions; export the remediation report instead.' : undefined}
           options={[{ id: 'role-assignments', label: 'Role Assignments', description: 'One row per unique SAP user and assigned role.', icon: ROLE_ASSIGNMENTS_ICON }, { id: 'detailed', label: 'Detailed Remediation', description: 'Full remediation details, including existing risk, activity and tracking information.' }]}

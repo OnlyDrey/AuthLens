@@ -116,7 +116,7 @@ test.describe('User Directory keyboard order', () => {
   // FLT-01/02/03: the panel's filter discovery and Expand/Collapse all, then each group header followed by its fields; the collapsed Assignments
   // group keeps its fields out of the Tab order. DOM, visual (top to bottom within the scrolling sidebar) and Tab order measured to agree.
   const wide = ['Hide filters', 'Sort users', 'Ascending order, switch to descending', 'Clear filters', 'Close filters', 'Find a filter', 'Expand all filter groups', 'Collapse all filter groups',
-    'Saved Filters', 'Saved filters', 'Search 1 active', 'Search users', 'Population', 'Exact usernames', 'SAP user group', 'Organization', 'Functional Group', 'Manager',
+    'Saved filters', 'Search 1 active', 'Search users', 'Population', 'Exact usernames', 'SAP user group', 'Organization', 'Functional Group', 'Manager',
     'Access', 'Filter users by role', 'Roles the user must lack', 'Filter users by transaction', 'Exclude users by transaction', 'Assignments']
   // Below 1024 px the search is in the filter drawer; after a search the page reads toolbar, then the active-filter chip (verified, TS-1).
   const narrow = ['Filters', 'Sort users', 'Ascending order, switch to descending', 'Remove user search filter']

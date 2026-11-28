@@ -55,4 +55,11 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   [FIELD.department]: ['dept', 'organization unit'],
   [FIELD.reviewStatus]: ['review', 'decision', 'state'],
   [FIELD.functionalGroup]: ['fg', 'business group'],
+  [FIELD.manager]: ['supervisor', 'line manager', 'reporting manager'],
+  [FIELD.releaseArea]: ['area', 'release code area'],
+  [FIELD.releaseGroup]: ['rel group', 'release grp'],
+  [FIELD.releaseStrategy]: ['strategy', 'release code', 'rel strategy'],
+  'PR/PO': ['purchase requisition', 'purchase order', 'document type', 'release type'],
+  'Transaction code': ['tcode', 't-code', 'transaction'],
+  'Exact usernames': ['username list', 'user list', 'paste usernames', 'bulk users'],
 }

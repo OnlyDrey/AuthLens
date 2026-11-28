@@ -1,6 +1,7 @@
-import {Dialog} from './Dialog'
+import { Dialog } from './Dialog'
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArrowDownAZ, ArrowUpAZ, ChevronsDownUp, ChevronsUpDown, Eraser, PanelLeftClose, PanelLeftOpen, SlidersHorizontal, X } from 'lucide-react'
+import { useAuthentication } from '@/components/Auth/Authentication'
 import { SearchInput } from './Controls'
 import { DisclosureChevron } from './DisclosureChevron'
 import { useLocalPreference } from '@/lib/localPreference'
@@ -24,7 +25,7 @@ function useWide() {
 }
 
 /** Collapsible left filter sidebar on wide screens, an overlay drawer on narrow ones. Filter state belongs to the caller, so hiding never resets it. */
-export function FilterLayout({ activeCount, toolbar, sidebar, children, label = 'Filters', onClear, clearDisabled = false, clearLabel = 'Clear filters', storageKey = defaultStorageKey, defaultOpen = true, workspace }: { /** Key of this workspace's section expansion preference (FLT-02); presentation only, never shared with another page. */ workspace?: string; activeCount: number; toolbar?: ReactNode; sidebar: ReactNode; children: ReactNode; label?: string; onClear?: () => void; clearDisabled?: boolean; /** Accessible name of the Clear action where it clears something narrower than every filter of the view. */ clearLabel?: string; /** Remembered open state of the wide sidebar; a view with its own key (Dashboard) does not share the investigation views' preference. */ storageKey?: string; /** Wide-screen state before the user chose one. */ defaultOpen?: boolean }) {
+export function FilterLayout({ activeCount, toolbar, utility, sidebar, children, label = 'Filters', onClear, clearDisabled = false, clearLabel = 'Clear filters', storageKey = defaultStorageKey, defaultOpen = true, workspace }: { /** Key of this workspace's section expansion preference (FLT-02/FLT-04); scoped per user and workspace. */ workspace?: string; activeCount: number; toolbar?: ReactNode; /** Shared utility controls (for example Saved Filters) shown above the filter groups without counting as a collapsible filter group. */ utility?: ReactNode; sidebar: ReactNode; children: ReactNode; label?: string; onClear?: () => void; clearDisabled?: boolean; /** Accessible name of the Clear action where it clears something narrower than every filter of the view. */ clearLabel?: string; /** Remembered open state of the wide sidebar; a view with its own key (Dashboard) does not share the investigation views' preference. */ storageKey?: string; /** Wide-screen state before the user chose one. */ defaultOpen?: boolean }) {
   const wide = useWide(),
     id = useId(),
     [open, setOpen] = useState(() => { try { const stored = localStorage.getItem(storageKey); return stored ? stored !== 'closed' : defaultOpen } catch { return defaultOpen } }),
@@ -32,7 +33,7 @@ export function FilterLayout({ activeCount, toolbar, sidebar, children, label = 
     trigger = useRef<HTMLButtonElement>(null),
     filters = useFilterPanel(workspace)
   useEffect(()=>{if(wide)setDrawer(false)},[wide])
-  const panelBody = <FilterPanelContext.Provider value={filters.panel}><FilterPanelTools query={filters.query} setQuery={filters.setQuery} setAll={filters.setAll} anyVisible={filters.anyVisible} />{sidebar}</FilterPanelContext.Provider>
+  const panelBody = <FilterPanelContext.Provider value={filters.panel}><FilterPanelTools query={filters.query} setQuery={filters.setQuery} setAll={filters.setAll} anyVisible={filters.anyVisible} />{utility && <div className="filter-utility" data-filter-utility>{utility}</div>}{sidebar}</FilterPanelContext.Provider>
   const persist = (value: boolean) => { setOpen(value); try { localStorage.setItem(storageKey, value ? 'open' : 'closed') } catch { /* optional convenience */ } }
   const shown = wide ? open : drawer
   const toggle = () => (wide ? persist(!open) : setDrawer(!drawer))
@@ -106,7 +107,9 @@ function activeIn(element: Element) {
 }
 
 function useFilterPanel(workspace: string | undefined) {
-  const [stored, setStored] = useLocalPreference(`authlens.filter-sections.${workspace || 'unnamed'}`, '{}')
+  const { user } = useAuthentication()
+  const userScope = user?.id ? `user:${user.id}` : 'local'
+  const [stored, setStored] = useLocalPreference(`authlens.filter-sections.${userScope}.${workspace || 'unnamed'}`, '{}')
   const preferences = useMemo(() => { try { const value = JSON.parse(stored); return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, boolean> : {} } catch { return {} } }, [stored])
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(new Set()), [query, setQuery] = useState('')
   const sections = useRef(new Map<string, string>()), [visible, setVisible] = useState<Record<string, boolean>>({})

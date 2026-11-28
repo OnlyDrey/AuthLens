@@ -118,13 +118,18 @@ test('the Position Changes page is a Reviews navigation item and opens directly 
   await expect(page.getByRole('region', { name: 'Position change review queue' }).or(page.getByText('No position change is waiting for review.'))).toBeVisible()
 })
 
-// TBL-01 (RC7 manual acceptance): the position columns kept a zero minimum width (grid minmax(0,1fr) under the table's one-line values), so long
-// departments and job titles overflowed into Priority and Review status. Geometry: every value stays inside its own cell, the position columns
-// keep their readable minimum, the changed value stays emphasised, and only the table region (never the page) scrolls horizontally.
-const longDepartment = 'International Procurement and Operational Risk Coordination for Northern Regions'
-const longTitle = 'Senior Regional Procurement Operations and Compliance Coordinator'
+// TBL-01 / TBL-06: shared table cell spacing and long-text containment on Position Changes.
+// Realistic long department names, long job titles and an unbroken token stay strictly inside each cell's padding box with visible
+// separation between adjacent columns, aligned headers and body cells, natural row-height wrapping without redundant tooltips,
+// frozen SAP username, sticky top scrollbar on overflow and zero page-level horizontal overflow.
+const prevDepartment = 'Group Finance Shared Services Accounts Payable and Receivable Operations'
+const prevTitle = 'Senior Accounts Payable Specialist and Vendor Master Data Steward'
+const longDepartment = 'International Procurement and Operational Risk Coordination for Northern Regions (EMEA-NORDIC-OPS-2026)'
+const longTitle = 'Senior Regional Procurement Operations and Compliance Coordinator — SupplyChainGovernanceLead'
 for (const width of [375, 800, 1024, 1280, 1600]) for (const theme of ['light', 'dark'] as const)
-  test(`TBL-01 position values stay inside their columns with long text at ${width} ${theme}`, { tag: '@visual' }, async ({ page, request }) => {
+  test(`TBL-06 position cell spacing, containment, alignment and scroll behavior at ${width} ${theme}`, { tag: '@visual' }, async ({ page, request }) => {
+    writeFileSync(csv, employees(prevDepartment, prevTitle))
+    await importDirectory(request)
     writeFileSync(csv, employees(longDepartment, longTitle))
     await importDirectory(request)
     expect((await request.post('/api/configuration/theme', { headers, data: { theme } })).ok()).toBeTruthy()
@@ -134,24 +139,69 @@ for (const width of [375, 800, 1024, 1280, 1600]) for (const theme of ['light', 
     const queue = page.getByRole('region', { name: 'Position change review queue' })
     const row = queue.getByRole('row').filter({ hasText: 'DEMO_MOVER' })
     await expect(row).toContainText(longDepartment)
-    const geometry = await row.evaluate(element => {
-      const cells = [...element.querySelectorAll<HTMLElement>('td')]
-      const outside = cells.flatMap((cell, index) => {
-        const box = cell.getBoundingClientRect()
-        return [...cell.querySelectorAll<HTMLElement>('.position-line, .position-label, .position-value, .evidence-badge')]
-          .filter(item => { const r = item.getBoundingClientRect(); return r.left < box.left - 1 || r.right > box.right + 1 || item.scrollWidth > item.clientWidth + 1 }).map(item => `${index}:${item.className}`)
+    await expect(row).toContainText(prevDepartment)
+    const geometry = await queue.evaluate(region => {
+      const table = region.querySelector('table')!
+      const ths = [...table.querySelectorAll<HTMLElement>('thead th:not([hidden])')]
+      const rowEl = [...table.querySelectorAll<HTMLTableRowElement>('tbody tr')].find(tr => tr.textContent?.includes('DEMO_MOVER'))!
+      const tds = [...rowEl.querySelectorAll<HTMLElement>('td:not([hidden])')]
+      const textBounds = (cell: HTMLElement) => {
+        const range = document.createRange(); range.selectNodeContents(cell)
+        const rects = [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0)
+        return rects.length ? { left: Math.min(...rects.map(r => r.left)), right: Math.max(...rects.map(r => r.right)) } : null
+      }
+      const headerMismatch = ths.map((th, i) => {
+        const hb = th.getBoundingClientRect(), cb = tds[i].getBoundingClientRect()
+        return Math.abs(hb.left - cb.left) > 1.5 || Math.abs(hb.width - cb.width) > 1.5 ? `${i}:${Math.round(hb.left)}/${Math.round(cb.left)}` : null
+      }).filter(Boolean)
+      const paddingViolations = [...ths, ...tds].filter(cell => {
+        const s = getComputedStyle(cell)
+        return parseFloat(s.paddingLeft) < 15.5 || parseFloat(s.paddingRight) < 15.5
+      }).length
+      const contentOverflow = tds.flatMap((cell, i) => {
+        const box = cell.getBoundingClientRect(), s = getComputedStyle(cell)
+        const minLeft = box.left + parseFloat(s.paddingLeft) - 1.5
+        const maxRight = box.right - parseFloat(s.paddingRight) + 1.5
+        const items = [...cell.querySelectorAll<HTMLElement>('.position-cell, .position-line, .position-label, .position-value, .evidence-badge')]
+        const bad = items.filter(el => { const r = el.getBoundingClientRect(); return r.left < minLeft || r.right > maxRight || el.scrollWidth > el.clientWidth + 1.5 }).map(el => `${i}:${el.className}`)
+        const tb = textBounds(cell)
+        if (tb && (tb.left < minLeft || tb.right > maxRight)) bad.push(`${i}:text-bounds`)
+        return bad
       })
-      const position = cells.filter(cell => cell.querySelector('.position-cell')).map(cell => Math.round(cell.getBoundingClientRect().width))
-      const changed = [...element.querySelectorAll<HTMLElement>('.position-line[data-changed] .position-value')].map(value => getComputedStyle(value).fontWeight)
-      const labels = [...element.querySelectorAll('.position-label')].map(label => label.textContent)
-      const region = element.closest<HTMLElement>('[role="region"]')!
-      return { outside, position, changed, labels, regionScrolls: region.scrollWidth > region.clientWidth, pageOverflow: document.documentElement.scrollWidth > innerWidth + 1 }
+      const adjacentGaps = tds.slice(0, -1).map((cell, i) => {
+        const a = textBounds(cell), b = textBounds(tds[i + 1])
+        return a && b ? Math.round(b.left - a.right) : 999
+      })
+      const positionWidths = tds.filter(cell => cell.querySelector('.position-cell')).map(cell => Math.round(cell.getBoundingClientRect().width))
+      const wrappedValues = [...rowEl.querySelectorAll<HTMLElement>('.position-value')].map(el => {
+        const range = document.createRange(); range.selectNodeContents(el)
+        const lines = [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0).length
+        return { lines, height: Math.round(el.getBoundingClientRect().height), hasTitle: el.hasAttribute('title') }
+      })
+      const changed = [...rowEl.querySelectorAll<HTMLElement>('.position-line[data-changed] .position-value')].map(value => getComputedStyle(value).fontWeight)
+      const labels = [...rowEl.querySelectorAll('.position-label')].map(label => label.textContent)
+      const stickyHead = table.querySelector<HTMLElement>('thead [data-sticky-column="start"]')?.textContent?.trim() ?? ''
+      const topBar = region.closest('.table-frame')?.querySelector<HTMLElement>('[data-testid="table-top-scroll"]')
+      return {
+        headerMismatch, paddingViolations, contentOverflow, adjacentGaps, positionWidths, wrappedValues, changed, labels, stickyHead,
+        rowHeight: Math.round(rowEl.getBoundingClientRect().height),
+        regionScrolls: region.scrollWidth > region.clientWidth + 1,
+        topBarVisible: !!topBar && !topBar.hidden,
+        pageOverflow: document.documentElement.scrollWidth > innerWidth + 1,
+      }
     })
-    expect(geometry.outside).toEqual([]) // no value overflows into a neighbouring column
-    for (const columnWidth of geometry.position) expect(columnWidth).toBeGreaterThanOrEqual(239) // 15rem readable minimum
+    expect(geometry.headerMismatch).toEqual([])
+    expect(geometry.paddingViolations).toBe(0)
+    expect(geometry.contentOverflow).toEqual([])
+    for (const gap of geometry.adjacentGaps) expect(gap).toBeGreaterThanOrEqual(28) // >= 2 * --space-4 (32px nominal) separation
+    for (const columnWidth of geometry.positionWidths) expect(columnWidth).toBeGreaterThanOrEqual(286) // 18rem readable minimum
+    expect(geometry.wrappedValues.every(v => v.lines >= 2 && !v.hasTitle)).toBe(true) // wraps naturally, no redundant tooltip
+    expect(geometry.rowHeight).toBeGreaterThan(80) // row grows to fit wrapped department and job title
     expect(geometry.labels).toEqual(['Department', 'Job title', 'Department', 'Job title'])
     expect(geometry.changed.length).toBeGreaterThan(0); for (const weight of geometry.changed) expect(Number(weight)).toBeGreaterThanOrEqual(700)
+    expect(geometry.stickyHead).toBe('SAP username') // TBL-05 frozen username preserved
     expect(geometry.pageOverflow).toBe(false)
-    if (width < 1280) expect(geometry.regionScrolls).toBe(true) // the table scrolls inside its region instead of squeezing the columns
+    if (geometry.regionScrolls) expect(geometry.topBarVisible).toBe(true) // TBL-02 sticky top scrollbar shown on overflow
+    if (width < 1600) expect(geometry.regionScrolls).toBe(true)
     await expect(row.getByRole('button', { name: 'Review position change for DEMO_MOVER', exact: true })).toBeVisible()
   })

@@ -53,7 +53,7 @@ function Queue() {
     <section className="grid min-w-0 gap-4" aria-label="SoD review work queue">
       {exporting && <SodQueueExportDialog context={context} filters={filters} onClose={() => setExporting(false)} />}
       <CoverageNotice info={data} />
-      <SodFilters view="sod_queue" filters={filters} setFilters={(value) => { reset(); setFiltersState(value) }}
+      <SodFilters view="sod_queue" workspace="sod-work-queue" filters={filters} setFilters={(value) => { reset(); setFiltersState(value) }}
         fields={['group', 'username', 'risk', 'activity', 'role', 'role_suffix', 'tcode', 'category', 'validity']}
         actions={<><Button onClick={()=>setReviewTab('bulk')} disabled={!data?.reviewable||!data.total}>Bulk review</Button><ExportCSVButton disabled={!data?.total} onClick={() => setExporting(true)} title="Choose the export: full review export, role removal, pending review or custom columns." /></>}>
       {result.isError ? <ErrorState error={result.error} onRetry={() => void result.refetch()} /> : !data ? <LoadingState /> : <>

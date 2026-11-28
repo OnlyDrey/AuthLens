@@ -141,7 +141,7 @@ test('restored legacy role searches keep their semantics when a group filter cha
  await expect(table.locator('tbody tr')).toHaveCount(3)
  await select(page,'SAP user group','FIN')
  await expect(table.locator('tbody tr')).toHaveCount(2)
- await page.getByText('Advanced role matching · Legacy search',{exact:true}).click();await expect(page.getByRole('combobox',{name:'Role matching mode',exact:true})).toHaveValue('search')
+ await expect(page.getByRole('combobox',{name:'Role matching mode',exact:true})).toHaveValue('search')
 })
 
 test('prior reviews stay hidden and unselected until explicitly reconsidered; hidden scope never executes',async({page,request})=>{

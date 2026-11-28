@@ -116,7 +116,7 @@ const FINDING_NAMES: Record<string, string> = { manager_change: 'Manager changes
 /** Department and job title together, labelled so the two are never confused. Changed values are emphasized; unchanged ones are muted. */
 function PositionCell({ department, title, changed }: { department?: string | null; title?: string | null; changed?: string[] }) {
   const line = (label: string, value: string | null | undefined, field: string) => (
-    <p className="position-line" data-changed={changed?.includes(field) || undefined}><span className="position-label">{label}</span><span className="position-value" title={value || undefined}>{value || '—'}</span></p>
+    <p className="position-line" data-changed={changed?.includes(field) || undefined}><span className="position-label">{label}</span><span className="position-value">{value || '—'}</span></p>
   )
   return <div className="position-cell">{line('Department', department, 'department')}{line('Job title', title, 'title')}</div>
 }
@@ -322,7 +322,7 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
             manager={editing.manager_change ? { previous: editing.manager_change.previous_manager, current: editing.manager_change.current_manager } : null}
             detectedAt={editing.position_change?.detected_at ?? editing.manager_change?.detected_at} />}
           {editing.position_change&&<section aria-label="Position change that triggered this review" className="review-dialog-section review-dialog-trigger"><h3>Organizational position changes</h3>
-            <ConfigurableTable aria-label="Position change comparison" className="review-change-table"><thead><tr><th scope="col"><span className="sr-only">Field</span></th><th scope="col">Previous (last known)</th><th scope="col">Current</th></tr></thead><tbody>
+            <ConfigurableTable aria-label="Position change comparison" className="review-change-table"><thead><tr><th scope="col"><span className="sr-only">Field</span></th><th scope="col" data-wrap="text">Previous (last known)</th><th scope="col" data-wrap="text">Current</th></tr></thead><tbody>
               <tr><th scope="row">Department</th><td>{editing.position_change.previous_department||'—'}</td><td data-changed={editing.position_change.fields.includes('department')||undefined}>{editing.position_change.current_department||'—'}</td></tr>
               <tr><th scope="row">Job title</th><td>{editing.position_change.previous_title||'—'}</td><td data-changed={editing.position_change.fields.includes('title')||undefined}>{editing.position_change.current_title||'—'}</td></tr>
               <tr><th scope="row">Employee Directory snapshot</th><td>{editing.position_change.previous_imported_at?`Imported ${formatTimestamp(editing.position_change.previous_imported_at)}`:'Import time not recorded'}</td><td>First detected {formatTimestamp(editing.position_change.detected_at)}</td></tr>
@@ -469,7 +469,7 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
             : <>
               <TableRegion className="access-table" role="region" aria-label="Position change review queue" tabIndex={0} toolbar={<PageSizeControl label="Position change pages" limit={pageSize} onPageSize={setPageSize} />}>
                 <ConfigurableTable aria-label="Position changes">
-                  <thead><tr><th>SAP username</th><th>Employee</th><th>Change type</th><th data-wrap="text">Previous position</th><th data-wrap="text">Current position</th><th>Priority</th><th>Review status</th><th><span className="sr-only">Review action</span></th></tr></thead>
+                  <thead><tr><th>SAP username</th><th>Employee</th><th>Change type</th><th data-wrap="text">Previous position</th><th data-wrap="text">Current position</th><th>Priority</th><th>Review status</th><th className="col-actions"><span className="sr-only">Review action</span></th></tr></thead>
                   <tbody>
                     {data.items.map((row) => {
                       const change = row.position_change as PositionChange
@@ -482,7 +482,7 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
                           <td><PositionCell department={change.current_department} title={change.current_title} changed={change.fields} /></td>
                           <td><span className={`evidence-badge ${row.priority === 'High' ? 'evidence-warning' : ''}`.trim()}>{row.priority}</span></td>
                           <td>{change.open ? 'Pending review' : 'Reviewed'}</td>
-                          <td><Button size="compact" className="settings-secondary-button" disabled={busy} onClick={() => startReview(row)} aria-label={`Review position change for ${row.username}`}><ClipboardCheck size={14} aria-hidden="true" />Review</Button></td>
+                          <td className="col-actions"><Button size="compact" className="settings-secondary-button" disabled={busy} onClick={() => startReview(row)} aria-label={`Review position change for ${row.username}`}><ClipboardCheck size={14} aria-hidden="true" />Review</Button></td>
                         </tr>
                       )
                     })}
@@ -512,6 +512,7 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
         </>
       )}
       <FilterLayout workspace="account-review" label="Filters" activeCount={(includeCompleted ? 1 : 0) + findings.length + licenses.length + states.length + groupFilter.length + managerFilter.length + (search ? 1 : 0)} onClear={clearAll} clearDisabled={!(includeCompleted || findings.length || licenses.length || states.length || groupFilter.length || managerFilter.length || search) && sort === 'username' && !descending}
+        utility={<SavedFilters showClear={false} view="review" state={{search,findings,licenses,states,groups:groupFilter,managers:managerFilter,usernames,includeCompleted,sort,descending}} apply={s=>{if(Array.isArray(s.usernames))setUsernames(s.usernames);setIncludeCompleted(s.includeCompleted===true);if(Array.isArray(s.groups))setGroupFilter(s.groups.filter((item:string)=>typeof item==='string'));if(Array.isArray(s.managers))setManagerFilter(s.managers.filter((item:string)=>typeof item==='string'));if(typeof s.search==='string')setSearch(s.search);if(Array.isArray(s.findings))setFindings(s.findings.filter(item=>findingOptions.includes(item)));if(Array.isArray(s.licenses))setLicenses(s.licenses.filter(item=>['classified','exclude'].includes(item)));if(Array.isArray(s.states))setStates(s.states.filter(item=>(data?.review_states||[]).includes(item)));if(['username','name','sap_validity','lock_status','ad_status','review_state'].includes(String(s.sort)))setSort(String(s.sort));if(typeof s.descending==='boolean')setDescending(s.descending)}} clear={()=>{setSearch('');setFindings([]);setLicenses([]);setStates([]);setSort('username');setDescending(false)}}/>}
         toolbar={<PageToolbar>
           <SortControl label="Sort account reviews" value={sort} options={SORTS} descending={descending} onChange={setSort} onDescending={setDescending} />
           <Button className="settings-secondary-button" disabled={busy || !data?.loaded} onClick={() => void exportCSV()}>
@@ -521,9 +522,6 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
           <OpenInReviewsButton scope={{ functional_groups: groupFilter, managers: managerFilter, usernames }} label="Open access reviews" />
         </PageToolbar>}
         sidebar={<div className="grid min-w-0 gap-3" role="search" aria-label="Review filters">
-          <FilterSection title="Saved Filters">
-            <SavedFilters showClear={false} view="review" state={{search,findings,licenses,states,groups:groupFilter,managers:managerFilter,usernames,includeCompleted,sort,descending}} apply={s=>{if(Array.isArray(s.usernames))setUsernames(s.usernames);setIncludeCompleted(s.includeCompleted===true);if(Array.isArray(s.groups))setGroupFilter(s.groups.filter((item:string)=>typeof item==='string'));if(Array.isArray(s.managers))setManagerFilter(s.managers.filter((item:string)=>typeof item==='string'));if(typeof s.search==='string')setSearch(s.search);if(Array.isArray(s.findings))setFindings(s.findings.filter(item=>findingOptions.includes(item)));if(Array.isArray(s.licenses))setLicenses(s.licenses.filter(item=>['classified','exclude'].includes(item)));if(Array.isArray(s.states))setStates(s.states.filter(item=>(data?.review_states||[]).includes(item)));if(['username','name','sap_validity','lock_status','ad_status','review_state'].includes(String(s.sort)))setSort(String(s.sort));if(typeof s.descending==='boolean')setDescending(s.descending)}} clear={()=>{setSearch('');setFindings([]);setLicenses([]);setStates([]);setSort('username');setDescending(false)}}/>
-          </FilterSection>
           <FilterSection title="Search">
             <SearchInput className={inputClass} aria-label="Search account reviews" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} onClear={() => setSearch('')} />
           </FilterSection>
@@ -550,7 +548,9 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
             <FormField label="Review decision">
               <MultiSelectFilter label="Review decision" values={states} options={data?.review_states || []} onChange={setStates} placeholder="All decisions" />
             </FormField>
-            <Checkbox checked={includeCompleted} onChange={event => setIncludeCompleted(event.target.checked)}>Include completed reviews</Checkbox>
+            <div data-filter-active={includeCompleted ? 'true' : undefined}>
+              <Checkbox checked={includeCompleted} onChange={event => setIncludeCompleted(event.target.checked)}>Include completed reviews</Checkbox>
+            </div>
           </FilterSection>
         </div>}>
       {(findings.length > 0 || licenses.length > 0 || states.length > 0 || groupFilter.length > 0 || managerFilter.length > 0 || usernames.length > 0 || search) && <div className="active-filter-row" aria-label="Active review filters">
@@ -604,7 +604,7 @@ export function AccountReview({ onUser, mode = 'review' }: { onUser: (name: stri
                     'Decision',
                   ] as (string | [string, string])[]).map((h) => {
                     const [label, key] = typeof h === 'string' ? [h, h] : h // TBL-04 label; the earlier header stays the column key
-                    return <th key={key} data-column-key={key === label ? undefined : key}>{label}</th>
+                    return <th key={key} data-column-key={key === label ? undefined : key} data-wrap={key === 'Review classification & evidence' ? 'text' : undefined}>{label}</th>
                   })}
                 </tr>
               </thead>

@@ -15,21 +15,31 @@ const toggle = (scope: Locator, title: string) => scope.getByRole('button', { na
 const headings = (scope: Locator) => scope.locator('.filter-section:not([hidden]) .filter-section-title').allTextContents()
 const discovery = (scope: Locator) => scope.getByRole('searchbox', { name: 'Find a filter', exact: true })
 
-test('FLT-01 workspaces order their groups Search, Population, Organization, Access, then page groups; Release Access leads with Release classification', async ({ page }) => {
+test('FLT-01 / FLT-04 workspaces order their groups Search, Population, Organization, Access, then page groups; Release Access leads with Release Classification', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/#session=browser-test-session'); await goTo(page, 'Users')
-  await expect.poll(() => headings(panel(page))).toEqual(['Saved Filters', 'Search', 'Population', 'Organization', 'Access', 'Assignments'])
+  await expect.poll(() => headings(panel(page))).toEqual(['Search', 'Population', 'Organization', 'Access', 'Assignments'])
+  await expect(panel(page).locator('[data-filter-utility]').getByRole('button', { name: /Saved filters/ })).toBeVisible()
   await goTo(page, 'Account Review')
-  await expect.poll(() => headings(panel(page))).toEqual(['Saved Filters', 'Search', 'Population', 'Organization', 'Review'])
+  await expect.poll(() => headings(panel(page))).toEqual(['Search', 'Population', 'Organization', 'Review'])
+  await goTo(page, 'Position Changes')
+  await expect.poll(() => headings(panel(page))).toEqual(['Search', 'Population', 'Organization', 'Change'])
+  await goTo(page, 'Compare Users')
+  await expect.poll(() => headings(panel(page))).toEqual(['Search', 'Comparison'])
   await goTo(page, 'Release Access')
-  await expect.poll(() => headings(panel(page))).toEqual(['Saved Filters', 'Release classification', 'Assignment', 'Population'])
+  await expect.poll(() => headings(panel(page))).toEqual(['Release Classification', 'Assignment', 'Search', 'Population', 'Organization'])
+  // Saved filters remains available as a shared utility control without pushing Release Classification below Population
+  await expect(panel(page).locator('[data-filter-utility]').getByRole('button', { name: /Saved filters/ })).toBeVisible()
   const classification = panel(page).locator('[data-filter-section="release-classification"] .filter-section-body')
   const labels = await classification.locator(':scope > *').evaluateAll(fields => fields.map(field => field.querySelector('label, legend')?.textContent?.trim() ?? ''))
   expect(labels.slice(0, 5)).toEqual(['PR/PO', 'Release SAP user group', 'Release area', 'Release group', 'Release strategy'])
-  await expect(toggle(panel(page), 'Release classification')).toHaveAttribute('aria-expanded', 'true') // the Release Access exception is expanded
+  await expect(toggle(panel(page), 'Release Classification')).toHaveAttribute('aria-expanded', 'true')
+  await expect(toggle(panel(page), 'Assignment')).toHaveAttribute('aria-expanded', 'true')
+  await expect(toggle(panel(page), 'Search')).toHaveAttribute('aria-expanded', 'true')
   await expect(toggle(panel(page), 'Population')).toHaveAttribute('aria-expanded', 'false')
+  await expect(toggle(panel(page), 'Organization')).toHaveAttribute('aria-expanded', 'false')
   await goTo(page, 'Role Lookup')
-  await expect.poll(() => headings(panel(page))).toEqual(['Saved Filters', 'Search', 'Access', 'Role categories'])
+  await expect.poll(() => headings(panel(page))).toEqual(['Search', 'Access', 'Role categories'])
 })
 
 test('FLT-02 sections collapse independently, remember their state per workspace and never clear a value', async ({ page }) => {
@@ -140,16 +150,57 @@ test('FLT-03 filter discovery finds fields by name, section and alias, without r
   await expect(page.getByLabel('Search users', { exact: true })).toHaveValue('')
 })
 
-for (const theme of ['light', 'dark'] as const) test(`FLT-02/03 the mobile filter drawer offers the same sections and discovery (${theme})`, async ({ page }) => {
-  await page.emulateMedia({ colorScheme: theme })
-  await page.setViewportSize({ width: 375, height: 800 })
+test('FLT-04 Release Access supports active counts on single-select comboboxes, discovery aliases, persistence and zero dataset requests', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/#session=browser-test-session'); await goTo(page, 'Release Access')
-  await page.getByRole('toolbar', { name: 'Page actions', exact: true }).getByRole('button', { name: /^Filters/ }).click()
-  const drawer = page.getByRole('dialog', { name: 'Filters', exact: true })
-  await expect(toggle(drawer, 'Release classification')).toHaveAttribute('aria-expanded', 'true')
-  await expect(toggle(drawer, 'Population')).toHaveAttribute('aria-expanded', 'false')
-  await discovery(drawer).fill('strategy')
-  await expect(drawer.getByRole('combobox', { name: 'Release strategy', exact: true })).toBeVisible()
-  await expect(drawer.getByRole('combobox', { name: 'Release area', exact: true })).toBeHidden()
+  const sidebar = panel(page)
+  // Select PR in PR/PO combobox: Release Classification counts 1 active and survives collapsing
+  await sidebar.getByRole('combobox', { name: 'PR/PO', exact: true }).click()
+  await page.getByRole('option', { name: 'PR', exact: true }).click()
+  await expect(toggle(sidebar, 'Release Classification')).toHaveAccessibleName('Release Classification 1 active')
+  await toggle(sidebar, 'Release Classification').click()
+  await expect(toggle(sidebar, 'Release Classification')).toHaveAttribute('aria-expanded', 'false')
+  await expect(toggle(sidebar, 'Release Classification')).toHaveAccessibleName('Release Classification 1 active')
+  // Filter discovery finds fields by alias without triggering any /api/access/ request
+  const requests: string[] = []
+  page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/access/')) requests.push(request.url()) })
+  await discovery(sidebar).fill('purchase order')
+  await expect(sidebar.getByRole('combobox', { name: 'PR/PO', exact: true })).toBeVisible()
+  await discovery(sidebar).fill('functional group')
+  await expect(sidebar.getByRole('combobox', { name: 'Functional Group', exact: true })).toBeVisible()
+  await expect(sidebar.getByRole('combobox', { name: 'Manager', exact: true })).toBeHidden()
+  await sidebar.getByRole('button', { name: 'Clear filter search', exact: true }).click()
+  // Restored saved expansion state: Release Classification stays collapsed as user chose, Organization stays collapsed
+  await expect(toggle(sidebar, 'Release Classification')).toHaveAttribute('aria-expanded', 'false')
+  await expect(toggle(sidebar, 'Organization')).toHaveAttribute('aria-expanded', 'false')
+  expect(requests).toEqual([])
+  // Persisted under user-and-workspace-scoped key
+  const keys = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('authlens.filter-sections.')))
+  expect(keys.some(k => k.endsWith('.release-access'))).toBe(true)
+})
+
+for (const width of [375, 800, 1024, 1280, 1600]) for (const theme of ['light', 'dark'] as const) test(`FLT-04 Release Access filter panel and drawer geometry at ${width} (${theme})`, { tag: '@visual' }, async ({ page, request }) => {
+  expect((await request.post('/api/configuration/theme', { headers, data: { theme } })).ok()).toBeTruthy()
+  await page.setViewportSize({ width, height: 800 })
+  await page.goto('/#session=browser-test-session'); await goTo(page, 'Release Access')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+  const narrow = width < 1024
+  if (narrow) await page.getByRole('toolbar', { name: 'Page actions', exact: true }).getByRole('button', { name: /^Filters/ }).click()
+  const scope = narrow ? page.getByRole('dialog', { name: 'Filters', exact: true }) : panel(page)
+  await expect(toggle(scope, 'Release Classification')).toHaveAttribute('aria-expanded', 'true')
+  await expect(toggle(scope, 'Population')).toHaveAttribute('aria-expanded', 'false')
+  await expect(toggle(scope, 'Organization')).toHaveAttribute('aria-expanded', 'false')
+  await expect(discovery(scope)).toBeVisible()
+  await expect(scope.getByRole('button', { name: 'Expand all filter groups', exact: true })).toBeVisible()
+  await expect(scope.getByRole('button', { name: 'Collapse all filter groups', exact: true })).toBeVisible()
+  await discovery(scope).fill('strategy')
+  await expect(scope.getByRole('combobox', { name: 'Release strategy', exact: true })).toBeVisible()
+  await expect(scope.getByRole('combobox', { name: 'Release area', exact: true })).toBeHidden()
+  await scope.getByRole('button', { name: 'Clear filter search', exact: true }).click()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
+  if (!narrow) {
+    await page.getByRole('button', { name: /^Hide filters/ }).click()
+    await expect(panel(page)).toBeHidden()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
+  }
 })
