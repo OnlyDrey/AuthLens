@@ -175,6 +175,15 @@ never deleted; every certificate change is a recorded transaction with rollback 
 
 Native acceptance for the next candidate: runbook scenarios C11 to C13, B11 and B12 ([runbook](WINDOWS_VM_ACCEPTANCE.md#c-security-and-administration-from-s1-snapshot-s2-admin-after-c4)).
 
+## Fifteenth round: RC8 manual acceptance corrections (TBL-06, FLT-04, 2026-11-28)
+
+Status: implemented in source on `experiment/dotnet-backend`; Level 1–2 validation passed (150/150 across 14 affected browser specs); FULL regression, release build and Windows acceptance not run (not authorized). Version 2.0.0 unchanged; existing `C:\AuthLens` release artifacts and evidence untouched. Details and Phase 1 build/asset verification: [acceptance tracker](ACCEPTANCE_TRACKER.md#rc8-manual-acceptance-corrections-2026-11-28).
+
+| Package | Status | Implemented | Tests |
+| --- | --- | --- | --- |
+| TBL-06 | Implemented and verified | Shared table cell spacing tokens (`--table-cell-pad-x: var(--space-4)`, 32 px nominal inter-column separation), `box-sizing: border-box` header/body alignment, `18rem`–`26rem` bounded `[data-wrap="text"]` containment for Position Changes, Account Review findings, Review dialog comparison and SoD Conflicts Risk; redundant position tooltips removed; compact matrix contracts preserved | `position-changes.spec.ts` (13/13, 375–1600 px, light/dark), `table-standards.spec.ts` (13/13), `table-top-scrollbar.spec.ts` (13/13), `table-page-size.spec.ts` (2/2), `release-matrix-width.spec.ts` (20/20) |
+| FLT-04 | Implemented and verified | `SavedFilters` moved to the shared `FilterLayout` `utility` slot (no longer a collapsible section pushing primary groups down); Release Access ordered **Release Classification** → **Assignment** → **Search** → **Population** (collapsed) → **Organization** (collapsed); per-user and per-workspace expansion persistence (`authlens.filter-sections.<user-scope>.<workspace>`); distinct workspace keys for Reviews Overview, Work Queue, Bulk Review and Remediation; Bulk Review `Advanced role matching` migrated to `FilterSection`; single-select `Combobox`, `Include completed reviews` and `Role categories` active-filter counting and discovery alias expansion; Dashboard `Exact usernames` moved into `Population` | `filter-panels.spec.ts` (15/15, 375–1600 px, light/dark), `release-roles.spec.ts` (13/13), `sod-layout.spec.ts` (16/16), `filter-consistency.spec.ts` (2/2), `sod-complete-bulk.spec.ts` (9/9), `navigation-a11y.spec.ts` (13/13), `dashboard-filters.spec.ts` (6/6), `account-review-completed.spec.ts` (3/3), `consolidated-refinement.spec.ts` (12/12) |
+
 ## Fourteenth round: shared table and filter standards from RC7 manual acceptance (TBL-01 to TBL-05, FLT-01 to FLT-03, 2026-11-27)
 
 Status: implemented in source; targeted validation below; FULL regression, release build and Windows acceptance not run (not authorized).

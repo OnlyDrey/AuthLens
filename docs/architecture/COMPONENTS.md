@@ -402,12 +402,7 @@ scrollbar; Firefox keeps the bottom scrollbar of a region that also scrolls vert
 `DataTable`, every `access-table` region, the Release Access matrix and the SoD `MatrixGrid` use it. `.access-table` is `position:relative`,
 so absolutely positioned content (sr-only labels) scrolls with a table wider than its region instead of widening the page (TBL-01).
 
-**Column contracts (`ConfigurableTable`).** A header may declare `data-wrap="text"` for long text (positions): a 15rem minimum, at most 24rem,
-wrapping inside it with or without one-line values, so content never overflows into the next column (TBL-01). `data-column-key` keeps a
-renamed header's earlier text as the stable key of the column preference and the client CSV (TBL-04). The first visible column is frozen
-(`data-sticky-column`, TBL-05) when its label is the canonical *SAP username*: opaque theme backgrounds, a hairline and soft shadow, above
-scrolled cells and below the sticky header row; hiding or moving the column moves the rule with it; matrices keep their own pinned headers and
-the User Directory keeps its frozen selection and username columns.
+**Column contracts (`ConfigurableTable`, TBL-01 / TBL-04 / TBL-05 / TBL-06).** Standard data tables (`.access-table`, `.comparison-table`, `.ui-data-table`) share the horizontal/vertical cell padding contract (`--table-cell-pad-y: var(--space-3)`, `--table-cell-pad-x: var(--space-4)`, compact `--table-cell-compact-pad-y: var(--space-2)`, `--table-cell-compact-pad-x: var(--space-4)`) with `box-sizing: border-box` and identical header/body alignment so adjacent cell contents keep visible separation (32 px nominal) while compact Release Access and SoD matrices keep their own sizing contracts. A header may declare `data-wrap="text"` for long text (Position Changes `Previous position` / `Current position`, Account Review `Review classification & evidence`, review dialog comparison, SoD Conflicts `Risk`): an 18 rem minimum and 26 rem maximum with `overflow-wrap: anywhere` on body cells and `max-width: 100%; min-width: 0` on direct children so nested grid/flex layouts (such as `.position-cell`) respect the cell content box, wrap naturally without redundant tooltips and never bleed into adjacent columns; the table scrolls horizontally instead (TBL-01, TBL-06). `data-column-key` keeps a renamed header's earlier text as the stable key of the column preference and the client CSV (TBL-04). The first visible column is frozen (`data-sticky-column`, TBL-05) when its label is the canonical *SAP username*: opaque theme backgrounds, a hairline and soft shadow, above scrolled cells and below the sticky header row; hiding or moving the column moves the rule with it; matrices keep their own pinned headers and the User Directory keeps its frozen selection and username columns.
 
 **Results per page (`lib/pageSize`, `PageSizeControl`, TBL-03).** 10, 25, 50, 100 or 250 rows, default 25, remembered per browser and table;
 the selector sits in the table toolbar, the `Pagination` below the table keeps the range and Previous/Next (`alwaysShow` on paged tables); a new
@@ -418,25 +413,17 @@ page*), Reports previews (first ten rows), the Employee Directory import preview
 and evidence lists inside panels and dialogs (user profile evidence, comparison evidence, group members, suggestion matches, SoD conflict
 evidence).
 
-**Filter panels (`Shared/FilterLayout`, FLT-01 to FLT-03).** `FilterLayout` takes a `workspace` key; its sidebar (and the mobile drawer) starts
-with a sticky *Find a filter...* field and *Expand all* / *Collapse all* (accessible names *Expand all filter groups* / *Collapse all filter groups*). `FilterSection` is a collapsible group: an `h3` with a button
-(`aria-expanded`, `aria-controls`), a chevron and the active-filter count (chips, filled text fields and `data-filter-active` controls, or
-the `active` prop). Expansion is remembered per workspace (`authlens.filter-sections.<workspace>`), `defaultOpen` sets the first state, a
-section holding active filters on first render or receiving them while collapsed (a loaded saved filter, a contextual link) opens, and
-collapsing never clears a value. Filter discovery matches field labels, section names and terminology aliases ([terminology](TERMINOLOGY.md)),
-shows matching fields, keeps fields with active filters visible, never changes a value and issues no request; clearing it restores the saved
-expansion. Outside a `FilterLayout`, `FilterSection` is the plain fieldset it was.
+**Filter panels (`Shared/FilterLayout`, FLT-01 to FLT-04).** `FilterLayout` takes a `workspace` key and optional `utility` slot (`SavedFilters`, rendered above the first filter group without counting as a collapsible section). Its sidebar (and the mobile drawer) starts with a sticky *Find a filter...* field and *Expand all* / *Collapse all* (accessible names *Expand all filter groups* / *Collapse all filter groups*). `FilterSection` is a collapsible group: an `h3` with a button (`aria-expanded`, `aria-controls`), a chevron and the active-filter count (chips, filled text fields, single-select `Combobox` values via `data-filter-active`, non-default selects and `data-filter-active` controls, or the `active` prop). Expansion is remembered per user and workspace (`authlens.filter-sections.<user-scope>.<workspace>`), `defaultOpen` sets the initial state, a section holding active filters on first render or receiving them while collapsed (a loaded saved filter, a contextual link) opens, and collapsing never clears a value. Filter discovery matches field labels, section names and terminology aliases ([terminology](TERMINOLOGY.md)), shows matching fields, keeps fields with active filters visible, never changes a value and issues no request; clearing it restores the saved expansion. Outside a `FilterLayout`, `FilterSection` is the plain fieldset it was.
 
 | Workspace (`workspace`) | Groups in order | Collapsed by default |
 | --- | --- | --- |
-| User Directory (`user-directory`) | Saved Filters, Search, Population (exact usernames, SAP user group), Organization, Access (roles, missing roles, transactions), Assignments | Assignments |
-| Account Review (`account-review`) | Saved Filters, Search, Population, Organization, Review | — |
+| User Directory (`user-directory`) | Search, Population (exact usernames, SAP user group), Organization, Access (roles, missing roles, transactions), Assignments | Assignments |
+| Account Review (`account-review`) | Search, Population, Organization, Review | — |
 | Position Changes (`position-changes`) | Search, Population, Organization, Change | — |
-| Release Access (`release-access`) | Saved Filters, Release classification (PR/PO, Release SAP user group, Release area, Release group, Release strategy), Assignment, Population | Population |
-| SoD and Reviews pages (`workspace` = the page's filter view) | Saved Filters, Search, Population, Organization, Access, Risk and activity, Review status, Shared SoD filters (only the fields the page offers) | — |
-| Compare Users (`compare-users`) | Saved Filters, Search, Comparison | — |
-| Dashboard (`dashboard`) | Population, Organization, Access, Access matching, Governance | Access matching, Governance |
-| Role Lookup (`role-lookup`) | Saved Filters, Search, Access (transactions), Role categories | — |
+| Release Access (`release-access`) | Release Classification (PR/PO, Release SAP user group, Release area, Release group, Release strategy), Assignment, Search, Population, Organization | Population, Organization |
+| Reviews Overview (`reviews-overview`), Work Queue (`sod-work-queue`), Bulk Review (`sod-bulk-review`), Remediation (`sod-remediation`), SoD pages (`sod_overview`, `sod_risk_matrix`, `sod_activity_matrix`, `sod_explorer`, `sod_users`, `sod_roles`) | Search, Population, Organization, Access, Risk and activity, Review status, page-specific groups (Role combination, Evaluation, Advanced role matching), Shared SoD filters (only the fields the page offers) | Advanced role matching (Bulk Review) |
+| Compare Users (`compare-users`) | Search, Comparison | — |
+| Dashboard (`dashboard`) | Population (exact usernames, SAP user group, user type, validity, status), Organization, Access, Access matching, Governance | Access matching, Governance |
+| Role Lookup (`role-lookup`) | Search, Access (transactions), Role categories | — |
 
-Saved Filters is the panel's utility at the top, not a filter group. Release Access leads with its release classification (the documented
-exception). Shared SoD and Reviews filter values stay shared; the expansion preference is per page.
+Saved Filters sits in the shared `utility` slot above the first filter group (not as a collapsible section), and is omitted where the page has no saved filters (Position Changes). Release Access leads with **Release Classification** (the documented exception). Shared SoD and Reviews filter values stay shared across pages; the expansion preference is isolated per user and per page workspace. Justified exceptions outside `FilterLayout`: inline table/admin toolbars with a single search box (Settings > User Management, Data Health preview) and dialog-local controls.
